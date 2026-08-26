@@ -24,6 +24,12 @@ def _new_request_id() -> str:
     return str(uuid.uuid4())
 
 
+def _validate_contract_version(value: str) -> list[str]:
+    if value != CONTRACT_VERSION:
+        return [f"unsupported contract_version: {value!r}; expected {CONTRACT_VERSION!r}"]
+    return []
+
+
 def parse_utc(value: str) -> datetime:
     """Parse an ISO-8601 timestamp and require it to be absolute UTC."""
     normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
@@ -73,23 +79,20 @@ class AsyncOperationRef:
 
 @dataclass(slots=True)
 class RequestEnvelope:
-    """spec A.8. ``request_id`` is unique per transport attempt.
+    """spec A.8. ``request_id`` is unique per transport attempt."""
 
-    ``idempotency_key`` identifies one logical side effect and MUST stay
-    stable across retries of that side effect (spec §15.2 / AR-023).
-    """
-
+    contract_version: str = CONTRACT_VERSION
     request_id: str = field(default_factory=_new_request_id)
     task_id: str | None = None
     project_id: str | None = None
     actor_context: dict | None = None
     correlation_ids: list[str] | None = None
-    deadline_at: str | None = None  # absolute UTC ISO-8601
-    idempotency_key: str | None = None  # REQUIRED for side-effecting payloads
+    deadline_at: str | None = None
+    idempotency_key: str | None = None
     payload: dict = field(default_factory=dict)
 
     def validate(self) -> list[str]:
-        errors: list[str] = []
+        errors = _validate_contract_version(self.contract_version)
         if not self.request_id:
             errors.append("request_id is required")
         if self.deadline_at is not None and not is_valid_utc(self.deadline_at):
@@ -99,6 +102,7 @@ class RequestEnvelope:
     @classmethod
     def from_dict(cls, data: dict) -> "RequestEnvelope":
         return cls(
+            contract_version=data.get("contract_version", ""),
             request_id=data.get("request_id", ""),
             task_id=data.get("task_id"),
             project_id=data.get("project_id"),
@@ -110,7 +114,11 @@ class RequestEnvelope:
         )
 
     def to_dict(self) -> dict:
-        d: dict = {"request_id": self.request_id, "payload": self.payload}
+        d: dict = {
+            "contract_version": self.contract_version,
+            "request_id": self.request_id,
+            "payload": self.payload,
+        }
         for key in (
             "task_id",
             "project_id",
@@ -129,6 +137,7 @@ class RequestEnvelope:
 class ResponseEnvelope:
     """spec A.8. ``status=PENDING`` MUST carry an ``operation_ref``."""
 
+    contract_version: str = CONTRACT_VERSION
     request_id: str = ""
     status: str = "OK"
     correlation_ids: list[str] | None = None
@@ -138,7 +147,7 @@ class ResponseEnvelope:
     error: ErrorShape | None = None
 
     def validate(self) -> list[str]:
-        errors: list[str] = []
+        errors = _validate_contract_version(self.contract_version)
         if not self.request_id:
             errors.append("request_id is required")
         if self.status not in RESPONSE_STATUSES:
@@ -156,6 +165,7 @@ class ResponseEnvelope:
         op_ref = data.get("operation_ref")
         error = data.get("error")
         return cls(
+            contract_version=data.get("contract_version", ""),
             request_id=data.get("request_id", ""),
             status=data.get("status", "OK"),
             correlation_ids=data.get("correlation_ids"),
@@ -166,7 +176,11 @@ class ResponseEnvelope:
         )
 
     def to_dict(self) -> dict:
-        d: dict = {"request_id": self.request_id, "status": self.status}
+        d: dict = {
+            "contract_version": self.contract_version,
+            "request_id": self.request_id,
+            "status": self.status,
+        }
         for key, value in (
             ("correlation_ids", self.correlation_ids),
             ("snapshot_ref", self.snapshot_ref),

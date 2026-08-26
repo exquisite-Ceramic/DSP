@@ -1,4 +1,5 @@
 {
+  "contract_version": "1.0",
   "request_id": "req-004",
   "status": "ERROR",
   "correlation_ids": ["task-001", "cmd-004"],
@@ -8,11 +9,6 @@
     "message": "Native execution failed and the transaction was rolled back",
     "correlation_ids": ["task-001", "cmd-004"],
     "retryable": "IMMEDIATE",
-    "details": [
-      {
-        "operation": "move.v1",
-        "document_id": "drawing-001"
-      }
-    ]
+    "details": [{"operation": "move.v1", "document_id": "drawing-001"}]
   }
 }

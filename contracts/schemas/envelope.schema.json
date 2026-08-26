@@ -2,38 +2,19 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://schemas.enterprise-design-agent.local/contracts/envelope.schema.json",
   "title": "RequestEnvelope",
-  "description": "Unified request envelope (spec A.8 / §26.1). request_id is unique per transport attempt; idempotency_key is REQUIRED for side-effecting payloads.",
+  "description": "Unified request envelope (spec A.8 / §26.1). contract_version is part of the wire contract.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["request_id", "payload"],
+  "required": ["contract_version", "request_id", "payload"],
   "properties": {
-    "request_id": {
-      "type": "string",
-      "description": "Unique per transport attempt; MAY change on retry (AR-023)."
-    },
+    "contract_version": { "type": "string", "const": "1.0" },
+    "request_id": { "type": "string", "minLength": 1 },
     "task_id": { "type": "string" },
     "project_id": { "type": "string" },
-    "actor_context": {
-      "type": "object",
-      "description": "Free-form actor/delegation context."
-    },
-    "correlation_ids": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "task_id / changeset_id / execution_id / command_id correlation set."
-    },
-    "deadline_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Absolute UTC ISO-8601 deadline (AR-024); MUST NOT be interpreted as remaining_ms."
-    },
-    "idempotency_key": {
-      "type": "string",
-      "description": "Identifies one logical side effect; MUST stay stable across retries (AR-023)."
-    },
-    "payload": {
-      "type": "object",
-      "description": "Type-specific body (HostCommand / HostCommandResult / HostDelta / ErrorShape / HostStatus)."
-    }
+    "actor_context": { "type": "object" },
+    "correlation_ids": { "type": "array", "items": { "type": "string" } },
+    "deadline_at": { "type": "string", "format": "date-time" },
+    "idempotency_key": { "type": "string" },
+    "payload": { "type": "object" }
   }
 }
