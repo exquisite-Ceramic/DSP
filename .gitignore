@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ---- .NET / Visual Studio ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+
+# ---- AutoCAD 插件 ----
+*.dll
+*.arx
+*.bundle/
+packages/
+
+# ---- 日志与本地文件 ----
+*.log
+*.tmp
+*.bak

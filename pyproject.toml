@@ -1,0 +1,38 @@
+[project]
+name = "enterprise-design-agent"
+version = "0.1.0"
+description = "Enterprise collaborative design agent: host contracts, AutoCAD plugin & sidecar, platform runtime."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "jsonschema>=4.20",
+]
+
+# 若后续使用 uv workspace，可在此登记各 Python 子包：
+# [tool.uv.workspace]
+# members = [
+#     "contracts/python",
+#     "hosts/autocad/sidecar",
+#     "platform/semantic_runtime",
+#     "platform/changeset",
+# ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "contracts/python/tests"]
+pythonpath = ["contracts/python", "hosts/autocad/sidecar/src"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: 需要真实宿主（AutoCAD + sidecar）的测试",
+    "conformance: 契约一致性测试",
+    "asyncio: 异步测试标记 (pytest-asyncio)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.enterprise-design-agent.local/contracts/host-result.schema.json",
+  "title": "HostCommandResult",
+  "description": "Outcome of a host command. status=ERROR MUST carry an error (ErrorShape).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "status"],
+  "properties": {
+    "command_id": { "type": "string" },
+    "status": { "enum": ["OK", "PENDING", "ERROR"] },
+    "payload": {
+      "type": "object",
+      "description": "Command-specific result data when OK."
+    },
+    "error": {
+      "$ref": "host-error.schema.json",
+      "description": "Present when status=ERROR."
+    },
+    "revision_after": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Document revision after command execution."
+    },
+    "verification": {
+      "type": "object",
+      "description": "Post-execution read-back verification report (write commands)."
+    },
+    "replayed": {
+      "type": "boolean",
+      "description": "True when served from the idempotency cache instead of re-executing."
+    }
+  }
+}

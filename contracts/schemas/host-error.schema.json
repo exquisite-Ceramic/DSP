@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.enterprise-design-agent.local/contracts/host-error.schema.json",
+  "title": "ErrorShape",
+  "description": "Structured error object (spec §19.2). error_code is the stable machine code; message is user-facing only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error_code", "category", "retryable"],
+  "properties": {
+    "error_code": {
+      "type": "string",
+      "examples": [
+        "REVISION_CONFLICT",
+        "HOST_COMMAND_FAILED",
+        "VERIFY_FAILED",
+        "SCOPE_BREACH",
+        "PROVIDER_UNAVAILABLE"
+      ]
+    },
+    "category": {
+      "enum": ["PROTOCOL", "POLICY", "SEMANTIC", "EXECUTION", "CONSISTENCY"]
+    },
+    "message": {
+      "type": "string",
+      "description": "User-facing localized description; MUST NOT drive program decisions."
+    },
+    "correlation_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "task_id / changeset_id / execution_id / command_id."
+    },
+    "retryable": {
+      "enum": ["IMMEDIATE", "AFTER_RECONSTRUCT", "AFTER_APPROVAL", "NEVER"]
+    },
+    "details": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Structured context: entity refs, expected/actual revision, etc."
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.enterprise-design-agent.local/contracts/response-envelope.schema.json",
+  "title": "ResponseEnvelope",
+  "description": "Unified response envelope (spec A.8 / §26.1). status=PENDING MUST carry operation_ref.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "status"],
+  "properties": {
+    "request_id": { "type": "string" },
+    "status": { "enum": ["OK", "PENDING", "ERROR"] },
+    "correlation_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "snapshot_ref": { "type": "string" },
+    "operation_ref": {
+      "$ref": "response-envelope.schema.json#/definitions/asyncOperationRef",
+      "description": "REQUIRED when status=PENDING."
+    },
+    "result": {
+      "type": "object",
+      "description": "Typed result payload (e.g. HostCommandResult) when status=OK."
+    },
+    "error": {
+      "$ref": "host-error.schema.json",
+      "description": "ErrorShape when status=ERROR."
+    }
+  },
+  "definitions": {
+    "asyncOperationRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["INTERACTION_SESSION", "RECONSTRUCTION_JOB", "EXECUTION_JOB", "OTHER"]
+        },
+        "id": { "type": "string" }
+      }
+    }
+  }
+}

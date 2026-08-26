@@ -1,0 +1,5 @@
+{
+  "major": 1,
+  "minor": 0,
+  "comment": "HostContract major.minor version for negotiation (spec §23.1). Both the Python (host_contracts) and .NET (HostContracts) mirrors MUST report these numbers."
+}

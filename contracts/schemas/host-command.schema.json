@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.enterprise-design-agent.local/contracts/host-command.schema.json",
+  "title": "HostCommand",
+  "description": "Host command (spec A.4). Mutating modes (EXECUTE, ROLLBACK) MUST carry idempotency_key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "document_id", "mode", "operation"],
+  "properties": {
+    "command_id": { "type": "string" },
+    "document_id": { "type": "string" },
+    "mode": {
+      "enum": ["READ", "VIEW", "EXECUTE", "VERIFY", "PREVIEW", "ROLLBACK", "INTERACTION"]
+    },
+    "operation": {
+      "type": "string",
+      "examples": [
+        "context.current_document",
+        "context.current_selection",
+        "view.fit_entities",
+        "move.v1",
+        "verify.move.v1"
+      ]
+    },
+    "target_native_refs": {
+      "type": "array",
+      "items": { "$ref": "host-command.schema.json#/definitions/entityRef" }
+    },
+    "arguments": {
+      "type": "object",
+      "description": "Operation-specific structured arguments."
+    },
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "e.g. revision preconditions."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "REQUIRED for EXECUTE / ROLLBACK (spec §15.2)."
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Absolute UTC ISO-8601 (AR-024)."
+    }
+  },
+  "definitions": {
+    "entityRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "native_id"],
+      "properties": {
+        "document_id": { "type": "string" },
+        "native_id": { "type": "string" },
+        "native_type": { "type": "string" }
+      }
+    }
+  }
+}

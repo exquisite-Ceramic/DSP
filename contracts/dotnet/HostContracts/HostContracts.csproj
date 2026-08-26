@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HostContracts</RootNamespace>
+    <AssemblyName>HostContracts</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Skeleton files don't carry XML docs on every member yet. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Keep the contract assembly dependency-free: no Autodesk.* references allowed here. -->
+  </PropertyGroup>
+
+</Project>

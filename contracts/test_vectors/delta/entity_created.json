@@ -1,0 +1,13 @@
+{
+  "revision_before": 100,
+  "revision_after": 101,
+  "added": [
+    {
+      "document_id": "drawing-001",
+      "native_id": "3B1",
+      "native_type": "LINE"
+    }
+  ],
+  "modified": [],
+  "erased": []
+}

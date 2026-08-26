@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AutoCAD.AgentHost</RootNamespace>
+    <AssemblyName>AutoCAD.AgentHost</AssemblyName>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!--
+      ADR-001: outside Native/ no Autodesk.* usage is allowed.
+      The Autodesk reference list below is therefore confined to what Native/*
+      needs; set $(AUTOCAD_ACAD_DIR) to your AutoCAD install dir, e.g.
+      C:\Program Files\Autodesk\AutoCAD 2025\Acad.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\contracts\dotnet\HostContracts\HostContracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="AcCoreMgd">
+      <HintPath>$(AUTOCAD_ACAD_DIR)\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>$(AUTOCAD_ACAD_DIR)\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcMgd">
+      <HintPath>$(AUTOCAD_ACAD_DIR)\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
