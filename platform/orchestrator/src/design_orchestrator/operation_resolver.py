@@ -2,6 +2,8 @@
 
 The resolver consumes provider profiles structurally so this platform component
 stays independent from concrete Host sidecars and provider-specific MCP tools.
+Provider execution schemas remain internal; LLM-facing schemas come only from
+platform-owned canonical operation definitions.
 """
 
 from __future__ import annotations
@@ -16,12 +18,14 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Any, Protocol
 
+from design_orchestrator.canonical_operations import CanonicalOperationDefinition
+
 
 _POLICY_DECISIONS = frozenset({"ALLOW", "APPROVAL_REQUIRED", "DENY"})
 
 
 class CapabilityConflictError(ValueError):
-    """Raised when provider claims disagree on one canonical contract."""
+    """Raised when platform canonical contracts are ambiguous or invalid."""
 
 
 class CapabilityProfile(Protocol):
@@ -204,14 +208,18 @@ class ResolutionResult:
 
 @dataclass(frozen=True, slots=True)
 class _EligibleGroup:
-    canonical_operation: str
+    definition: CanonicalOperationDefinition
     profiles: tuple[CapabilityProfile, ...]
     policy_decision: str
     task_score: float
 
 
 class OperationResolver:
-    """Aggregate first, then filter Host → Entity → Policy → Task."""
+    """Aggregate first, then filter Host → Entity → Policy → Task.
+
+    Canonical definitions are platform-owned. Provider MCP schemas are retained
+    only in ``provider_candidates`` for later execution-time binding/adaptation.
+    """
 
     _RISK_ORDER = {
         "NONE": 0,
@@ -220,6 +228,20 @@ class OperationResolver:
         "HIGH": 3,
         "CRITICAL": 4,
     }
+
+    def __init__(
+        self,
+        canonical_operations: Iterable[CanonicalOperationDefinition],
+    ) -> None:
+        definitions: dict[str, CanonicalOperationDefinition] = {}
+        for definition in canonical_operations:
+            if definition.canonical_operation in definitions:
+                raise CapabilityConflictError(
+                    "duplicate canonical operation definition: "
+                    f"{definition.canonical_operation}"
+                )
+            definitions[definition.canonical_operation] = definition
+        self._definitions = MappingProxyType(definitions)
 
     def resolve(
         self,
@@ -230,9 +252,22 @@ class OperationResolver:
         task_candidates: list[_EligibleGroup] = []
 
         for canonical_operation, aggregated_profiles in groups:
-            host_filtered = tuple(
+            definition = self._definitions.get(canonical_operation)
+            if definition is None:
+                # Unknown provider claims never expand the LLM action space.
+                continue
+
+            contract_filtered = tuple(
                 profile
                 for profile in aggregated_profiles
+                if self._matches_canonical_contract(profile, definition)
+            )
+            if not contract_filtered:
+                continue
+
+            host_filtered = tuple(
+                profile
+                for profile in contract_filtered
                 if profile.provider_server in context.host_provider_servers
             )
             if not host_filtered:
@@ -255,7 +290,7 @@ class OperationResolver:
 
             task_candidates.append(
                 _EligibleGroup(
-                    canonical_operation=canonical_operation,
+                    definition=definition,
                     profiles=entity_filtered,
                     policy_decision=policy_decision,
                     task_score=context.task.score_for(canonical_operation),
@@ -264,14 +299,17 @@ class OperationResolver:
 
         ranked_groups = sorted(
             task_candidates,
-            key=lambda group: (-group.task_score, group.canonical_operation),
+            key=lambda group: (
+                -group.task_score,
+                group.definition.canonical_operation,
+            ),
         )[: context.task.top_k]
 
         resolved: list[ResolvedOperation] = []
         candidate_map: dict[str, CapabilityProfile] = {}
         for group in ranked_groups:
             operation, operation_candidates = self._build_resolved_operation(
-                group.canonical_operation,
+                group.definition,
                 group.profiles,
                 policy_decision=group.policy_decision,
                 task_score=group.task_score,
@@ -305,6 +343,18 @@ class OperationResolver:
         )
 
     @staticmethod
+    def _matches_canonical_contract(
+        profile: CapabilityProfile,
+        definition: CanonicalOperationDefinition,
+    ) -> bool:
+        # Provider execution input/output schemas are intentionally not compared
+        # here. They may differ and are adapted only after late ProviderBinding.
+        return (
+            profile.category == definition.category
+            and profile.verification_contract == definition.verification_contract
+        )
+
+    @staticmethod
     def _supports_entities(
         profile: CapabilityProfile,
         entity_kinds: frozenset[str],
@@ -315,20 +365,12 @@ class OperationResolver:
 
     def _build_resolved_operation(
         self,
-        canonical_operation: str,
+        definition: CanonicalOperationDefinition,
         profiles: tuple[CapabilityProfile, ...],
         *,
         policy_decision: str,
         task_score: float,
     ) -> tuple[ResolvedOperation, dict[str, CapabilityProfile]]:
-        self._require_consensus(profiles, "category")
-        input_schema = self._require_consensus(profiles, "input_schema")
-        self._require_consensus(profiles, "output_schema")
-        verification_contract = self._require_consensus(
-            profiles,
-            "verification_contract",
-        )
-
         candidate_map: dict[str, CapabilityProfile] = {}
         candidate_ids: list[str] = []
         for profile in profiles:
@@ -338,11 +380,13 @@ class OperationResolver:
 
         return (
             ResolvedOperation(
-                operation_id=self._operation_id(canonical_operation),
-                canonical_operation=canonical_operation,
-                input_schema=deepcopy(input_schema),
+                operation_id=self._operation_id(definition.canonical_operation),
+                canonical_operation=definition.canonical_operation,
+                input_schema=deepcopy(definition.input_schema),
                 entity_constraints=self._aggregate_entity_constraints(profiles),
-                context_freshness_requirements=(),
+                context_freshness_requirements=deepcopy(
+                    definition.context_freshness_requirements
+                ),
                 operation_freshness_requirements=self._aggregate_mapping_items(
                     profile.execution_freshness for profile in profiles
                 ),
@@ -352,23 +396,11 @@ class OperationResolver:
                 task_score=task_score,
                 preview_supported=all(profile.preview_supported for profile in profiles),
                 rollback_supported=all(profile.rollback_supported for profile in profiles),
-                verification_contract=deepcopy(verification_contract),
+                verification_contract=deepcopy(definition.verification_contract),
                 candidate_provider_ids=tuple(candidate_ids),
             ),
             candidate_map,
         )
-
-    @staticmethod
-    def _require_consensus(
-        profiles: tuple[CapabilityProfile, ...],
-        attribute: str,
-    ) -> Any:
-        first = getattr(profiles[0], attribute)
-        if any(getattr(profile, attribute) != first for profile in profiles[1:]):
-            raise CapabilityConflictError(
-                f"providers disagree on {attribute} for {profiles[0].canonical_operation}"
-            )
-        return deepcopy(first)
 
     @staticmethod
     def _aggregate_entity_constraints(

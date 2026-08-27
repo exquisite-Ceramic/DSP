@@ -1,5 +1,10 @@
 """Host-neutral orchestrator components."""
 
+from design_orchestrator.canonical_operations import (
+    CanonicalOperationDefinition,
+    MOVE_V1,
+    MVP_CANONICAL_OPERATIONS,
+)
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
     OperationPolicy,
@@ -11,7 +16,10 @@ from design_orchestrator.operation_resolver import (
 )
 
 __all__ = [
+    "CanonicalOperationDefinition",
     "CapabilityConflictError",
+    "MOVE_V1",
+    "MVP_CANONICAL_OPERATIONS",
     "OperationPolicy",
     "OperationResolver",
     "ResolutionContext",
