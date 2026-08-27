@@ -1,6 +1,6 @@
-"""IPC transport abstractions and the framed named-pipe implementation.
+"""Framed named-pipe transport.
 
-Named-pipe frame format (matches the plugin side):
+Frame format (matches the plugin side):
     4-byte little-endian length prefix + UTF-8 JSON body (Envelope).
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
-from typing import Protocol, TypeAlias, runtime_checkable
+from typing import TypeAlias
 
 Frame: TypeAlias = bytes  # one complete envelope JSON payload
 
@@ -17,19 +17,10 @@ MAX_FRAME_BYTES = 1024 * 1024
 _HEADER = struct.Struct("<I")
 
 
-@runtime_checkable
-class Transport(Protocol):
-    """Byte-preserving request/response transport used by the Sidecar."""
-
-    async def open(self) -> None: ...
-
-    async def exchange(self, payload: Frame) -> Frame: ...
-
-    async def close(self) -> None: ...
-
-
 class PipeTransport:
     """Length-prefixed JSON exchange over a Windows named pipe (client side)."""
+
+    max_timeout_s: None = None
 
     def __init__(self, pipe_name: str) -> None:
         self.pipe_name = pipe_name
@@ -64,12 +55,20 @@ class PipeTransport:
 
         self._handle = await asyncio.get_running_loop().run_in_executor(None, _connect)
 
-    async def exchange(self, payload: Frame) -> Frame:
+    async def exchange(self, payload: Frame, *, timeout_s: float | None = None) -> Frame:
         """Send one frame and await the response frame."""
-        async with self._lock:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._write_frame, payload)
-            return await loop.run_in_executor(None, self._read_frame)
+        if timeout_s is not None and timeout_s <= 0:
+            raise TimeoutError("transport timeout must be positive")
+
+        async def _exchange() -> Frame:
+            async with self._lock:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._write_frame, payload)
+                return await loop.run_in_executor(None, self._read_frame)
+
+        if timeout_s is None:
+            return await _exchange()
+        return await asyncio.wait_for(_exchange(), timeout=timeout_s)
 
     def _write_frame(self, payload: Frame) -> None:
         import win32file
