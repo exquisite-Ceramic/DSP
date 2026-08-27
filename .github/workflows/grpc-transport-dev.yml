@@ -15,10 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install transport test dependencies
-        run: |
-          python -m pip install pytest
-          python -m pip install -e contracts/python
-          python -m pip install -e 'hosts/autocad/sidecar[grpc-build]'
+        run: python -m pip install pytest 'grpcio>=1.70,<2' 'grpcio-tools>=1.70,<2' 'protobuf>=5.29,<7'
       - name: Generate Python transport stubs
         run: python tools/generate_host_transport.py
       - name: Run transport proto shape test
