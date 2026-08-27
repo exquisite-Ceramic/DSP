@@ -1,6 +1,6 @@
-"""Framed named-pipe transport.
+"""IPC transport abstractions and the framed named-pipe implementation.
 
-Frame format (matches the plugin side):
+Named-pipe frame format (matches the plugin side):
     4-byte little-endian length prefix + UTF-8 JSON body (Envelope).
 """
 
@@ -8,13 +8,24 @@ from __future__ import annotations
 
 import asyncio
 import struct
-from typing import TypeAlias
+from typing import Protocol, TypeAlias, runtime_checkable
 
-Frame = bytes  # one complete envelope JSON payload
+Frame: TypeAlias = bytes  # one complete envelope JSON payload
 
 MAX_FRAME_BYTES = 1024 * 1024
 
 _HEADER = struct.Struct("<I")
+
+
+@runtime_checkable
+class Transport(Protocol):
+    """Byte-preserving request/response transport used by the Sidecar."""
+
+    async def open(self) -> None: ...
+
+    async def exchange(self, payload: Frame) -> Frame: ...
+
+    async def close(self) -> None: ...
 
 
 class PipeTransport:
@@ -32,9 +43,9 @@ class PipeTransport:
 
     async def open(self) -> None:
         # Executed on the default executor: win32file.CreateFile blocks.
-        import win32api
         import win32con
         import win32file
+        import win32pipe
 
         def _connect() -> object:
             handle = win32file.CreateFile(
