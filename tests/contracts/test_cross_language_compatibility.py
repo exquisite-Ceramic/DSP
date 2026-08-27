@@ -17,8 +17,12 @@ ROOT = Path(__file__).resolve().parents[2]
 INTEROP_PROJECT = ROOT / "tests" / "contracts" / "dotnet_interop" / "ContractInterop.csproj"
 
 
-def _run_csharp(mode: str, *, stdin: str | None = None) -> dict:
+def _require_interop_project() -> None:
     assert INTEROP_PROJECT.exists(), f"missing C# interop helper: {INTEROP_PROJECT}"
+
+
+def _run_csharp(mode: str, *, stdin: str | None = None) -> dict:
+    _require_interop_project()
 
     dotnet = shutil.which("dotnet")
     if dotnet is None:
@@ -55,6 +59,8 @@ def _run_csharp(mode: str, *, stdin: str | None = None) -> dict:
 
 @pytest.mark.conformance
 def test_python_wire_json_is_consumed_by_csharp():
+    _require_interop_project()
+
     from host_contracts.command import HostCommand
     from host_contracts.entity_ref import HostEntityRef
     from host_contracts.envelope import RequestEnvelope
@@ -94,6 +100,8 @@ def test_python_wire_json_is_consumed_by_csharp():
 
 @pytest.mark.conformance
 def test_csharp_wire_json_is_consumed_by_python():
+    _require_interop_project()
+
     from host_contracts.command import HostCommand
     from host_contracts.envelope import RequestEnvelope
 
