@@ -57,7 +57,6 @@ public sealed class PluginLifecycle
         _grpcStartupCts = null;
         _grpcStartupTask = null;
 
-        _grpcStartupCts?.Cancel();
         grpcCts?.Cancel();
         if (grpcCts is not null)
         {
