@@ -1,5 +1,6 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
 
 namespace AutoCAD.AgentHost.Native;
 
@@ -15,55 +16,73 @@ public static class AutoCADViewApi
             return;
         }
 
-        using var transaction = doc.Database.TransactionManager.StartTransaction();
+        var database = doc.Database;
+        using var transaction = database.TransactionManager.StartTransaction();
 
-        Extents3d extents;
+        Point3d minPoint;
+        Point3d maxPoint;
+
         if (handles.Count == 0)
         {
-            extents = doc.Database.Extents;
+            minPoint = database.Extmin;
+            maxPoint = database.Extmax;
         }
         else
         {
-            extents = new Extents3d();
+            Extents3d extents = default;
+            var hasExtents = false;
+
             foreach (var handle in handles)
             {
-                if (!Handle.TryParse(handle, out var parsed))
+                if (!AutoCADEntityApi.TryResolveObjectId(database, handle, out var id)
+                    || !id.IsValid
+                    || id.IsErased)
                 {
                     continue;
                 }
 
-                var id = transaction.GetObjectId(true, parsed);
-                if (!id.IsValid || id.IsErased)
+                if (transaction.GetObject(id, OpenMode.ForRead) is not Entity entity)
                 {
                     continue;
                 }
 
-                if (transaction.GetObject(id, OpenMode.ForRead) is Entity entity)
+                if (!hasExtents)
+                {
+                    extents = entity.GeometricExtents;
+                    hasExtents = true;
+                }
+                else
                 {
                     extents.AddExtents(entity.GeometricExtents);
                 }
             }
-        }
 
-        if (extents.IsNull)
-        {
-            transaction.Commit();
-            return;
-        }
+            if (!hasExtents)
+            {
+                transaction.Commit();
+                return;
+            }
 
-        // Keep a small margin around the fit.
-        var width = extents.MaxPoint.X - extents.MinPoint.X;
-        var height = extents.MaxPoint.Y - extents.MinPoint.Y;
-        var margin = Math.Max(width, height) * 0.05;
-        extents.AddExtents(new Extents3d(
-            extents.MinPoint + new Vector3d(-margin, -margin, 0),
-            extents.MaxPoint + new Vector3d(margin, margin, 0)));
-
-        using (doc.LockDocument())
-        {
-            doc.Editor.Zoom(extents);
+            minPoint = extents.MinPoint;
+            maxPoint = extents.MaxPoint;
         }
 
         transaction.Commit();
+
+        var width = Math.Max(maxPoint.X - minPoint.X, 1e-6);
+        var height = Math.Max(maxPoint.Y - minPoint.Y, 1e-6);
+        const double marginScale = 1.10;
+
+        using var view = doc.Editor.GetCurrentView();
+        view.CenterPoint = new Point2d(
+            (minPoint.X + maxPoint.X) / 2.0,
+            (minPoint.Y + maxPoint.Y) / 2.0);
+        view.Width = width * marginScale;
+        view.Height = height * marginScale;
+
+        using (doc.LockDocument())
+        {
+            doc.Editor.SetCurrentView(view);
+        }
     }
 }
