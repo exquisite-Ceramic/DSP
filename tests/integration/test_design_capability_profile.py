@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import importlib.util
 
 import pytest
@@ -130,3 +131,38 @@ async def test_mcp_server_tools_list_preserves_design_profile_meta() -> None:
 
     assert move.meta["com.company.design/operation"] == "move.v1"
     assert move.meta["com.company.design/category"] == "MODEL_OPERATION"
+
+
+def test_mcp_cli_builds_runnable_sidecar_runtime_without_opening_host_transport() -> None:
+    cli_module = _require_module("autocad_sidecar.mcp_main")
+    args = cli_module.build_parser().parse_args(
+        [
+            "--transport",
+            "pipe",
+            "--pipe",
+            "EnterpriseDesignAgent.Test",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8765",
+            "--retries",
+            "2",
+        ]
+    )
+
+    runtime = cli_module.build_runtime(args)
+
+    assert runtime.adapter.pipe_name == "EnterpriseDesignAgent.Test"
+    assert runtime.dispatcher is not None
+    assert args.host == "127.0.0.1"
+    assert args.port == 8765
+    assert runtime.adapter._opened is False
+
+
+def test_sidecar_package_installs_mcp_console_entrypoint() -> None:
+    scripts = {
+        entry.name: entry.value
+        for entry in importlib.metadata.entry_points(group="console_scripts")
+    }
+
+    assert scripts["autocad-sidecar-mcp"] == "autocad_sidecar.mcp_main:main"
