@@ -30,4 +30,7 @@ async def test_current_selection_returns_entity_refs():
         await host.close()
 
     assert result.ok, result.error
-    assert "entityRefs" in result.payload
+    refs = result.payload.get("entityRefs", [])
+    for entity_ref in refs:
+        assert entity_ref["document_id"]
+        assert entity_ref["native_id"]

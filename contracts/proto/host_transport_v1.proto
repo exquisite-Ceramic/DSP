@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package dsp.host.transport.v1;
+option csharp_namespace = "Dsp.Host.Transport.V1";
+
+service AutoCadHost {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Dispatch(DispatchRequest) returns (DispatchResponse);
+}
+
+message PingRequest {
+  string instance_id = 1;
+}
+
+message PingResponse {
+  string instance_id = 1;
+  string contract_version = 2;
+}
+
+message DispatchRequest {
+  bytes contract_json = 1;
+}
+
+message DispatchResponse {
+  bytes contract_json = 1;
+}

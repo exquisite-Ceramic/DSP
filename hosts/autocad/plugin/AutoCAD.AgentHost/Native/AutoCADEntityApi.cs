@@ -1,6 +1,8 @@
+using System.Globalization;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using HostContracts;
 
 namespace AutoCAD.AgentHost.Native;
@@ -11,15 +13,20 @@ public static class AutoCADEntityApi
     public static IReadOnlyList<HostEntityRef> GetSelectedEntityRefs()
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
-        var selection = doc?.Editor.SelectImplied();
-        if (selection is null || selection.Value.Status != PromptStatus.OK)
+        if (doc is null)
+        {
+            return Array.Empty<HostEntityRef>();
+        }
+
+        var selection = doc.Editor.SelectImplied();
+        if (selection.Status != PromptStatus.OK)
         {
             return Array.Empty<HostEntityRef>();
         }
 
         var refs = new List<HostEntityRef>();
-        using var transaction = doc!.Database.TransactionManager.StartTransaction();
-        foreach (var id in selection.Value.Value.GetObjectIds())
+        using var transaction = doc.Database.TransactionManager.StartTransaction();
+        foreach (var id in selection.Value.GetObjectIds())
         {
             if (id.IsErased || id.IsEffectivelyErased)
             {
@@ -34,10 +41,9 @@ public static class AutoCADEntityApi
 
             refs.Add(new HostEntityRef
             {
-                Handle = entity.Handle.ToString(),
-                ClassName = entity.GetType().Name,
-                Layer = entity.Layer,
                 DocumentId = doc.Name,
+                NativeId = entity.Handle.ToString(),
+                NativeType = entity.GetType().Name,
             });
         }
 
@@ -45,17 +51,15 @@ public static class AutoCADEntityApi
         return refs;
     }
 
-    /// <summary>Resolves a handle to its entity, or null when missing/erased.</summary>
     public static Entity? GetEntityByHandle(string handle)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
-        if (doc is null || !Handle.TryParse(handle, out var parsed))
+        if (doc is null || !TryResolveObjectId(doc.Database, handle, out var id))
         {
             return null;
         }
 
         using var transaction = doc.Database.TransactionManager.StartTransaction();
-        var id = transaction.GetObjectId(true, parsed);
         var entity = id.IsValid && !id.IsErased
             ? transaction.GetObject(id, OpenMode.ForRead) as Entity
             : null;
@@ -63,7 +67,6 @@ public static class AutoCADEntityApi
         return entity;
     }
 
-    /// <summary>Reads position payloads (handle → {x,y,z}) without mutation.</summary>
     public static Dictionary<string, System.Text.Json.JsonElement> ReadPositions(IEnumerable<string> handles)
     {
         var doc = Application.DocumentManager.MdiActiveDocument!;
@@ -72,13 +75,9 @@ public static class AutoCADEntityApi
         using var transaction = doc.Database.TransactionManager.StartTransaction();
         foreach (var handle in handles)
         {
-            if (!Handle.TryParse(handle, out var parsed))
-            {
-                continue;
-            }
-
-            var id = transaction.GetObjectId(true, parsed);
-            if (!id.IsValid || id.IsErased)
+            if (!TryResolveObjectId(doc.Database, handle, out var id)
+                || !id.IsValid
+                || id.IsErased)
             {
                 continue;
             }
@@ -89,9 +88,24 @@ public static class AutoCADEntityApi
                 continue;
             }
 
-            var (x, y, z) = entity is DBPoint point
-                ? (point.Position.X, point.Position.Y, point.Position.Z)
-                : (0.0, 0.0, 0.0);
+            double x;
+            double y;
+            double z;
+            if (entity is DBPoint point)
+            {
+                x = point.Position.X;
+                y = point.Position.Y;
+                z = point.Position.Z;
+            }
+            else
+            {
+                var extents = entity.GeometricExtents;
+                var min = extents.MinPoint;
+                var max = extents.MaxPoint;
+                x = (min.X + max.X) / 2.0;
+                y = (min.Y + max.Y) / 2.0;
+                z = (min.Z + max.Z) / 2.0;
+            }
 
             result[handle] = System.Text.Json.JsonSerializer.SerializeToElement(new { x, y, z });
         }
@@ -100,18 +114,24 @@ public static class AutoCADEntityApi
         return result;
     }
 
-    /// <summary>Translates entities by (dx, dy, dz) inside the caller's transaction.</summary>
+    public static void Translate(IEnumerable<string> handles, double dx, double dy, double dz)
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("no active document.");
+        Translate(doc.Database, handles, dx, dy, dz);
+        AutoCADDocumentApi.BumpRevision(doc.Name);
+    }
+
     public static void Translate(Database database, IEnumerable<string> handles, double dx, double dy, double dz)
     {
         foreach (var handle in handles)
         {
-            if (!Handle.TryParse(handle, out var parsed))
+            if (!TryResolveObjectId(database, handle, out var id))
             {
                 continue;
             }
 
             using var transaction = database.TransactionManager.StartTransaction();
-            var id = transaction.GetObjectId(true, parsed);
             if (!id.IsValid || id.IsErased)
             {
                 transaction.Commit();
@@ -125,17 +145,37 @@ public static class AutoCADEntityApi
                 continue;
             }
 
-            var vector = new Vector3d(dx, dy, dz);
-            entity.TransformBy(Matrix3d.Displacement(vector));
+            entity.TransformBy(Matrix3d.Displacement(new Vector3d(dx, dy, dz)));
             transaction.Commit();
         }
-
-        AutoCADDocumentApi.BumpRevision(database.Filename);
     }
 
-    /// <summary>Describes a change event; null when not entity-related.</summary>
+    internal static bool TryResolveObjectId(Database database, string nativeId, out ObjectId objectId)
+    {
+        objectId = ObjectId.Null;
+        if (!long.TryParse(
+                nativeId,
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out var raw))
+        {
+            return false;
+        }
+
+        try
+        {
+            objectId = database.GetObjectId(false, new Handle(raw), 0);
+            return objectId.IsValid && !objectId.IsNull;
+        }
+        catch
+        {
+            objectId = ObjectId.Null;
+            return false;
+        }
+    }
+
     public static (HostEntityRef EntityRef, System.Text.Json.JsonElement? Before, System.Text.Json.JsonElement? After)? DescribeChange(
-        object sender, EventArgs args, string operation)
+        object? sender, EventArgs args, string operation)
     {
         if (sender is not DBObject dbObject)
         {
@@ -144,12 +184,11 @@ public static class AutoCADEntityApi
 
         var entityRef = new HostEntityRef
         {
-            Handle = dbObject.Handle.ToString(),
-            ClassName = dbObject.GetType().Name,
+            DocumentId = AcNative.ActiveDocumentId(),
+            NativeId = dbObject.Handle.ToString(),
+            NativeType = dbObject.GetType().Name,
         };
 
-        // Reading full before/after snapshots is deferred to a later milestone;
-        // the handle + operation already enables coarse tracking (spec §8).
         return (entityRef, null, null);
     }
 }

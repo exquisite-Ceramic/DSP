@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 
 from host_contracts.result import HostCommandResult
 
@@ -32,7 +32,7 @@ class IdempotencyStore:
         entry = self._entries.get(key)
         if entry is None:
             raise KeyError(f"no completed command for key {key!r}")
-        return entry.result
+        return replace(entry.result, replayed=True)
 
     async def complete(self, key: str, result: HostCommandResult) -> None:
         if len(self._entries) >= self._max:

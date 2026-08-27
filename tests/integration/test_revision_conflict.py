@@ -1,4 +1,4 @@
-"""Integration: stale revision is rejected with revision_conflict."""
+"""Integration: stale revision is rejected with REVISION_CONFLICT."""
 
 import os
 
@@ -24,7 +24,7 @@ async def test_stale_revision_rejected():
         selection = await dispatcher.current_selection()
         assert selection.ok, selection.error
 
-        handles = [r["handle"] for r in selection.payload.get("entityRefs", [])]
+        handles = [r["native_id"] for r in selection.payload.get("entityRefs", [])]
         if not handles:
             pytest.skip("nothing selected in the live drawing")
 
@@ -35,4 +35,4 @@ async def test_stale_revision_rejected():
 
     assert not result.ok
     assert result.error is not None
-    assert result.error.code == "revision_conflict"
+    assert result.error.error_code == "REVISION_CONFLICT"

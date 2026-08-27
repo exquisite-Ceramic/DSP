@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ContractTransportTestHost</RootNamespace>
+    <AssemblyName>ContractTransportTestHost</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\hosts\autocad\transport\dotnet\AutoCAD.AgentHost.Grpc\AutoCAD.AgentHost.Grpc.csproj" />
+  </ItemGroup>
+
+</Project>

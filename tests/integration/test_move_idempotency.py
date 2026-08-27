@@ -25,7 +25,7 @@ async def test_move_is_idempotent_with_same_key():
         selection = await dispatcher.current_selection()
         assert selection.ok, selection.error
 
-        handles = [r["handle"] for r in selection.payload.get("entityRefs", [])]
+        handles = [r["native_id"] for r in selection.payload.get("entityRefs", [])]
         if not handles:
             pytest.skip("nothing selected in the live drawing")
 

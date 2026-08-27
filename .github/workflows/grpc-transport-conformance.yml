@@ -1,0 +1,41 @@
+name: gRPC transport conformance
+
+on:
+  push:
+    branches:
+      - feat/grpc-loopback-transport
+  workflow_dispatch:
+
+jobs:
+  python-csharp-conformance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install conformance test dependencies
+        run: python -m pip install pytest pytest-asyncio jsonschema 'grpcio-tools==1.70.0'
+      - name: Install local Python packages
+        run: |
+          python -m pip install -e contracts/python
+          python -m pip install -e hosts/autocad/sidecar
+      - name: Run production transport .NET tests
+        run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj --configuration Release
+      - name: Regenerate Python transport stubs
+        run: python tools/generate_host_transport.py
+      - name: Verify generated stubs are up to date
+        run: git diff --exit-code -- hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
+      - name: Run Python contract and transport regressions
+        run: >-
+          pytest -q
+          contracts/python/tests
+          tests/contracts
+          tests/integration/test_grpc_transport.py
+          tests/integration/test_transport_selector.py
+          tests/integration/test_host_adapter_transport.py
+      - name: Run Python C# gRPC conformance
+        run: pytest -q tests/transport/test_grpc_transport_conformance.py

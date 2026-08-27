@@ -10,7 +10,7 @@ import asyncio
 import struct
 from typing import TypeAlias
 
-Frame = bytes  # one complete envelope JSON payload
+Frame: TypeAlias = bytes  # one complete envelope JSON payload
 
 MAX_FRAME_BYTES = 1024 * 1024
 
@@ -19,6 +19,8 @@ _HEADER = struct.Struct("<I")
 
 class PipeTransport:
     """Length-prefixed JSON exchange over a Windows named pipe (client side)."""
+
+    max_timeout_s: None = None
 
     def __init__(self, pipe_name: str) -> None:
         self.pipe_name = pipe_name
@@ -32,12 +34,11 @@ class PipeTransport:
 
     async def open(self) -> None:
         # Executed on the default executor: win32file.CreateFile blocks.
-        import win32api
         import win32con
         import win32file
 
         def _connect() -> object:
-            handle = win32file.CreateFile(
+            return win32file.CreateFile(
                 self.full_name,
                 win32con.GENERIC_READ | win32con.GENERIC_WRITE,
                 0,  # exclusive
@@ -46,19 +47,23 @@ class PipeTransport:
                 win32con.FILE_ATTRIBUTE_NORMAL,
                 None,
             )
-            win32pipe.SetNamedPipeHandleState(
-                handle, win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT, None, None
-            )
-            return handle
 
         self._handle = await asyncio.get_running_loop().run_in_executor(None, _connect)
 
-    async def exchange(self, payload: Frame) -> Frame:
+    async def exchange(self, payload: Frame, *, timeout_s: float | None = None) -> Frame:
         """Send one frame and await the response frame."""
-        async with self._lock:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._write_frame, payload)
-            return await loop.run_in_executor(None, self._read_frame)
+        if timeout_s is not None and timeout_s <= 0:
+            raise TimeoutError("transport timeout must be positive")
+
+        async def _exchange() -> Frame:
+            async with self._lock:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._write_frame, payload)
+                return await loop.run_in_executor(None, self._read_frame)
+
+        if timeout_s is None:
+            return await _exchange()
+        return await asyncio.wait_for(_exchange(), timeout=timeout_s)
 
     def _write_frame(self, payload: Frame) -> None:
         import win32file

@@ -30,6 +30,12 @@ public static class AutoCADDocumentApi
 {
     private static readonly Dictionary<string, Identity.DrawingIdentity> Identities = new(StringComparer.OrdinalIgnoreCase);
 
+    private static Database? _attachedDatabase;
+    private static ObjectEventHandler? _objectModifiedHandler;
+    private static ObjectErasedEventHandler? _objectErasedHandler;
+    private static ObjectEventHandler? _objectAppendedHandler;
+    private static DocumentCollectionEventHandler? _documentActivatedHandler;
+
     public static Document GetActiveDocument() =>
         Application.DocumentManager.MdiActiveDocument
         ?? throw new InvalidOperationException("no active document.");
@@ -78,15 +84,81 @@ public static class AutoCADDocumentApi
         EventHandler objectErased,
         EventHandler objectAdded)
     {
-        var db = GetActiveDocument().Database;
-        db.ObjectModified += objectChanged;
-        db.ObjectErased += objectErased;
-        db.ObjectAppended += objectAdded;
+        DetachChangeHandlers();
+
+        _objectModifiedHandler = (sender, args) => objectChanged(sender, args);
+        _objectErasedHandler = (sender, args) => objectErased(sender, args);
+        _objectAppendedHandler = (sender, args) => objectAdded(sender, args);
+        _documentActivatedHandler = (sender, args) =>
+            BindChangeHandlersToDatabase(args.Document.Database);
+
+        Application.DocumentManager.DocumentActivated += _documentActivatedHandler;
+        BindChangeHandlersToDatabase(GetActiveDocument().Database);
+    }
+
+    private static void BindChangeHandlersToDatabase(Database db)
+    {
+        if (ReferenceEquals(_attachedDatabase, db))
+        {
+            return;
+        }
+
+        DetachDatabaseChangeHandlers();
+        _attachedDatabase = db;
+
+        if (_objectModifiedHandler is not null)
+        {
+            db.ObjectModified += _objectModifiedHandler;
+        }
+
+        if (_objectErasedHandler is not null)
+        {
+            db.ObjectErased += _objectErasedHandler;
+        }
+
+        if (_objectAppendedHandler is not null)
+        {
+            db.ObjectAppended += _objectAppendedHandler;
+        }
+    }
+
+    private static void DetachDatabaseChangeHandlers()
+    {
+        var db = _attachedDatabase;
+        if (db is null)
+        {
+            return;
+        }
+
+        if (_objectModifiedHandler is not null)
+        {
+            db.ObjectModified -= _objectModifiedHandler;
+        }
+
+        if (_objectErasedHandler is not null)
+        {
+            db.ObjectErased -= _objectErasedHandler;
+        }
+
+        if (_objectAppendedHandler is not null)
+        {
+            db.ObjectAppended -= _objectAppendedHandler;
+        }
+
+        _attachedDatabase = null;
     }
 
     public static void DetachChangeHandlers()
     {
-        // Detach requires the same delegate instances; the sensor keeps them
-        // and calls back here. Placeholder: iterate DocumentManager documents.
+        if (_documentActivatedHandler is not null)
+        {
+            Application.DocumentManager.DocumentActivated -= _documentActivatedHandler;
+            _documentActivatedHandler = null;
+        }
+
+        DetachDatabaseChangeHandlers();
+        _objectModifiedHandler = null;
+        _objectErasedHandler = null;
+        _objectAppendedHandler = null;
     }
 }
