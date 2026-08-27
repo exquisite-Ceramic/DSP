@@ -20,8 +20,8 @@ jobs:
         run: python tools/generate_host_transport.py
       - name: Verify generated stubs are up to date
         run: git diff --exit-code -- hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
-      - name: Run transport proto shape test
-        run: pytest -q tests/contracts/test_transport_proto_shape.py
+      - name: Run transport Python tests
+        run: pytest -q tests/contracts/test_transport_proto_shape.py tests/integration/test_grpc_transport.py
 
   transport-dotnet:
     runs-on: windows-latest
