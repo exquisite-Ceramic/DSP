@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
-from host_contracts.command import HostCommand
 from host_contracts.result import HostCommandResult
 
 from autocad_sidecar.adapter.context_adapter import ContextAdapter
@@ -59,8 +57,23 @@ class CommandDispatcher:
         if await self._idempotency.is_completed(key):
             return await self._idempotency.recall(key)
 
+        document = await self._context.current_document()
+        if not document.ok:
+            return document
+        document_id = str((document.payload or {}).get("documentId") or "")
+        if not document_id:
+            raise RuntimeError("current_document response is missing documentId")
+
         async def attempt() -> HostCommandResult:
-            return await self._model.move(handles, dx, dy, dz, idempotency_key=key, revision=revision)
+            return await self._model.move(
+                handles,
+                dx,
+                dy,
+                dz,
+                document_id=document_id,
+                idempotency_key=key,
+                revision=revision,
+            )
 
         result = await self._retry.run(attempt)
         if result.ok:
