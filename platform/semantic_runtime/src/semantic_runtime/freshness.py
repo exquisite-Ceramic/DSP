@@ -76,6 +76,10 @@ class AspectRequirement:
         if self.aspect is not SemanticAspect.GEOMETRY and self.geometry_level is not GeometryLevel.NONE:
             raise ValueError("geometry_level applies only to GEOMETRY")
 
+    @property
+    def required_state(self) -> FreshnessState:
+        return FreshnessState.FRESH
+
 
 @dataclass(frozen=True, slots=True)
 class AspectGuarantee:
@@ -86,12 +90,17 @@ class AspectGuarantee:
         if self.aspect is not SemanticAspect.GEOMETRY and self.geometry_level is not GeometryLevel.NONE:
             raise ValueError("geometry_level applies only to GEOMETRY")
 
+    @property
+    def required_state(self) -> FreshnessState:
+        return FreshnessState.FRESH
+
 
 @dataclass(frozen=True, slots=True)
 class Coverage:
     document_ref: str
     root_entities: tuple[str, ...]
     neighborhood_depth: int = 0
+    neighborhood_relations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         document_ref = self.document_ref.strip()
@@ -100,14 +109,21 @@ class Coverage:
         if self.neighborhood_depth < 0:
             raise ValueError("neighborhood_depth must be >= 0")
         roots = tuple(sorted({item.strip() for item in self.root_entities if item.strip()}))
+        relations = tuple(
+            sorted({item.strip() for item in self.neighborhood_relations if item.strip()})
+        )
         object.__setattr__(self, "document_ref", document_ref)
         object.__setattr__(self, "root_entities", roots)
+        object.__setattr__(self, "neighborhood_relations", relations)
 
     def payload(self) -> dict[str, object]:
         return {
             "document_ref": self.document_ref,
             "root_entities": list(self.root_entities),
-            "neighborhood_depth": self.neighborhood_depth,
+            "neighborhood": {
+                "depth": self.neighborhood_depth,
+                "relations": list(self.neighborhood_relations),
+            },
         }
 
 
@@ -141,6 +157,7 @@ def _requirements_payload(items: Iterable[AspectRequirement | AspectGuarantee]) 
     return [
         {
             "aspect": item.aspect.value,
+            "required_state": item.required_state.value,
             "geometry_level": item.geometry_level.name,
         }
         for item in items
@@ -301,6 +318,7 @@ class SemanticSnapshot:
 @dataclass(frozen=True, slots=True)
 class SnapshotSet:
     members: tuple[SemanticSnapshot, ...]
+    kind: SnapshotKind = field(default=SnapshotKind.PLANNING, init=False)
     snapshot_set_id: str = field(init=False)
     hash: str = field(init=False)
 
@@ -309,11 +327,22 @@ class SnapshotSet:
             raise SnapshotSetError("SnapshotSet requires at least one PlanningSnapshot")
         if any(member.kind is not SnapshotKind.PLANNING for member in self.members):
             raise SnapshotSetError("SnapshotSet may contain PlanningSnapshots only")
+        document_refs = [member.document_ref for member in self.members]
+        if len(set(document_refs)) != len(document_refs):
+            raise SnapshotSetError("SnapshotSet requires one PlanningSnapshot per document")
         members = tuple(sorted(self.members, key=lambda item: (item.document_ref, item.snapshot_id)))
-        payload = [
-            {"snapshot_id": item.snapshot_id, "hash": item.hash, "document_ref": item.document_ref}
-            for item in members
-        ]
+        payload = {
+            "kind": self.kind.value,
+            "members": [
+                {
+                    "document_ref": item.document_ref,
+                    "snapshot_id": item.snapshot_id,
+                    "snapshot_hash": item.hash,
+                    "base_host_revision": item.base_host_revision,
+                }
+                for item in members
+            ],
+        }
         digest = _hash_payload(payload)
         object.__setattr__(self, "members", members)
         object.__setattr__(self, "hash", digest)
