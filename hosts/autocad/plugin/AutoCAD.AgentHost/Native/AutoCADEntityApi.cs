@@ -161,7 +161,7 @@ public static class AutoCADEntityApi
     }
 
     public static (HostEntityRef EntityRef, System.Text.Json.JsonElement? Before, System.Text.Json.JsonElement? After)? DescribeChange(
-        object sender, EventArgs args, string operation)
+        object? sender, EventArgs args, string operation)
     {
         if (sender is not DBObject dbObject)
         {
