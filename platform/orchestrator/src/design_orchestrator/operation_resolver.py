@@ -1,7 +1,7 @@
 """D4 canonical Operation Resolver.
 
-The resolver deliberately consumes provider profiles structurally so this
-platform component does not depend on any concrete Host sidecar package.
+The resolver consumes provider profiles structurally so this platform component
+stays independent from concrete Host sidecars and provider-specific MCP tools.
 """
 
 from __future__ import annotations
@@ -9,10 +9,15 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 import json
+from math import isfinite
+from types import MappingProxyType
 from typing import Any, Protocol
+
+
+_POLICY_DECISIONS = frozenset({"ALLOW", "APPROVAL_REQUIRED", "DENY"})
 
 
 class CapabilityConflictError(ValueError):
@@ -36,15 +41,72 @@ class CapabilityProfile(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class ResolutionContext:
-    """Facts required by the D4 hard filters.
+class OperationPolicy:
+    """Canonical operation policy decisions for the current resolution step."""
 
-    Policy and Task fields are added in the next TDD slice. Keeping this type
-    small here makes the Host → Entity behavior independently testable.
-    """
+    decisions: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        normalized = {
+            str(operation): str(decision).upper()
+            for operation, decision in self.decisions.items()
+        }
+        invalid = sorted(set(normalized.values()) - _POLICY_DECISIONS)
+        if invalid:
+            raise ValueError(f"invalid policy decision(s): {invalid}")
+        object.__setattr__(self, "decisions", MappingProxyType(normalized))
+
+    def decision_for(self, canonical_operation: str) -> str:
+        return self.decisions.get(canonical_operation, "ALLOW")
+
+
+@dataclass(frozen=True, slots=True)
+class TaskConstraints:
+    """Task relevance constraints applied after policy filtering."""
+
+    allowed_operations: frozenset[str] | None = None
+    scores: Mapping[str, float] = field(default_factory=dict)
+    top_k: int = 10
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.top_k, int) or isinstance(self.top_k, bool):
+            raise ValueError("top_k must be an integer between 3 and 10")
+        if not 3 <= self.top_k <= 10:
+            raise ValueError("top_k must be between 3 and 10")
+
+        allowed = (
+            None
+            if self.allowed_operations is None
+            else frozenset(str(operation) for operation in self.allowed_operations)
+        )
+        normalized_scores: dict[str, float] = {}
+        for operation, raw_score in self.scores.items():
+            score = float(raw_score)
+            if not isfinite(score):
+                raise ValueError(f"task score for {operation!r} must be finite")
+            normalized_scores[str(operation)] = score
+
+        object.__setattr__(self, "allowed_operations", allowed)
+        object.__setattr__(self, "scores", MappingProxyType(normalized_scores))
+
+    def allows(self, canonical_operation: str) -> bool:
+        return (
+            self.allowed_operations is None
+            or canonical_operation in self.allowed_operations
+        )
+
+    def score_for(self, canonical_operation: str) -> float:
+        return self.scores.get(canonical_operation, 0.0)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolutionContext:
+    """Host, entity, policy, and task facts for one resolution step."""
 
     host_provider_servers: frozenset[str]
     entity_kinds: frozenset[str]
+    policy: OperationPolicy = field(default_factory=OperationPolicy)
+    task: TaskConstraints = field(default_factory=TaskConstraints)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +131,87 @@ class ResolvedOperation:
 
 @dataclass(frozen=True, slots=True)
 class ResolutionResult:
+    """Resolution output with a separate internal provider-candidate map."""
+
     resolved_operations: tuple[ResolvedOperation, ...]
     provider_candidates: dict[str, CapabilityProfile]
 
+    def llm_action_space(self) -> tuple[dict[str, object], ...]:
+        """Return only canonical planning data; provider routing stays internal."""
+
+        return tuple(
+            {
+                "operation_id": operation.operation_id,
+                "canonical_operation": operation.canonical_operation,
+                "input_schema": deepcopy(operation.input_schema),
+                "entity_constraints": list(operation.entity_constraints),
+                "context_freshness_requirements": deepcopy(
+                    list(operation.context_freshness_requirements)
+                ),
+                "operation_freshness_requirements": deepcopy(
+                    list(operation.operation_freshness_requirements)
+                ),
+                "effects": deepcopy(list(operation.effects)),
+                "policy_decision": operation.policy_decision,
+                "risk": operation.risk,
+                "task_score": operation.task_score,
+                "preview_supported": operation.preview_supported,
+                "rollback_supported": operation.rollback_supported,
+                "verification_contract": deepcopy(operation.verification_contract),
+            }
+            for operation in self.resolved_operations
+        )
+
+    def structured_output_schema(self) -> dict[str, object]:
+        """Build the constrained canonical-operation schema presented to the LLM."""
+
+        operation_items: dict[str, object]
+        if self.resolved_operations:
+            one_of = [
+                {
+                    "type": "object",
+                    "properties": {
+                        "canonical_operation": {
+                            "const": operation.canonical_operation,
+                        },
+                        "arguments": deepcopy(operation.input_schema),
+                    },
+                    "required": ["canonical_operation", "arguments"],
+                    "additionalProperties": False,
+                }
+                for operation in self.resolved_operations
+            ]
+            operation_items = {
+                "type": "array",
+                "minItems": 1,
+                "items": {"oneOf": one_of},
+            }
+        else:
+            operation_items = {
+                "type": "array",
+                "maxItems": 0,
+                "items": False,
+            }
+
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"operations": operation_items},
+            "required": ["operations"],
+            "additionalProperties": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _EligibleGroup:
+    canonical_operation: str
+    profiles: tuple[CapabilityProfile, ...]
+    policy_decision: str
+    task_score: float
+
 
 class OperationResolver:
-    """Aggregate provider claims, then apply Host and Entity hard filters."""
+    """Aggregate first, then filter Host → Entity → Policy → Task."""
 
     _RISK_ORDER = {
         "NONE": 0,
@@ -90,9 +227,7 @@ class OperationResolver:
         context: ResolutionContext,
     ) -> ResolutionResult:
         groups = self._aggregate_by_canonical_operation(profiles)
-
-        resolved: list[ResolvedOperation] = []
-        candidate_map: dict[str, CapabilityProfile] = {}
+        task_candidates: list[_EligibleGroup] = []
 
         for canonical_operation, aggregated_profiles in groups:
             host_filtered = tuple(
@@ -111,17 +246,41 @@ class OperationResolver:
             if not entity_filtered:
                 continue
 
+            policy_decision = context.policy.decision_for(canonical_operation)
+            if policy_decision == "DENY":
+                continue
+
+            if not context.task.allows(canonical_operation):
+                continue
+
+            task_candidates.append(
+                _EligibleGroup(
+                    canonical_operation=canonical_operation,
+                    profiles=entity_filtered,
+                    policy_decision=policy_decision,
+                    task_score=context.task.score_for(canonical_operation),
+                )
+            )
+
+        ranked_groups = sorted(
+            task_candidates,
+            key=lambda group: (-group.task_score, group.canonical_operation),
+        )[: context.task.top_k]
+
+        resolved: list[ResolvedOperation] = []
+        candidate_map: dict[str, CapabilityProfile] = {}
+        for group in ranked_groups:
             operation, operation_candidates = self._build_resolved_operation(
-                canonical_operation,
-                entity_filtered,
+                group.canonical_operation,
+                group.profiles,
+                policy_decision=group.policy_decision,
+                task_score=group.task_score,
             )
             resolved.append(operation)
             candidate_map.update(operation_candidates)
 
         return ResolutionResult(
-            resolved_operations=tuple(
-                sorted(resolved, key=lambda item: item.canonical_operation)
-            ),
+            resolved_operations=tuple(resolved),
             provider_candidates=candidate_map,
         )
 
@@ -158,6 +317,9 @@ class OperationResolver:
         self,
         canonical_operation: str,
         profiles: tuple[CapabilityProfile, ...],
+        *,
+        policy_decision: str,
+        task_score: float,
     ) -> tuple[ResolvedOperation, dict[str, CapabilityProfile]]:
         self._require_consensus(profiles, "category")
         input_schema = self._require_consensus(profiles, "input_schema")
@@ -185,9 +347,9 @@ class OperationResolver:
                     profile.execution_freshness for profile in profiles
                 ),
                 effects=self._aggregate_effects(profiles),
-                policy_decision="ALLOW",
+                policy_decision=policy_decision,
                 risk=self._aggregate_risk(profiles),
-                task_score=0.0,
+                task_score=task_score,
                 preview_supported=all(profile.preview_supported for profile in profiles),
                 rollback_supported=all(profile.rollback_supported for profile in profiles),
                 verification_contract=deepcopy(verification_contract),
@@ -265,8 +427,7 @@ class OperationResolver:
                 f"cannot conservatively aggregate unknown risk values: {unknown}"
             )
 
-        highest = max(normalized, key=self._RISK_ORDER.__getitem__)
-        return highest
+        return max(normalized, key=self._RISK_ORDER.__getitem__)
 
     @staticmethod
     def _operation_id(canonical_operation: str) -> str:
