@@ -8,6 +8,7 @@ from host_contracts.result import HostCommandResult
 from autocad_sidecar.adapter.context_adapter import ContextAdapter
 from autocad_sidecar.adapter.model_adapter import ModelAdapter
 from autocad_sidecar.adapter.view_adapter import ViewAdapter
+from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
 
 
 class RecordingHost:
@@ -17,6 +18,13 @@ class RecordingHost:
     async def send_command(self, command):
         self.commands.append(command)
         return HostCommandResult(command_id=command.command_id, status="OK", payload={})
+
+
+class DocumentAwareRecordingHost(RecordingHost):
+    async def send_command(self, command):
+        self.commands.append(command)
+        payload = {"documentId": "drawing-001"} if command.operation == "context.current_document" else {}
+        return HostCommandResult(command_id=command.command_id, status="OK", payload=payload)
 
 
 @pytest.mark.asyncio
@@ -46,18 +54,50 @@ async def test_view_adapter_emits_current_contract_fields():
 
 
 @pytest.mark.asyncio
-async def test_model_adapter_emits_current_contract_fields():
+async def test_model_adapter_emits_canonical_move_contract():
     host = RecordingHost()
     await ModelAdapter(host).move(
-        ["2AF"], 5.0, 2.0, 1.0, idempotency_key="move-1", revision=100
+        ["2AF"],
+        5.0,
+        2.0,
+        1.0,
+        document_id="drawing-001",
+        idempotency_key="move-1",
+        revision=100,
     )
 
     command = host.commands[-1]
     assert command.mode == "EXECUTE"
     assert command.operation == "move.v1"
-    assert command.arguments == {"handles": ["2AF"], "dx": 5.0, "dy": 2.0, "dz": 1.0}
+    assert command.document_id == "drawing-001"
+    assert [ref.to_dict() for ref in command.target_native_refs] == [
+        {"document_id": "drawing-001", "native_id": "2AF"}
+    ]
+    assert command.arguments == {"displacement": {"x": 5.0, "y": 2.0, "z": 1.0}}
     assert command.preconditions == [{"type": "revision", "expected": 100}]
     assert command.idempotency_key == "move-1"
+
+
+@pytest.mark.asyncio
+async def test_command_dispatcher_resolves_document_before_canonical_move():
+    host = DocumentAwareRecordingHost()
+    dispatcher = CommandDispatcher(host=host)
+
+    result = await dispatcher.move(
+        ["2AF"], 5.0, 2.0, 1.0, idempotency_key="move-1", revision=100
+    )
+
+    assert result.ok
+    assert [command.operation for command in host.commands] == [
+        "context.current_document",
+        "move.v1",
+    ]
+    move = host.commands[-1]
+    assert move.document_id == "drawing-001"
+    assert [ref.to_dict() for ref in move.target_native_refs] == [
+        {"document_id": "drawing-001", "native_id": "2AF"}
+    ]
+    assert move.arguments == {"displacement": {"x": 5.0, "y": 2.0, "z": 1.0}}
 
 
 def test_plugin_sources_use_current_contract_api_only():
@@ -82,6 +122,8 @@ def test_plugin_sources_use_current_contract_api_only():
     assert "ErrorShape" in sources["dispatcher"]
     assert "command.Preconditions" in sources["revision"]
     assert "command.Arguments" in sources["move"]
+    assert "command.TargetNativeRefs" in sources["move"]
+    assert 'TryGetProperty("displacement"' in sources["move"]
     assert "command.Arguments" in sources["fit"]
     assert "NativeId =" in sources["entities"]
     assert "NativeType =" in sources["entities"]
@@ -102,6 +144,10 @@ def test_plugin_sources_use_current_contract_api_only():
         "entityRef.Handle",
         "EntityRef = change.Value.EntityRef",
         "Revision = (int)Native.AcNative.ActiveDocumentRevision()",
+        'TryGetProperty("handles"',
+        'TryGetProperty("dx"',
+        'TryGetProperty("dy"',
+        'TryGetProperty("dz"',
     )
     combined = "\n".join(sources.values())
     for token in forbidden:
