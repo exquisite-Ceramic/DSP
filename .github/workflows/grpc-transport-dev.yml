@@ -22,3 +22,13 @@ jobs:
         run: git diff --exit-code -- hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
       - name: Run transport proto shape test
         run: pytest -q tests/contracts/test_transport_proto_shape.py
+
+  transport-dotnet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run transport assembly tests
+        run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj --configuration Release
