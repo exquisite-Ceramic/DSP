@@ -4,7 +4,7 @@
   "title": "RequestEnvelope",
   "description": "Unified request envelope (spec A.8 / §26.1). request_id is unique per transport attempt; idempotency_key is REQUIRED for side-effecting payloads.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["request_id", "payload"],
   "properties": {
     "request_id": {

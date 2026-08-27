@@ -4,7 +4,7 @@
   "title": "HostCommand",
   "description": "Host command (spec A.4). Mutating modes (EXECUTE, ROLLBACK) MUST carry idempotency_key.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["command_id", "document_id", "mode", "operation"],
   "properties": {
     "command_id": { "type": "string" },
