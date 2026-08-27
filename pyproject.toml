@@ -25,7 +25,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "contracts/python/tests"]
-pythonpath = ["contracts/python", "hosts/autocad/sidecar/src"]
+pythonpath = [
+    "contracts/python",
+    "hosts/autocad/sidecar/src",
+    "platform/orchestrator/src",
+]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: 需要真实宿主（AutoCAD + sidecar）的测试",
