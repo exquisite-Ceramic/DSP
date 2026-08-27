@@ -4,6 +4,7 @@ Talks to the sidecar's CommandDispatcher (preferred) through the selected
 host transport.
 
 Usage:
+    python tools/host_test_client/main.py document
     python tools/host_test_client/main.py selection
     python tools/host_test_client/main.py move --handle 2A1 --dx 10 --dy 5
     python tools/host_test_client/main.py fit
@@ -19,10 +20,11 @@ import sys
 
 from autocad_sidecar.adapter.host_adapter import HostAdapter
 from autocad_sidecar.ipc.transport_selector import build_transport
-from host_test_client.commands import current_selection, fit, move
+from host_test_client.commands import current_document, current_selection, fit, move
 from host_test_client.scenarios import move_once, move_retry, revision_conflict
 
 COMMANDS = {
+    "document": current_document.run,
     "selection": current_selection.run,
     "move": move.run,
     "fit": fit.run,
@@ -46,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--instance-id", default=None, help="AutoCAD host instance id for gRPC")
     parser.add_argument("--pipe", default="EnterpriseDesignAgent", help="named pipe name")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_doc = sub.add_parser("document", help="read current document")
+    p_doc.set_defaults(kind="command")
 
     p_sel = sub.add_parser("selection", help="read current selection")
     p_sel.set_defaults(kind="command")
