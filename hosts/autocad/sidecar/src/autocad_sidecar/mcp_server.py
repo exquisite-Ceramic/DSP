@@ -108,11 +108,19 @@ def build_tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
-def build_mcp_server(dispatcher: CommandDispatcher) -> MCPServer:
+def build_mcp_server(
+    dispatcher: CommandDispatcher,
+    *,
+    lifespan: Any | None = None,
+) -> MCPServer:
     """Create the stateless-capable MCP server without exposing Host native APIs."""
 
     definitions = {tool["name"]: tool for tool in build_tool_definitions()}
-    server = MCPServer("DSP AutoCAD Sidecar")
+    server = (
+        MCPServer("DSP AutoCAD Sidecar", lifespan=lifespan)
+        if lifespan is not None
+        else MCPServer("DSP AutoCAD Sidecar")
+    )
 
     @server.tool(
         name="context.current_document",

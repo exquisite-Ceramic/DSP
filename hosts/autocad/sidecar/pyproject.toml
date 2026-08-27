@@ -11,6 +11,9 @@ dependencies = [
     "mcp>=2,<3",
 ]
 
+[project.scripts]
+autocad-sidecar-mcp = "autocad_sidecar.mcp_main:main"
+
 [project.optional-dependencies]
 pipe = ["pywin32>=306"]
 grpc-build = ["grpcio-tools==1.70.0"]
