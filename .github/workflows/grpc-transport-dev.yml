@@ -14,7 +14,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install pytest
-        run: python -m pip install pytest
+      - name: Install transport test dependencies
+        run: |
+          python -m pip install pytest
+          python -m pip install -e contracts/python
+          python -m pip install -e 'hosts/autocad/sidecar[grpc-build]'
+      - name: Generate Python transport stubs
+        run: python tools/generate_host_transport.py
       - name: Run transport proto shape test
         run: pytest -q tests/contracts/test_transport_proto_shape.py
+      - name: Upload generated transport stubs
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-python-transport-stubs
+          path: |
+            hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2.py
+            hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py
