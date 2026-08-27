@@ -34,6 +34,7 @@ public static class AutoCADDocumentApi
     private static ObjectEventHandler? _objectModifiedHandler;
     private static ObjectErasedEventHandler? _objectErasedHandler;
     private static ObjectEventHandler? _objectAppendedHandler;
+    private static DocumentCollectionEventHandler? _documentActivatedHandler;
 
     public static Document GetActiveDocument() =>
         Application.DocumentManager.MdiActiveDocument
@@ -85,18 +86,43 @@ public static class AutoCADDocumentApi
     {
         DetachChangeHandlers();
 
-        var db = GetActiveDocument().Database;
-        _attachedDatabase = db;
         _objectModifiedHandler = (sender, args) => objectChanged(sender, args);
         _objectErasedHandler = (sender, args) => objectErased(sender, args);
         _objectAppendedHandler = (sender, args) => objectAdded(sender, args);
+        _documentActivatedHandler = (sender, args) =>
+            BindChangeHandlersToDatabase(args.Document.Database);
 
-        db.ObjectModified += _objectModifiedHandler;
-        db.ObjectErased += _objectErasedHandler;
-        db.ObjectAppended += _objectAppendedHandler;
+        Application.DocumentManager.DocumentActivated += _documentActivatedHandler;
+        BindChangeHandlersToDatabase(GetActiveDocument().Database);
     }
 
-    public static void DetachChangeHandlers()
+    private static void BindChangeHandlersToDatabase(Database db)
+    {
+        if (ReferenceEquals(_attachedDatabase, db))
+        {
+            return;
+        }
+
+        DetachDatabaseChangeHandlers();
+        _attachedDatabase = db;
+
+        if (_objectModifiedHandler is not null)
+        {
+            db.ObjectModified += _objectModifiedHandler;
+        }
+
+        if (_objectErasedHandler is not null)
+        {
+            db.ObjectErased += _objectErasedHandler;
+        }
+
+        if (_objectAppendedHandler is not null)
+        {
+            db.ObjectAppended += _objectAppendedHandler;
+        }
+    }
+
+    private static void DetachDatabaseChangeHandlers()
     {
         var db = _attachedDatabase;
         if (db is null)
@@ -119,9 +145,20 @@ public static class AutoCADDocumentApi
             db.ObjectAppended -= _objectAppendedHandler;
         }
 
+        _attachedDatabase = null;
+    }
+
+    public static void DetachChangeHandlers()
+    {
+        if (_documentActivatedHandler is not null)
+        {
+            Application.DocumentManager.DocumentActivated -= _documentActivatedHandler;
+            _documentActivatedHandler = null;
+        }
+
+        DetachDatabaseChangeHandlers();
         _objectModifiedHandler = null;
         _objectErasedHandler = null;
         _objectAppendedHandler = null;
-        _attachedDatabase = null;
     }
 }
