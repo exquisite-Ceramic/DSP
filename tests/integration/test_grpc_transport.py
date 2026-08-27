@@ -1,13 +1,16 @@
 import asyncio
+import json
+import os
+from pathlib import Path
 
 import grpc
 import pytest
 
-from autocad_sidecar.ipc.discovery import HostEndpoint
+from autocad_sidecar.ipc.base import FrameTransport
 from autocad_sidecar.ipc.grpc_transport import GrpcTransport
 from autocad_sidecar.ipc.generated import host_transport_v1_pb2 as pb2
 from autocad_sidecar.ipc.generated import host_transport_v1_pb2_grpc as pb2_grpc
-from autocad_sidecar.ipc.transport import PipeTransport, Transport
+from autocad_sidecar.ipc.transport import PipeTransport
 
 
 class _RecordingServicer(pb2_grpc.AutoCadHostServicer):
@@ -58,18 +61,27 @@ class _Abort(Exception):
         self.details = details
 
 
-def _endpoint(port: int, **overrides) -> HostEndpoint:
-    values = {
-        "instance_id": "instance-001",
-        "pid": 1234,
-        "host": "127.0.0.1",
-        "port": port,
-        "transport": "grpc-h2c",
-        "contract_version": "1.0",
-        "auth_token": "token-001",
-    }
-    values.update(overrides)
-    return HostEndpoint(**values)
+def _write_endpoint(
+    directory: Path,
+    port: int,
+    *,
+    instance_id: str = "instance-001",
+    contract_version: str = "1.0",
+    auth_token: str = "token-001",
+) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{instance_id}.json").write_text(
+        json.dumps({
+            "instance_id": instance_id,
+            "pid": os.getpid(),
+            "host": "127.0.0.1",
+            "port": port,
+            "transport": "grpc-h2c",
+            "contract_version": contract_version,
+            "auth_token": auth_token,
+        }),
+        encoding="utf-8",
+    )
 
 
 async def _serve(servicer: _RecordingServicer):
@@ -80,19 +92,21 @@ async def _serve(servicer: _RecordingServicer):
     return server, port
 
 
-def test_pipe_and_grpc_transports_share_transport_protocol():
-    grpc_transport = GrpcTransport(_endpoint(53182))
+def test_pipe_and_grpc_transports_share_transport_protocol(tmp_path):
+    _write_endpoint(tmp_path, 53182)
+    grpc_transport = GrpcTransport("instance-001", discovery_dir=tmp_path)
     pipe_transport = PipeTransport("dsp-test")
 
-    assert isinstance(grpc_transport, Transport)
-    assert isinstance(pipe_transport, Transport)
+    assert isinstance(grpc_transport, FrameTransport)
+    assert isinstance(pipe_transport, FrameTransport)
 
 
-def test_open_pings_identity_and_sends_bearer_token():
+def test_open_pings_identity_and_sends_bearer_token(tmp_path):
     async def _case():
         servicer = _RecordingServicer()
         server, port = await _serve(servicer)
-        transport = GrpcTransport(_endpoint(port))
+        _write_endpoint(tmp_path, port)
+        transport = GrpcTransport("instance-001", discovery_dir=tmp_path)
         try:
             await transport.open()
             assert servicer.auth_headers == ["Bearer token-001"]
@@ -103,11 +117,12 @@ def test_open_pings_identity_and_sends_bearer_token():
     asyncio.run(_case())
 
 
-def test_open_rejects_ping_identity_mismatch():
+def test_open_rejects_ping_identity_mismatch(tmp_path):
     async def _case():
         servicer = _RecordingServicer(instance_id="other-instance")
         server, port = await _serve(servicer)
-        transport = GrpcTransport(_endpoint(port))
+        _write_endpoint(tmp_path, port)
+        transport = GrpcTransport("instance-001", discovery_dir=tmp_path)
         try:
             with pytest.raises(ConnectionError, match="instance_id|identity"):
                 await transport.open()
@@ -118,15 +133,16 @@ def test_open_rejects_ping_identity_mismatch():
     asyncio.run(_case())
 
 
-def test_exchange_preserves_contract_bytes_exactly():
+def test_exchange_preserves_contract_bytes_exactly(tmp_path):
     async def _case():
         servicer = _RecordingServicer()
         server, port = await _serve(servicer)
-        transport = GrpcTransport(_endpoint(port))
+        _write_endpoint(tmp_path, port)
+        transport = GrpcTransport("instance-001", discovery_dir=tmp_path)
         request = b'{"request_id":"r-1","payload":{"x":500}}'
         try:
             await transport.open()
-            response = await transport.exchange(request)
+            response = await transport.exchange(request, timeout_s=5.0)
             assert response == request
             assert servicer.dispatch_payloads == [request]
             assert servicer.auth_headers == ["Bearer token-001", "Bearer token-001"]
@@ -137,10 +153,12 @@ def test_exchange_preserves_contract_bytes_exactly():
     asyncio.run(_case())
 
 
-def test_exchange_before_open_is_rejected():
+def test_exchange_before_open_is_rejected(tmp_path):
+    _write_endpoint(tmp_path, 53182)
+
     async def _case():
-        transport = GrpcTransport(_endpoint(53182))
+        transport = GrpcTransport("instance-001", discovery_dir=tmp_path)
         with pytest.raises(ConnectionError, match="not open|not connected"):
-            await transport.exchange(b"{}")
+            await transport.exchange(b"{}", timeout_s=1.0)
 
     asyncio.run(_case())
