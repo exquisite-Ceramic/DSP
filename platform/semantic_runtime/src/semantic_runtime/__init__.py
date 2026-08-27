@@ -1,5 +1,6 @@
 """Progressive Semantic Runtime public surface."""
 
+from semantic_runtime.adapters import requirements_from_mappings
 from semantic_runtime.freshness import (
     AspectGuarantee,
     AspectRequirement,
@@ -53,4 +54,5 @@ __all__ = [
     "SnapshotSetError",
     "build_context_contract",
     "build_operation_contract",
+    "requirements_from_mappings",
 ]
