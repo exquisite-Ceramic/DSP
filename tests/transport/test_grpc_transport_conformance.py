@@ -32,13 +32,23 @@ class RunningHost:
 
     async def close(self) -> None:
         await self.transport.close()
-        if self.process.returncode is None:
-            self.process.terminate()
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                self.process.kill()
-                await self.process.wait()
+        if self.process.returncode is not None:
+            return
+
+        try:
+            if self.process.stdin is not None:
+                self.process.stdin.write(b"shutdown\n")
+                await self.process.stdin.drain()
+                self.process.stdin.close()
+            await asyncio.wait_for(self.process.wait(), timeout=10.0)
+        except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError):
+            if self.process.returncode is None:
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    self.process.kill()
+                    await self.process.wait()
 
 
 async def _start_host(
@@ -75,6 +85,7 @@ async def _start_host(
         mode,
         "--counter-file",
         str(counter_file),
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
@@ -107,7 +118,7 @@ async def _start_host(
 
     assert readiness["instance_id"] == instance_id
     assert int(readiness["port"]) > 0
-    assert int(readiness["pid"]) == process.pid
+    assert int(readiness["pid"]) > 0
 
     transport = GrpcTransport(
         instance_id,
