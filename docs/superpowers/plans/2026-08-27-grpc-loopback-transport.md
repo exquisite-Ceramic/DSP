@@ -22,6 +22,7 @@
 - The new transport assembly must not reference any `Autodesk.*` assembly or expose any `Autodesk.*` public type.
 - Native AutoCAD mutation cancellation is cooperative and only honored at safe points; no half-applied document mutation is allowed.
 - No runtime `protoc` invocation; generated Python transport modules are checked in/packaged, while C# generation is performed at build time by `Grpc.Tools`.
+- `host-contracts` is installed from this repository (`pip install -e contracts/python`) before installing the Sidecar; implementation/CI must not assume a published `host-contracts` package exists.
 - Legacy framing deletion and ADR-002 supersession are a separate cleanup change after the real-host gate; they are not part of this plan.
 
 ---
@@ -172,13 +173,21 @@ pipe = ["pywin32>=306"]
 grpc-build = ["grpcio-tools>=1.70,<2"]
 ```
 
-`tools/generate_host_transport.py` must invoke `python -m grpc_tools.protoc` with the repository root as the proto include root and write Python outputs directly into `autocad_sidecar/ipc/generated/`. It must exit nonzero if generation fails and must not run from production startup code.
+`tools/generate_host_transport.py` must:
+
+1. use `contracts/proto` as the proto include directory;
+2. write both Python outputs to `hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/`;
+3. verify both expected files were generated;
+4. rewrite the generated gRPC module's sibling import from `import host_transport_v1_pb2 as ...` to `from . import host_transport_v1_pb2 as ...` so importing through `autocad_sidecar.ipc.generated` works reliably;
+5. fail if the expected import pattern is absent instead of silently producing a broken package;
+6. never run from production Sidecar startup.
 
 - [ ] **Step 5: Generate and run the test GREEN**
 
 Run:
 
 ```bash
+pip install -e contracts/python
 pip install -e 'hosts/autocad/sidecar[grpc-build]'
 python tools/generate_host_transport.py
 pytest -q tests/contracts/test_transport_proto_shape.py
@@ -244,10 +253,10 @@ Expected: FAIL because the transport project/types do not exist.
 
 - [ ] **Step 3: Create project boundaries**
 
-The production project targets `net8.0-windows`, uses `FrameworkReference Include="Microsoft.AspNetCore.App"`, references `Grpc.AspNetCore` and `Grpc.Tools`, and includes:
+The production project targets `net8.0-windows`, uses `FrameworkReference Include="Microsoft.AspNetCore.App"`, references `Grpc.AspNetCore` and `Grpc.Tools`, and includes the proto using the correct five-level path back to repository root:
 
 ```xml
-<Protobuf Include="..\..\..\..\contracts\proto\host_transport_v1.proto"
+<Protobuf Include="..\..\..\..\..\contracts\proto\host_transport_v1.proto"
           GrpcServices="Server" />
 ```
 
@@ -545,6 +554,8 @@ Use `grpc.aio.insecure_channel`; attach bearer metadata on every RPC. `open()` m
 Run:
 
 ```bash
+pip install -e contracts/python
+pip install -e hosts/autocad/sidecar
 pytest -q tests/integration/test_transport_selector.py tests/integration/test_host_adapter_transport.py
 pytest -q contracts/python/tests tests/contracts
 ```
@@ -651,7 +662,14 @@ Workflow requirements:
 runs-on: windows-latest
 ```
 
-Set up Python 3.11 and .NET 8, install `-e hosts/autocad/sidecar`, run the transport .NET tests, then run the Python conformance file. Do not require Autodesk binaries.
+Set up Python 3.11 and .NET 8, then install in this order:
+
+```powershell
+pip install -e contracts/python
+pip install -e hosts/autocad/sidecar
+```
+
+Run the transport .NET tests and then the Python conformance file. Do not require Autodesk binaries.
 
 - [ ] **Step 7: Run the full local suite and push to trigger Actions**
 
@@ -828,6 +846,8 @@ The test client must pass the same `transport/instance_id/pipe` choices into `Ho
 Run:
 
 ```bash
+pip install -e contracts/python
+pip install -e hosts/autocad/sidecar
 pytest -q tests/integration/test_sidecar_transport_cli.py
 pytest -q contracts/python/tests tests/contracts tests/integration
 ```
@@ -898,6 +918,8 @@ Default switch gate: docs/runbooks/autocad-grpc-smoke.md
 Run:
 
 ```bash
+pip install -e contracts/python
+pip install -e hosts/autocad/sidecar
 pytest -q contracts/python/tests tests/contracts tests/integration tests/transport
 
 dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj
@@ -945,5 +967,8 @@ Before execution begins, verify:
 - Deadline/cancellation have both .NET-level and Python↔C# coverage.
 - The transport project has a Native/Autodesk leak gate.
 - Plugin wiring remains dual-stack and pipe remains default.
+- Local/CI Python install order installs `contracts/python` before the Sidecar.
+- Python generated gRPC code imports its sibling pb2 module package-relatively.
+- The C# proto include path resolves from `hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc` back to repository-root `contracts/proto` using five `..` segments.
 - Real AutoCAD evidence is required before any default switch claim.
 - Named Pipe cleanup is explicitly outside this plan.
