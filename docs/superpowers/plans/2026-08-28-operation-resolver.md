@@ -4,18 +4,20 @@
 
 **Goal:** Implement the D4 Operation Resolver so discovered provider capabilities are first aggregated by `canonical_operation`, then filtered in strict Host → Entity → Policy → Task order, producing 3–10 canonical `ResolvedOperation` choices when enough candidates exist plus a provider-free dynamic structured-output schema for the LLM.
 
-**Architecture:** Put D4 in a host-neutral orchestrator package under `platform/orchestrator/src/design_orchestrator`. The resolver consumes provider profiles structurally (no AutoCAD import), keeps provider candidates as internal routing hints only, and emits a canonical LLM projection. Provider selection/binding remains deferred to the later ExecutionUnit → ProviderBinding stage.
+**Architecture:** Put D4 in a host-neutral orchestrator package under `platform/orchestrator/src/design_orchestrator`. Provider MCP schemas remain provider-facing execution contracts. A platform-owned `CanonicalOperationDefinition` catalog supplies Host-independent LLM argument schemas; later `ProviderBinding.input_adapter_version` is responsible for translating canonical arguments into provider-specific tool inputs. The resolver keeps provider candidates as internal routing hints only and never selects/binds a provider.
 
-**Tech Stack:** Python 3.11, dataclasses, typing Protocol, pytest, GitHub Actions.
+**Tech Stack:** Python 3.11, dataclasses, typing Protocol, pytest, jsonschema, GitHub Actions.
 
-**Spec:** `Enterprise_Collaborative_Design_Agent_Spec_v0.5.md` §5.3, §6.1–6.5, Appendix D step 4, Appendix E.1–E.3.
+**Spec:** `Enterprise_Collaborative_Design_Agent_Spec_v0.5.md` §5.3, §6.1–6.5, §16.2–16.4, Appendix D step 4, Appendix E.1–E.3.
 
 ## Global Constraints
 
 - Aggregate provider profiles by `canonical_operation` before any filtering.
-- Filtering order is exactly Host → Entity → Policy → Task.
+- Platform canonical definitions are a contract gate: unknown canonical operations never expand the LLM action space.
+- Provider MCP `inputSchema` / `outputSchema` MUST NOT be reused as canonical LLM schemas; provider schemas may legitimately differ for the same canonical operation.
+- Filtering order is exactly Host → Entity → Policy → Task after canonical contract gating.
 - Host and Entity filters are hard constraints; Policy is governance; Task performs relevance/ranking/top-K.
-- LLM Action Space MUST NOT contain `provider_server`, `provider_tool`, AutoCAD ObjectId, command strings, approval tokens, execution grants, or idempotency keys.
+- LLM Action Space MUST NOT contain `provider_server`, `provider_tool`, AutoCAD ObjectId/handles, command strings, approval tokens, execution grants, idempotency keys, or provider transport revision fields.
 - `candidate_provider_ids` are internal routing hints and MUST NOT be emitted by the LLM projection/schema.
 - LLM chooses canonical operations only; provider binding/selection does not occur in D4.
 - D5 Semantic Runtime, D6 Parameter Binder, and D7 ChangeSet/approval execution are out of scope.
@@ -31,27 +33,21 @@
 - Create: `.github/workflows/operation-resolver.yml`
 - Modify: `pyproject.toml`
 
-**Interfaces:**
-- Consumes D3-like provider profile attributes: `provider_server`, `provider_tool`, `canonical_operation`, `category`, `entity_constraints`, `execution_freshness`, `effects`, `risk`, `preview_supported`, `rollback_supported`, `verification_contract`, `input_schema`, `output_schema`.
-- Produces failing tests importing `design_orchestrator.operation_resolver`.
+- [x] **Step 1: Write failing tests**
 
-- [ ] **Step 1: Write failing tests**
+Cover two MOVE providers aggregating to one `move.v1`, Host filtering, Entity filtering, and provider candidates staying internal.
 
-Create a structural `Profile` test dataclass and tests asserting: two MOVE providers aggregate to one `move.v1`; Host filtering removes unavailable provider implementations but keeps the canonical operation if another survives; Entity filtering removes unsupported implementations; provider identities remain internal.
+- [x] **Step 2: Configure test import path and CI**
 
-- [ ] **Step 2: Configure test import path and CI**
+Add `platform/orchestrator/src` to pytest `pythonpath`; run focused D4 tests and full Python regression in GitHub Actions.
 
-Add `platform/orchestrator/src` to pytest `pythonpath`. Add an `operation-resolver.yml` workflow that installs the existing Python dependencies and runs focused D4 tests plus the full Python regression suite.
+- [x] **Step 3: Verify RED**
 
-- [ ] **Step 3: Run CI and verify RED**
+Observed expected `ModuleNotFoundError: design_orchestrator` before production code existed.
 
-Run: `pytest -q tests/orchestrator/test_operation_resolver.py`
+- [x] **Step 4: Commit RED only**
 
-Expected: import/collection failure because `design_orchestrator.operation_resolver` does not exist.
-
-- [ ] **Step 4: Commit RED only**
-
-Commit message: `test(orchestrator): define D4 operation resolver contract`
+Commit: `8cb717a test(orchestrator): define D4 operation resolver contract`.
 
 ---
 
@@ -65,99 +61,103 @@ Commit message: `test(orchestrator): define D4 operation resolver contract`
 **Interfaces:**
 - `CapabilityProfile` Protocol: host-neutral structural provider capability contract.
 - `ResolutionContext(host_provider_servers, entity_kinds, policy, task)`.
-- `ResolvedOperation` fields: `operation_id`, `canonical_operation`, `input_schema`, `entity_constraints`, `context_freshness_requirements`, `operation_freshness_requirements`, `effects`, `policy_decision`, `risk`, `task_score`, `preview_supported`, `rollback_supported`, `verification_contract`, `candidate_provider_ids`.
-- `ResolutionResult(resolved_operations, provider_candidates)` where `provider_candidates` maps opaque candidate IDs to provider profiles and is internal/non-LLM-facing.
-- `OperationResolver.resolve(profiles, context) -> ResolutionResult`.
+- `ResolvedOperation`: `operation_id`, `canonical_operation`, `input_schema`, entity/freshness/effects/policy/risk/task/lifecycle/verification fields, plus internal `candidate_provider_ids`.
+- `ResolutionResult(resolved_operations, provider_candidates)` keeps provider profiles internal.
 
-- [ ] **Step 1: Aggregate first**
+- [x] **Step 1: Aggregate first**
 
-Sort profiles deterministically and group by `canonical_operation` before filters. Candidate IDs are deterministic opaque IDs used only inside the result.
+Group deterministically by `canonical_operation` before Host/Entity/Policy/Task filtering.
 
-- [ ] **Step 2: Apply Host filter**
+- [x] **Step 2: Apply Host filter**
 
-Within each canonical group keep only profiles whose `provider_server` is in `context.host_provider_servers`. Remove the canonical group only if no provider implementation survives.
+Remove unavailable provider implementations while preserving the canonical operation if at least one implementation survives.
 
-- [ ] **Step 3: Apply Entity filter**
+- [x] **Step 3: Apply Entity filter**
 
-For each remaining provider, empty `entity_constraints` means unrestricted. Otherwise all current `entity_kinds` must be supported by that provider. Remove the group if no provider survives.
+Require all current entity kinds to be supported by each candidate provider unless its entity constraint list is unrestricted.
 
-- [ ] **Step 4: Build canonical operation without provider binding**
+- [x] **Step 4: Build canonical operation without provider binding**
 
-Require surviving providers for the same canonical operation to agree on canonical contract fields that must not vary by provider: category, input schema, output schema, and verification contract. Raise `CapabilityConflictError` on disagreement. Aggregate entity constraints/effects deterministically, use conservative maximum risk, conservative `all(...)` for preview/rollback claims, and union operation freshness requirements. `context_freshness_requirements` remains empty in D4 because D5 supplies semantic freshness facts later.
+Keep opaque deterministic provider candidate IDs internal. Aggregate provider execution freshness, effects, conservative risk, preview, and rollback claims without ranking/binding a provider.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
-Run: `pytest -q tests/orchestrator/test_operation_resolver.py`
+Focused D4 and full Python regression passed before the Policy/Task slice.
 
-Expected: Task 2 cases pass.
+- [x] **Step 6: Commit**
 
-- [ ] **Step 6: Commit**
-
-Commit message: `feat(orchestrator): aggregate and filter operation providers`
+Commit: `d87cd5b feat(orchestrator): aggregate and filter operation providers`.
 
 ---
 
 ### Task 3: Add Policy filter, Task ranking/top-K, and provider-free LLM schema
 
-**Files:**
-- Modify: `platform/orchestrator/src/design_orchestrator/operation_resolver.py`
-- Modify: `tests/orchestrator/test_operation_resolver.py`
+- [x] **Step 1: Add failing tests**
 
-**Interfaces:**
-- `OperationPolicy(decisions)` where decisions are `ALLOW`, `APPROVAL_REQUIRED`, or `DENY`; `DENY` removes the operation and `APPROVAL_REQUIRED` keeps it with that `policy_decision`.
-- `TaskConstraints(allowed_operations=None, scores={}, top_k=10)` where `top_k` is constrained to 3–10.
-- `ResolutionResult.llm_action_space() -> tuple[dict[str, object], ...]` omits `candidate_provider_ids` and all provider-level identity.
-- `ResolutionResult.structured_output_schema() -> dict[str, object]` emits a constrained canonical operation schema using only canonical names and each operation's canonical input schema.
+Cover Policy `DENY` / `APPROVAL_REQUIRED`, task allowlist, score ordering, deterministic ties, top-K 3–10, provider identity absence, and valid dynamic JSON Schema.
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 2: Verify RED**
 
-Add tests for policy DENY, policy APPROVAL_REQUIRED retention, task allowlist, score ordering, deterministic tie-breaks, top-K, conflicting canonical contracts, and recursive provider-identity absence from both `llm_action_space()` and `structured_output_schema()`.
+Observed expected import failure for `OperationPolicy` before implementation.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 3: Implement Policy then Task filters**
 
-Run: `pytest -q tests/orchestrator/test_operation_resolver.py`
+Policy follows Host/Entity. Task allowlist/scoring is last; rank by descending task score with canonical-operation tie-break and take `top_k`. Return all survivors when fewer than three exist rather than inventing actions.
 
-Expected: new policy/task/schema assertions fail while Task 2 cases remain green.
+- [x] **Step 4: Implement LLM projection and dynamic schema**
 
-- [ ] **Step 3: Implement Policy then Task filters in strict order**
+`llm_action_space()` omits candidate/provider identity. `structured_output_schema()` constrains the LLM to canonical operation names and canonical arguments.
 
-Policy is applied after Host/Entity. Task allowlist/scoring is applied last. Sort by descending task score and canonical operation as deterministic tie-break, then take `top_k`; if fewer than three operations survive, return all survivors rather than inventing operations.
+- [x] **Step 5: Verify GREEN**
 
-- [ ] **Step 4: Implement LLM projection and dynamic schema**
+Initial slice: 14 focused tests and full regression passed.
 
-Expose canonical `ResolvedOperation` fields needed for planning, but omit `candidate_provider_ids`. Structured output uses canonical operation IDs and canonical arguments only.
+- [x] **Step 6: Commit**
 
-- [ ] **Step 5: Verify focused and full regression suites**
+Commit: `70c87c7 feat(orchestrator): enforce canonical D4 action-space filtering`.
 
-Run:
-- `pytest -q tests/orchestrator/test_operation_resolver.py`
-- `pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator`
+---
 
-Expected: focused D4 suite green; existing D3/full Python suite remains green except existing live-AutoCAD skips.
+### Task 3A: Review fix — separate canonical schemas from provider MCP schemas
 
-- [ ] **Step 6: Commit**
+**Finding:** The first implementation incorrectly treated each provider's MCP `inputSchema` as `ResolvedOperation.input_schema`. Real `cad.move` uses provider execution arguments `handles`, `dx`, `dy`, `dz`, `idempotency_key`, and `revision`, which would violate Appendix E if exposed to the LLM.
 
-Commit message: `feat(orchestrator): enforce canonical D4 action-space filtering`
+- [x] **Step 1: Add review RED tests before fixing**
+
+Use the real D3 `build_tool_definitions()` + `parse_design_capability()` path. Assert `cad.move` keeps provider execution arguments internally while the LLM sees only canonical `move.v1(targets, displacement)`. Also prove two providers with different provider schemas can aggregate to the same canonical operation and unknown platform operations stay hidden.
+
+- [x] **Step 2: Verify RED**
+
+Observed expected `ModuleNotFoundError: design_orchestrator.canonical_operations`.
+
+- [x] **Step 3: Add platform canonical operation catalog**
+
+Create `CanonicalOperationDefinition` and MVP `MOVE_V1`. `OperationResolver` requires explicit canonical definitions, gates provider claims by canonical category/verification contract, and never uses provider `input_schema` / `output_schema` for the LLM surface.
+
+- [x] **Step 4: Preserve late binding boundary**
+
+Provider-specific MCP schemas remain in internal `provider_candidates`; argument translation is explicitly deferred to later `ProviderBinding.input_adapter_version`.
+
+- [x] **Step 5: Verify GREEN with real D3 integration**
+
+Run `33107846458`: focused D4 **16 passed**; full Python regression **141 passed, 4 skipped** (all four are existing live-AutoCAD gated tests).
+
+- [x] **Step 6: Commit**
+
+Commits: `b4af51f test(orchestrator): separate canonical and provider schemas` and `025b403 fix(orchestrator): separate canonical and provider schemas`.
 
 ---
 
 ### Task 4: Review and stacked PR
 
-**Files:**
-- Review all D4 diff files.
-- Create a stacked PR with base `feat/design-capability-profile` while PR #3 remains open.
+- [x] **Step 1: Review architecture invariants**
 
-**Interfaces:**
-- PR states D4 depends on D3 and should be retargeted/rebased onto `main` after PR #3 merges.
+Confirm aggregation precedes the four filters; Host→Entity→Policy→Task ordering is preserved; provider MCP schemas stay internal; no LLM-facing serialization includes provider identity/host arguments; no provider ranking/binding exists; no D5–D7 concepts were introduced.
 
-- [ ] **Step 1: Review architecture invariants**
+- [ ] **Step 2: Verify final CI at the final PR head SHA**
 
-Confirm aggregation happens before filtering, filter order is Host→Entity→Policy→Task, no LLM-facing serialization includes provider identity, no provider ranking/binding exists, and no D5–D7 concepts were introduced.
-
-- [ ] **Step 2: Verify final CI at PR head SHA**
-
-Only claim completion from fresh successful GitHub Actions output.
+Only claim completion from fresh successful GitHub Actions output at the final head.
 
 - [ ] **Step 3: Open stacked PR**
 
-Title: `feat(orchestrator): add D4 operation resolver`
+Base: `feat/design-capability-profile` while PR #3 remains open. Title: `feat(orchestrator): add D4 operation resolver`. State dependency on D3 and retarget/rebase to `main` after PR #3 merges.
