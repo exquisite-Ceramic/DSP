@@ -1,0 +1,26 @@
+name: Design capability profile verification
+
+on:
+  pull_request:
+    paths:
+      - 'hosts/autocad/sidecar/**'
+      - 'tests/integration/test_design_capability_profile.py'
+      - '.github/workflows/design-capability-profile.yml'
+  workflow_dispatch:
+
+jobs:
+  capability-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install packages
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install -e contracts/python -e hosts/autocad/sidecar
+      - name: Run capability profile tests
+        run: pytest -q tests/integration/test_design_capability_profile.py
+      - name: Run full Python regression tests
+        run: pytest -q contracts/python/tests tests/contracts tests/integration
