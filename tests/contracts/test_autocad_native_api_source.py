@@ -46,6 +46,14 @@ def test_change_handlers_adapt_autocad_delegate_types_and_detach():
     assert "ObjectAppended -=" in DOCUMENT
 
 
+def test_change_handlers_rebind_on_document_activation_and_unsubscribe():
+    assert "DocumentActivated +=" in DOCUMENT
+    assert "DocumentActivated -=" in DOCUMENT
+    assert "DocumentCollectionEventHandler" in DOCUMENT
+    assert "BindChangeHandlersToDatabase" in DOCUMENT
+    assert "args.Document.Database" in DOCUMENT
+
+
 def test_move_does_not_wrap_native_translate_in_second_transaction():
     assert "TransactionRunner.Run" not in MOVE
     assert "Native.AutoCADEntityApi.Translate(" in MOVE
