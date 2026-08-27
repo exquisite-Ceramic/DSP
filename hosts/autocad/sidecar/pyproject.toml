@@ -6,10 +6,13 @@ requires-python = ">=3.11"
 # host-contracts is the Python mirror of contracts/ (pip install -e contracts/python)
 dependencies = [
     "host-contracts>=0.1.0",
+    "grpcio>=1.70,<2",
+    "protobuf>=5.29,<7",
 ]
 
 [project.optional-dependencies]
 pipe = ["pywin32>=306"]
+grpc-build = ["grpcio-tools>=1.70,<2"]
 
 [build-system]
 requires = ["setuptools>=68"]
