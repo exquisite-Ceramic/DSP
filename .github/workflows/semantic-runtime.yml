@@ -7,11 +7,13 @@ on:
     paths:
       - 'platform/semantic_runtime/**'
       - 'tests/semantic_runtime/**'
+      - 'docs/superpowers/plans/2026-08-28-semantic-runtime.md'
       - '.github/workflows/semantic-runtime.yml'
   pull_request:
     paths:
       - 'platform/semantic_runtime/**'
       - 'tests/semantic_runtime/**'
+      - 'docs/superpowers/plans/2026-08-28-semantic-runtime.md'
       - '.github/workflows/semantic-runtime.yml'
   workflow_dispatch:
 
