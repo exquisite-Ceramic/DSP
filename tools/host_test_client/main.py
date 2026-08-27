@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
+from autocad_sidecar.adapter.host_adapter import HostAdapter
+from autocad_sidecar.ipc.transport_selector import build_transport
 from host_test_client.commands import current_selection, fit, move
 from host_test_client.scenarios import move_once, move_retry, revision_conflict
 
@@ -34,6 +37,13 @@ SCENARIOS = {
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="host_test_client", description="AutoCAD agent host test client")
+    parser.add_argument(
+        "--transport",
+        choices=["pipe", "grpc"],
+        default=os.getenv("DSP_AUTOCAD_TRANSPORT", "pipe"),
+        help="host transport (default: pipe; env: DSP_AUTOCAD_TRANSPORT)",
+    )
+    parser.add_argument("--instance-id", default=None, help="AutoCAD host instance id for gRPC")
     parser.add_argument("--pipe", default="EnterpriseDesignAgent", help="named pipe name")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -59,9 +69,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_host_adapter(args: argparse.Namespace) -> HostAdapter:
+    transport = build_transport(
+        args.transport,
+        pipe_name=args.pipe,
+        instance_id=args.instance_id,
+    )
+    return HostAdapter(pipe_name=args.pipe, transport=transport)
+
+
 async def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    kwargs = {k: v for k, v in vars(args).items() if k not in {"command", "kind", "pipe"}}
+    kwargs = {
+        k: v
+        for k, v in vars(args).items()
+        if k not in {"command", "kind", "pipe", "transport", "instance_id"}
+    }
 
     if args.kind == "command":
         result = await COMMANDS[args.command](pipe_name=args.pipe, **kwargs)
