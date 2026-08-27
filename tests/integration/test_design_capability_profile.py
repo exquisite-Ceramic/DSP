@@ -106,6 +106,8 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
     assert move_tool["_meta"]["com.company.design/execution_freshness"] == [
         {"aspect": "PLACEMENT", "required_state": "FRESH"}
     ]
+    assert move_tool["_meta"]["com.company.design/preview"] is False
+    assert move_tool["_meta"]["com.company.design/rollback"] is False
 
 
 @pytest.mark.asyncio
