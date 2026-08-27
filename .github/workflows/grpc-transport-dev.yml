@@ -1,0 +1,20 @@
+name: gRPC transport development verification
+
+on:
+  push:
+    branches:
+      - feat/grpc-loopback-transport
+  workflow_dispatch:
+
+jobs:
+  transport-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Run transport proto shape test
+        run: pytest -q tests/contracts/test_transport_proto_shape.py
