@@ -1,0 +1,23 @@
+name: gRPC transport conformance
+
+on:
+  push:
+    branches:
+      - feat/grpc-loopback-transport
+  workflow_dispatch:
+
+jobs:
+  python-csharp-conformance:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install conformance test dependencies
+        run: python -m pip install pytest pytest-asyncio 'grpcio>=1.70,<2' 'protobuf>=5.29,<7'
+      - name: Run Python C# gRPC conformance
+        run: pytest -q tests/transport/test_grpc_transport_conformance.py
