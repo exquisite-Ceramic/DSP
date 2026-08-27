@@ -40,7 +40,7 @@ public sealed class ChangeSensor
         _attached = false;
     }
 
-    private void OnObjectChanged(object sender, EventArgs args)
+    private void OnObjectChanged(object? sender, EventArgs args)
     {
         // Collect per-transaction; the builder collapses events into deltas.
         foreach (var delta in _builder.Build(sender, args, operation: "modified"))
@@ -49,7 +49,7 @@ public sealed class ChangeSensor
         }
     }
 
-    private void OnObjectAdded(object sender, EventArgs args)
+    private void OnObjectAdded(object? sender, EventArgs args)
     {
         foreach (var delta in _builder.Build(sender, args, operation: "created"))
         {
@@ -57,7 +57,7 @@ public sealed class ChangeSensor
         }
     }
 
-    private void OnObjectErased(object sender, EventArgs args)
+    private void OnObjectErased(object? sender, EventArgs args)
     {
         foreach (var delta in _builder.Build(sender, args, operation: "deleted"))
         {
