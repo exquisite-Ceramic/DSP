@@ -36,10 +36,9 @@ class PipeTransport:
         # Executed on the default executor: win32file.CreateFile blocks.
         import win32con
         import win32file
-        import win32pipe
 
         def _connect() -> object:
-            handle = win32file.CreateFile(
+            return win32file.CreateFile(
                 self.full_name,
                 win32con.GENERIC_READ | win32con.GENERIC_WRITE,
                 0,  # exclusive
@@ -48,10 +47,6 @@ class PipeTransport:
                 win32con.FILE_ATTRIBUTE_NORMAL,
                 None,
             )
-            win32pipe.SetNamedPipeHandleState(
-                handle, win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT, None, None
-            )
-            return handle
 
         self._handle = await asyncio.get_running_loop().run_in_executor(None, _connect)
 

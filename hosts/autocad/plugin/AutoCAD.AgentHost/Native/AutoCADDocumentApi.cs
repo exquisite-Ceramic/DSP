@@ -30,6 +30,11 @@ public static class AutoCADDocumentApi
 {
     private static readonly Dictionary<string, Identity.DrawingIdentity> Identities = new(StringComparer.OrdinalIgnoreCase);
 
+    private static Database? _attachedDatabase;
+    private static ObjectEventHandler? _objectModifiedHandler;
+    private static ObjectErasedEventHandler? _objectErasedHandler;
+    private static ObjectEventHandler? _objectAppendedHandler;
+
     public static Document GetActiveDocument() =>
         Application.DocumentManager.MdiActiveDocument
         ?? throw new InvalidOperationException("no active document.");
@@ -78,15 +83,45 @@ public static class AutoCADDocumentApi
         EventHandler objectErased,
         EventHandler objectAdded)
     {
+        DetachChangeHandlers();
+
         var db = GetActiveDocument().Database;
-        db.ObjectModified += objectChanged;
-        db.ObjectErased += objectErased;
-        db.ObjectAppended += objectAdded;
+        _attachedDatabase = db;
+        _objectModifiedHandler = (sender, args) => objectChanged(sender, args);
+        _objectErasedHandler = (sender, args) => objectErased(sender, args);
+        _objectAppendedHandler = (sender, args) => objectAdded(sender, args);
+
+        db.ObjectModified += _objectModifiedHandler;
+        db.ObjectErased += _objectErasedHandler;
+        db.ObjectAppended += _objectAppendedHandler;
     }
 
     public static void DetachChangeHandlers()
     {
-        // Detach requires the same delegate instances; the sensor keeps them
-        // and calls back here. Placeholder: iterate DocumentManager documents.
+        var db = _attachedDatabase;
+        if (db is null)
+        {
+            return;
+        }
+
+        if (_objectModifiedHandler is not null)
+        {
+            db.ObjectModified -= _objectModifiedHandler;
+        }
+
+        if (_objectErasedHandler is not null)
+        {
+            db.ObjectErased -= _objectErasedHandler;
+        }
+
+        if (_objectAppendedHandler is not null)
+        {
+            db.ObjectAppended -= _objectAppendedHandler;
+        }
+
+        _objectModifiedHandler = null;
+        _objectErasedHandler = null;
+        _objectAppendedHandler = null;
+        _attachedDatabase = null;
     }
 }

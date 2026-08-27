@@ -5,7 +5,7 @@ namespace AutoCAD.AgentHost.ChangeCapture;
 /// <summary>Builds current HostDelta DTOs from committed AutoCAD change events.</summary>
 public sealed class HostDeltaBuilder
 {
-    public IReadOnlyList<HostDelta> Build(object sender, EventArgs args, string operation)
+    public IReadOnlyList<HostDelta> Build(object? sender, EventArgs args, string operation)
     {
         var change = Native.AutoCADEntityApi.DescribeChange(sender, args, operation);
         if (change is null)

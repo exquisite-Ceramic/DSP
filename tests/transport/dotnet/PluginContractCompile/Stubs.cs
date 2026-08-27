@@ -14,7 +14,7 @@ namespace AutoCAD.AgentHost.Native
     {
         public static IReadOnlyList<HostEntityRef> GetSelectedEntityRefs() => Array.Empty<HostEntityRef>();
         public static Dictionary<string, JsonElement> ReadPositions(IEnumerable<string> handles) => new();
-        public static void Translate(object database, IEnumerable<string> handles, double dx, double dy, double dz) { }
+        public static void Translate(IEnumerable<string> handles, double dx, double dy, double dz) { }
         public static object? GetEntityByHandle(string handle) => new object();
         public static (HostEntityRef EntityRef, JsonElement? Before, JsonElement? After)? DescribeChange(
             object sender,
@@ -38,11 +38,6 @@ namespace AutoCAD.AgentHost.Execution
         {
             public void Dispose() { }
         }
-    }
-
-    public static class TransactionRunner
-    {
-        public static void Run(Action<object> action) => action(new object());
     }
 }
 

@@ -19,8 +19,8 @@ public sealed class PluginLifecycle
 {
     private NamedPipeServer? _pipeServer;
     private ChangeSensor? _sensor;
-    private DiscoveryLease? _discoveryLease;
-    private GrpcHostHandle? _grpcHost;
+    private CancellationTokenSource? _grpcStartupCts;
+    private Task? _grpcStartupTask;
 
     public void Start()
     {
@@ -34,16 +34,14 @@ public sealed class PluginLifecycle
         _pipeServer = new NamedPipeServer(dispatcher);
         _pipeServer.Start();
 
-        try
-        {
-            StartGrpcAsync(dispatcher).GetAwaiter().GetResult();
-        }
-        catch (Exception exception)
-        {
-            Trace.TraceError(
-                "AutoCAD gRPC transport failed to start; Named Pipe remains available. {0}",
-                exception);
-        }
+        // AutoCAD calls Initialize on its UI thread. Never synchronously wait on
+        // Kestrel startup from that thread: async continuations can otherwise
+        // deadlock the host synchronization context during NETLOAD.
+        _grpcStartupCts = new CancellationTokenSource();
+        var cancellationToken = _grpcStartupCts.Token;
+        _grpcStartupTask = Task.Run(
+            () => RunGrpcLifetimeAsync(dispatcher, cancellationToken),
+            CancellationToken.None);
 
         _sensor = new ChangeSensor(new HostDeltaBuilder(), new EventQueue());
         _sensor.Attach();
@@ -54,14 +52,35 @@ public sealed class PluginLifecycle
         _sensor?.Detach();
         _sensor = null;
 
-        DisposeDiscoveryLease();
-        DisposeGrpcHost();
+        var grpcCts = _grpcStartupCts;
+        var grpcTask = _grpcStartupTask;
+        _grpcStartupCts = null;
+        _grpcStartupTask = null;
+
+        grpcCts?.Cancel();
+        if (grpcCts is not null)
+        {
+            if (grpcTask is null)
+            {
+                grpcCts.Dispose();
+            }
+            else
+            {
+                _ = grpcTask.ContinueWith(
+                    _ => grpcCts.Dispose(),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+        }
 
         _pipeServer?.Stop();
         _pipeServer = null;
     }
 
-    private async Task StartGrpcAsync(RequestDispatcher dispatcher)
+    private async Task RunGrpcLifetimeAsync(
+        RequestDispatcher dispatcher,
+        CancellationToken cancellationToken)
     {
         var instanceId = Guid.NewGuid().ToString("D");
         var authToken = CreateAuthToken();
@@ -76,36 +95,62 @@ public sealed class PluginLifecycle
         try
         {
             host = await GrpcHostServer.StartAsync(
-                new GrpcRequestDispatcherTarget(dispatcher),
-                identity,
-                new GrpcHostOptions(Host: "127.0.0.1", Port: 0));
+                    new GrpcRequestDispatcherTarget(dispatcher),
+                    identity,
+                    new GrpcHostOptions(Host: "127.0.0.1", Port: 0),
+                    cancellationToken)
+                .ConfigureAwait(false);
 
             // Publication happens only after Kestrel has returned the actual
             // dynamic port, so clients cannot discover an unbound endpoint.
-            lease = await new DiscoveryPublisher().PublishAsync(new HostDiscoveryRecord(
-                instanceId,
-                Environment.ProcessId,
-                "127.0.0.1",
-                host.Port,
-                "grpc-h2c",
-                ContractVersion.Current,
-                authToken));
+            lease = await new DiscoveryPublisher().PublishAsync(
+                    new HostDiscoveryRecord(
+                        instanceId,
+                        Environment.ProcessId,
+                        "127.0.0.1",
+                        host.Port,
+                        "grpc-h2c",
+                        ContractVersion.Current,
+                        authToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-            _grpcHost = host;
-            _discoveryLease = lease;
-            host = null;
-            lease = null;
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal plugin shutdown.
+        }
+        catch (Exception exception)
+        {
+            Trace.TraceError(
+                "AutoCAD gRPC transport failed to start; Named Pipe remains available. {0}",
+                exception);
         }
         finally
         {
             if (lease is not null)
             {
-                await lease.DisposeAsync();
+                try
+                {
+                    await lease.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    Trace.TraceError("Failed to remove AutoCAD gRPC discovery record. {0}", exception);
+                }
             }
 
             if (host is not null)
             {
-                await host.DisposeAsync();
+                try
+                {
+                    await host.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    Trace.TraceError("Failed to stop AutoCAD gRPC transport. {0}", exception);
+                }
             }
         }
     }
@@ -117,43 +162,5 @@ public sealed class PluginLifecycle
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
-    }
-
-    private void DisposeDiscoveryLease()
-    {
-        var lease = _discoveryLease;
-        _discoveryLease = null;
-        if (lease is null)
-        {
-            return;
-        }
-
-        try
-        {
-            lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        }
-        catch (Exception exception)
-        {
-            Trace.TraceError("Failed to remove AutoCAD gRPC discovery record. {0}", exception);
-        }
-    }
-
-    private void DisposeGrpcHost()
-    {
-        var host = _grpcHost;
-        _grpcHost = null;
-        if (host is null)
-        {
-            return;
-        }
-
-        try
-        {
-            host.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        }
-        catch (Exception exception)
-        {
-            Trace.TraceError("Failed to stop AutoCAD gRPC transport. {0}", exception);
-        }
     }
 }
