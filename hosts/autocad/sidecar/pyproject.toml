@@ -8,6 +8,7 @@ dependencies = [
     "host-contracts>=0.1.0",
     "grpcio>=1.70,<2",
     "protobuf>=5.29,<7",
+    "mcp>=2,<3",
 ]
 
 [project.optional-dependencies]
