@@ -7,9 +7,9 @@ import pytest
 from autocad_sidecar.ipc.discovery import HostEndpoint, load_instance
 
 
-def _write_record(directory: Path, instance_id: str, **overrides) -> None:
+def _write_record(directory: Path, file_instance_id: str, **overrides) -> None:
     record = {
-        "instance_id": instance_id,
+        "instance_id": file_instance_id,
         "pid": os.getpid(),
         "host": "127.0.0.1",
         "port": 53182,
@@ -19,7 +19,7 @@ def _write_record(directory: Path, instance_id: str, **overrides) -> None:
     }
     record.update(overrides)
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{instance_id}.json").write_text(json.dumps(record), encoding="utf-8")
+    (directory / f"{file_instance_id}.json").write_text(json.dumps(record), encoding="utf-8")
 
 
 def test_load_instance_returns_valid_endpoint(tmp_path):
