@@ -20,6 +20,7 @@ from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
 from autocad_sidecar.execution.idempotency import IdempotencyStore
 from autocad_sidecar.execution.retry import RetryPolicy
 from autocad_sidecar.health.host_status import StatusMonitor
+from autocad_sidecar.ipc.transport_selector import build_transport
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
 def validate_transport_args(args: argparse.Namespace) -> None:
     if args.transport == "grpc" and not args.instance_id:
         raise ValueError("instance_id is required for grpc transport")
+
+
+def build_host_adapter(args: argparse.Namespace) -> HostAdapter:
+    validate_transport_args(args)
+    transport = build_transport(
+        args.transport,
+        pipe_name=args.pipe,
+        instance_id=args.instance_id,
+    )
+    return HostAdapter(pipe_name=args.pipe, transport=transport)
 
 
 async def run_status(adapter: HostAdapter) -> int:
@@ -66,9 +77,7 @@ async def run_serve(adapter: HostAdapter, status_interval: float) -> int:
 
 async def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    validate_transport_args(args)
-
-    adapter = HostAdapter(pipe_name=args.pipe)
+    adapter = build_host_adapter(args)
     dispatcher = CommandDispatcher(
         host=adapter,
         idempotency=IdempotencyStore(),
