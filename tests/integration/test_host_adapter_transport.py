@@ -32,6 +32,35 @@ class FakeTransport:
         self.closed = True
 
 
+class StatusProbeTransport(FakeTransport):
+    async def exchange(self, payload: bytes, *, timeout_s: float | None = None) -> bytes:
+        self.payloads.append(payload)
+        self.timeouts.append(timeout_s)
+        request = json.loads(payload)
+        command = request.get("payload", {})
+
+        if command.get("operation") == "context.current_document":
+            result = {
+                "command_id": command["command_id"],
+                "status": "OK",
+                "payload": {
+                    "documentId": "drawing-001",
+                    "documentName": "drawing.dwg",
+                    "revision": 12,
+                },
+            }
+        else:
+            # Keeps the old empty-payload status path parseable so the RED
+            # assertion identifies the contract shape mismatch directly.
+            result = {"state": "ready"}
+
+        return json.dumps({
+            "request_id": request["request_id"],
+            "status": "OK",
+            "result": result,
+        }).encode()
+
+
 def _deadline(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).isoformat().replace("+00:00", "Z")
 
@@ -114,3 +143,19 @@ async def test_no_business_deadline_uses_transport_maximum():
     ))
 
     assert transport.timeouts == [7.0]
+
+
+@pytest.mark.asyncio
+async def test_get_status_probes_current_document_over_current_contract():
+    transport = StatusProbeTransport()
+    adapter = HostAdapter(transport=transport)
+
+    status = await adapter.get_status()
+
+    sent = json.loads(transport.payloads[-1])
+    assert sent["payload"]["mode"] == "READ"
+    assert sent["payload"]["operation"] == "context.current_document"
+    assert status.state == "ready"
+    assert status.document_id == "drawing-001"
+    assert status.document_name == "drawing.dwg"
+    assert status.revision == 12
