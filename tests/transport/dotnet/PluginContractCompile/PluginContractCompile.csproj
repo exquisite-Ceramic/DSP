@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../contracts/dotnet/HostContracts/HostContracts.csproj" />
+
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Ipc/ContractSerializer.cs" Link="Plugin/Ipc/ContractSerializer.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Ipc/RequestDispatcher.cs" Link="Plugin/Ipc/RequestDispatcher.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Commands/HostCommandHandler.cs" Link="Plugin/Commands/HostCommandHandler.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Commands/Context/CurrentDocumentHandler.cs" Link="Plugin/Commands/Context/CurrentDocumentHandler.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Commands/Context/CurrentSelectionHandler.cs" Link="Plugin/Commands/Context/CurrentSelectionHandler.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Commands/View/FitEntitiesHandler.cs" Link="Plugin/Commands/View/FitEntitiesHandler.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Commands/Model/MoveHandler.cs" Link="Plugin/Commands/Model/MoveHandler.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Execution/IdempotencyStore.cs" Link="Plugin/Execution/IdempotencyStore.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Execution/RevisionGuard.cs" Link="Plugin/Execution/RevisionGuard.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/ChangeCapture/HostDeltaBuilder.cs" Link="Plugin/ChangeCapture/HostDeltaBuilder.cs" />
+    <Compile Include="../../../../hosts/autocad/plugin/AutoCAD.AgentHost/Identity/HandleResolver.cs" Link="Plugin/Identity/HandleResolver.cs" />
+  </ItemGroup>
+</Project>

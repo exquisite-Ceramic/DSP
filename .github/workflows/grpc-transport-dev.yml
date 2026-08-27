@@ -42,6 +42,8 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Run transport assembly tests
         run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj --configuration Release
+      - name: Compile plugin contract surface without Autodesk SDK
+        run: dotnet build tests/transport/dotnet/PluginContractCompile/PluginContractCompile.csproj --configuration Release
 
   transport-discovery-python:
     runs-on: windows-latest
