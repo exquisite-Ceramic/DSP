@@ -18,7 +18,11 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Install conformance test dependencies
-        run: python -m pip install pytest pytest-asyncio jsonschema 'grpcio>=1.70,<2' 'grpcio-tools==1.70.0' 'protobuf>=5.29,<7'
+        run: python -m pip install pytest pytest-asyncio jsonschema 'grpcio-tools==1.70.0'
+      - name: Install local Python packages
+        run: |
+          python -m pip install -e contracts/python
+          python -m pip install -e hosts/autocad/sidecar
       - name: Run production transport .NET tests
         run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj --configuration Release
       - name: Regenerate Python transport stubs
