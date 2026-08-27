@@ -1,19 +1,19 @@
 # AutoCAD gRPC Real-Host Smoke Gate
 
 This runbook is the real-host rollout gate for ADR-004 (`gRPC over loopback for AutoCAD IPC`).
-It validates the opt-in gRPC transport against a supported AutoCAD installation before any
-separate change switches the default transport away from Named Pipe.
+It validates the opt-in gRPC transport against AutoCAD 2025 before any separate change switches
+the default transport away from Named Pipe.
 
 Current default transport: Named Pipe
 Opt-in migration transport: gRPC over loopback
-Default-switch gate: docs/runbooks/autocad-grpc-smoke.md
+Default-switch gate: `docs/runbooks/autocad-grpc-smoke.md`
 
-A failed or unverified item below blocks the default switch. It does **not** require reverting
-the dual-stack implementation. Named Pipe remains available during this migration phase.
+A failed or unverified item below blocks the default switch. It does **not** require reverting the
+dual-stack implementation. Named Pipe remains available during the migration phase.
 
 ## Supported validation environment
 
-Record the exact environment used for each evidence run:
+Record the exact environment used for a validation session:
 
 | Field | Value |
 | --- | --- |
@@ -36,8 +36,7 @@ The in-process gRPC host uses ASP.NET Core/Kestrel. On the validated AutoCAD 202
 `Microsoft.NETCore.App` and `Microsoft.WindowsDesktop.App` entries. Back up the file before
 changing it; an AutoCAD repair/update may replace it.
 
-The machine must also have a compatible `Microsoft.AspNetCore.App` 8.x runtime installed.
-Verify with:
+The machine must also have a compatible `Microsoft.AspNetCore.App` 8.x runtime installed:
 
 ```powershell
 dotnet --list-runtimes | Select-String 'Microsoft.AspNetCore.App'
@@ -63,63 +62,43 @@ hosts\autocad\plugin\AutoCAD.AgentHost\bin\Debug\net8.0-windows\AutoCAD.AgentHos
 
 `NETLOAD` must return without blocking the AutoCAD UI.
 
-## Discovery setup
+## Discovery and Python setup
 
-After load, wait briefly and inspect discovery:
+Discovery records live under:
 
 ```powershell
 $discovery = Join-Path $env:LOCALAPPDATA 'EnterpriseDesignAgent\hosts'
-
-Get-ChildItem $discovery -Filter *.json |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object Name, LastWriteTime
-
-$recordFile = Get-ChildItem $discovery -Filter *.json |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-
-$record = Get-Content $recordFile.FullName -Raw | ConvertFrom-Json
-$instance = $record.instance_id
-$record | Select-Object instance_id, pid, host, port, transport, contract_version
+Get-ChildItem $discovery -Filter *.json
 ```
 
-Expected:
+Expected record properties:
 
 - `host == 127.0.0.1`
 - `port > 0`
 - `transport == grpc-h2c`
-- the PID belongs to the loaded AutoCAD process
-- the record appears only after the gRPC listener is usable
+- PID belongs to the loaded AutoCAD process
+- record appears only after the listener is usable
 
-Do not paste or attach `auth_token` to reviews or logs. Record only whether authentication tests
-passed.
+Never paste or attach bearer token values to reviews or logs. Record only boolean authentication
+evidence such as `tokens_distinct=true` or `cross_token_rejected=true`.
 
-## Python setup
-
-The repository test client bootstraps repository source roots itself, so no manual `PYTHONPATH`
-is required:
-
-```powershell
-Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-```
-
-For the sidecar module entry point, install the local packages first:
+Install the local Python packages when using module entry points:
 
 ```powershell
 python -m pip install -e .\contracts\python
 python -m pip install -e .\hosts\autocad\sidecar
 ```
 
+The repository test client bootstraps its own source roots; no manual `PYTHONPATH` is required.
+
 ## Gate checklist
 
 ### 1. Plugin load and discovery publication
 
-**Pass criteria:** AutoCAD remains responsive after `NETLOAD`; one discovery record for this
-process appears; the recorded loopback endpoint accepts gRPC.
+**Pass criteria:** AutoCAD remains responsive after `NETLOAD`; a discovery record for the process
+appears; the endpoint accepts gRPC.
 
-Evidence to record: AutoCAD PID, `instance_id`, port, contract version, and pass/fail.
-
-### 2. Sidecar Ping/status with exact instance id
+### 2. Sidecar status with exact instance id
 
 ```powershell
 python -m autocad_sidecar.main `
@@ -128,9 +107,7 @@ python -m autocad_sidecar.main `
     status
 ```
 
-**Pass criteria:** exit code 0 and status state `ready` or `busy`. This proves discovery, bearer
-authentication, Ping/open, Dispatch, contract decoding, command routing, and native document
-access for the selected instance.
+**Pass criteria:** exit code 0 and state `ready` or `busy`.
 
 ### 3. CurrentDocument
 
@@ -141,12 +118,11 @@ python tools/host_test_client/main.py `
     document
 ```
 
-**Pass criteria:** `status='OK'`, with the active AutoCAD document id/name and current revision.
-Record the revision as `$revisionBefore` for later mutation checks.
+**Pass criteria:** `status='OK'`, active document id/name, and current revision.
 
 ### 4. CurrentSelection
 
-Create/select a real entity in AutoCAD, then:
+Select a real entity in AutoCAD, then:
 
 ```powershell
 python tools/host_test_client/main.py `
@@ -155,204 +131,72 @@ python tools/host_test_client/main.py `
     selection
 ```
 
-**Pass criteria:** `status='OK'` and at least one real entity reference. Record one handle as
-`$handle`.
-
-Example PowerShell values for following steps:
-
-```powershell
-$handle = '<native handle from selection>'
-$revisionBefore = <revision from document/selection>
-```
+**Pass criteria:** `status='OK'` and at least one real entity reference.
 
 ### 5. MOVE once with revision and verification
 
-Use a fixed idempotency key and the current revision:
+Run a MOVE with the current revision and a new idempotency key.
 
-```powershell
-$key = [guid]::NewGuid().ToString()
-
-python tools/host_test_client/main.py `
-    --transport grpc `
-    --instance-id $instance `
-    move --handle $handle --dx 1 --dy 0 `
-    --revision $revisionBefore `
-    --idempotency-key $key
-```
-
-**Pass criteria:**
-
-- `status='OK'`
-- `moved == 1`
-- `verification.ok == True`
-- `revision_after == revisionBefore + 1`
-- the entity moved exactly once in AutoCAD
-
-Record the returned position and `revision_after` as `$revisionAfter`.
+**Pass criteria:** `status='OK'`, `moved == 1`, `verification.ok == True`, revision increments by
+exactly one, and the selected entity moves exactly once.
 
 ### 6. Replay the same idempotency key without a second mutation
 
-Run the exact same MOVE command again with the same `$key` and original revision:
+Replay the exact MOVE with the same idempotency key and original revision.
 
-```powershell
-python tools/host_test_client/main.py `
-    --transport grpc `
-    --instance-id $instance `
-    move --handle $handle --dx 1 --dy 0 `
-    --revision $revisionBefore `
-    --idempotency-key $key
-```
-
-**Pass criteria:** the cached/replayed result is returned, `replayed=True`, revision does not
-increment again, and the entity position does not change a second time.
+**Pass criteria:** cached result is returned with `replayed=True`; position is unchanged from the
+first result and revision does not increment a second time.
 
 ### 7. Stale revision remains a DSP business error
 
-Use a **new** idempotency key with the now-stale `$revisionBefore`:
+Send a new MOVE idempotency key with the stale pre-MOVE revision.
 
-```powershell
-$staleKey = [guid]::NewGuid().ToString()
-
-python tools/host_test_client/main.py `
-    --transport grpc `
-    --instance-id $instance `
-    move --handle $handle --dx 1 --dy 0 `
-    --revision $revisionBefore `
-    --idempotency-key $staleKey
-```
-
-**Pass criteria:** the RPC itself completes normally, the DSP result is `status='ERROR'`, and
-`error.error_code == 'REVISION_CONFLICT'`. The entity must not move.
+**Pass criteria:** RPC completes normally; DSP result is `status='ERROR'` with
+`error_code='REVISION_CONFLICT'`; no mutation occurs.
 
 ### 8. Short transport deadline returns DEADLINE_EXCEEDED safely
 
-This gate exercises the gRPC transport deadline directly with a valid DSP read command and an
-intentionally tiny timeout. It must not mutate AutoCAD state.
+Send a valid read-only `context.current_document` envelope through `GrpcTransport.exchange()` with
+an intentionally tiny transport timeout such as `1e-9` seconds.
 
-Run from the repository root after local packages are installed:
+**Pass criteria:** `grpc.StatusCode.DEADLINE_EXCEEDED`; no mutation and AutoCAD remains responsive.
 
-```powershell
-@'
-import asyncio
-import uuid
+### 9. Two simultaneous AutoCAD processes are isolated
 
-import grpc
+Start two independent AutoCAD 2025 processes and load the plugin into both.
 
-from autocad_sidecar.ipc.discovery import default_discovery_dir
-from autocad_sidecar.ipc.grpc_transport import GrpcTransport
-from autocad_sidecar.ipc.serializer import request_to_bytes
-from host_contracts.command import HostCommand
-from host_contracts.envelope import RequestEnvelope
-
-INSTANCE = r"__INSTANCE__"
-
-async def main():
-    transport = GrpcTransport(INSTANCE, discovery_dir=default_discovery_dir())
-    await transport.open()
-    try:
-        command = HostCommand(
-            command_id=str(uuid.uuid4()),
-            mode="READ",
-            operation="context.current_document",
-        )
-        envelope = RequestEnvelope(
-            request_id=str(uuid.uuid4()),
-            payload=command.to_dict(),
-        )
-        try:
-            await transport.exchange(request_to_bytes(envelope), timeout_s=1e-9)
-        except grpc.aio.AioRpcError as exc:
-            print(exc.code())
-            if exc.code() != grpc.StatusCode.DEADLINE_EXCEEDED:
-                raise
-        else:
-            raise RuntimeError("request unexpectedly completed before the tiny deadline")
-    finally:
-        await transport.close()
-
-asyncio.run(main())
-'@.Replace('__INSTANCE__', $instance) | python -
-```
-
-**Pass criteria:** output includes `StatusCode.DEADLINE_EXCEEDED`; no mutation occurs and AutoCAD
-remains responsive. If the request happens to complete before the intentionally tiny deadline,
-repeat once; persistent completion means the gate needs a deterministic test harness before it
-can be marked passed.
-
-### 9. Two simultaneous AutoCAD instances are isolated
-
-Start two AutoCAD 2025 processes and load the plugin into both. Then:
-
-```powershell
-$records = Get-ChildItem $discovery -Filter *.json |
-    ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json }
-
-$records | Select-Object instance_id, pid, host, port, contract_version
-```
-
-**Pass criteria:** at least two live records exist and the two selected AutoCAD processes have
-distinct `instance_id`, PID, port, and bearer token values. Both endpoints independently pass
-Gate 2 or Gate 3 using their own instance ids.
-
-Do not print token values in review evidence; record only `tokens_distinct=true`.
+**Pass criteria:** two live endpoints have distinct `instance_id`, PID, port, and bearer token;
+each endpoint independently returns a ready document/status result. Record only
+`tokens_distinct=true`, never token values.
 
 ### 10. Token A cannot authenticate to instance B
 
-With two live records from Gate 9, use instance A's token against instance B's endpoint through a
-raw generated stub. The request must be rejected before dispatch.
+Use instance A's bearer token against instance B's raw gRPC `Ping` endpoint.
 
-```powershell
-@'
-import asyncio
-import json
-from pathlib import Path
+**Pass criteria:** `StatusCode.UNAUTHENTICATED`; no DSP command is dispatched.
 
-import grpc
+### 11. Single-process multi-document isolation
 
-from autocad_sidecar.ipc.generated import host_transport_v1_pb2 as pb
-from autocad_sidecar.ipc.generated import host_transport_v1_pb2_grpc as pb_grpc
+In one AutoCAD process, open two different DWGs. Keep the same gRPC instance and switch active
+documents A -> B -> A -> B.
 
-DISCOVERY = Path(r"__DISCOVERY__")
-records = [json.loads(p.read_text(encoding="utf-8")) for p in DISCOVERY.glob("*.json")]
-if len(records) < 2:
-    raise RuntimeError("two live discovery records are required")
-a, b = records[0], records[1]
+**Pass criteria:** same PID/instance/port are retained; A and B have distinct `documentId` values;
+a DSP MOVE in B increments only B's revision; A's revision remains unchanged; switching back to B
+preserves B's revision.
 
-async def main():
-    channel = grpc.aio.insecure_channel(f"{b['host']}:{b['port']}")
-    try:
-        stub = pb_grpc.AutoCadHostStub(channel)
-        try:
-            await stub.Ping(
-                pb.PingRequest(instance_id=b['instance_id']),
-                metadata=(("authorization", f"Bearer {a['auth_token']}"),),
-            )
-        except grpc.aio.AioRpcError as exc:
-            print(exc.code())
-            if exc.code() != grpc.StatusCode.UNAUTHENTICATED:
-                raise
-        else:
-            raise RuntimeError("cross-instance token was unexpectedly accepted")
-    finally:
-        await channel.close()
+Change-capture implementation must also rebind database event handlers on
+`DocumentManager.DocumentActivated`. The source regression for this behavior is required because
+the current public DSP command surface does not expose `EventQueue` state for a direct live-host
+assertion that an arbitrary manual edit was consumed by the queue.
 
-asyncio.run(main())
-'@.Replace('__DISCOVERY__', $discovery) | python -
-```
+### 12. Normal AutoCAD exit removes its discovery record
 
-**Pass criteria:** `StatusCode.UNAUTHENTICATED`. No DSP command is dispatched.
+While AutoCAD is still running, first prove the selected process is alive and its discovery record
+exists. Then close that AutoCAD process normally from the UI and observe both process exit and
+record removal.
 
-### 11. AutoCAD unload/exit removes its discovery record
-
-Record the selected instance id, then close the corresponding AutoCAD process normally. After a
-brief wait:
-
-```powershell
-$recordPath = Join-Path $discovery ($instance + '.json')
-Test-Path $recordPath
-```
-
-**Pass criteria:** `False`. A surviving record after normal plugin termination blocks the gate.
+**Pass criteria:** precondition proves live process + live record; after normal exit,
+`process_exited=true` and `record_removed=true`.
 
 ## Current evidence on `feat/grpc-loopback-transport`
 
@@ -360,34 +204,49 @@ Evidence captured during the AutoCAD 2025 validation session on 2026-08-28 (UTC+
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
-| 1. Load + discovery | PASS | `NETLOAD` returned; discovery record `6c32d101-44a6-430b-b268-d56f45d97810.json` appeared; gRPC endpoint subsequently served requests. |
-| 2. Sidecar status | PENDING | gRPC open/Ping was exercised through `host_test_client`, but the exact `autocad_sidecar.main ... status` gate has not yet been recorded. |
-| 3. CurrentDocument | PASS | gRPC returned `Drawing1.dwg`, revision 0 and later revision 1. |
-| 4. CurrentSelection | PASS | gRPC returned real AutoCAD `Line` handle `2C4`. |
-| 5. MOVE once | PASS | `moved=1`, `verification.ok=True`, `revision_after=1` on real `Line` `2C4`. |
-| 6. Idempotent replay | PENDING | Not yet recorded over the real gRPC host. |
-| 7. Revision conflict | PENDING | Not yet recorded over the real gRPC host. |
-| 8. Deadline | PENDING | Automated conformance exists; real-host gate not yet recorded. |
-| 9. Two instances | PENDING | Not yet recorded. |
-| 10. Cross-token rejection | PENDING | Automated auth coverage exists; two-real-instance gate not yet recorded. |
-| 11. Discovery cleanup | PENDING | Not yet recorded on normal AutoCAD exit/unload. |
+| 1. Load + discovery | PASS | `NETLOAD` returned without blocking; discovery was published and the endpoint subsequently served authenticated gRPC requests. |
+| 2. Sidecar status | PASS | `state='ready'`, document `Drawing1.dwg`, process exit code `0`. |
+| 3. CurrentDocument | PASS | gRPC returned real active document `Drawing1.dwg`, including revision changes observed during the session. |
+| 4. CurrentSelection | PASS | gRPC returned a real AutoCAD `Line` entity reference/handle. |
+| 5. MOVE once | PASS | Real Line MOVE returned `moved=1`, `verification.ok=True`, and revision incremented exactly once. |
+| 6. Idempotent replay | PASS | First/second results had identical position and `revision_after=2`; second result reported `replayed=True`; scenario exit code `0`. |
+| 7. Revision conflict | PASS | Stale request returned DSP `REVISION_CONFLICT` (`expected revision 1, current is 2`) with scenario exit code `0`; no second mutation. |
+| 8. Deadline | PASS | First real-host attempt returned `StatusCode.DEADLINE_EXCEEDED`; gate exit code `0`; request was read-only. |
+| 9. Two processes | PASS | PID `2576` / instance `b059b136-4897-4f4d-b78d-04c7e9eadd55` / port `59505` and PID `55080` / instance `07a7a664-6648-408d-aa1c-3c5586620b3c` / port `62248`; instance IDs, PIDs, ports, and tokens all distinct; both states `ready`. |
+| 10. Cross-token rejection | PASS | Token from process A against process B returned `StatusCode.UNAUTHENTICATED`; `cross_token_rejected=true`; no token value recorded. |
+| 11. One process, two documents | PASS | On PID `52824`, instance `ec7791b8-77a0-4bb7-9861-371d9e9dae90`, A=`Drawing22.dwg` revision `0`; B=`Drawing11.dwg` revision `0 -> 1` after MOVE; switching back to A kept revision `0`; switching again to B kept revision `1`. |
+| 12. Discovery cleanup | PASS | Retry precondition proved PID `58444`, instance `07375240-bdf5-4d39-a226-6eccf93a36bd`, port `58002` was alive with a live record; normal UI exit produced `process_exited=true`, `record_removed=true`, `GATE12_PASS`. |
 
-Additional evidence already collected in the same session:
+### Validation notes
 
-- Named Pipe document/selection/move/fit smoke passed.
-- gRPC document/selection/move/fit smoke passed.
-- direct test-client execution works without manual `PYTHONPATH`.
+- The Gate 6 replay flag exposed a real Sidecar bug: cached results were returned without
+  `replayed=True`. A regression was added first, the failure was observed in CI, and
+  `IdempotencyStore.recall()` was fixed to return a replay-marked copy.
+- The multi-document review exposed a real AutoCAD lifecycle gap: change handlers were bound only
+  to the database active at plugin start. A regression was added first and observed failing
+  (`1 failed, 116 passed, 4 skipped`), then the native wrapper was changed to rebind on
+  `DocumentActivated` and unsubscribe on detach.
+- The latest AutoCAD-specific fix commit used for Gate 11/12 was
+  `157c54d88fc401ede20944c5d477dbb3e0d95bf6`. The AutoCAD 2025 SDK build of that head completed
+  successfully before the Gate 11 live-host run.
+- Gates captured earlier in the same session were on the same feature line before the
+  document-activation rebinding change. That later change is limited to native change-handler
+  lifecycle; the impacted multi-document and shutdown paths were rerun on the latest plugin.
+- Named Pipe document/selection/move/fit smoke also passed during the session.
+- Direct test-client execution works without manual `PYTHONPATH`.
 - Pipe auto-discovery works when `--pipe` is omitted.
-- `python -m pytest`: 118 passed, 4 live-host tests skipped.
-- AutoCAD 2025 plugin SDK build: 0 errors; existing MSB3277 assembly-version warnings remain.
-- GitHub Actions `gRPC transport conformance` and `gRPC transport development verification` passed on the validated branch head.
+- Known AutoCAD SDK build warnings remain the existing MSB3277 assembly-version warnings; the
+  validated plugin build had no errors.
 
 ## Default-switch decision
 
-Do **not** change the repository default transport to gRPC until all 11 real-host gates are marked
-PASS with evidence attached to the review.
+All 12 real-host gates are now recorded as PASS for the dual-stack feature validation.
 
-After all gates pass, create a separate review that changes only transport selection defaults and
-related documentation. After gRPC has operated successfully through the agreed validation window,
-create another separately approved cleanup review for Named Pipe server/client framing, pipe-only
-tests/dependencies, and ADR-002 historical/superseded status.
+This does **not** switch the repository default transport. Merge/review of the dual-stack feature,
+a later default change from Named Pipe to gRPC, and eventual Named Pipe removal are separate
+reviews.
+
+Before merging the dual-stack feature, verify the latest branch head has green repository CI and
+is not behind `main`. A later default-switch review should change only transport-selection defaults
+and related documentation. Named Pipe cleanup must remain a separately approved later review after
+the agreed gRPC validation window.
