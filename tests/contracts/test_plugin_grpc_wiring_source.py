@@ -19,7 +19,9 @@ def test_plugin_lifecycle_does_not_block_autocad_thread_on_grpc_startup():
     assert "StartGrpcAsync(dispatcher).GetAwaiter().GetResult()" not in lifecycle
     assert "_grpcStartupTask = Task.Run(" in lifecycle
     assert "_grpcStartupCts" in lifecycle
-    assert "_grpcStartupCts?.Cancel();" in lifecycle
+    assert "grpcCts?.Cancel();" in lifecycle
+    assert "RunGrpcLifetimeAsync" in lifecycle
+    assert "ConfigureAwait(false)" in lifecycle
 
 
 def test_plugin_project_references_transport_project():
