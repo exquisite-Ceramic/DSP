@@ -30,8 +30,8 @@ jobs:
           tests/integration/test_sidecar_transport_cli.py
           tests/integration/test_host_test_client_transport_cli.py
           tests/integration/test_host_test_client_transport_injection.py
-      - name: Run contract regression tests
-        run: pytest -q contracts/python/tests tests/contracts
+      - name: Run full Python regression tests
+        run: pytest -q contracts/python/tests tests/contracts tests/integration
 
   transport-dotnet:
     runs-on: windows-latest
