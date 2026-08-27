@@ -34,10 +34,7 @@ public sealed class MoveHandler : HostCommandHandler
         using var _ = Execution.DocumentLockManager.Acquire(Native.AcNative.ActiveDocumentId());
 
         var before = Native.AutoCADEntityApi.ReadPositions(handles);
-        Execution.TransactionRunner.Run(db =>
-        {
-            Native.AutoCADEntityApi.Translate(db, handles, dx, dy, dz);
-        });
+        Native.AutoCADEntityApi.Translate(handles, dx, dy, dz);
         var after = Native.AutoCADEntityApi.ReadPositions(handles);
 
         var verification = Verification.MoveVerifier.Verify(before, after, dx, dy, dz);
