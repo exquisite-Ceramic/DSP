@@ -88,9 +88,24 @@ public static class AutoCADEntityApi
                 continue;
             }
 
-            var (x, y, z) = entity is DBPoint point
-                ? (point.Position.X, point.Position.Y, point.Position.Z)
-                : (0.0, 0.0, 0.0);
+            double x;
+            double y;
+            double z;
+            if (entity is DBPoint point)
+            {
+                x = point.Position.X;
+                y = point.Position.Y;
+                z = point.Position.Z;
+            }
+            else
+            {
+                var extents = entity.GeometricExtents;
+                var min = extents.MinPoint;
+                var max = extents.MaxPoint;
+                x = (min.X + max.X) / 2.0;
+                y = (min.Y + max.Y) / 2.0;
+                z = (min.Z + max.Z) / 2.0;
+            }
 
             result[handle] = System.Text.Json.JsonSerializer.SerializeToElement(new { x, y, z });
         }
@@ -104,6 +119,7 @@ public static class AutoCADEntityApi
         var doc = Application.DocumentManager.MdiActiveDocument
             ?? throw new InvalidOperationException("no active document.");
         Translate(doc.Database, handles, dx, dy, dz);
+        AutoCADDocumentApi.BumpRevision(doc.Name);
     }
 
     public static void Translate(Database database, IEnumerable<string> handles, double dx, double dy, double dz)
@@ -132,8 +148,6 @@ public static class AutoCADEntityApi
             entity.TransformBy(Matrix3d.Displacement(new Vector3d(dx, dy, dz)));
             transaction.Commit();
         }
-
-        AutoCADDocumentApi.BumpRevision(database.Filename);
     }
 
     internal static bool TryResolveObjectId(Database database, string nativeId, out ObjectId objectId)
