@@ -28,6 +28,7 @@ jobs:
           tests/integration/test_transport_selector.py
           tests/integration/test_host_adapter_transport.py
           tests/integration/test_sidecar_transport_cli.py
+          tests/integration/test_host_test_client_transport_cli.py
       - name: Run contract regression tests
         run: pytest -q contracts/python/tests tests/contracts
 
