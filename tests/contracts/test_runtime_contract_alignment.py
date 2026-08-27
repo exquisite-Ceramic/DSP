@@ -37,7 +37,6 @@ async def test_context_adapter_emits_current_contract_fields():
 @pytest.mark.asyncio
 async def test_view_adapter_emits_current_contract_fields():
     host = RecordingHost()
-
     await ViewAdapter(host).fit(["2AF"])
 
     command = host.commands[-1]
@@ -49,14 +48,8 @@ async def test_view_adapter_emits_current_contract_fields():
 @pytest.mark.asyncio
 async def test_model_adapter_emits_current_contract_fields():
     host = RecordingHost()
-
     await ModelAdapter(host).move(
-        ["2AF"],
-        5.0,
-        2.0,
-        1.0,
-        idempotency_key="move-1",
-        revision=100,
+        ["2AF"], 5.0, 2.0, 1.0, idempotency_key="move-1", revision=100
     )
 
     command = host.commands[-1]
@@ -73,9 +66,12 @@ def test_plugin_sources_use_current_contract_api_only():
         "serializer": (root / "Ipc/ContractSerializer.cs").read_text(encoding="utf-8"),
         "dispatcher": (root / "Ipc/RequestDispatcher.cs").read_text(encoding="utf-8"),
         "revision": (root / "Execution/RevisionGuard.cs").read_text(encoding="utf-8"),
+        "document": (root / "Commands/Context/CurrentDocumentHandler.cs").read_text(encoding="utf-8"),
+        "selection": (root / "Commands/Context/CurrentSelectionHandler.cs").read_text(encoding="utf-8"),
         "move": (root / "Commands/Model/MoveHandler.cs").read_text(encoding="utf-8"),
         "fit": (root / "Commands/View/FitEntitiesHandler.cs").read_text(encoding="utf-8"),
         "entities": (root / "Native/AutoCADEntityApi.cs").read_text(encoding="utf-8"),
+        "resolver": (root / "Identity/HandleResolver.cs").read_text(encoding="utf-8"),
         "delta": (root / "ChangeCapture/HostDeltaBuilder.cs").read_text(encoding="utf-8"),
     }
 
@@ -89,6 +85,7 @@ def test_plugin_sources_use_current_contract_api_only():
     assert "command.Arguments" in sources["fit"]
     assert "NativeId =" in sources["entities"]
     assert "NativeType =" in sources["entities"]
+    assert "entityRef.NativeId" in sources["resolver"]
     assert "RevisionBefore" in sources["delta"]
     assert "RevisionAfter" in sources["delta"]
 
@@ -102,6 +99,7 @@ def test_plugin_sources_use_current_contract_api_only():
         "Ok = false",
         "Ok = true",
         "result.Revision =",
+        "entityRef.Handle",
         "EntityRef = change.Value.EntityRef",
         "Revision = (int)Native.AcNative.ActiveDocumentRevision()",
     )

@@ -4,22 +4,45 @@ using HostContracts;
 namespace AutoCAD.AgentHost.Commands.Model;
 
 /// <summary>
-/// Write command: translates entities by (dx, dy[, dz]).
-/// Executes inside a transaction + document lock, verifies afterwards,
-/// and records the idempotency key through the dispatcher (ADR-003).
+/// Write command: translates entities by a displacement, verifies afterwards,
+/// and returns a current HostCommandResult.
 /// </summary>
 public sealed class MoveHandler : HostCommandHandler
 {
-    public override string CommandType => "model.move";
+    public override string CommandType => "move.v1";
 
     public override HostCommandResult Execute(HostCommand command)
     {
-        var handles = command.Params.TryGetProperty("handles", out var h)
-            ? h.Deserialize<string[]>() ?? Array.Empty<string>()
-            : Array.Empty<string>();
-        var dx = command.Params.TryGetProperty("dx", out var dxEl) ? dxEl.GetDouble() : 0.0;
-        var dy = command.Params.TryGetProperty("dy", out var dyEl) ? dyEl.GetDouble() : 0.0;
-        var dz = command.Params.TryGetProperty("dz", out var dzEl) ? dzEl.GetDouble() : 0.0;
+        var handles = command.TargetNativeRefs
+            .Select(reference => reference.NativeId)
+            .Where(nativeId => !string.IsNullOrWhiteSpace(nativeId))
+            .ToArray();
+        var dx = 0.0;
+        var dy = 0.0;
+        var dz = 0.0;
+
+        if (command.Arguments is JsonElement arguments
+            && arguments.ValueKind == JsonValueKind.Object)
+        {
+            if (handles.Length == 0 && arguments.TryGetProperty("handles", out var handleElement))
+            {
+                handles = handleElement.Deserialize<string[]>() ?? Array.Empty<string>();
+            }
+
+            if (arguments.TryGetProperty("displacement", out var displacement)
+                && displacement.ValueKind == JsonValueKind.Object)
+            {
+                dx = displacement.TryGetProperty("x", out var x) ? x.GetDouble() : 0.0;
+                dy = displacement.TryGetProperty("y", out var y) ? y.GetDouble() : 0.0;
+                dz = displacement.TryGetProperty("z", out var z) ? z.GetDouble() : 0.0;
+            }
+            else
+            {
+                dx = arguments.TryGetProperty("dx", out var x) ? x.GetDouble() : 0.0;
+                dy = arguments.TryGetProperty("dy", out var y) ? y.GetDouble() : 0.0;
+                dz = arguments.TryGetProperty("dz", out var z) ? z.GetDouble() : 0.0;
+            }
+        }
 
         using var _ = Execution.DocumentLockManager.Acquire(Native.AcNative.ActiveDocumentId());
 
@@ -35,14 +58,16 @@ public sealed class MoveHandler : HostCommandHandler
         {
             return new HostCommandResult
             {
-                Ok = false,
-                Error = new HostError
+                Status = ResultStatus.ERROR,
+                Error = new ErrorShape
                 {
-                    Code = "verification_failed",
+                    ErrorCode = "VERIFICATION_FAILED",
+                    Category = ErrorCategory.EXECUTION,
                     Message = verification.Message,
-                    Details = JsonSerializer.SerializeToElement(verification.Details),
-                    Retryable = true,
+                    Details = JsonSerializer.SerializeToElement(verification.Details, ContractJson.Options),
+                    Retryable = RetryPolicy.IMMEDIATE,
                 },
+                Verification = verification.ToDto(),
             };
         }
 
@@ -54,9 +79,8 @@ public sealed class MoveHandler : HostCommandHandler
 
         return new HostCommandResult
         {
-            Ok = true,
             Payload = payload,
-            Verification = JsonSerializer.SerializeToElement(verification.ToDto()),
+            Verification = verification.ToDto(),
         };
     }
 }

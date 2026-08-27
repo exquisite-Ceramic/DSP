@@ -17,6 +17,6 @@ public sealed class CurrentDocumentHandler : HostCommandHandler
             revision = Native.AcNative.ActiveDocumentRevision(),
         });
 
-        return new HostCommandResult { Ok = true, Payload = payload };
+        return new HostCommandResult { Payload = payload };
     }
 }

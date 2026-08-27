@@ -1,11 +1,13 @@
+using AutoCAD.AgentHost.Commands;
+using AutoCAD.AgentHost.Execution;
 using HostContracts;
 
 namespace AutoCAD.AgentHost.Ipc;
 
 /// <summary>
-/// Turns a raw envelope JSON frame into a dispatched command and back into
-/// a result envelope. Write commands are serialized through
-/// DocumentLockManager inside the handlers (see Execution/*).
+/// Turns a RequestEnvelope frame into a dispatched HostCommand and returns a
+/// ResponseEnvelope. Write commands are serialized through document locks in
+/// the handlers.
 /// </summary>
 public sealed class RequestDispatcher
 {
@@ -13,7 +15,10 @@ public sealed class RequestDispatcher
     private readonly IdempotencyStore _idempotency;
     private readonly RevisionGuard _revisionGuard;
 
-    public RequestDispatcher(HostCommandHandlerRegistry registry, IdempotencyStore idempotency, RevisionGuard revisionGuard)
+    public RequestDispatcher(
+        HostCommandHandlerRegistry registry,
+        IdempotencyStore idempotency,
+        RevisionGuard revisionGuard)
     {
         _registry = registry;
         _idempotency = idempotency;
@@ -22,19 +27,24 @@ public sealed class RequestDispatcher
 
     public byte[] Dispatch(byte[] frame)
     {
+        RequestEnvelope? request = null;
         try
         {
-            var envelope = ContractSerializer.Deserialize<Envelope>(frame);
-            var command = ContractSerializer.PayloadAs<HostCommand>(envelope);
+            request = ContractSerializer.DeserializeRequest(frame);
+            var command = ContractSerializer.PayloadAs<HostCommand>(request);
             var result = Execute(command);
-            var response = ContractSerializer.Wrap("result", envelope, result);
-            return ContractSerializer.Serialize(response);
+            return ContractSerializer.Serialize(ContractSerializer.WrapResult(request, result));
         }
         catch (Exception ex)
         {
-            var error = new HostError { Code = "internal_error", Message = ex.Message, Retryable = false };
-            var response = ContractSerializer.Wrap("error", null, error);
-            return ContractSerializer.Serialize(response);
+            var error = new ErrorShape
+            {
+                ErrorCode = "INTERNAL_ERROR",
+                Category = ErrorCategory.EXECUTION,
+                Message = ex.Message,
+                Retryable = RetryPolicy.NEVER,
+            };
+            return ContractSerializer.Serialize(ContractSerializer.WrapError(request, error));
         }
     }
 
@@ -42,7 +52,6 @@ public sealed class RequestDispatcher
     {
         var documentId = Native.AcNative.ActiveDocumentId();
 
-        // Idempotency (ADR-003): replay returns the cached result without re-executing.
         if (!string.IsNullOrEmpty(command.IdempotencyKey))
         {
             var cached = _idempotency.TryGet(documentId, command.IdempotencyKey);
@@ -53,22 +62,21 @@ public sealed class RequestDispatcher
             }
         }
 
-        // Revision guard (spec §7): reject stale writes.
         var guardError = _revisionGuard.Validate(documentId, command);
         if (guardError is not null)
         {
             return new HostCommandResult
             {
                 CommandId = command.CommandId,
-                Ok = false,
+                Status = ResultStatus.ERROR,
                 Error = guardError,
             };
         }
 
-        var handler = _registry.Resolve(command.CommandType);
+        var handler = _registry.Resolve(command.Operation);
         var result = handler.Execute(command);
         result.CommandId = command.CommandId;
-        result.Revision = Native.AcNative.ActiveDocumentRevision();
+        result.RevisionAfter = (int)Native.AcNative.ActiveDocumentRevision();
 
         if (!string.IsNullOrEmpty(command.IdempotencyKey))
         {

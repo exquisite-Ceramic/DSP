@@ -1,32 +1,51 @@
+using System.Text.Json;
 using HostContracts;
 
 namespace AutoCAD.AgentHost.Execution;
 
 /// <summary>
-/// Rejects stale writes: a write command carrying an expected revision that
-/// does not match the document's current revision fails with
-/// <c>revision_conflict</c> (spec §7).
+/// Rejects stale writes using the current HostCommand preconditions array.
+/// A revision precondition is {"type":"revision","expected":N}.
 /// </summary>
 public sealed class RevisionGuard
 {
-    public HostError? Validate(string documentId, HostCommand command)
+    public ErrorShape? Validate(string documentId, HostCommand command)
     {
-        if (command.Revision is null)
-        {
-            return null; // read command or caller opted out
-        }
-
-        var current = Native.AcNative.ActiveDocumentRevision();
-        if (command.Revision.Value == current)
+        if (command.Preconditions is not JsonElement preconditions
+            || preconditions.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
 
-        return new HostError
+        foreach (var precondition in preconditions.EnumerateArray())
         {
-            Code = "revision_conflict",
-            Message = $"expected revision {command.Revision.Value}, current is {current}.",
-            Retryable = true,
-        };
+            if (precondition.ValueKind != JsonValueKind.Object
+                || !precondition.TryGetProperty("type", out var type)
+                || type.GetString() != "revision"
+                || !precondition.TryGetProperty("expected", out var expectedElement)
+                || !expectedElement.TryGetInt64(out var expected))
+            {
+                continue;
+            }
+
+            var current = Native.AcNative.ActiveDocumentRevision();
+            if (expected == current)
+            {
+                return null;
+            }
+
+            return new ErrorShape
+            {
+                ErrorCode = "REVISION_CONFLICT",
+                Category = ErrorCategory.CONSISTENCY,
+                Message = $"expected revision {expected}, current is {current}.",
+                Retryable = RetryPolicy.AFTER_RECONSTRUCT,
+                Details = JsonSerializer.SerializeToElement(
+                    new[] { new { expected_revision = expected, actual_revision = current } },
+                    ContractJson.Options),
+            };
+        }
+
+        return null;
     }
 }

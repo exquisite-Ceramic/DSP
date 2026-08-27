@@ -11,11 +11,7 @@ from autocad_sidecar.adapter.host_adapter import HostAdapter
 
 
 class ModelAdapter:
-    """Model-mutating commands (command type: model.move).
-
-    Callers must pass an idempotency key and the revision observed when the
-    selection was read (ADR-003 / spec §7).
-    """
+    """Model-mutating commands emitted with the current HostCommand fields."""
 
     def __init__(self, host: HostAdapter) -> None:
         self._host = host
@@ -30,16 +26,22 @@ class ModelAdapter:
         idempotency_key: str | None = None,
         revision: int | None = None,
     ) -> HostCommandResult:
+        preconditions = (
+            [{"type": "revision", "expected": revision}]
+            if revision is not None
+            else None
+        )
         command = HostCommand(
             command_id=str(uuid.uuid4()),
-            command_type="model.move",
-            idempotency_key=idempotency_key or str(uuid.uuid4()),
-            revision=revision,
-            params={
+            mode="EXECUTE",
+            operation="move.v1",
+            arguments={
                 "handles": handles,
                 "dx": dx,
                 "dy": dy,
                 "dz": dz,
             },
+            preconditions=preconditions,
+            idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
         return await self._host.send_command(command)

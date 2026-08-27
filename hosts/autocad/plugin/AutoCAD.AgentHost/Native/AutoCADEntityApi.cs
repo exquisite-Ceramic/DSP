@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using HostContracts;
 
 namespace AutoCAD.AgentHost.Native;
@@ -34,10 +35,9 @@ public static class AutoCADEntityApi
 
             refs.Add(new HostEntityRef
             {
-                Handle = entity.Handle.ToString(),
-                ClassName = entity.GetType().Name,
-                Layer = entity.Layer,
                 DocumentId = doc.Name,
+                NativeId = entity.Handle.ToString(),
+                NativeType = entity.GetType().Name,
             });
         }
 
@@ -45,7 +45,6 @@ public static class AutoCADEntityApi
         return refs;
     }
 
-    /// <summary>Resolves a handle to its entity, or null when missing/erased.</summary>
     public static Entity? GetEntityByHandle(string handle)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
@@ -63,7 +62,6 @@ public static class AutoCADEntityApi
         return entity;
     }
 
-    /// <summary>Reads position payloads (handle → {x,y,z}) without mutation.</summary>
     public static Dictionary<string, System.Text.Json.JsonElement> ReadPositions(IEnumerable<string> handles)
     {
         var doc = Application.DocumentManager.MdiActiveDocument!;
@@ -100,7 +98,6 @@ public static class AutoCADEntityApi
         return result;
     }
 
-    /// <summary>Translates entities by (dx, dy, dz) inside the caller's transaction.</summary>
     public static void Translate(Database database, IEnumerable<string> handles, double dx, double dy, double dz)
     {
         foreach (var handle in handles)
@@ -125,15 +122,13 @@ public static class AutoCADEntityApi
                 continue;
             }
 
-            var vector = new Vector3d(dx, dy, dz);
-            entity.TransformBy(Matrix3d.Displacement(vector));
+            entity.TransformBy(Matrix3d.Displacement(new Vector3d(dx, dy, dz)));
             transaction.Commit();
         }
 
         AutoCADDocumentApi.BumpRevision(database.Filename);
     }
 
-    /// <summary>Describes a change event; null when not entity-related.</summary>
     public static (HostEntityRef EntityRef, System.Text.Json.JsonElement? Before, System.Text.Json.JsonElement? After)? DescribeChange(
         object sender, EventArgs args, string operation)
     {
@@ -144,12 +139,11 @@ public static class AutoCADEntityApi
 
         var entityRef = new HostEntityRef
         {
-            Handle = dbObject.Handle.ToString(),
-            ClassName = dbObject.GetType().Name,
+            DocumentId = AcNative.ActiveDocumentId(),
+            NativeId = dbObject.Handle.ToString(),
+            NativeType = dbObject.GetType().Name,
         };
 
-        // Reading full before/after snapshots is deferred to a later milestone;
-        // the handle + operation already enables coarse tracking (spec §8).
         return (entityRef, null, null);
     }
 }

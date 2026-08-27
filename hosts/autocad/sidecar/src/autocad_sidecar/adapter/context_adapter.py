@@ -11,8 +11,7 @@ from autocad_sidecar.adapter.host_adapter import HostAdapter
 
 
 class ContextAdapter:
-    """Read-only context probes (command types: context.current_document,
-    context.current_selection)."""
+    """Read-only context probes over the current HostCommand contract."""
 
     def __init__(self, host: HostAdapter) -> None:
         self._host = host
@@ -20,13 +19,15 @@ class ContextAdapter:
     async def current_document(self) -> HostCommandResult:
         command = HostCommand(
             command_id=str(uuid.uuid4()),
-            command_type="context.current_document",
+            mode="READ",
+            operation="context.current_document",
         )
         return await self._host.send_command(command)
 
     async def current_selection(self) -> HostCommandResult:
         command = HostCommand(
             command_id=str(uuid.uuid4()),
-            command_type="context.current_selection",
+            mode="READ",
+            operation="context.current_selection",
         )
         return await self._host.send_command(command)

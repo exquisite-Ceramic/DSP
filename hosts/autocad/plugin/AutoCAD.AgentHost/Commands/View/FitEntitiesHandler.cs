@@ -1,21 +1,27 @@
+using System.Text.Json;
 using HostContracts;
 
 namespace AutoCAD.AgentHost.Commands.View;
 
-/// <summary>View command: zooms to drawing extents (fit). No model mutation.</summary>
+/// <summary>View command: zooms to drawing extents or the supplied handles.</summary>
 public sealed class FitEntitiesHandler : HostCommandHandler
 {
-    public override string CommandType => "view.fit";
+    public override string CommandType => "view.fit_entities";
 
     public override HostCommandResult Execute(HostCommand command)
     {
-        // Optional: zoom to the given handles instead of whole drawing.
-        var handles = command.Params.TryGetProperty("handles", out var h)
-            ? h.Deserialize<string[]>() ?? Array.Empty<string>()
-            : Array.Empty<string>();
+        var handles = Array.Empty<string>();
+        if (command.Arguments is JsonElement arguments
+            && arguments.ValueKind == JsonValueKind.Object
+            && arguments.TryGetProperty("handles", out var handleElement))
+        {
+            handles = handleElement.Deserialize<string[]>() ?? Array.Empty<string>();
+        }
 
         Native.AutoCADViewApi.ZoomExtents(handles);
-
-        return new HostCommandResult { Ok = true, Payload = System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone() };
+        return new HostCommandResult
+        {
+            Payload = JsonDocument.Parse("{}").RootElement.Clone(),
+        };
     }
 }
