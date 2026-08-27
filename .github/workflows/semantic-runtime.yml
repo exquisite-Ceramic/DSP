@@ -26,8 +26,12 @@ jobs:
       - name: Install packages
         run: |
           python -m pip install pytest pytest-asyncio jsonschema
-          python -m pip install -e contracts/python -e hosts/autocad/sidecar -e platform/semantic_runtime
+          python -m pip install -e contracts/python -e hosts/autocad/sidecar
       - name: Run D5 semantic runtime tests
+        env:
+          PYTHONPATH: platform/semantic_runtime/src
         run: pytest -q tests/semantic_runtime/test_semantic_runtime.py
       - name: Run full Python regression tests
+        env:
+          PYTHONPATH: platform/semantic_runtime/src
         run: pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator tests/semantic_runtime
