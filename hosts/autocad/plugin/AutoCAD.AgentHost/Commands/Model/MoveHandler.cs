@@ -4,8 +4,8 @@ using HostContracts;
 namespace AutoCAD.AgentHost.Commands.Model;
 
 /// <summary>
-/// Write command: translates entities by a displacement, verifies afterwards,
-/// and returns a current HostCommandResult.
+/// Write command: translates target_native_refs by arguments.displacement,
+/// verifies afterwards, and returns a current HostCommandResult.
 /// </summary>
 public sealed class MoveHandler : HostCommandHandler
 {
@@ -22,26 +22,13 @@ public sealed class MoveHandler : HostCommandHandler
         var dz = 0.0;
 
         if (command.Arguments is JsonElement arguments
-            && arguments.ValueKind == JsonValueKind.Object)
+            && arguments.ValueKind == JsonValueKind.Object
+            && arguments.TryGetProperty("displacement", out var displacement)
+            && displacement.ValueKind == JsonValueKind.Object)
         {
-            if (handles.Length == 0 && arguments.TryGetProperty("handles", out var handleElement))
-            {
-                handles = handleElement.Deserialize<string[]>() ?? Array.Empty<string>();
-            }
-
-            if (arguments.TryGetProperty("displacement", out var displacement)
-                && displacement.ValueKind == JsonValueKind.Object)
-            {
-                dx = displacement.TryGetProperty("x", out var x) ? x.GetDouble() : 0.0;
-                dy = displacement.TryGetProperty("y", out var y) ? y.GetDouble() : 0.0;
-                dz = displacement.TryGetProperty("z", out var z) ? z.GetDouble() : 0.0;
-            }
-            else
-            {
-                dx = arguments.TryGetProperty("dx", out var x) ? x.GetDouble() : 0.0;
-                dy = arguments.TryGetProperty("dy", out var y) ? y.GetDouble() : 0.0;
-                dz = arguments.TryGetProperty("dz", out var z) ? z.GetDouble() : 0.0;
-            }
+            dx = displacement.TryGetProperty("x", out var x) ? x.GetDouble() : 0.0;
+            dy = displacement.TryGetProperty("y", out var y) ? y.GetDouble() : 0.0;
+            dz = displacement.TryGetProperty("z", out var z) ? z.GetDouble() : 0.0;
         }
 
         using var _ = Execution.DocumentLockManager.Acquire(Native.AcNative.ActiveDocumentId());
