@@ -11,8 +11,10 @@ from autocad_sidecar.main import (
     build_host_adapter,
     build_parser,
     readiness_message,
+    run_status,
     validate_transport_args,
 )
+from host_contracts.status import HostStatus
 
 
 def test_default_transport_remains_pipe(monkeypatch):
@@ -86,3 +88,18 @@ def test_grpc_readiness_reports_instance_id(monkeypatch):
     monkeypatch.delenv("DSP_AUTOCAD_TRANSPORT", raising=False)
     args = build_parser().parse_args(["--transport", "grpc", "--instance-id", "inst-1"])
     assert readiness_message(args) == "sidecar ready (transport=grpc, instance_id=inst-1)"
+
+
+class StatusAdapter:
+    def __init__(self, status: HostStatus):
+        self.status = status
+
+    async def get_status(self) -> HostStatus:
+        return self.status
+
+
+@pytest.mark.asyncio
+async def test_status_exit_code_reflects_host_health(capsys):
+    assert await run_status(StatusAdapter(HostStatus(state="ready"))) == 0
+    assert await run_status(StatusAdapter(HostStatus(state="error", detail="offline"))) == 1
+    assert "offline" in capsys.readouterr().out
