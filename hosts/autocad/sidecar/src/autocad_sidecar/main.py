@@ -54,16 +54,23 @@ def build_host_adapter(args: argparse.Namespace) -> HostAdapter:
     return HostAdapter(pipe_name=args.pipe, transport=transport)
 
 
+def readiness_message(args: argparse.Namespace) -> str:
+    if args.transport == "grpc":
+        validate_transport_args(args)
+        return f"sidecar ready (transport=grpc, instance_id={args.instance_id})"
+    return f"sidecar ready (transport=pipe, pipe={args.pipe})"
+
+
 async def run_status(adapter: HostAdapter) -> int:
     status = await adapter.get_status()
     print(status.to_dict())
     return 0
 
 
-async def run_serve(adapter: HostAdapter, status_interval: float) -> int:
+async def run_serve(adapter: HostAdapter, status_interval: float, readiness: str) -> int:
     monitor = StatusMonitor(adapter, interval_s=status_interval)
     await monitor.start()
-    print(f"sidecar ready (pipe={adapter.pipe_name})", flush=True)
+    print(readiness, flush=True)
     try:
         # Block until interrupted; the monitor keeps health fresh.
         while True:
@@ -87,7 +94,7 @@ async def main(argv: list[str] | None = None) -> int:
     try:
         if args.mode == "status":
             return await run_status(adapter)
-        return await run_serve(adapter, args.status_interval)
+        return await run_serve(adapter, args.status_interval, readiness_message(args))
     finally:
         await adapter.close()
 
