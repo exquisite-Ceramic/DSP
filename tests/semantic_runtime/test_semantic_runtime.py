@@ -28,6 +28,8 @@ from semantic_runtime import (
     build_operation_contract,
 )
 
+PROJECT_ID = "project-001"
+
 
 def test_identity_registry_round_trips_native_and_semantic_identity() -> None:
     registry = IdentityRegistry()
@@ -96,6 +98,7 @@ def test_context_contract_includes_identity_and_caps_geometry_at_bounds() -> Non
             AspectRequirement(SemanticAspect.GEOMETRY, GeometryLevel.BOUNDS),
             AspectRequirement(SemanticAspect.PROPERTIES),
         ),
+        project_id=PROJECT_ID,
     )
 
     assert contract.contract_type is ContractType.CONTEXT
@@ -113,6 +116,7 @@ def test_context_contract_rejects_geometry_above_bounds() -> None:
             extra_requirements=(
                 AspectRequirement(SemanticAspect.GEOMETRY, GeometryLevel.EXACT),
             ),
+            project_id=PROJECT_ID,
         )
 
 
@@ -122,6 +126,7 @@ def test_operation_contract_binds_operation_targets_arguments_and_requirements()
         AspectRequirement(SemanticAspect.GEOMETRY, GeometryLevel.EXACT),
     )
     first = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -129,6 +134,7 @@ def test_operation_contract_binds_operation_targets_arguments_and_requirements()
         requirements=requirements,
     )
     target_changed = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-2",),
@@ -136,6 +142,7 @@ def test_operation_contract_binds_operation_targets_arguments_and_requirements()
         requirements=requirements,
     )
     argument_changed = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -161,8 +168,11 @@ def _result_for(contract, *, revision: str = "42", coverage: Coverage | None = N
 def test_freshness_resolver_emits_context_and_planning_snapshots() -> None:
     dirty = DirtyMap()
     resolver = FreshnessResolver(dirty)
-    context_contract = build_context_contract("doc-1", ("sem-1",))
+    context_contract = build_context_contract(
+        "doc-1", ("sem-1",), project_id=PROJECT_ID
+    )
     operation_contract = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -191,6 +201,7 @@ def test_freshness_resolver_emits_context_and_planning_snapshots() -> None:
 def test_snapshot_hash_binds_contract_revision_coverage_and_guarantees() -> None:
     resolver = FreshnessResolver(DirtyMap())
     contract = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -216,7 +227,9 @@ def test_snapshot_hash_binds_contract_revision_coverage_and_guarantees() -> None
 
 def test_freshness_resolver_rejects_revision_change_during_reconstruction() -> None:
     resolver = FreshnessResolver(DirtyMap())
-    contract = build_context_contract("doc-1", ("sem-1",))
+    contract = build_context_contract(
+        "doc-1", ("sem-1",), project_id=PROJECT_ID
+    )
 
     with pytest.raises(RevisionChangedError):
         resolver.resolve(
@@ -228,7 +241,9 @@ def test_freshness_resolver_rejects_revision_change_during_reconstruction() -> N
 
 def test_freshness_resolver_rejects_silent_coverage_expansion() -> None:
     resolver = FreshnessResolver(DirtyMap())
-    contract = build_context_contract("doc-1", ("sem-1",))
+    contract = build_context_contract(
+        "doc-1", ("sem-1",), project_id=PROJECT_ID
+    )
     expanded = Coverage("doc-1", ("sem-1", "sem-2"), 0)
 
     with pytest.raises(CoverageMismatchError):
@@ -242,6 +257,7 @@ def test_freshness_resolver_rejects_silent_coverage_expansion() -> None:
 def test_freshness_resolver_rejects_missing_or_weaker_guarantees() -> None:
     resolver = FreshnessResolver(DirtyMap())
     contract = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -273,6 +289,7 @@ def test_successful_barrier_marks_only_contract_guarantees_fresh() -> None:
     )
     resolver = FreshnessResolver(dirty)
     contract = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -297,6 +314,7 @@ def test_successful_barrier_marks_only_contract_guarantees_fresh() -> None:
 def test_snapshot_set_accepts_only_planning_snapshots_and_hashes_members() -> None:
     resolver = FreshnessResolver(DirtyMap())
     operation_contract = build_operation_contract(
+        project_id=PROJECT_ID,
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=("sem-1",),
@@ -313,7 +331,9 @@ def test_snapshot_set_accepts_only_planning_snapshots_and_hashes_members() -> No
     assert snapshot_set.member_snapshot_ids == (planning.snapshot_id,)
     assert snapshot_set.hash
 
-    context_contract = build_context_contract("doc-1", ("sem-1",))
+    context_contract = build_context_contract(
+        "doc-1", ("sem-1",), project_id=PROJECT_ID
+    )
     context = resolver.resolve(
         context_contract,
         expected_host_revision="42",

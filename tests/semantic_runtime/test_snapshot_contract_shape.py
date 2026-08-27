@@ -41,6 +41,7 @@ def test_aspect_guarantee_explicitly_guarantees_fresh_state() -> None:
 def _planning_snapshot(*, revision: str, target: str):
     resolver = FreshnessResolver(DirtyMap())
     contract = build_operation_contract(
+        project_id="project-001",
         document_ref="doc-1",
         canonical_operation="move.v1",
         targets=(target,),

@@ -85,10 +85,15 @@ class AspectRequirement:
 class AspectGuarantee:
     aspect: SemanticAspect
     geometry_level: GeometryLevel = GeometryLevel.NONE
+    coverage_ref: str | None = None
 
     def __post_init__(self) -> None:
         if self.aspect is not SemanticAspect.GEOMETRY and self.geometry_level is not GeometryLevel.NONE:
             raise ValueError("geometry_level applies only to GEOMETRY")
+        coverage_ref = self.coverage_ref.strip() if self.coverage_ref is not None else None
+        if coverage_ref == "":
+            coverage_ref = None
+        object.__setattr__(self, "coverage_ref", coverage_ref)
 
     @property
     def required_state(self) -> FreshnessState:
@@ -153,7 +158,7 @@ def _hash_payload(payload: object) -> str:
     return sha256(encoded).hexdigest()
 
 
-def _requirements_payload(items: Iterable[AspectRequirement | AspectGuarantee]) -> list[dict[str, str]]:
+def _requirement_payload(items: Iterable[AspectRequirement]) -> list[dict[str, str]]:
     return [
         {
             "aspect": item.aspect.value,
@@ -164,8 +169,21 @@ def _requirements_payload(items: Iterable[AspectRequirement | AspectGuarantee]) 
     ]
 
 
+def _guarantee_payload(items: Iterable[AspectGuarantee]) -> list[dict[str, str | None]]:
+    return [
+        {
+            "aspect": item.aspect.value,
+            "coverage_ref": item.coverage_ref,
+            "required_state": item.required_state.value,
+            "geometry_level": item.geometry_level.name,
+        }
+        for item in items
+    ]
+
+
 @dataclass(frozen=True, slots=True)
 class FreshnessContract:
+    project_id: str
     contract_type: ContractType
     coverage: Coverage
     requirements: tuple[AspectRequirement, ...]
@@ -174,19 +192,24 @@ class FreshnessContract:
     hash: str = field(init=False)
 
     def __post_init__(self) -> None:
+        project_id = self.project_id.strip()
+        if not project_id:
+            raise ValueError("project_id is required")
         requirements = _normalized_requirements(self.requirements)
         if self.contract_type is ContractType.CONTEXT and self.operation_fingerprint is not None:
             raise ValueError("Context Freshness cannot have an operation_fingerprint")
         if self.contract_type is ContractType.OPERATION and not self.operation_fingerprint:
             raise ValueError("Operation Freshness requires an operation_fingerprint")
         payload = {
+            "project_id": project_id,
             "contract_type": self.contract_type.value,
             "coverage": self.coverage.payload(),
-            "requirements": _requirements_payload(requirements),
+            "requirements": _requirement_payload(requirements),
             "operation_fingerprint": self.operation_fingerprint,
         }
         digest = _hash_payload(payload)
         prefix = "CTX" if self.contract_type is ContractType.CONTEXT else "OP"
+        object.__setattr__(self, "project_id", project_id)
         object.__setattr__(self, "requirements", requirements)
         object.__setattr__(self, "hash", digest)
         object.__setattr__(self, "contract_id", f"FC-{prefix}-{digest[:12]}")
@@ -196,6 +219,8 @@ def build_context_contract(
     document_ref: str,
     root_entities: Iterable[str],
     extra_requirements: Iterable[AspectRequirement] = (),
+    *,
+    project_id: str,
 ) -> FreshnessContract:
     extras = tuple(extra_requirements)
     for requirement in extras:
@@ -205,6 +230,7 @@ def build_context_contract(
         ):
             raise ValueError("Context Freshness geometry must stay at NONE or BOUNDS")
     return FreshnessContract(
+        project_id=project_id,
         contract_type=ContractType.CONTEXT,
         coverage=Coverage(document_ref, tuple(root_entities), 0),
         requirements=(AspectRequirement(SemanticAspect.IDENTITY), *extras),
@@ -213,6 +239,7 @@ def build_context_contract(
 
 def build_operation_contract(
     *,
+    project_id: str,
     document_ref: str,
     canonical_operation: str,
     targets: Iterable[str],
@@ -231,6 +258,7 @@ def build_operation_contract(
         }
     )
     return FreshnessContract(
+        project_id=project_id,
         contract_type=ContractType.OPERATION,
         coverage=coverage,
         requirements=tuple(requirements),
@@ -270,6 +298,7 @@ class ReconstructionResult:
 class SemanticSnapshot:
     snapshot_id: str
     kind: SnapshotKind
+    project_id: str
     freshness_contract_id: str
     freshness_contract_hash: str
     document_ref: str
@@ -286,6 +315,15 @@ class SemanticSnapshot:
     ) -> "SemanticSnapshot":
         if result.document_ref != contract.coverage.document_ref:
             raise CoverageMismatchError("reconstruction document does not match contract")
+        expected_coverage_ref = f"{contract.contract_id}#coverage"
+        bound_guarantees = tuple(
+            AspectGuarantee(
+                guarantee.aspect,
+                guarantee.geometry_level,
+                guarantee.coverage_ref or expected_coverage_ref,
+            )
+            for guarantee in result.guarantees
+        )
         kind = (
             SnapshotKind.CONTEXT
             if contract.contract_type is ContractType.CONTEXT
@@ -293,24 +331,26 @@ class SemanticSnapshot:
         )
         payload = {
             "kind": kind.value,
+            "project_id": contract.project_id,
             "freshness_contract_id": contract.contract_id,
             "freshness_contract_hash": contract.hash,
             "document_ref": result.document_ref,
             "base_host_revision": result.host_revision,
             "coverage": result.coverage.payload(),
-            "aspect_guarantees": _requirements_payload(result.guarantees),
+            "aspect_guarantees": _guarantee_payload(bound_guarantees),
         }
         digest = _hash_payload(payload)
         prefix = "CS" if kind is SnapshotKind.CONTEXT else "PS"
         return cls(
             snapshot_id=f"{prefix}-{digest[:12]}",
             kind=kind,
+            project_id=contract.project_id,
             freshness_contract_id=contract.contract_id,
             freshness_contract_hash=contract.hash,
             document_ref=result.document_ref,
             base_host_revision=result.host_revision,
             coverage=result.coverage,
-            aspect_guarantees=result.guarantees,
+            aspect_guarantees=bound_guarantees,
             hash=digest,
         )
 
@@ -396,8 +436,14 @@ class FreshnessResolver:
         if result.coverage != contract.coverage:
             raise CoverageMismatchError("reconstruction coverage must exactly match contract coverage")
 
+        expected_coverage_ref = f"{contract.contract_id}#coverage"
         strongest: dict[SemanticAspect, GeometryLevel] = {}
         for guarantee in result.guarantees:
+            if guarantee.coverage_ref is not None and guarantee.coverage_ref != expected_coverage_ref:
+                raise CoverageMismatchError(
+                    f"guarantee scope {guarantee.coverage_ref!r} does not match "
+                    f"{expected_coverage_ref!r}"
+                )
             strongest[guarantee.aspect] = max(
                 strongest.get(guarantee.aspect, GeometryLevel.NONE),
                 guarantee.geometry_level,

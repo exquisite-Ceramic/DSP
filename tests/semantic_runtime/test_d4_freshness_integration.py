@@ -44,6 +44,7 @@ def test_real_d3_move_freshness_flows_through_d4_into_d5_contract() -> None:
 
     requirements = requirements_from_mappings(resolved.operation_freshness_requirements)
     contract = build_operation_contract(
+        project_id="project-001",
         document_ref="drawing-001",
         canonical_operation=resolved.canonical_operation,
         targets=("sem-line-001",),
