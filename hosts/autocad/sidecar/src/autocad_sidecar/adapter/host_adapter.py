@@ -14,7 +14,6 @@ from autocad_sidecar.ipc.base import FrameTransport
 from autocad_sidecar.ipc.serializer import (
     bytes_to_response,
     payload_as_result,
-    payload_as_status,
     request_to_bytes,
 )
 from autocad_sidecar.ipc.transport import PipeTransport
@@ -92,9 +91,31 @@ class HostAdapter:
         return payload_as_result(response)
 
     async def get_status(self) -> HostStatus:
-        probe = RequestEnvelope(request_id=str(uuid.uuid4()), payload={})
-        response = await self._exchange(probe)
-        return payload_as_status(response)
+        """Probe host health through a real read-only HostCommand.
+
+        The current Plugin dispatch surface has no standalone empty-payload
+        status request. ``context.current_document`` works over both Pipe and
+        gRPC and proves that transport, envelope decoding, command routing, and
+        native document access are all alive.
+        """
+        result = await self.send_command(
+            HostCommand(
+                command_id=str(uuid.uuid4()),
+                mode="READ",
+                operation="context.current_document",
+            )
+        )
+        if not result.ok:
+            detail = result.error.message if result.error is not None else "host status probe failed"
+            return HostStatus(state="error", detail=detail)
+
+        payload = result.payload or {}
+        return HostStatus(
+            state="ready",
+            document_id=payload.get("documentId"),
+            document_name=payload.get("documentName"),
+            revision=int(payload.get("revision") or 0),
+        )
 
     async def close(self) -> None:
         await self._transport.close()
