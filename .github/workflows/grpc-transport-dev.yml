@@ -32,3 +32,15 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Run transport assembly tests
         run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj --configuration Release
+
+  transport-discovery-python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Run Windows discovery tests
+        run: pytest -q tests/integration/test_autocad_discovery.py
