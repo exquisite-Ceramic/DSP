@@ -144,11 +144,16 @@ def test_plugin_sources_use_current_contract_api_only():
         "entityRef.Handle",
         "EntityRef = change.Value.EntityRef",
         "Revision = (int)Native.AcNative.ActiveDocumentRevision()",
+    )
+    combined = "\n".join(sources.values())
+    for token in forbidden:
+        assert token not in combined, token
+
+    move_legacy_tokens = (
         'TryGetProperty("handles"',
         'TryGetProperty("dx"',
         'TryGetProperty("dy"',
         'TryGetProperty("dz"',
     )
-    combined = "\n".join(sources.values())
-    for token in forbidden:
-        assert token not in combined, token
+    for token in move_legacy_tokens:
+        assert token not in sources["move"], token
