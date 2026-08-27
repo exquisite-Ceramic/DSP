@@ -19,6 +19,9 @@ from autocad_sidecar.ipc.transport_selector import build_transport
 from autocad_sidecar.mcp_server import build_mcp_server
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
 @dataclass(slots=True)
 class McpRuntime:
     """Resources shared by the MCP process for its full lifetime."""
@@ -44,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="MCP Streamable HTTP bind host (default: loopback)",
+        help="MCP Streamable HTTP bind host (loopback only until Gateway auth is wired)",
     )
     parser.add_argument("--port", type=int, default=8000, help="MCP Streamable HTTP port")
     return parser
@@ -55,6 +58,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("instance_id is required for grpc transport")
     if not args.host:
         raise ValueError("host is required")
+    if args.host.lower() not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            "MCP bind host must be loopback until Gateway authentication/mTLS is implemented"
+        )
     if not 1 <= args.port <= 65535:
         raise ValueError("port must be between 1 and 65535")
     if args.retries < 1:
