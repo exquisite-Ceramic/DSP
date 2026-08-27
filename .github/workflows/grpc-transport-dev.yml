@@ -15,13 +15,18 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install transport test dependencies
-        run: python -m pip install pytest 'grpcio>=1.70,<2' 'grpcio-tools==1.70.0' 'protobuf>=5.29,<7'
+        run: python -m pip install pytest pytest-asyncio 'grpcio>=1.70,<2' 'grpcio-tools==1.70.0' 'protobuf>=5.29,<7'
       - name: Regenerate Python transport stubs
         run: python tools/generate_host_transport.py
       - name: Verify generated stubs are up to date
         run: git diff --exit-code -- hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
       - name: Run transport Python tests
-        run: pytest -q tests/contracts/test_transport_proto_shape.py tests/integration/test_grpc_transport.py
+        run: >-
+          pytest -q
+          tests/contracts/test_transport_proto_shape.py
+          tests/integration/test_grpc_transport.py
+          tests/integration/test_transport_selector.py
+          tests/integration/test_host_adapter_transport.py
 
   transport-dotnet:
     runs-on: windows-latest
