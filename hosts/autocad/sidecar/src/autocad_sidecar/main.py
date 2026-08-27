@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
 from autocad_sidecar.adapter.host_adapter import HostAdapter
@@ -23,11 +24,23 @@ from autocad_sidecar.health.host_status import StatusMonitor
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="autocad-sidecar", description="AutoCAD agent sidecar")
+    parser.add_argument(
+        "--transport",
+        choices=["pipe", "grpc"],
+        default=os.getenv("DSP_AUTOCAD_TRANSPORT", "pipe"),
+        help="host transport (default: pipe; env: DSP_AUTOCAD_TRANSPORT)",
+    )
+    parser.add_argument("--instance-id", default=None, help="AutoCAD host instance id for gRPC")
     parser.add_argument("--pipe", default="EnterpriseDesignAgent", help="named pipe name")
     parser.add_argument("--retries", type=int, default=3, help="max retries for write commands")
     parser.add_argument("--status-interval", type=float, default=5.0, help="health poll interval (s)")
     parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "status"])
     return parser
+
+
+def validate_transport_args(args: argparse.Namespace) -> None:
+    if args.transport == "grpc" and not args.instance_id:
+        raise ValueError("instance_id is required for grpc transport")
 
 
 async def run_status(adapter: HostAdapter) -> int:
@@ -53,6 +66,7 @@ async def run_serve(adapter: HostAdapter, status_interval: float) -> int:
 
 async def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    validate_transport_args(args)
 
     adapter = HostAdapter(pipe_name=args.pipe)
     dispatcher = CommandDispatcher(
