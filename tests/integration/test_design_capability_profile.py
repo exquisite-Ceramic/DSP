@@ -161,6 +161,14 @@ def test_mcp_cli_builds_runnable_sidecar_runtime_without_opening_host_transport(
     assert runtime.adapter._opened is False
 
 
+def test_mcp_cli_rejects_non_loopback_bind_without_gateway_auth() -> None:
+    cli_module = _require_module("autocad_sidecar.mcp_main")
+    args = cli_module.build_parser().parse_args(["--host", "0.0.0.0"])
+
+    with pytest.raises(ValueError, match="loopback"):
+        cli_module.validate_args(args)
+
+
 def test_sidecar_package_installs_mcp_console_entrypoint() -> None:
     scripts = {
         entry.name: entry.value
