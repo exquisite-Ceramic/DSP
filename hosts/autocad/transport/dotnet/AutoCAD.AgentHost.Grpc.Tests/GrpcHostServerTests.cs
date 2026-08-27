@@ -1,4 +1,5 @@
 using Dsp.Host.Transport.V1;
+using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Xunit;
@@ -7,8 +8,24 @@ namespace AutoCAD.AgentHost.Grpc.Tests;
 
 public class GrpcHostServerTests
 {
+    private const string ServiceName = "dsp.host.transport.v1.AutoCadHost";
+
     private static readonly global::AutoCAD.AgentHost.Grpc.TransportIdentity Identity =
         new("instance-test-001", "test-token-001", "1.0");
+
+    private static readonly Method<PingRequest, PingResponse> PingMethod = new(
+        MethodType.Unary,
+        ServiceName,
+        "Ping",
+        Marshallers.Create<PingRequest>(value => value.ToByteArray(), data => PingRequest.Parser.ParseFrom(data)),
+        Marshallers.Create<PingResponse>(value => value.ToByteArray(), data => PingResponse.Parser.ParseFrom(data)));
+
+    private static readonly Method<DispatchRequest, DispatchResponse> DispatchMethod = new(
+        MethodType.Unary,
+        ServiceName,
+        "Dispatch",
+        Marshallers.Create<DispatchRequest>(value => value.ToByteArray(), data => DispatchRequest.Parser.ParseFrom(data)),
+        Marshallers.Create<DispatchResponse>(value => value.ToByteArray(), data => DispatchResponse.Parser.ParseFrom(data)));
 
     [Fact]
     public async Task Ping_ReturnsIdentity_WithCorrectToken()
@@ -19,11 +36,11 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
-        var response = await client.PingAsync(
+        var response = await Ping(
+            channel,
             new PingRequest { InstanceId = Identity.InstanceId },
-            headers: AuthHeaders(Identity.AuthToken));
+            AuthHeaders(Identity.AuthToken)).ResponseAsync;
 
         Assert.Equal(Identity.InstanceId, response.InstanceId);
         Assert.Equal(Identity.ContractVersion, response.ContractVersion);
@@ -38,12 +55,12 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
         var error = await Assert.ThrowsAsync<RpcException>(async () =>
-            await client.PingAsync(
+            await Ping(
+                channel,
                 new PingRequest { InstanceId = "other-instance" },
-                headers: AuthHeaders(Identity.AuthToken)));
+                AuthHeaders(Identity.AuthToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.FailedPrecondition, error.StatusCode);
     }
@@ -57,10 +74,11 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
         var error = await Assert.ThrowsAsync<RpcException>(async () =>
-            await client.DispatchAsync(new DispatchRequest { ContractJson = Google.Protobuf.ByteString.CopyFromUtf8("{}") }));
+            await Dispatch(
+                channel,
+                new DispatchRequest { ContractJson = ByteString.CopyFromUtf8("{}") }).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, error.StatusCode);
         Assert.Equal(0, target.InvocationCount);
@@ -75,12 +93,12 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
         var error = await Assert.ThrowsAsync<RpcException>(async () =>
-            await client.DispatchAsync(
-                new DispatchRequest { ContractJson = Google.Protobuf.ByteString.CopyFromUtf8("{}") },
-                headers: AuthHeaders("wrong-token")));
+            await Dispatch(
+                channel,
+                new DispatchRequest { ContractJson = ByteString.CopyFromUtf8("{}") },
+                AuthHeaders("wrong-token")).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, error.StatusCode);
         Assert.Equal(0, target.InvocationCount);
@@ -95,12 +113,12 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
         var error = await Assert.ThrowsAsync<RpcException>(async () =>
-            await client.DispatchAsync(
+            await Dispatch(
+                channel,
                 new DispatchRequest(),
-                headers: AuthHeaders(Identity.AuthToken)));
+                AuthHeaders(Identity.AuthToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.InvalidArgument, error.StatusCode);
         Assert.Equal(0, target.InvocationCount);
@@ -117,11 +135,11 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
 
-        var response = await client.DispatchAsync(
-            new DispatchRequest { ContractJson = Google.Protobuf.ByteString.CopyFrom(requestBytes) },
-            headers: AuthHeaders(Identity.AuthToken));
+        var response = await Dispatch(
+            channel,
+            new DispatchRequest { ContractJson = ByteString.CopyFrom(requestBytes) },
+            AuthHeaders(Identity.AuthToken)).ResponseAsync;
 
         Assert.Equal(requestBytes, target.LastRequestBytes);
         Assert.Equal(responseBytes, response.ContractJson.ToByteArray());
@@ -137,13 +155,13 @@ public class GrpcHostServerTests
             Identity,
             new global::AutoCAD.AgentHost.Grpc.GrpcHostOptions());
         using var channel = CreateChannel(host);
-        var client = new AutoCadHost.AutoCadHostClient(channel);
         using var cts = new CancellationTokenSource();
 
-        var call = client.DispatchAsync(
-            new DispatchRequest { ContractJson = Google.Protobuf.ByteString.CopyFromUtf8("{\"request_id\":\"r-cancel\"}") },
-            headers: AuthHeaders(Identity.AuthToken),
-            cancellationToken: cts.Token);
+        var call = Dispatch(
+            channel,
+            new DispatchRequest { ContractJson = ByteString.CopyFromUtf8("{\"request_id\":\"r-cancel\"}") },
+            AuthHeaders(Identity.AuthToken),
+            cts.Token);
 
         await target.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         cts.Cancel();
@@ -170,6 +188,28 @@ public class GrpcHostServerTests
 
     private static GrpcChannel CreateChannel(global::AutoCAD.AgentHost.Grpc.GrpcHostHandle host) =>
         GrpcChannel.ForAddress(host.Address);
+
+    private static AsyncUnaryCall<PingResponse> Ping(
+        GrpcChannel channel,
+        PingRequest request,
+        Metadata? headers = null,
+        CancellationToken cancellationToken = default) =>
+        channel.CreateCallInvoker().AsyncUnaryCall(
+            PingMethod,
+            string.Empty,
+            new CallOptions(headers: headers, cancellationToken: cancellationToken),
+            request);
+
+    private static AsyncUnaryCall<DispatchResponse> Dispatch(
+        GrpcChannel channel,
+        DispatchRequest request,
+        Metadata? headers = null,
+        CancellationToken cancellationToken = default) =>
+        channel.CreateCallInvoker().AsyncUnaryCall(
+            DispatchMethod,
+            string.Empty,
+            new CallOptions(headers: headers, cancellationToken: cancellationToken),
+            request);
 
     private static Metadata AuthHeaders(string token) =>
         new() { { "authorization", $"Bearer {token}" } };
