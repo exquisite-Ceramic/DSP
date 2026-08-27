@@ -64,7 +64,7 @@ def readiness_message(args: argparse.Namespace) -> str:
 async def run_status(adapter: HostAdapter) -> int:
     status = await adapter.get_status()
     print(status.to_dict())
-    return 0
+    return 0 if status.state in {"ready", "busy"} else 1
 
 
 async def run_serve(adapter: HostAdapter, status_interval: float, readiness: str) -> int:
