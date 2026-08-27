@@ -1,7 +1,7 @@
 """host_test_client: manual and scripted testing of the AutoCAD agent host.
 
-Talks to the sidecar's CommandDispatcher (preferred) or directly to the
-named pipe when given --raw.
+Talks to the sidecar's CommandDispatcher (preferred) through the selected
+host transport.
 
 Usage:
     python tools/host_test_client/main.py selection
@@ -83,13 +83,17 @@ async def main(argv: list[str] | None = None) -> int:
     kwargs = {
         k: v
         for k, v in vars(args).items()
-        if k not in {"command", "kind", "pipe", "transport", "instance_id"}
+        if k not in {"command", "kind", "pipe", "transport", "instance_id", "name"}
     }
+    host = build_host_adapter(args)
 
-    if args.kind == "command":
-        result = await COMMANDS[args.command](pipe_name=args.pipe, **kwargs)
-    else:
-        result = await SCENARIOS[args.name](pipe_name=args.pipe)
+    try:
+        if args.kind == "command":
+            result = await COMMANDS[args.command](host=host, **kwargs)
+        else:
+            result = await SCENARIOS[args.name](host=host)
+    finally:
+        await host.close()
 
     print(result)
     return 0 if getattr(result, "ok", True) else 1
