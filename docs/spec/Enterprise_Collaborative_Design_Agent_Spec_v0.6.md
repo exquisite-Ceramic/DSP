@@ -551,27 +551,23 @@ provider tool routing id
 
 ## 10.1 定位
 
-Semantic Service 是 DSP 平台统一语义服务层。
+Semantic Service 是 DSP 的统一语义查询、映射、校验和版本路由层。
 
-其 MCP Server 是对外协议入口，但领域边界由 `SemanticProvider` Contract 定义。
-
-平台组件不得直接依赖：
+其对平台的远程协议采用 MCP。
 
 ```text
-Ifc43McpServer
-MetroMcpServer
-AcmeMcpServer
+DSP Platform
+   ↓ MCP Client
+Semantic MCP Server
+   ↓ Domain Contract
+SemanticProvider Registry
 ```
 
-而应依赖：
+D5 / Orchestrator 不 SHALL 直接依赖具体 `Ifc43Provider`、`MetroProvider` 或企业 Provider。
 
-```text
-SemanticService
-```
+## 10.2 MCP v1 Tool Surface
 
-## 10.2 Semantic MCP tools
-
-MVP 建议提供：
+首版建议暴露：
 
 ```text
 semantic.resolve_term
@@ -586,36 +582,29 @@ semantic.get_environment
 后续 MAY 增加：
 
 ```text
-semantic.project_fact
+semantic.project_facts
 semantic.validate_projection
-semantic.query_inheritance
-semantic.query_applicability
+semantic.query_rules
 ```
+
+但不应在 v1 一次性把复杂批量投影全部远程化。
 
 ## 10.3 SemanticService Contract
 
-逻辑接口：
+平台内部逻辑接口建议至少包含：
 
-```text
-resolve_term(term_id, environment)
-describe_term(term_id, locale, environment)
-get_term_schema(term_id, environment)
+```python
+resolve_term(term_id)
+describe_term(term_id, locale=None)
+get_term_schema(term_id)
 validate_claim(claim, environment)
-find_mappings(source_claim, target_namespace, environment)
+find_mappings(source_claim, target_namespace=None)
 get_environment(environment_id)
 ```
 
-所有会影响机器解释的调用必须绑定一个明确的 `SemanticEnvironment`。
+## 10.4 SemanticProvider capability interfaces
 
----
-
-# 11. Semantic Provider
-
-## 11.1 Provider Protocol
-
-Semantic Provider 是领域能力，不是 transport。
-
-推荐拆为 capability-oriented protocols：
+Provider SHOULD 按能力实现，而不是强迫所有 Provider 实现同一大接口：
 
 ```text
 SemanticVocabularyProvider
@@ -624,21 +613,34 @@ SemanticValidationProvider
 SemanticProjectionProvider
 ```
 
-一个 Provider 可以实现一个或多个能力。
+## 10.5 Provider Adapter
 
-## 11.2 Provider Manifest
+Provider 的运行方式与领域接口分离：
+
+```text
+InProcessSemanticProvider
+McpSemanticProviderAdapter
+FileSemanticProvider
+DatabaseSemanticProvider
+```
+
+D5 无需知道 Provider 实现方式。
+
+---
+
+# 11. SemanticProvider Manifest
 
 每个 Provider 必须声明：
 
 ```text
 provider_id
 provider_type
-namespaces[]
 version
 content_hash
+namespaces
 capabilities
-source/authority
-compatible_semantic_contract_version
+authority
+compatibility
 ```
 
 示例：
@@ -646,133 +648,121 @@ compatible_semantic_contract_version
 ```yaml
 provider_id: buildingSMART.ifc43
 provider_type: STANDARD
-namespaces:
-  - ifc
 version: "4.3.2.0"
+namespaces: [ifc]
 capabilities:
   vocabulary: true
   validation: true
-  projection: true
   mapping: false
+  projection: true
 authority:
   ifc: authoritative
 ```
 
-## 11.3 Provider transport adapter
+Metro：
 
-Provider 实现 MAY 是：
-
-```text
-InProcessSemanticProvider
-McpSemanticProvider
-FileSemanticProvider
-DatabaseSemanticProvider
+```yaml
+provider_id: dsp.metro.semantic
+provider_type: DOMAIN
+version: "3.2"
+requires:
+  - buildingSMART.ifc43@4.3.2.0
+capabilities:
+  vocabulary: true
+  mapping: true
+  validation: true
+  projection: true
 ```
-
-D5 / D4 不感知具体实现方式。
 
 ---
 
-# 12. Semantic Provider 类型
+# 12. IFC4.3 Standard Semantic Provider
 
-## 12.1 IFC4.3 Provider
+## 12.1 权威范围
 
-IFC Provider 是 `ifc:*` namespace 的标准权威来源。
+IFC Provider 对以下内容具有权威性：
 
-职责：
-
-- IFC entity/type/property/relationship 定义；
+- IFC entity；
 - inheritance；
-- Schema validity；
-- 官方 Pset/Qto metadata；
-- standard descriptions；
-- IFC-compatible projection/validation helpers。
+- attribute；
+- enum；
+- standard relationship；
+- standard Pset/Qto definition；
+- IFC data type；
+- Schema legality。
 
-DSP 不重新定义 `ifc:IfcWall` 的 canonical meaning。
+## 12.2 Term identity
 
-## 12.2 DSP Core Provider
-
-DSP Core Provider 管理跨行业协作所需但 IFC 不直接定义的平台语义，例如：
-
-```text
-dsp:SemanticIdentity
-dsp:HostBinding
-dsp:Freshness
-dsp:Assurance
-dsp:SemanticSnapshot
-```
-
-如某业务属性可以直接引用 IFC 官方定义，应优先引用标准 term，避免重复造词。
-
-## 12.3 Metro Semantic Provider
-
-Metro Semantic 是地铁领域 Provider，不是 IFC Provider 的替代品。
-
-权威顺序：
+标准 term 使用稳定 canonical identity，例如：
 
 ```text
-IFC Schema
-  ↓
-IFC official Pset / Qto
-  ↓
-Metro Semantic usage / project extension
-  ↓
-PsetProj_* / QtoProj_*
-  ↓
-IDS / 专项规则 / 项目映射
-```
-
-Metro Provider 可提供：
-
-- 地铁领域 entity usage rules；
-- `PsetProj_*` / `QtoProj_*` 数据字典；
-- 字段 required / conditional / recommended / prohibited 状态；
-- IDS requirements；
-- 地铁对象映射；
-- 轨道、车站、隧道、地质、限界、MEP 专项规则；
-- 项目几何/数学 validation references。
-
-Metro Provider 不得修改 IFC Schema 的 canonical definition。
-
-## 12.4 Enterprise Semantic Provider
-
-企业 Provider 可以表达：
-
-```text
-企业分类
-图层标准
-族/类型标准
-资产编码
-专业命名规范
-企业自定义属性
-```
-
-示例：
-
-```text
-AutoCAD layer A-WALL-EXT
-  ↓ enterprise mapping
-acme:ExteriorWall
-  ↓ canonical mapping
 ifc:IfcWall
+ifc:IfcDoor
+ifc:IfcAlignment
+ifc:IfcRelAggregates
 ```
 
-新增/删除企业 Mapping Provider 不得要求修改 D5 Core。
+`description` 是 presentation metadata；真正 identity 是标准 namespace + term + pinned standard version。
+
+## 12.3 不得承担 DSP Action
+
+IFC Provider 不提供：
+
+```text
+wall.thickness.set.v1
+wall.move.v1
+```
+
+IFC 定义 State Semantics；DSP Canonical Action Catalog 定义 Action Semantics。
 
 ---
 
-# 13. Metro Semantic Contract
+# 13. Metro Semantic Provider
 
-## 13.1 基线
+## 13.1 定位
 
-Metro Semantic reference package 基于：
+Metro Semantic 是建立在 IFC4.3 之上的地铁领域语义 Provider。
+
+其基线来源为：
 
 ```text
 IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版
-Target Schema: IFC4X3_ADD2 / IFC 4.3.2.0
+Schema: IFC4X3_ADD2 / IFC 4.3.2.0
 ```
 
-该领域标准明确区分：
+Metro Semantic 不是 IFC 官方标准本体，而是：
+
+```text
+IFC standard semantics
++
+metro domain mapping
++
+PsetProj/QtoProj dictionary
++
+IDS information requirements
++
+field status / cardinality rules
++
+metro geometry / engineering validation rules
+```
+
+## 13.2 权威层级
+
+Metro Provider 必须遵循以下优先级：
+
+```text
+1. IFC4X3_ADD2 Schema legality
+2. IFC official entity / Pset / Qto semantics
+3. Metro domain mappings and PsetProj/QtoProj
+4. Metro IDS requirements
+5. Metro project-specific validation rules
+```
+
+若 Metro 规则与正式 IFC Schema 冲突，以 IFC Schema 为准。
+
+## 13.3 Metro field status
+
+Metro Provider 应能够表达：
 
 ```text
 IFC-M
@@ -780,77 +770,151 @@ IFC-O
 P-M
 P-C
 P-R
-禁止
+PROHIBITED
 ```
 
-Metro Provider 必须保留这些等级的语义，不得全部压缩成一个 Boolean required。
+并可按阶段转换为 IDS 可执行 requirement：
 
-## 13.2 Metro semantic claim 示例
-
-```yaml
-term_id: metro:PsetProj_WallDesign.DesignThickness
-kind: Property
-maps_to_container: PsetProj_WallDesign
-applies_to:
-  - ifc:IfcWall
-range:
-  type: IfcLengthMeasure
-requirement_level: P-M
-source:
-  package: metro.ifc43.v3.2
+```text
+required
+optional
+prohibited
 ```
 
-## 13.3 官方与项目属性不得混淆
+## 13.4 Metro property resolution order
 
-例如墙体：
+Metro Semantic SHOULD 保留以下读取/解释优先级：
+
+```text
+Schema native fields
+→ Type object fields
+→ official Pset/Qto
+→ material and classification relations
+→ PsetProj project extension fields
+→ IDS / special geometry validation
+```
+
+## 13.5 Metro mapping
+
+Metro Provider 负责受控的“地铁业务概念 → 合法 IFC4.3 表达”。
+
+例如，不得产生不存在的 IFC 实体：
+
+```text
+IfcTunnel
+IfcTunnelPart
+IfcTrack
+IfcSprinkler
+IfcFanCoilUnit
+IfcPrecastConcreteElement
+```
+
+Metro Provider 可将隧道、限界、PSD、专业设备等映射到合法 IFC entity + project properties / classification。
+
+## 13.6 Metro extensions
+
+Metro-specific term MAY 使用独立 namespace，例如：
+
+```text
+metro:WallDesign.DesignThickness
+metro:TunnelSegment.ConstructionMethod
+metro:ClearanceEnvelope.EnvelopeType
+metro:TrackGeometry.DesignSpeed
+```
+
+但是对于已经存在的 IFC term，Metro 不得重新定义 canonical identity：
 
 ```text
 ifc:IfcWall
-
-IFC official:
-  Pset_WallCommon.LoadBearing
-  Pset_WallCommon.FireRating
-  Qto_WallBaseQuantities.Width
-
-Metro/project:
-  PsetProj_WallDesign.WallFunction
-  PsetProj_WallDesign.DesignThickness
-  PsetProj_WallDesign.WaterproofGrade
 ```
 
-Semantic Service 的返回结果必须带 `authority/source`，让调用方能够区分标准定义与项目扩展。
+必须仍然由 IFC Provider 权威解释。
 
-## 13.4 Metro validation
+## 13.7 Metro description
 
-Metro Provider 中的校验规则至少分为：
+Metro term 的 description 由 Metro Provider 维护。
+
+IFC term 在 Metro context 下可附加 metro usage note，但不得覆盖 IFC canonical description/meaning。
+
+示例：
 
 ```text
-SCHEMA
-IDS
-DATA_DICTIONARY
-RELATIONSHIP
-GEOMETRY
-MATH
-PROJECT_POLICY
+ifc:IfcWall
+  canonical meaning: IFC Provider
+  metro usage note: Metro Provider
 ```
+
+---
+
+# 14. DSP Core Semantic Provider
+
+DSP Core Provider 仅维护跨行业协同所需、IFC 不直接定义的 DSP 语义，例如：
+
+```text
+dsp:SemanticIdentity
+dsp:HostBinding
+dsp:ExternalIdentity
+dsp:WallThickness
+dsp:Freshness
+dsp:Assurance
+dsp:Snapshot
+dsp:ChangeSet
+```
+
+DSP Core term 必须具有：
+
+```text
+stable id
+version
+kind
+domain
+range
+unit / allowed values
+label
+description
+```
+
+description 的修改不应自动改变 semantic content hash；domain/range/unit/constraint 的改变属于 semantic definition change。
+
+---
+
+# 15. Enterprise Semantic Provider
+
+企业 Provider 可提供：
+
+- 图层/块/族/命名规则映射；
+- 企业分类体系；
+- 企业 Pset / 属性字典；
+- 专业规则；
+- 资产规则；
+- 自有设计标准；
+- Host-native → canonical mappings。
 
 例如：
 
 ```text
-DesignThickness
-≈ geometry thickness
-≈ material layer total thickness
+AutoCAD layer A-WALL-EXT
+  ↓
+acme:ExteriorWall
+  ↓
+ifc:IfcWall
 ```
 
-这种规则不得伪装成 IFC Schema constraint。
+企业 Provider 不得修改：
+
+```text
+ifc:IfcWall 的 canonical meaning
+```
+
+企业可定义自己 namespace 下的 term，并通过显式 mapping 与 IFC/DSP/Metro term 建立关系。
 
 ---
 
-# 14. SemanticEnvironment
+# 16. Semantic Environment
 
-## 14.1 定义
+## 16.1 目的
 
-SemanticEnvironment 是一次确定性语义解释所使用的 Provider 集合：
+Semantic Environment 描述某次规划/审批所使用的完整语义解释环境。
 
 ```yaml
 semantic_environment:
@@ -863,7 +927,7 @@ semantic_environment:
       version: "1.0"
       content_hash: "..."
 
-    - provider_id: metro.ifc43
+    - provider_id: dsp.metro.semantic
       version: "3.2"
       content_hash: "..."
 
@@ -872,154 +936,158 @@ semantic_environment:
       content_hash: "..."
 ```
 
-## 14.2 Pinning
+## 16.2 Version pinning
 
-PlanningSnapshot、ChangeSet 和 Approval 必须 pin SemanticEnvironment。
+PlanningSnapshot / ChangeSet 必须固定 `SemanticEnvironmentRef`。
 
-审批后不得在执行时悄悄切换 Provider 版本。
+禁止在审批之后因为 Provider 自动升级而静默改变已审批语义。
 
-若 SemanticEnvironment 发生变化：
+## 16.3 Provider conflict
 
-```text
-重新验证 / 重规划 / 重新审批
-```
+Provider 不得静默覆盖其他 Provider 的权威 namespace。
 
-由 policy 决定具体级别。
+冲突必须：
 
-## 14.3 Hash
-
-机器语义变化必须导致 content hash 变化。
-
-纯 presentation metadata：
-
-```text
-label
-description
-translation
-example
-```
-
-SHOULD 与 semantic content hash 分离，避免仅修改文案导致 PlanningSnapshot 失效。
+- fail closed；或
+- 根据显式配置的 mapping/overlay policy 处理；
+- 并记录 provenance。
 
 ---
 
-# 15. Semantic Ingest Contract
+# 17. Semantic Ingest Contract
 
-## 15.1 目标
-
-在 Host Native Fact 与 D5 之间定义独立、可版本化的固定数据结构。
-
-建议：
+## 17.1 Pipeline
 
 ```text
-SemanticIngestContract v1
+HostDelta / Host read
+  ↓
+Native Fact Extractor
+  ↓
+Semantic Adapter
+  ↓
 NormalizedDesignFactBatch
+  ↓
+Semantic Service / Providers
+  ↓
+Canonical Claims
+  ↓
+D5 Collaboration Kernel
 ```
 
-## 15.2 NormalizedDesignFact
+## 17.2 NormalizedDesignFact
 
-最小建议字段：
+建议最小结构：
 
 ```text
-source
-  host/provider
-  document_id
-  host_revision
-
-native_identity
-  native_id
-  native_kind
-
-identity_hints[]
-
-classification_claims[]
-property_claims[]
-relationship_claims[]
-placement_claims[]
-geometry_refs[]
-
+fact_id
+producer
+host_ref
+source_revision
+subject_native_ref
+fact_kind
+predicate
+value
+value_type
+unit
+geometry_ref
+source_scheme
+source_code
 provenance
 ```
 
-Claim 中的 term 可以是：
+NormalizedDesignFact 解决“数据怎么移动”，不是“最终是什么意思”。
+
+## 17.3 SemanticClaim
+
+Provider 输出统一 claim：
 
 ```text
-ifc:*
-metro:*
-enterprise namespace
-native namespace
-```
-
-但进入 L2 Canonical collaboration 之前必须得到可验证 canonical mapping。
-
-## 15.3 Ingest Pipeline
-
-```text
-HostDelta
-   ↓
-Native Fact Extractor
-   ↓
-NormalizedDesignFactBatch
-   ↓
-Semantic Service
-   ↓
-Mapping / Validation / Projection
-   ↓
-D5 Collaboration Kernel
-   ↓
-Journal / DirtyMap / SemanticProjection
+subject
+predicate / classification
+canonical_term_id
+value
+unit
+assurance
+provenance
+evidence
+provider_id
+provider_version
 ```
 
 ---
 
-# 16. D5 — Collaboration Kernel
+# 18. Semantic Assurance
 
-## 16.1 定位
+## 18.1 Assurance 与 Freshness 分离
 
-D5 是当前设计的 canonical semantic read model / collaboration state center。
+Freshness 回答：
+
+> 这个事实在当前 Host revision 下是否仍然新鲜？
+
+Assurance 回答：
+
+> 这个事实是如何得到的、可信程度如何？
+
+## 18.2 Assurance level
+
+建议至少：
+
+```text
+NATIVE_ASSERTED
+STANDARD_MAPPED
+RULE_DERIVED
+HEURISTIC
+UNKNOWN
+```
+
+可附加：
+
+```text
+producer
+provider_id
+mapping_profile
+rule_id
+evidence
+confidence
+```
+
+## 18.3 Operation gate
+
+Canonical Operation 可以声明最低 assurance：
+
+```text
+target.classification >= RULE_DERIVED
+```
+
+AI/LLM 不得自行降低 assurance requirement。
+
+---
+
+# 19. D5 — Collaboration Kernel
+
+## 19.1 职责
+
+D5 负责回答：
+
+> 当前设计在 canonical collaboration world 中是什么？
 
 D5 不负责：
 
-- Host native conversion knowledge；
-- LLM action selection；
-- Host command execution；
-- 企业 Mapping Pack 逻辑；
-- IFC definition authority。
+- Host-native mapping 规则；
+- LLM action description；
+- provider execution schema；
+- 最终 Host API 调用。
 
-## 16.2 D5 核心职责
-
-```text
-Semantic Identity
-Host Bindings
-External Identities
-Canonical Classification
-Canonical Properties
-Canonical Relationships
-Placement / Coordinates
-Freshness
-Assurance / Provenance
-Journal / DirtyMap
-Semantic Projection
-Semantic Snapshot
-Conflict / Revision state
-```
-
----
-
-# 17. Semantic Identity
-
-## 17.1 SemanticIdentity
+## 19.2 SemanticIdentity
 
 ```text
 SemanticIdentity
   semantic_id
 ```
 
-`semantic_id` 是 DSP collaboration identity，不等于任何 Host native id。
+一个 SemanticIdentity 可拥有多个 HostBinding。
 
-## 17.2 HostBinding
-
-一个 SemanticIdentity 可以有多个 HostBinding：
+## 19.3 HostBinding
 
 ```text
 HostBinding
@@ -1030,7 +1098,7 @@ HostBinding
   native_kind
 ```
 
-例如：
+示例：
 
 ```text
 S-WALL-001
@@ -1038,11 +1106,11 @@ S-WALL-001
 └── Revit / model-2 / 38912
 ```
 
-## 17.3 ExternalIdentity
+## 19.4 ExternalIdentity
 
-不得把 IFC GlobalId 写成 D5 Core 特殊字段。
+D5 不得为 IFC GlobalId 建特殊字段。
 
-统一使用：
+统一模型：
 
 ```text
 ExternalIdentity
@@ -1058,27 +1126,24 @@ scheme = ifc.global_id
 value  = 2Ksd...
 ```
 
-未来外部资产号、CDE ID、其他行业标准 ID 使用同一结构。
+## 19.5 Canonical Semantic Projection
 
----
-
-# 18. Canonical Semantic Projection
-
-## 18.1 SemanticEntity
-
-逻辑结构：
+D5 Projection 至少可表达：
 
 ```text
-SemanticEntity
-  semantic_id
-  classification
-  properties
-  relationships
-  placement
-  spatial_context
-  assurance
-  provenance
+semantic_id
+classification
+canonical_properties
+relationships
+placement / coordinates
+spatial membership
+connectivity
+constraints
+source extensions
+assurance / provenance
 ```
+
+实例只存 term id，不重复存 vocabulary description。
 
 示例：
 
@@ -1087,42 +1152,16 @@ semantic_id: S-WALL-001
 classification:
   term_id: ifc:IfcWall
 properties:
-  metro:PsetProj_WallDesign.DesignThickness:
+  dsp:WallThickness:
+    value: 200
+    unit: mm
+extensions:
+  metro:WallDesign.DesignThickness:
     value: 200
     unit: mm
 ```
 
-Instance 不复制 Semantic Term description。
-
-## 18.2 SemanticProjectionRef
-
-Snapshot 不嵌入全部 semantic state，但必须引用 exact projection：
-
-```text
-SemanticProjectionRef
-  projection_id
-  projection_hash
-  semantic_contract_version
-  normalized_fact_batch_hash
-```
-
-## 18.3 SemanticEnvironmentRef
-
-```text
-SemanticEnvironmentRef
-  environment_id
-  environment_hash
-```
-
-Projection + Environment 共同确定：
-
-> 当前数据是什么，以及这份数据是按哪套语义解释出来的。
-
----
-
-# 19. Freshness
-
-## 19.1 SemanticAspect
+## 19.6 SemanticAspect
 
 D5 至少支持：
 
@@ -1138,130 +1177,107 @@ RELATIONSHIPS
 CONSTRAINTS
 ```
 
-`CLASSIFICATION` 必须是一等 aspect。
+`CLASSIFICATION` 为一等 aspect。
 
-## 19.2 两阶段 Freshness
+## 19.7 Freshness
 
-保留：
-
-```text
-Context Freshness
-Operation Freshness
-```
-
-Context 阶段只获取任务需要的低成本上下文。
-
-Operation 阶段在：
+D5 保留：
 
 ```text
-canonical operation
-target
-material arguments
-```
-
-确定后执行 exact freshness barrier。
-
-## 19.3 Freshness 与 Assurance 分离
-
-Freshness 回答：
-
-> 这个事实相对于 Host revision 是否仍然新鲜？
-
-Assurance 回答：
-
-> 这个事实是怎么得出的，可信等级是什么？
-
-二者不可合并。
-
----
-
-# 20. Semantic Assurance / Provenance
-
-建议等级：
-
-```text
-NATIVE_ASSERTED
-STANDARD_MAPPED
-RULE_DERIVED
-HEURISTIC
+FRESH
+STALE
+DIRTY
 UNKNOWN
+RECONSTRUCTING
 ```
 
-每个关键 claim SHOULD 能记录：
+以及 Context Freshness / Operation Freshness 两阶段 barrier。
+
+## 19.8 Change Journal / DirtyMap
+
+Host delta 经 semantic ingest 后形成：
 
 ```text
-producer/provider
-source fact
-mapping profile
-rule id
-semantic environment
-confidence (if heuristic)
+HostDeltaRecord
+  document_id
+  host_revision
+  semantic_id
+  change_type
+  affected_aspects
 ```
 
-Canonical Operation 可声明最小 assurance：
+Journal append-only；DirtyMap 按：
 
 ```text
-target.classification >= STANDARD_MAPPED
+document + semantic_id + aspect
 ```
 
-高风险 operation 不得把 `HEURISTIC` 默认当成等价可靠分类。
+跟踪状态。
 
 ---
 
-# 21. Semantic Snapshot
+# 20. Snapshot 与 SemanticProjectionRef
 
-## 21.1 Snapshot 内容
+## 20.1 ReconstructionResult
+
+Reconstruction 不得只返回 freshness guarantee，还应绑定实际 semantic projection：
 
 ```text
-SemanticSnapshot
-  snapshot_id
-  kind
-  project_id
-  freshness_contract_id/hash
+ReconstructionResult
   document_ref
-  base_host_revision
+  host_revision
   coverage
-  aspect_guarantees
-  projection_ref
+  guarantees
+  semantic_projection_ref
   semantic_environment_ref
-  hash
 ```
 
-## 21.2 ContextSnapshot
-
-用于 D4 / LLM 上下文生成。
-
-可以较轻，只要求 task-scoped coverage。
-
-## 21.3 PlanningSnapshot
-
-任何写操作必须基于 PlanningSnapshot。
-
-PlanningSnapshot 必须绑定：
+## 20.2 SemanticProjectionRef
 
 ```text
-exact Host revision
-exact semantic projection
-exact semantic environment
-freshness guarantees
+projection_id
+projection_hash
+normalized_fact_batch_hash
+semantic_model_version
+provider_set_hash
+mapping_profile_set_hash
 ```
 
-SnapshotSet 仅包含 PlanningSnapshot，并保持每 document 一个 member 的不变量。
+## 20.3 SemanticSnapshot
+
+```text
+snapshot_id
+kind
+project_id
+freshness_contract_id/hash
+document_ref
+base_host_revision
+coverage
+aspect_guarantees
+semantic_projection_ref
+semantic_environment_ref
+hash
+```
+
+PlanningSnapshot 必须能够证明：
+
+> 审批时看的是哪一份 Host revision、哪一份 semantic projection、哪一套 provider/mapping 环境。
 
 ---
 
-# 22. D5 Read Contract
+# 21. D5 Read API
 
-建议提供：
+建议稳定接口：
 
 ```text
-get_context_snapshot(task_scope)
-get_entity(semantic_id, snapshot_id)
-query_entities(filter, snapshot_id)
-get_projection(snapshot_id)
-check_freshness(snapshot_id, requirements)
-check_assurance(snapshot_id, requirements)
-resolve_host_bindings(semantic_id)
+SemanticReadService
+  get_context_snapshot(task_scope)
+  get_entity(semantic_id, snapshot_id)
+  query_entities(filter, snapshot_id)
+  get_projection(snapshot_id)
+  check_freshness(snapshot_id, requirements)
+  check_assurance(snapshot_id, requirements)
+  resolve_host_bindings(semantic_id)
 ```
 
 事件：
@@ -1270,81 +1286,83 @@ resolve_host_bindings(semantic_id)
 SemanticSnapshotPublished
 SemanticEntityDirty
 SemanticIdentityChanged
-SemanticProjectionPublished
+SemanticProjectionChanged
 ```
 
 D4/D6/D7 不得直接共享 D5 内部数据库。
 
 ---
 
-# 23. LLM Context Compilation
+# 22. Context Composer 与 LLM
 
-## 23.1 LLM 不读取全模型
+## 22.1 Context 来源
 
-Orchestrator / Context Composer 根据 task scope 组装：
+LLM task context 由以下内容按需组装：
 
 ```text
 D5 instance facts
 +
-相关 Semantic Term descriptions
+Semantic Service descriptions / schemas
 +
-D4 eligible Canonical Actions
+Canonical Action Catalog descriptions
++
+policy / task constraints
 ```
 
-不得把全部 IFC ontology、全部 Metro 字典和全部模型实例直接塞进上下文。
+LLM 不读取完整模型数据库。
 
-## 23.2 Description 来源
+## 22.2 Semantic description
+
+例如 LLM 可看到：
 
 ```text
-ifc:IfcWall
-  → IFC Provider
+S-WALL-001
+Classification:
+  IfcWall — <IFC provider description>
 
-metro:PsetProj_WallDesign.DesignThickness
-  → Metro Semantic Provider
+Domain constraints:
+  Metro wall design requirements — <Metro provider summary>
 
-dsp:...
-  → DSP Core Provider
-
-wall.thickness.set.v1
-  → Canonical Action Catalog
+Current thickness:
+  200 mm
 ```
 
-LLM 无需知道具体 Provider 路由。
+但系统 eligibility 仍由结构化 term/schema/requirements 判断。
 
 ---
 
-# 24. D6 — Parameter Binder
+# 23. D6 — Parameter Binder
 
-## 24.1 Slot Binding Classes
+## 23.1 Slot Binding Model
 
-每个 canonical slot 必须声明来源：
+每个 canonical slot 必须声明 binding class：
 
 ```text
 INTENT
 CONTEXT
-DEFAULT
+CANONICAL_DEFAULT
 DERIVED
 PROVIDER
 ```
 
-规则：
+原则：
 
-> 能确定性绑定的 slot，不交给 LLM。
+> 能确定性绑定的槽，绝不交给 LLM。
 
-## 24.2 示例
+## 23.2 LLM-visible slots
 
-```yaml
-operation: wall.thickness.set.v1
+LLM 主要填写 `INTENT`。
 
-slots:
-  target:
-    semantic_type: SemanticId
-    entity_constraint: ifc:IfcWall
-    binding: CONTEXT
+例如：
 
-  thickness:
-    semantic_term: metro:PsetProj_WallDesign.DesignThickness
-    binding: INTENT
+```text
+wall.thickness.set.v1
+
+target:
+  binding = CONTEXT
+
+thickness:
+  binding = INTENT
 ```
 
 用户：
@@ -1353,61 +1371,59 @@ slots:
 把这堵墙加厚到 300mm
 ```
 
-LLM 只提取：
+LLM 只需要输出：
 
 ```text
+operation = wall.thickness.set.v1
 thickness = 300mm
 ```
 
-D6 确定性绑定：
+D6 从 ContextSnapshot 绑定 target。
+
+## 23.3 BoundOperationProposal
 
 ```text
-target = ContextSnapshot.selection = S-WALL-001
-```
-
-输出：
-
-```text
-BoundOperationProposal
-  canonical_operation
-  arguments
-  binding_evidence
-  snapshot_ref
+operation
+arguments
+binding_evidence
+snapshot_ref
+semantic_environment_ref
 ```
 
 ---
 
-# 25. D7 — ChangeSet / Approval / ProviderBinding
+# 24. D7 — ChangeSet / Approval / Execution
 
-## 25.1 ChangeSet
+## 24.1 ChangeSet
 
-ChangeSet 表达 canonical change，而不是某 Host command。
+ChangeSet 代表准备被执行和审批的 canonical change，而不是 Host command 集合。
+
+至少包含：
 
 ```text
-ChangeSet
-  change_set_id
-  planning_snapshot_set
-  semantic_environment_ref
-  canonical_operations[]
-  expected_semantic_effects[]
-  risk
-  approval_state
+changeset_id
+planning_snapshot_set
+semantic_environment_ref
+canonical_operations
+before/after intent
+risk
+policy decision
+approval state
+verification plan
 ```
 
-## 25.2 ProviderBinding
+## 24.2 ProviderBinding
 
-仅在 execution boundary 才转换：
+只有执行阶段才做：
 
 ```text
 SemanticId
-→ HostBinding
-→ Provider native id
-
-canonical value
-→ provider internal unit/value
-
-PlanningSnapshot revision
-→ Host revision guard
+  ↓
+HostBinding
+  ↓
+provider-native id
+  ↓
+provider execution schema
 ```
 
 例如：
@@ -1415,38 +1431,55 @@ PlanningSnapshot revision
 ```text
 S-WALL-001
 → Revit ElementId 38912
-
-300mm
-→ Revit internal feet
+→ internal unit conversion
+→ revision 84
+→ Revit tool input
 ```
 
-LLM 不负责这些转换。
+ProviderBinding 不由 LLM 完成。
 
-## 25.3 Verification
+## 24.3 ExecutionUnit
 
-执行完成后：
+ExecutionUnit 是 Host/provider-specific 的最终执行单元，必须带：
 
 ```text
-Host read-back / HostDelta
-  ↓
-Semantic Ingest
-  ↓
-new SemanticProjection
-  ↓
-compare expected semantic effects
+changeset_id
+provider_id
+provider_tool
+native arguments
+expected revision
+idempotency key
+verification contract
 ```
 
-验证的是 canonical semantic effect，而不仅是“Host API 返回 success”。
+## 24.4 Verification
+
+执行后：
+
+```text
+Host write
+  ↓
+Host read-back / delta
+  ↓
+Host revision update
+  ↓
+D5 dirty/reconstruct
+  ↓
+new SemanticSnapshot
+  ↓
+compare intended vs observed semantic effect
+```
 
 ---
 
-# 26. 墙体加厚到 300mm — Reference Flow
+# 25. “墙体加厚到 300mm”完整流程
 
-初始状态：
+假定：
 
 ```text
-SemanticId = S-WALL-001
+S-WALL-001
 classification = ifc:IfcWall
+current dsp:WallThickness = 200mm
 Metro evidence = PsetProj_WallDesign.DesignThickness = 200mm
 freshness = FRESH
 assurance = STANDARD_MAPPED / RULE_DERIVED
@@ -1508,9 +1541,9 @@ assurance = STANDARD_MAPPED / RULE_DERIVED
 
 ---
 
-# 27. Semantic Authority 与冲突规则
+# 26. Semantic Authority 与冲突规则
 
-## 27.1 Namespace ownership
+## 26.1 Namespace ownership
 
 建议：
 
@@ -1524,7 +1557,7 @@ metro:*     → Metro Semantic authoritative
 acme:*      → Enterprise Provider authoritative
 ```
 
-## 27.2 Mapping 不等于 Identity
+## 26.2 Mapping 不等于 Identity
 
 ```text
 acme:PartitionWall maps_to ifc:IfcWall
@@ -1542,7 +1575,7 @@ rule/evidence
 assurance
 ```
 
-## 27.3 不能覆盖外部标准
+## 26.3 不能覆盖外部标准
 
 Enterprise/Metro Provider 不得：
 
@@ -1561,9 +1594,9 @@ add validation rules
 
 ---
 
-# 28. Description / Presentation Metadata
+# 27. Description / Presentation Metadata
 
-## 28.1 Semantic Term
+## 27.1 Semantic Term
 
 建议：
 
@@ -1587,7 +1620,7 @@ SemanticTerm
     locale
 ```
 
-## 28.2 Instance 不复制 description
+## 27.2 Instance 不复制 description
 
 错误：
 
@@ -1607,7 +1640,7 @@ ifc:IfcWall
 Vocabulary lookup
 ```
 
-## 28.3 Hash policy
+## 27.3 Hash policy
 
 仅修改：
 
@@ -1634,9 +1667,9 @@ mapping semantics
 
 ---
 
-# 29. 缓存、可用性与失败策略
+# 28. 缓存、可用性与失败策略
 
-## 29.1 Semantic MCP 可用性
+## 28.1 Semantic MCP 可用性
 
 D5 runtime 不应因为一次 `describe_term` 远程调用失败就丢失既有 canonical state。
 
@@ -1647,7 +1680,7 @@ Semantic Service SHOULD 支持：
 - pinned environment cache；
 - offline read of already-approved definitions。
 
-## 29.2 Fail closed
+## 28.2 Fail closed
 
 以下情况必须 fail closed：
 
@@ -1662,7 +1695,7 @@ Semantic Service SHOULD 支持：
 
 ---
 
-# 30. Policy 与安全边界
+# 29. Policy 与安全边界
 
 写操作必须至少经过：
 
@@ -1690,7 +1723,7 @@ LLM 不得：
 
 ---
 
-# 31. Repository Target Layout
+# 30. Repository Target Layout
 
 建议目标目录：
 
@@ -1738,9 +1771,9 @@ AutoCAD Sidecar 的 Host MCP 保留在 Host 目录，不移动到 Semantic Provi
 
 ---
 
-# 32. Conformance 与测试
+# 31. Conformance 与测试
 
-## 32.1 Host Contract
+## 31.1 Host Contract
 
 保持：
 
@@ -1749,7 +1782,7 @@ AutoCAD Sidecar 的 Host MCP 保留在 Host 目录，不移动到 Semantic Provi
 - golden files；
 - real Host smoke test。
 
-## 32.2 Semantic Provider Conformance
+## 31.2 Semantic Provider Conformance
 
 每个 Provider 必须测试：
 
@@ -1764,7 +1797,7 @@ validation determinism
 conflict behavior
 ```
 
-## 32.3 Metro Semantic Conformance
+## 31.3 Metro Semantic Conformance
 
 Metro Provider 至少测试：
 
@@ -1777,7 +1810,7 @@ Metro Provider 至少测试：
 - 单位与字段类型；
 - mapping provenance。
 
-## 32.4 Acceptance proof
+## 31.4 Acceptance proof
 
 必须有一个“新增 Enterprise Mapping Provider 不修改 D5 Core”的验收测试：
 
@@ -1789,9 +1822,9 @@ A-WALL-* → IfcWall
 
 ---
 
-# 33. Migration from v0.5 / current branch
+# 32. Migration from v0.5 / current branch
 
-## 33.1 可直接保留
+## 32.1 可直接保留
 
 当前 D5 中以下概念继续有效：
 
@@ -1808,7 +1841,7 @@ SnapshotSet
 revision / coverage / guarantee barriers
 ```
 
-## 33.2 必须修改
+## 32.2 必须修改
 
 ### Identity
 
@@ -1868,7 +1901,7 @@ semantic term refs
 freshness/assurance requirements
 ```
 
-## 33.3 新增子系统
+## 32.3 新增子系统
 
 ```text
 Semantic Service / Semantic MCP Server
@@ -1883,7 +1916,7 @@ Assurance
 
 ---
 
-# 34. 实施顺序
+# 33. 实施顺序
 
 建议顺序：
 
@@ -1926,7 +1959,7 @@ D6/D7 不应在 Phase B–E 的语义边界未冻结前继续扩大实现。
 
 ---
 
-# 35. Architecture Invariants
+# 34. Architecture Invariants
 
 以下约束应作为自动架构测试或 code review checklist：
 
@@ -1945,7 +1978,7 @@ D6/D7 不应在 Phase B–E 的语义边界未冻结前继续扩大实现。
 
 ---
 
-# 36. 术语表
+# 35. 术语表
 
 | 术语 | 定义 |
 |---|---|
@@ -1973,7 +2006,7 @@ D6/D7 不应在 Phase B–E 的语义边界未冻结前继续扩大实现。
 
 ---
 
-# 37. v0.6 冻结条件
+# 36. v0.6 冻结条件
 
 v0.6 进入 `Accepted` 前，至少完成：
 
@@ -1992,7 +2025,7 @@ v0.6 进入 `Accepted` 前，至少完成：
 
 ---
 
-# 38. 一句话系统边界
+# 37. 一句话系统边界
 
 ```text
 Host MCP        = 怎么做
