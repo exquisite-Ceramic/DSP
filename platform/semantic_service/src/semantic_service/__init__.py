@@ -1,5 +1,10 @@
 """Semantic Service Core public surface."""
 
+from semantic_service.environment import (
+    PinnedProvider,
+    SemanticEnvironment,
+    SemanticEnvironmentStore,
+)
 from semantic_service.errors import (
     EnvironmentIntegrityError,
     EnvironmentNotFoundError,
@@ -45,6 +50,7 @@ __all__ = [
     "MappingCandidate",
     "NamespaceAuthority",
     "NamespaceAuthorityError",
+    "PinnedProvider",
     "ProviderCapabilityError",
     "ProviderDependencyError",
     "ProviderNotFoundError",
@@ -55,6 +61,8 @@ __all__ = [
     "ResolvedTerm",
     "SemanticCapability",
     "SemanticClaim",
+    "SemanticEnvironment",
+    "SemanticEnvironmentStore",
     "SemanticMappingProvider",
     "SemanticProjectionProvider",
     "SemanticProvider",
