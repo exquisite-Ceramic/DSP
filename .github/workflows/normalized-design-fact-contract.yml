@@ -4,8 +4,15 @@ on:
   pull_request:
     paths:
       - "contracts/**"
+      - "hosts/autocad/plugin/AutoCAD.AgentHost/Native/**"
+      - "hosts/autocad/plugin/AutoCAD.AgentHost/Commands/**"
+      - "hosts/autocad/sidecar/**"
+      - "tests/contracts/test_autocad_*fact*.py"
+      - "tests/integration/test_autocad_native_fact_command.py"
       - "docs/superpowers/specs/2026-08-28-normalized-design-fact-contract-design.md"
       - "docs/superpowers/plans/2026-08-28-normalized-design-fact-contract.md"
+      - "docs/superpowers/specs/2026-08-29-autocad-native-fact-extractor-design.md"
+      - "docs/superpowers/plans/2026-08-29-autocad-native-fact-extractor.md"
       - ".github/workflows/normalized-design-fact-contract.yml"
 
 jobs:
