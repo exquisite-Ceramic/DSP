@@ -25,25 +25,26 @@ jobs:
 
           spec_path = Path('docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md')
           spec = spec_path.read_text()
-          replacement = '''## 10.3 SemanticService Contract
-
-平台内部逻辑接口建议至少包含：
-
-```python
-resolve_term(term_id, environment_id)
-describe_term(term_id, environment_id, locale=None)
-get_term_schema(term_id, environment_id)
-validate_claim(claim, environment_id)
-find_mappings(source_claim, environment_id, target_namespace=None)
-get_provider_manifest(provider_id, version)
-get_environment(environment_id)
-```
-
-所有依赖语义版本状态的查询 MUST 使用显式锁定的 Semantic Environment，MUST NOT 使用隐式 latest/default Provider 状态。
-'''
+          replacement = "\n".join((
+              "## 10.3 SemanticService Contract",
+              "",
+              "平台内部逻辑接口建议至少包含：",
+              "",
+              "```python",
+              "resolve_term(term_id, environment_id)",
+              "describe_term(term_id, environment_id, locale=None)",
+              "get_term_schema(term_id, environment_id)",
+              "validate_claim(claim, environment_id)",
+              "find_mappings(source_claim, environment_id, target_namespace=None)",
+              "get_provider_manifest(provider_id, version)",
+              "get_environment(environment_id)",
+              "```",
+              "",
+              "所有依赖语义版本状态的查询 MUST 使用显式锁定的 Semantic Environment，MUST NOT 使用隐式 latest/default Provider 状态。",
+          ))
           spec, count = re.subn(
               r'## 10\.3 SemanticService Contract\n.*?(?=\n## 10\.4)',
-              replacement.rstrip(),
+              replacement,
               spec,
               count=1,
               flags=re.S,
