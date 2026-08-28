@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from semantic_service import (
@@ -54,3 +56,14 @@ def test_multiple_versions_of_one_provider_coexist():
     registry.register(second)
     assert registry.get(first.manifest.provider_id, "1") is first
     assert registry.get(second.manifest.provider_id, "2") is second
+
+
+def test_registered_manifest_is_frozen_even_if_provider_object_drifts():
+    registry = SemanticProviderRegistry()
+    provider = VocabularyProvider(content_hash="hash-a")
+    frozen = registry.register(provider)
+    provider._manifest = replace(provider.manifest, content_hash="hash-b")
+
+    assert registry.get_manifest(frozen.provider_id, frozen.version) == frozen
+    with pytest.raises(ProviderRegistrationConflictError, match="drift"):
+        registry.get(frozen.provider_id, frozen.version)
