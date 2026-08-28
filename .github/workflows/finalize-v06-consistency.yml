@@ -1,0 +1,61 @@
+name: Finalize DSP spec v0.6 consistency
+
+on:
+  push:
+    branches: [feat/semantic-runtime]
+    paths: [.github/workflows/finalize-v06-consistency.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/semantic-runtime
+          fetch-depth: 0
+      - name: Normalize spec consistency
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          p = Path('docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md')
+          s = p.read_text(encoding='utf-8')
+
+          anchor = 'MCP 只定义服务协议和发现/调用机制，不定义领域权威边界。\n'
+          note = '\n除非后续 ADR 显式修订，v0.6 的 MCP 协议目标基线继承 v0.5 的 `MCP 2026-07-28`；协议版本升级不得隐式改变 Host、Semantic、Action 或 Governance 领域契约。\n'
+          if 'MCP 2026-07-28' not in s:
+              s = s.replace(anchor, anchor + note, 1)
+
+          for old, new in {
+              '## 26.1 Namespace ownership':'## 35.1 Namespace ownership',
+              '## 26.2 Mapping 不等于 Identity':'## 35.2 Mapping 不等于 Identity',
+              '## 26.3 不能覆盖外部标准':'## 35.3 不能覆盖外部标准',
+              '## 27.1 Semantic Term':'## 36.1 Semantic Term',
+              '## 27.2 Instance 不复制 description':'## 36.2 Instance 不复制 description',
+              '## 27.3 Hash policy':'## 36.3 Hash policy',
+              '## 28.1 Semantic MCP 可用性':'## 37.1 Semantic MCP 可用性',
+              '## 28.2 Fail closed':'## 37.2 Fail closed',
+          }.items():
+              s = s.replace(old, new)
+
+          s = s.replace(
+              '当前 v0.6 中把 `ExecutionUnit` 写成 provider-specific 的表述必须废弃。',
+              '早期 v0.6 Draft 中把 `ExecutionUnit` 写成 provider-specific 的表述已废弃；本 baseline 以 canonical ExecutionUnit 为准。'
+          )
+
+          old_chain = '''Canonical Operation eligibility\nSemantic Freshness\nSemantic Assurance\nPolicy decision\nPlanningSnapshot\nChangeSet\nApproval（按 risk/policy）\nRevision guard\nIdempotency\nHost verification'''
+          new_chain = '''Canonical Operation eligibility\nSemantic Coverage/Maturity + Freshness + Assurance\nPolicy decision\nPlanningSnapshot + SnapshotSet + pinned SemanticEnvironment\nImpact + ApprovalScopeBoundary\nImmutable ChangeSet\nApprovalToken → ApprovalRecord\nRevisionBarrier\nProviderBinding + ExecutionGrant\nIdempotent Host execution\nHost verification + ActualDelta scope check'''
+          s = s.replace(old_chain, new_chain, 1)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          rm .github/workflows/finalize-v06-consistency.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md .github/workflows/finalize-v06-consistency.yml
+          git commit -m "docs: finalize progressive v0.6 architecture baseline"
+          git push origin HEAD:feat/semantic-runtime
