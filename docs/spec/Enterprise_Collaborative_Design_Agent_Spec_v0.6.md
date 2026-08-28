@@ -145,6 +145,8 @@ Semantic MCP
 
 MCP 只定义服务协议和发现/调用机制，不定义领域权威边界。
 
+除非后续 ADR 显式修订，v0.6 的 MCP 协议目标基线继承 v0.5 的 `MCP 2026-07-28`；协议版本升级不得隐式改变 Host、Semantic、Action 或 Governance 领域契约。
+
 平台模块 SHALL 依赖稳定领域 Contract，不 SHALL 直接依赖某个具体 MCP Server 实现。
 
 ## 2.4 固定 Structure + 最小 Canonical Vocabulary + 可扩展 Vocabulary
@@ -3120,7 +3122,7 @@ Semantic Provider 暂时不可用但 pinned/cache definition 足够完成已批�
 
 # 35. Semantic Authority 与冲突规则
 
-## 26.1 Namespace ownership
+## 35.1 Namespace ownership
 
 建议：
 
@@ -3134,7 +3136,7 @@ metro:*     → Metro Semantic authoritative
 acme:*      → Enterprise Provider authoritative
 ```
 
-## 26.2 Mapping 不等于 Identity
+## 35.2 Mapping 不等于 Identity
 
 ```text
 acme:PartitionWall maps_to ifc:IfcWall
@@ -3152,7 +3154,7 @@ rule/evidence
 assurance
 ```
 
-## 26.3 不能覆盖外部标准
+## 35.3 不能覆盖外部标准
 
 Enterprise/Metro Provider 不得：
 
@@ -3173,7 +3175,7 @@ add validation rules
 
 # 36. Description / Presentation Metadata
 
-## 27.1 Semantic Term
+## 36.1 Semantic Term
 
 建议：
 
@@ -3197,7 +3199,7 @@ SemanticTerm
     locale
 ```
 
-## 27.2 Instance 不复制 description
+## 36.2 Instance 不复制 description
 
 错误：
 
@@ -3217,7 +3219,7 @@ ifc:IfcWall
 Vocabulary lookup
 ```
 
-## 27.3 Hash policy
+## 36.3 Hash policy
 
 仅修改：
 
@@ -3246,7 +3248,7 @@ mapping semantics
 
 # 37. 缓存、可用性与失败策略
 
-## 28.1 Semantic MCP 可用性
+## 37.1 Semantic MCP 可用性
 
 D5 runtime 不应因为一次 `describe_term` 远程调用失败就丢失既有 canonical state。
 
@@ -3257,7 +3259,7 @@ Semantic Service SHOULD 支持：
 - pinned environment cache；
 - offline read of already-approved definitions。
 
-## 28.2 Fail closed
+## 37.2 Fail closed
 
 以下情况必须 fail closed：
 
@@ -3278,15 +3280,16 @@ Semantic Service SHOULD 支持：
 
 ```text
 Canonical Operation eligibility
-Semantic Freshness
-Semantic Assurance
+Semantic Coverage/Maturity + Freshness + Assurance
 Policy decision
-PlanningSnapshot
-ChangeSet
-Approval（按 risk/policy）
-Revision guard
-Idempotency
-Host verification
+PlanningSnapshot + SnapshotSet + pinned SemanticEnvironment
+Impact + ApprovalScopeBoundary
+Immutable ChangeSet
+ApprovalToken → ApprovalRecord
+RevisionBarrier
+ProviderBinding + ExecutionGrant
+Idempotent Host execution
+Host verification + ActualDelta scope check
 ```
 
 LLM 不得：
@@ -3580,7 +3583,7 @@ effects / verification
 
 ### D7
 
-当前 v0.6 中把 `ExecutionUnit` 写成 provider-specific 的表述必须废弃。
+早期 v0.6 Draft 中把 `ExecutionUnit` 写成 provider-specific 的表述已废弃；本 baseline 以 canonical ExecutionUnit 为准。
 
 恢复：
 
