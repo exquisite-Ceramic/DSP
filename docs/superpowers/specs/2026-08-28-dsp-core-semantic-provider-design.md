@@ -8,20 +8,22 @@ This provider exists to define cross-industry DSP collaboration semantics that I
 
 ## Architecture Position
 
-The production dependency direction is:
+Production code imports remain acyclic:
 
 ```text
-providers/semantics/dsp_core
-        |
-        v
-semantic_service provider contracts
-        |
-        +-- SemanticProviderRegistry
-        +-- SemanticEnvironmentStore
-        +-- SemanticService
-        |
-        v
-semantic_mcp (transport only)
+dsp_core_semantic_provider ---> semantic_service contracts
+semantic_mcp              ---> semantic_service contracts
+semantic_service           -X-> concrete provider packages
+```
+
+Runtime call flow is the opposite direction at the Provider boundary because the registry holds a concrete object behind the stable protocol:
+
+```text
+Semantic MCP
+    ↓
+SemanticService
+    ↓ protocol call
+DspCoreSemanticProvider
 ```
 
 The provider MUST NOT import:
@@ -200,7 +202,7 @@ constraints:
   minimum_exclusive = 0
 ```
 
-`mm` is the canonical presentation/semantic unit for this first DSP Core property. Provider/native execution units remain outside this vocabulary and are bound later.
+Using `mm` as this term's canonical semantic unit is a PR #8 design choice consistent with the existing wall-thickness examples; it is not a provider/native execution unit. Native unit conversion remains a later ProviderBinding concern.
 
 ### `dsp:Freshness`
 
