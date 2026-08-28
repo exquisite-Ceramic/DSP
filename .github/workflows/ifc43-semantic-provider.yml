@@ -27,4 +27,5 @@ jobs:
       - name: Run IFC4.3 focused tests
         run: |
           pytest -q tests/semantic_providers/ifc43/test_source_version.py \
-                    tests/semantic_providers/ifc43/test_normalization.py
+                    tests/semantic_providers/ifc43/test_normalization.py \
+                    tests/semantic_providers/ifc43/test_pset_qto.py
