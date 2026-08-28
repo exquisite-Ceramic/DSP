@@ -23,7 +23,13 @@ from semantic_runtime.freshness import (
     build_context_contract,
     build_operation_contract,
 )
-from semantic_runtime.identity import IdentityBinding, IdentityConflictError, IdentityRegistry
+from semantic_runtime.identity import (
+    ExternalIdentity,
+    HostBinding,
+    IdentityConflictError,
+    IdentityRegistry,
+    SemanticIdentity,
+)
 from semantic_runtime.journal import ChangeJournal, DirtyMap, HostDeltaRecord, JournalEntry
 
 __all__ = [
@@ -34,20 +40,22 @@ __all__ = [
     "Coverage",
     "CoverageMismatchError",
     "DirtyMap",
+    "ExternalIdentity",
     "FreshnessContract",
     "FreshnessError",
     "FreshnessResolver",
     "FreshnessState",
     "FreshnessUnsatisfiedError",
     "GeometryLevel",
+    "HostBinding",
     "HostDeltaRecord",
-    "IdentityBinding",
     "IdentityConflictError",
     "IdentityRegistry",
     "JournalEntry",
     "ReconstructionResult",
     "RevisionChangedError",
     "SemanticAspect",
+    "SemanticIdentity",
     "SemanticSnapshot",
     "SnapshotKind",
     "SnapshotSet",

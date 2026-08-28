@@ -15,9 +15,6 @@ from semantic_runtime import (
     FreshnessUnsatisfiedError,
     GeometryLevel,
     HostDeltaRecord,
-    IdentityBinding,
-    IdentityConflictError,
-    IdentityRegistry,
     ReconstructionResult,
     RevisionChangedError,
     SemanticAspect,
@@ -29,32 +26,6 @@ from semantic_runtime import (
 )
 
 PROJECT_ID = "project-001"
-
-
-def test_identity_registry_round_trips_native_and_semantic_identity() -> None:
-    registry = IdentityRegistry()
-    binding = IdentityBinding(
-        semantic_id="sem-wall-001",
-        document_id="drawing-001",
-        native_id="AB12",
-        ifc_global_id="ifc-001",
-    )
-
-    assert registry.bind(binding) == binding
-    assert registry.by_semantic("sem-wall-001") == binding
-    assert registry.by_native("drawing-001", "AB12") == binding
-    assert registry.bind(binding) == binding
-
-
-def test_identity_registry_rejects_semantic_or_native_rebinding() -> None:
-    registry = IdentityRegistry()
-    registry.bind(IdentityBinding("sem-1", "doc-1", "A1"))
-
-    with pytest.raises(IdentityConflictError):
-        registry.bind(IdentityBinding("sem-1", "doc-1", "A2"))
-
-    with pytest.raises(IdentityConflictError):
-        registry.bind(IdentityBinding("sem-2", "doc-1", "A1"))
 
 
 def test_change_journal_and_dirty_map_track_entity_aspects_only() -> None:

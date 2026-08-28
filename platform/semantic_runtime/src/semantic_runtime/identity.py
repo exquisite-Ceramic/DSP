@@ -1,4 +1,4 @@
-"""Stable host-local to semantic identity mappings."""
+"""Provider-neutral semantic identity and persistent host/external bindings."""
 
 from __future__ import annotations
 
@@ -6,109 +6,126 @@ from dataclasses import dataclass
 
 
 class IdentityConflictError(ValueError):
-    """Raised when an existing semantic/native/IFC identity would be rebound."""
+    """Raised when a unique host or external identity key would be rebound."""
+
+
+def _required(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
-class IdentityBinding:
+class SemanticIdentity:
     semantic_id: str
-    document_id: str
-    native_id: str
-    ifc_global_id: str | None = None
 
     def __post_init__(self) -> None:
-        semantic_id = self.semantic_id.strip()
-        document_id = self.document_id.strip()
-        native_id = self.native_id.strip()
-        if not semantic_id or not document_id or not native_id:
-            raise ValueError("semantic_id, document_id, and native_id are required")
-        ifc_global_id = self.ifc_global_id.strip() if self.ifc_global_id is not None else None
-        if ifc_global_id == "":
-            ifc_global_id = None
-        object.__setattr__(self, "semantic_id", semantic_id)
-        object.__setattr__(self, "document_id", document_id)
-        object.__setattr__(self, "native_id", native_id)
-        object.__setattr__(self, "ifc_global_id", ifc_global_id)
+        object.__setattr__(self, "semantic_id", _required(self.semantic_id, "semantic_id"))
+
+
+@dataclass(frozen=True, slots=True)
+class HostBinding:
+    semantic_id: str
+    host_type: str
+    document_id: str
+    native_id: str
+    native_kind: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "semantic_id",
+            "host_type",
+            "document_id",
+            "native_id",
+            "native_kind",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _required(getattr(self, field_name), field_name),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalIdentity:
+    semantic_id: str
+    scheme: str
+    value: str
+
+    def __post_init__(self) -> None:
+        for field_name in ("semantic_id", "scheme", "value"):
+            object.__setattr__(
+                self,
+                field_name,
+                _required(getattr(self, field_name), field_name),
+            )
 
 
 class IdentityRegistry:
-    """In-memory MVP identity registry with fail-closed rebinding."""
+    """In-memory identity registry with 1:N bindings and fail-closed unique indexes."""
 
     def __init__(self) -> None:
-        self._by_semantic: dict[str, IdentityBinding] = {}
-        self._by_native: dict[tuple[str, str], IdentityBinding] = {}
-        self._by_ifc: dict[str, IdentityBinding] = {}
+        self._identities: dict[str, SemanticIdentity] = {}
+        self._host_bindings: dict[str, list[HostBinding]] = {}
+        self._external_identities: dict[str, list[ExternalIdentity]] = {}
+        self._by_host: dict[tuple[str, str, str], HostBinding] = {}
+        self._by_external: dict[tuple[str, str], ExternalIdentity] = {}
 
-    def bind(self, binding: IdentityBinding) -> IdentityBinding:
-        native_key = (binding.document_id, binding.native_id)
-        semantic_existing = self._by_semantic.get(binding.semantic_id)
-        native_existing = self._by_native.get(native_key)
-        ifc_existing = (
-            self._by_ifc.get(binding.ifc_global_id)
-            if binding.ifc_global_id is not None
-            else None
-        )
+    def ensure_identity(self, semantic_id: str) -> SemanticIdentity:
+        identity = SemanticIdentity(semantic_id)
+        existing = self._identities.get(identity.semantic_id)
+        if existing is not None:
+            return existing
+        self._identities[identity.semantic_id] = identity
+        self._host_bindings[identity.semantic_id] = []
+        self._external_identities[identity.semantic_id] = []
+        return identity
 
-        if semantic_existing is not None and semantic_existing != binding:
-            raise IdentityConflictError(
-                f"semantic identity {binding.semantic_id!r} is already bound"
-            )
-        if native_existing is not None and native_existing != binding:
-            raise IdentityConflictError(
-                f"native identity {native_key!r} is already bound"
-            )
-        if ifc_existing is not None and ifc_existing != binding:
-            raise IdentityConflictError(
-                f"IFC GlobalId {binding.ifc_global_id!r} is already bound"
-            )
-
-        self._by_semantic[binding.semantic_id] = binding
-        self._by_native[native_key] = binding
-        if binding.ifc_global_id is not None:
-            self._by_ifc[binding.ifc_global_id] = binding
+    def bind_host(self, binding: HostBinding) -> HostBinding:
+        if binding.semantic_id not in self._identities:
+            raise KeyError(f"unknown semantic identity: {binding.semantic_id!r}")
+        key = (binding.host_type, binding.document_id, binding.native_id)
+        existing = self._by_host.get(key)
+        if existing is not None:
+            if existing == binding:
+                return existing
+            raise IdentityConflictError(f"host identity {key!r} is already bound")
+        self._by_host[key] = binding
+        self._host_bindings[binding.semantic_id].append(binding)
         return binding
 
-    def bind_ifc_global_id(self, semantic_id: str, ifc_global_id: str) -> IdentityBinding:
-        """Attach an IFC GlobalId later without changing semantic/native identity."""
+    def bind_external(self, identity: ExternalIdentity) -> ExternalIdentity:
+        if identity.semantic_id not in self._identities:
+            raise KeyError(f"unknown semantic identity: {identity.semantic_id!r}")
+        key = (identity.scheme, identity.value)
+        existing = self._by_external.get(key)
+        if existing is not None:
+            if existing == identity:
+                return existing
+            raise IdentityConflictError(f"external identity {key!r} is already bound")
+        self._by_external[key] = identity
+        self._external_identities[identity.semantic_id].append(identity)
+        return identity
 
-        semantic_id = semantic_id.strip()
-        ifc_global_id = ifc_global_id.strip()
-        if not semantic_id or not ifc_global_id:
-            raise ValueError("semantic_id and ifc_global_id are required")
+    def by_semantic(self, semantic_id: str) -> SemanticIdentity | None:
+        return self._identities.get(semantic_id.strip())
 
-        existing = self._by_semantic.get(semantic_id)
-        if existing is None:
-            raise KeyError(f"unknown semantic identity: {semantic_id!r}")
-        if existing.ifc_global_id == ifc_global_id:
-            return existing
-        if existing.ifc_global_id is not None:
-            raise IdentityConflictError(
-                f"semantic identity {semantic_id!r} already has IFC GlobalId "
-                f"{existing.ifc_global_id!r}"
-            )
+    def host_bindings(self, semantic_id: str) -> tuple[HostBinding, ...]:
+        return tuple(self._host_bindings.get(semantic_id.strip(), ()))
 
-        ifc_existing = self._by_ifc.get(ifc_global_id)
-        if ifc_existing is not None and ifc_existing.semantic_id != semantic_id:
-            raise IdentityConflictError(
-                f"IFC GlobalId {ifc_global_id!r} is already bound"
-            )
+    def external_identities(self, semantic_id: str) -> tuple[ExternalIdentity, ...]:
+        return tuple(self._external_identities.get(semantic_id.strip(), ()))
 
-        updated = IdentityBinding(
-            semantic_id=existing.semantic_id,
-            document_id=existing.document_id,
-            native_id=existing.native_id,
-            ifc_global_id=ifc_global_id,
+    def by_host(
+        self,
+        host_type: str,
+        document_id: str,
+        native_id: str,
+    ) -> HostBinding | None:
+        return self._by_host.get(
+            (host_type.strip(), document_id.strip(), native_id.strip())
         )
-        self._by_semantic[updated.semantic_id] = updated
-        self._by_native[(updated.document_id, updated.native_id)] = updated
-        self._by_ifc[ifc_global_id] = updated
-        return updated
 
-    def by_semantic(self, semantic_id: str) -> IdentityBinding | None:
-        return self._by_semantic.get(semantic_id)
-
-    def by_native(self, document_id: str, native_id: str) -> IdentityBinding | None:
-        return self._by_native.get((document_id, native_id))
-
-    def by_ifc_global_id(self, ifc_global_id: str) -> IdentityBinding | None:
-        return self._by_ifc.get(ifc_global_id)
+    def by_external(self, scheme: str, value: str) -> ExternalIdentity | None:
+        return self._by_external.get((scheme.strip(), value.strip()))
