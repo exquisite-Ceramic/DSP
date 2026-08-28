@@ -1,3 +1,4 @@
+import importlib
 import math
 from types import MappingProxyType
 
@@ -8,7 +9,6 @@ from semantic_service import (
     MappingCandidate,
     NamespaceAuthority,
     ProviderProvenance,
-    ProviderRef,
     ProviderType,
     ResolvedTerm,
     SemanticCapability,
@@ -21,18 +21,13 @@ from semantic_service import (
     ValidationStatus,
 )
 from semantic_service.environment import PinnedProvider
-from semantic_mcp.wire import (
-    SemanticClaimInput,
-    decode_semantic_claim,
-    encode_environment,
-    encode_manifest,
-    encode_mapping_candidates,
-    encode_resolved_term,
-    encode_term_description,
-    encode_term_schema,
-    encode_validation_findings,
-    to_json_value,
-)
+
+
+def _wire():
+    try:
+        return importlib.import_module("semantic_mcp.wire")
+    except ModuleNotFoundError:
+        pytest.fail("semantic_mcp.wire is not implemented")
 
 
 def _provenance() -> ProviderProvenance:
@@ -54,29 +49,33 @@ def _manifest() -> SemanticProviderManifest:
 
 
 def test_json_codec_recurses_and_canonicalizes_unordered_values():
+    wire = _wire()
     value = MappingProxyType({
         "kinds": frozenset({"wall", "door"}),
         "values": (1, True, None),
     })
-    assert to_json_value(value) == {
+    assert wire.to_json_value(value) == {
         "kinds": ["door", "wall"],
         "values": [1, True, None],
     }
 
 
 def test_json_codec_rejects_runtime_object():
+    wire = _wire()
     with pytest.raises(TypeError, match="not JSON-safe"):
-        to_json_value(object())
+        wire.to_json_value(object())
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_json_codec_rejects_non_finite_number(value):
+    wire = _wire()
     with pytest.raises(TypeError, match="finite"):
-        to_json_value(value)
+        wire.to_json_value(value)
 
 
 def test_claim_input_builds_core_claim_without_coercion():
-    model = SemanticClaimInput.model_validate({
+    wire = _wire()
+    model = wire.SemanticClaimInput.model_validate({
         "subject": "S-WALL-001",
         "predicate": "dsp:WallThickness",
         "canonical_term_id": "ifc:IfcWall",
@@ -88,7 +87,7 @@ def test_claim_input_builds_core_claim_without_coercion():
         "provider_id": "acme.semantic",
         "provider_version": "1",
     })
-    claim = decode_semantic_claim(model)
+    claim = wire.decode_semantic_claim(model)
     assert claim == SemanticClaim(
         subject="S-WALL-001",
         predicate="dsp:WallThickness",
@@ -104,30 +103,35 @@ def test_claim_input_builds_core_claim_without_coercion():
 
 
 def test_claim_input_rejects_unknown_field():
+    wire = _wire()
     with pytest.raises(ValidationError):
-        SemanticClaimInput.model_validate({"subject": "S-1", "unknown": 1})
+        wire.SemanticClaimInput.model_validate({"subject": "S-1", "unknown": 1})
 
 
 def test_claim_input_rejects_missing_subject():
+    wire = _wire()
     with pytest.raises(ValidationError):
-        SemanticClaimInput.model_validate({"assurance": "UNKNOWN"})
+        wire.SemanticClaimInput.model_validate({"assurance": "UNKNOWN"})
 
 
 def test_claim_input_rejects_string_coercion():
+    wire = _wire()
     with pytest.raises(ValidationError):
-        SemanticClaimInput.model_validate({"subject": 123})
+        wire.SemanticClaimInput.model_validate({"subject": 123})
     with pytest.raises(ValidationError):
-        SemanticClaimInput.model_validate({"subject": "S-1", "provenance": [123]})
+        wire.SemanticClaimInput.model_validate({"subject": "S-1", "provenance": [123]})
 
 
 def test_claim_input_rejects_non_json_value():
+    wire = _wire()
     with pytest.raises(ValidationError):
-        SemanticClaimInput.model_validate({"subject": "S-1", "value": object()})
+        wire.SemanticClaimInput.model_validate({"subject": "S-1", "value": object()})
 
 
 def test_explicit_term_encoders_have_exact_shape():
+    wire = _wire()
     provenance = _provenance()
-    assert encode_resolved_term(ResolvedTerm("ifc:IfcWall", "ENTITY", provenance)) == {
+    assert wire.encode_resolved_term(ResolvedTerm("ifc:IfcWall", "ENTITY", provenance)) == {
         "term_id": "ifc:IfcWall",
         "kind": "ENTITY",
         "provenance": {
@@ -136,7 +140,7 @@ def test_explicit_term_encoders_have_exact_shape():
             "content_hash": "ifc-content",
         },
     }
-    assert encode_term_description(
+    assert wire.encode_term_description(
         TermDescription("ifc:IfcWall", "Wall", "en", provenance)
     ) == {
         "term_id": "ifc:IfcWall",
@@ -153,7 +157,7 @@ def test_explicit_term_encoders_have_exact_shape():
         {"allowed": frozenset({"B", "A"}), "type": "object"},
         provenance,
     )
-    assert encode_term_schema(schema) == {
+    assert wire.encode_term_schema(schema) == {
         "term_id": "ifc:IfcWall",
         "schema": {"allowed": ["A", "B"], "type": "object"},
         "provenance": {
@@ -165,12 +169,13 @@ def test_explicit_term_encoders_have_exact_shape():
 
 
 def test_validation_and_mapping_encoders_preserve_input_order():
+    wire = _wire()
     provenance = _provenance()
     findings = (
         ValidationFinding("rule-b", ValidationStatus.FAIL, provenance, "failed"),
         ValidationFinding("rule-a", ValidationStatus.PASS, provenance),
     )
-    assert encode_validation_findings(findings) == {
+    assert wire.encode_validation_findings(findings) == {
         "findings": [
             {
                 "rule_id": "rule-b",
@@ -198,7 +203,7 @@ def test_validation_and_mapping_encoders_preserve_input_order():
         MappingCandidate("map-b", "ifc:IfcWall", provenance, ("e2",)),
         MappingCandidate("map-a", "ifc:IfcDoor", provenance, ("e1",)),
     )
-    assert encode_mapping_candidates(mappings) == {
+    assert wire.encode_mapping_candidates(mappings) == {
         "mappings": [
             {
                 "mapping_id": "map-b",
@@ -225,6 +230,7 @@ def test_validation_and_mapping_encoders_preserve_input_order():
 
 
 def test_manifest_and_environment_encoders_match_machine_payload():
+    wire = _wire()
     manifest = _manifest()
     expected_provider = {
         "provider_id": "buildingSMART.ifc43",
@@ -238,10 +244,10 @@ def test_manifest_and_environment_encoders_match_machine_payload():
         "compatibility": ["semantic-service.v1"],
         "requires": [],
     }
-    assert encode_manifest(manifest) == expected_provider
+    assert wire.encode_manifest(manifest) == expected_provider
 
     environment = SemanticEnvironment.create((PinnedProvider.from_manifest(manifest),))
-    assert encode_environment(environment) == {
+    assert wire.encode_environment(environment) == {
         "environment_id": environment.environment_id,
         "content_hash": environment.content_hash,
         "providers": [expected_provider],
