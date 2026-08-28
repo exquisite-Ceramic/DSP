@@ -72,12 +72,12 @@ Do not create empty IFC or Metro package scaffolding in this PR.
 
 ## Provider Identity and Authority
 
-The baseline provider manifest is:
+Use the provider identity shown by the main Spec v0.6 SemanticEnvironment example rather than inventing a parallel naming convention:
 
 ```text
-provider_id   = dsp.core.semantic
+provider_id   = dsp.core
 provider_type = CORE
-version       = 0.6
+version       = 1.0
 namespaces    = [dsp]
 capabilities  = [VOCABULARY]
 authority     = dsp -> AUTHORITATIVE
@@ -133,6 +133,8 @@ description
 ```
 
 The provider stores both label and description because Spec v0.6 requires them as presentation metadata. The current Semantic Service `TermDescription` contract exposes description text but has no structured label field; PR #8 does not widen that stable service contract. `label` remains provider-owned presentation metadata for now.
+
+The concrete `kind/domain/range/unit/allowed_values/constraints` values below are the PR #8 baseline concretization of the fields required by the main Spec. The main Spec names the terms and required metadata categories but does not freeze every field value term-by-term. These concrete definitions therefore become reviewable DSP Core provider content rather than being represented as if they were already normative main-Spec literals.
 
 ## Initial Canonical Term Set
 
@@ -273,7 +275,7 @@ Canonical schema shape:
 ```text
 {
   "term_id": "dsp:WallThickness",
-  "version": "0.6",
+  "version": "1.0",
   "kind": "PROPERTY",
   "domain": "WALL_LIKE_DESIGN_ELEMENT",
   "range": "NUMBER",
@@ -346,8 +348,8 @@ Every returned `ResolvedTerm`, `TermDescription`, and `TermSchema` carries one e
 
 ```text
 ProviderProvenance(
-  provider_id = dsp.core.semantic,
-  version = 0.6,
+  provider_id = dsp.core,
+  version = 1.0,
   content_hash = <computed catalog hash>
 )
 ```
@@ -363,7 +365,7 @@ Service-level proof:
 ```text
 DspCoreSemanticProvider
   -> SemanticProviderRegistry.register(provider)
-  -> SemanticEnvironmentStore.pin([dsp.core.semantic@0.6])
+  -> SemanticEnvironmentStore.pin([dsp.core@1.0])
   -> SemanticService.resolve_term("dsp:WallThickness", env_id)
   -> SemanticService.get_term_schema(...)
 ```
@@ -424,6 +426,17 @@ Implementation follows RED -> GREEN TDD.
 - unknown terms fail deterministically;
 - lookup remains exact/case-sensitive.
 
+### Capability conformance for unclaimed interfaces
+
+Spec v0.6 §40.5 lists mapping and validation determinism as Semantic Provider conformance concerns. DSP Core v1.0 claims neither capability, so PR #8 must prove the absence rather than add fake behavior:
+
+- manifest does not claim `MAPPING`;
+- manifest does not claim `VALIDATION`;
+- the provider is not accepted as a `SemanticMappingProvider` or `SemanticValidationProvider`;
+- conformance records these two checks as N/A because the capabilities are unclaimed.
+
+A future version that adds either capability must add the corresponding determinism tests in the same change.
+
 ### D5 vocabulary compatibility tests
 
 At the test boundary only:
@@ -440,7 +453,8 @@ This prevents silent vocabulary drift while preserving package dependency direct
 - pinning produces an immutable environment;
 - `dsp:*` resolves only through the authoritative DSP Core provider;
 - returned provenance passes the existing pinned-provenance guard;
-- a machine-semantic provider change produces a different environment identity.
+- a machine-semantic provider change produces a different environment identity;
+- pinning an environment that selects a second `AUTHORITATIVE` owner for `dsp` fails closed, proving namespace conflict behavior and authority enforcement.
 
 ### Semantic MCP integration test
 
@@ -518,16 +532,17 @@ PR #8 does not implement or modify:
 PR #8 is complete when all of the following are true:
 
 ```text
-1. dsp.core.semantic@0.6 is a valid CORE/VOCABULARY Provider.
-2. It is the sole authoritative owner of dsp:* in a pinned environment.
+1. dsp.core@1.0 is a valid CORE/VOCABULARY Provider.
+2. It is the sole authoritative owner of dsp:* in a pinned environment, and an authority conflict fails closed.
 3. The exact eight Spec §14 terms resolve deterministically.
 4. Machine semantics and presentation metadata have separate hash behavior.
 5. Term results carry exact pinned provenance.
 6. A pinned environment can resolve DSP terms through SemanticService.
 7. The existing Semantic MCP adapter can transport a real DSP Core term/schema.
 8. D5 enum compatibility is proven only at the test boundary.
-9. No Host/IFC/Metro/D5/MCP implementation concern leaks into provider production code.
-10. Focused + full regression CI is green.
+9. MAPPING/VALIDATION conformance is explicitly N/A because those capabilities are not claimed.
+10. No Host/IFC/Metro/D5/MCP implementation concern leaks into provider production code.
+11. Focused + full regression CI is green.
 ```
 
 After this PR, Phase D continues with the IFC4.3 Standard Semantic Provider, then the Metro Semantic Provider.
