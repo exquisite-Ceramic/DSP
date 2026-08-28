@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from ifcopenshell.ifcopenshell_wrapper import simple_type
-
 from .errors import Ifc43CatalogBuildError
 from .model import IfcTermRecord, TypeExpression
 
 _SIMPLE_NAMES = {
-    simple_type.binary_type: "BINARY",
-    simple_type.boolean_type: "BOOLEAN",
-    simple_type.integer_type: "INTEGER",
-    simple_type.logical_type: "LOGICAL",
-    simple_type.number_type: "NUMBER",
-    simple_type.real_type: "REAL",
-    simple_type.string_type: "STRING",
+    "binary": "BINARY",
+    "boolean": "BOOLEAN",
+    "integer": "INTEGER",
+    "logical": "LOGICAL",
+    "number": "NUMBER",
+    "real": "REAL",
+    "string": "STRING",
 }
 
 
