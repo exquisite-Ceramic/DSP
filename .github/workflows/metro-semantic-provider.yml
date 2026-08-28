@@ -26,7 +26,7 @@ jobs:
       - name: Install focused dependencies
         run: |
           python -m pip install pytest PyYAML==6.0.3
-          python -m pip install -e platform/semantic_service -e providers/semantics/metro_v32
+          python -m pip install -e platform/semantic_service -e providers/semantics/dsp_core -e providers/semantics/ifc43 -e providers/semantics/metro_v32
       - name: Inspect Metro catalog before golden freeze
         run: |
           python - <<'PY'
