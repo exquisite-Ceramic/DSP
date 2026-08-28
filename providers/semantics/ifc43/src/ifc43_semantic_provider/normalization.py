@@ -50,6 +50,24 @@ def normalize_parameter_type(raw: object) -> TypeExpression:
     raise Ifc43CatalogBuildError("unsupported IFC parameter type")
 
 
+def _direct_derived_flags(entity: object, attributes: tuple[object, ...]) -> tuple[bool, ...]:
+    if not attributes:
+        return ()
+    all_attributes = tuple(entity.all_attributes())
+    all_derived = tuple(entity.derived())
+    if len(all_attributes) != len(all_derived):
+        raise Ifc43CatalogBuildError(
+            f"all-attribute/derived mismatch for {entity.name()}"
+        )
+    direct_names = tuple(attribute.name() for attribute in attributes)
+    tail_names = tuple(attribute.name() for attribute in all_attributes[-len(attributes):])
+    if tail_names != direct_names:
+        raise Ifc43CatalogBuildError(
+            f"direct attributes are not the all-attribute tail for {entity.name()}"
+        )
+    return tuple(bool(value) for value in all_derived[-len(attributes):])
+
+
 def normalize_schema_declarations(schema: object) -> tuple[IfcTermRecord, ...]:
     records: dict[str, IfcTermRecord] = {}
 
@@ -58,11 +76,7 @@ def normalize_schema_declarations(schema: object) -> tuple[IfcTermRecord, ...]:
         if entity is not None:
             owner = f"ifc:{entity.name()}"
             attributes = tuple(entity.attributes())
-            derived_flags = tuple(entity.derived())
-            if len(attributes) != len(derived_flags):
-                raise Ifc43CatalogBuildError(
-                    f"attribute/derived mismatch for {entity.name()}"
-                )
+            derived_flags = _direct_derived_flags(entity, attributes)
             direct_members = tuple(
                 sorted(f"{owner}.{attribute.name()}" for attribute in attributes)
             )
