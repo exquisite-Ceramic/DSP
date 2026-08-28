@@ -33,7 +33,9 @@ class AuthorityMode(str, Enum):
     EXTENSION = "EXTENSION"
 
 
-def _required_text(value: str, field_name: str) -> str:
+def _required_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ManifestValidationError(f"{field_name} must be a string")
     normalized = value.strip()
     if not normalized:
         raise ManifestValidationError(f"{field_name} is required")
