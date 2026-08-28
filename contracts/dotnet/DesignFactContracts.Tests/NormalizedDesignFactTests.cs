@@ -53,6 +53,17 @@ public sealed class NormalizedDesignFactTests
     }
 
     [Theory]
+    [InlineData("fact_kind")]
+    [InlineData("value_type")]
+    public void NumericEnumWireValuesAreRejected(string fieldName)
+    {
+        var fact = JsonNode.Parse(ReadVector("valid_property.json"))!.AsObject();
+        fact[fieldName] = 0;
+
+        Assert.ThrowsAny<Exception>(() => NormalizedDesignFact.FromJson(fact.ToJsonString()));
+    }
+
+    [Theory]
     [InlineData("invalid_source_pair.json")]
     [InlineData("invalid_document_mismatch.json")]
     [InlineData("invalid_value_type.json")]
