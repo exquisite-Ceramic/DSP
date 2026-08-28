@@ -1,0 +1,81 @@
+"""Semantic Service Core public surface."""
+
+from semantic_service.environment import (
+    PinnedProvider,
+    SemanticEnvironment,
+    SemanticEnvironmentStore,
+)
+from semantic_service.errors import (
+    EnvironmentIntegrityError,
+    EnvironmentNotFoundError,
+    ManifestValidationError,
+    NamespaceAuthorityError,
+    ProviderCapabilityError,
+    ProviderDependencyError,
+    ProviderNotFoundError,
+    ProviderRegistrationConflictError,
+    SemanticServiceError,
+    TermResolutionError,
+)
+from semantic_service.manifest import (
+    AuthorityMode,
+    NamespaceAuthority,
+    ProviderRef,
+    ProviderType,
+    SemanticCapability,
+    SemanticProviderManifest,
+)
+from semantic_service.providers import (
+    MappingCandidate,
+    ProviderProvenance,
+    ResolvedTerm,
+    SemanticClaim,
+    SemanticMappingProvider,
+    SemanticProjectionProvider,
+    SemanticProvider,
+    SemanticValidationProvider,
+    SemanticVocabularyProvider,
+    TermDescription,
+    TermSchema,
+    ValidationFinding,
+    ValidationStatus,
+)
+from semantic_service.registry import SemanticProviderRegistry
+from semantic_service.service import SemanticService
+
+__all__ = [
+    "AuthorityMode",
+    "EnvironmentIntegrityError",
+    "EnvironmentNotFoundError",
+    "ManifestValidationError",
+    "MappingCandidate",
+    "NamespaceAuthority",
+    "NamespaceAuthorityError",
+    "PinnedProvider",
+    "ProviderCapabilityError",
+    "ProviderDependencyError",
+    "ProviderNotFoundError",
+    "ProviderProvenance",
+    "ProviderRef",
+    "ProviderRegistrationConflictError",
+    "ProviderType",
+    "ResolvedTerm",
+    "SemanticCapability",
+    "SemanticClaim",
+    "SemanticEnvironment",
+    "SemanticEnvironmentStore",
+    "SemanticMappingProvider",
+    "SemanticProjectionProvider",
+    "SemanticProvider",
+    "SemanticProviderManifest",
+    "SemanticProviderRegistry",
+    "SemanticService",
+    "SemanticServiceError",
+    "SemanticValidationProvider",
+    "SemanticVocabularyProvider",
+    "TermDescription",
+    "TermResolutionError",
+    "TermSchema",
+    "ValidationFinding",
+    "ValidationStatus",
+]
