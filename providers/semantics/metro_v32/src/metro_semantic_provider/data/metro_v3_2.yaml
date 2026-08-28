@@ -1,0 +1,18 @@
+metadata:
+  provider_id: dsp.metro.semantic
+  provider_version: "3.2"
+  source_document_title: "IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版"
+  source_document_sha256: "596a140612f4d3af49dccfe01c235be28cf76b8280334bfc2920f29fc8ee422b"
+  target_ifc_provider_id: buildingSMART.ifc43
+  target_ifc_provider_version: "4.3.2.0"
+  target_ifc_schema: IFC4X3_ADD2
+source_coverage:
+  chapter21_project_pset_containers: []
+  structured_property_rows: 0
+  inline_only_project_psets: []
+  decision_ids: []
+  prohibited_entity_names: []
+terms: []
+mappings: []
+validation_rules: []
+decisions: []
