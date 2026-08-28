@@ -88,6 +88,8 @@ IfcOpenShell is an implementation/inspection engine, not the semantic authority.
 
 Changing the parsing/reflection library without changing the normalized machine semantics MUST NOT change the provider semantic content hash.
 
+The source loader MUST NOT silently substitute another schema/Pset/Qto release or a floating “latest” template set. If the pinned implementation source cannot provide a reproducible IFC4X3_ADD2-compatible schema plus official Pset/Qto corpus, implementation MUST stop and surface the source compatibility problem rather than weaken the provider version claim.
+
 ### Metro V3.2 source boundary
 
 The uploaded source:
@@ -207,6 +209,19 @@ ifc:Pset_WallCommon.FireRating
 ifc:Qto_WallBaseQuantities.Width
 ```
 
+### Enum literals
+
+Enum literals also use owner-qualified member identities:
+
+```text
+ifc:IfcWallTypeEnum.SOLIDWALL
+ifc:IfcRailwayPartTypeEnum.TRACK
+```
+
+The enum term schema lists these literal identities deterministically. A literal MUST NOT exist as an unqualified global IFC term because identical literal text may occur in multiple enums.
+
+Select members remain references to their canonical declaration identities rather than duplicate terms owned by the select.
+
 ### Inherited attributes
 
 An inherited field keeps the canonical identity of the declaration that owns it.
@@ -267,8 +282,8 @@ The catalog SHALL normalize at least:
 - attribute type expressions;
 - optionality;
 - aggregation kind and cardinality where exposed by the source;
-- enum literals;
-- select members;
+- enum literals as owner-qualified members;
+- select members as declaration references;
 - defined-type underlying types;
 - official Pset/Qto names;
 - official Pset/Qto applicability metadata available from the pinned source;
@@ -296,8 +311,8 @@ The canonical hash payload SHALL include the normalized machine-relevant catalog
 - inheritance;
 - abstract state;
 - attribute name/type/optionality/aggregation/cardinality;
-- enum literals;
-- select members;
+- owner-qualified enum literal identities;
+- select member declaration identities;
 - defined type semantics;
 - official Pset/Qto identity;
 - official Pset/Qto applicability;
@@ -333,6 +348,16 @@ canonical normalized values
 
 The implementation MAY reuse a shared future utility only if doing so does not create a concrete-provider dependency between providers. For PR #9, duplication of the tiny canonical hash utility is preferable to coupling the IFC provider to `dsp_core_semantic_provider`.
 
+### Golden content-hash lock
+
+The first successful implementation SHALL record the expected `content_hash` for the exact normalized `buildingSMART.ifc43@4.3.2.0` catalog as a golden regression value in the IFC provider test/constant boundary.
+
+Every focused CI run MUST reconstruct the catalog from the pinned source and assert the resulting hash equals that expected value.
+
+Changing the golden hash requires an explicit machine-semantic review. A dependency, normalization, or source-corpus change MUST NOT silently update the expected value.
+
+This lock makes a fresh process/install detect semantic drift even when there is no previously populated in-memory registry to compare against.
+
 ### Immutable version behavior
 
 Within Semantic Service:
@@ -341,7 +366,7 @@ Within Semantic Service:
 (buildingSMART.ifc43, 4.3.2.0) -> exactly one content_hash
 ```
 
-If a code/library change causes the same provider ID/version to emit different machine semantics, registration MUST expose the drift through the existing immutable-version conflict behavior. It MUST NOT silently replace the previously registered meaning.
+If a code/library change causes the same provider ID/version to emit different machine semantics, the golden hash regression MUST fail before release, and registration against an already loaded conflicting version MUST expose the drift through the existing immutable-version conflict behavior. It MUST NOT silently replace the previously registered meaning.
 
 ## Vocabulary Result Semantics
 
@@ -355,6 +380,7 @@ Expected kinds may include provider-defined stable strings such as:
 ENTITY
 RELATIONSHIP
 ENUM
+ENUM_LITERAL
 SELECT
 DEFINED_TYPE
 ATTRIBUTE
@@ -382,8 +408,9 @@ Examples:
 
 - entity: supertype, abstract flag, direct members, inherited-member references;
 - attribute: owner, declared type, optionality, aggregation/cardinality;
-- enum: ordered/canonical literal set as normalized by policy;
-- select: member declarations;
+- enum: owner-qualified literal references;
+- enum literal: owner enum and literal value;
+- select: member declaration references;
 - defined type: underlying type;
 - Pset/Qto: applicability and member references;
 - Pset/Qto member: data/quantity type and relevant constraints.
@@ -504,6 +531,8 @@ IfcPrecastConcreteElement
 
 A negative case proves the IFC provider rejects the name. It does not implement the Metro replacement mapping. The later Metro provider owns mappings such as tunnel/domain concepts to legal IFC4.3 expressions.
 
+The conformance suite SHOULD also encode a small set of official IFC4.3.2 expected Pset/Qto/entity/member facts independently of runtime introspection. Those reference assertions are tests, not a second runtime catalog, and protect against an implementation source that is reproducible but semantically mismatched with the claimed release.
+
 ## Package and File Boundary
 
 Create a new independent package:
@@ -602,6 +631,7 @@ PR #9 SHALL add architecture/conformance tests proving at least:
 10. no DSP Canonical Action is owned by the IFC provider.
 11. no runtime network lookup is required for semantic resolution.
 12. machine-semantic hash excludes presentation-only text.
+13. the expected IFC4.3.2.0 golden catalog hash cannot change silently.
 
 ## Conformance Test Matrix
 
@@ -611,8 +641,8 @@ PR #9 SHALL satisfy the main Spec's Semantic Provider conformance requirements a
 |---|---|
 | manifest validity | exact STANDARD manifest for `buildingSMART.ifc43@4.3.2.0` |
 | namespace ownership | `ifc -> AUTHORITATIVE` |
-| version/content hash stability | deterministic hash; same ID/version with changed machine semantics fails closed |
-| term resolution | entity/type/enum/select/relationship/Pset/Qto/member cases |
+| version/content hash stability | deterministic + golden hash; same ID/version with changed machine semantics fails closed |
+| term resolution | entity/type/enum/enum-literal/select/relationship/Pset/Qto/member cases |
 | schema output | inheritance, members, enum/select/type, Pset/Qto metadata |
 | mapping determinism | N/A because MAPPING is not declared |
 | validation determinism | claim-level legality/type/enum findings are deterministic |
@@ -630,7 +660,8 @@ Tests SHOULD include at minimum representative cases from these semantic familie
 - alignment/linear placement: `IfcAlignment`, `IfcLinearPlacement`;
 - geotechnical: `IfcBorehole`, `IfcGeotechnicalStratum`;
 - MEP/system: `IfcDistributionSystem`, `IfcDistributionPort`;
-- enum and invalid enum literal;
+- enum and owner-qualified enum literal;
+- invalid enum literal;
 - defined datatype;
 - official `Pset_*`;
 - official `Qto_*`;
@@ -649,7 +680,7 @@ Before implementation completion is claimed, verification MUST include:
 - real existing Semantic MCP client integration tests;
 - architecture import/boundary tests;
 - Metro reference corpus positive/negative cases;
-- deterministic content-hash test;
+- deterministic and golden content-hash tests;
 - source-version mismatch failure test;
 - immutable same-version/different-content conflict test.
 
@@ -719,12 +750,12 @@ Metro and Enterprise layers may extend, map to, and validate against IFC, but th
 The design is implemented correctly when all of the following are true:
 
 1. `buildingSMART.ifc43@4.3.2.0` registers as the sole authoritative `ifc` provider in a valid environment.
-2. the provider refuses a non-`IFC4X3_ADD2 / 4.3.2.0` source.
-3. standard IFC entities, relationships, datatypes, enums, Psets, Qtos, and members resolve through stable canonical identities.
-4. inherited attributes preserve declaration-owner canonical identity.
+2. the provider refuses a non-`IFC4X3_ADD2 / 4.3.2.0` source and does not fall back to floating Pset/Qto semantics.
+3. standard IFC entities, relationships, datatypes, enums, enum literals, Psets, Qtos, and members resolve through stable canonical identities.
+4. enum literals use owner-qualified identities and inherited attributes preserve declaration-owner canonical identity.
 5. known non-existent IFC entity names fail deterministically and are not auto-mapped.
 6. the provider emits deterministic term schemas from an immutable normalized catalog.
-7. the provider's content hash is stable under iteration/presentation changes and changes when machine semantics change.
+7. the provider's content hash is stable under iteration/presentation changes, changes when machine semantics change, and is locked by a golden regression value.
 8. claim-level standard validation is deterministic and explicitly returns N/A when required model context is absent.
 9. the provider does not claim MAPPING and does not implement Metro/Host mapping logic.
 10. PROJECTION remains marker-only until Phase E.
