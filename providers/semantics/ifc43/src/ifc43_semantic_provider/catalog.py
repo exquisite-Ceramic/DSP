@@ -3,10 +3,11 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from .errors import Ifc43CatalogBuildError, Ifc43TermNotFoundError
+from .golden import EXPECTED_IFC43_CONTENT_HASH
 from .hashing import canonical_hash
 from .model import IfcTermRecord, freeze, plain
 from .normalization import normalize_pset_qto, normalize_schema_declarations
-from .source import Ifc43Source
+from .source import Ifc43Source, load_ifc43_source
 
 
 class Ifc43Catalog:
@@ -78,3 +79,10 @@ class Ifc43Catalog:
 def build_ifc43_catalog(source: Ifc43Source) -> Ifc43Catalog:
     records = normalize_schema_declarations(source.schema) + normalize_pset_qto(source.psets)
     return Ifc43Catalog(source.schema_identifier, source.schema_version, records)
+
+
+IFC43_CATALOG = build_ifc43_catalog(load_ifc43_source())
+if IFC43_CATALOG.content_hash != EXPECTED_IFC43_CONTENT_HASH:
+    raise Ifc43CatalogBuildError(
+        "IFC4.3.2.0 normalized catalog content hash drifted from reviewed golden hash"
+    )

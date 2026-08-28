@@ -1,7 +1,9 @@
 from dataclasses import replace
 
-from ifc43_semantic_provider.catalog import Ifc43Catalog
+from ifc43_semantic_provider.catalog import Ifc43Catalog, build_ifc43_catalog
+from ifc43_semantic_provider.golden import EXPECTED_IFC43_CONTENT_HASH
 from ifc43_semantic_provider.model import IfcTermRecord
+from ifc43_semantic_provider.source import load_ifc43_source
 
 
 def term(term_id, schema, description="presentation"):
@@ -30,3 +32,8 @@ def test_machine_change_changes_content_hash():
     original = Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (a,))
     machine_changed = Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (changed,))
     assert original.content_hash != machine_changed.content_hash
+
+
+def test_exact_ifc4320_catalog_matches_reviewed_golden_hash():
+    actual = build_ifc43_catalog(load_ifc43_source()).content_hash
+    assert actual == EXPECTED_IFC43_CONTENT_HASH
