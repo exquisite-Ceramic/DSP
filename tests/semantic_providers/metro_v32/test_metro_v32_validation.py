@@ -1,3 +1,5 @@
+import pytest
+
 from metro_semantic_provider.catalog import build_catalog
 from metro_semantic_provider.source import load_raw_machine_source
 from metro_semantic_provider.validation import validate_claim_against_metro
