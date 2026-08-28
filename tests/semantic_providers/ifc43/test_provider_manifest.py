@@ -1,4 +1,9 @@
-from semantic_service import AuthorityMode, ProviderType, SemanticCapability
+from semantic_service import (
+    AuthorityMode,
+    ProviderType,
+    SemanticCapability,
+    SemanticProviderRegistry,
+)
 
 from ifc43_semantic_provider import IFC43_CATALOG, IFC43_PROVIDER
 from ifc43_semantic_provider.errors import Ifc43TermNotFoundError
@@ -52,3 +57,8 @@ def test_invalid_case_nonexistent_and_project_terms_fail_exactly():
         except Ifc43TermNotFoundError:
             continue
         raise AssertionError(f"unexpected resolution: {term_id}")
+
+
+def test_registry_accepts_all_claimed_capabilities_after_validation_exists():
+    registry = SemanticProviderRegistry()
+    assert registry.register(IFC43_PROVIDER) == IFC43_PROVIDER.manifest
