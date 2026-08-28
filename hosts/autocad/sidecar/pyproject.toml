@@ -3,7 +3,8 @@ name = "autocad-sidecar"
 version = "0.1.0"
 description = "Python sidecar process for the AutoCAD agent host: command orchestration, retry, idempotency, health."
 requires-python = ">=3.11"
-# host-contracts is the Python mirror of contracts/ (repository pythonpath in development).
+# The host-contracts distribution publishes both host_contracts and the
+# frozen design_fact_contracts package used by the Step 19 thin adapter.
 dependencies = [
     "host-contracts>=0.1.0",
     "grpcio>=1.70,<2",
