@@ -9,12 +9,24 @@ from semantic_runtime import (
     DirtyMap,
     FreshnessResolver,
     FreshnessState,
+    ReconstructionResult,
     SemanticAspect,
+    SemanticEnvironmentRef,
+    SemanticProjectionRef,
     SnapshotKind,
     SnapshotSet,
     SnapshotSetError,
     build_operation_contract,
 )
+
+PROJECTION_REF = SemanticProjectionRef(
+    "projection-1",
+    "projection-hash",
+    "semantic-model-v1",
+    "provider-set-hash",
+    "mapping-profile-set-hash",
+)
+ENVIRONMENT_REF = SemanticEnvironmentRef("environment-1", "environment-hash")
 
 
 def test_coverage_binds_neighborhood_depth_and_relations() -> None:
@@ -38,11 +50,11 @@ def test_aspect_guarantee_explicitly_guarantees_fresh_state() -> None:
     assert guarantee.required_state is FreshnessState.FRESH
 
 
-def _planning_snapshot(*, revision: str, target: str):
+def _planning_snapshot(*, revision: str, target: str, document_ref: str = "doc-1"):
     resolver = FreshnessResolver(DirtyMap())
     contract = build_operation_contract(
         project_id="project-001",
-        document_ref="doc-1",
+        document_ref=document_ref,
         canonical_operation="move.v1",
         targets=(target,),
         arguments={"displacement": [500, 0, 0]},
@@ -51,11 +63,13 @@ def _planning_snapshot(*, revision: str, target: str):
     return resolver.resolve(
         contract,
         expected_host_revision=revision,
-        reconstruct=lambda c, r: __import__("semantic_runtime").ReconstructionResult(
+        reconstruct=lambda c, r: ReconstructionResult(
             document_ref=c.coverage.document_ref,
             host_revision=r,
             coverage=c.coverage,
             guarantees=(AspectGuarantee(SemanticAspect.PLACEMENT),),
+            projection_ref=PROJECTION_REF,
+            semantic_environment_ref=ENVIRONMENT_REF,
         ),
     )
 
@@ -65,6 +79,7 @@ def test_snapshot_set_is_explicitly_planning_and_one_snapshot_per_document() -> 
     snapshot_set = SnapshotSet.create((first,))
 
     assert snapshot_set.kind is SnapshotKind.PLANNING
+    assert snapshot_set.semantic_environment_ref == ENVIRONMENT_REF
 
     second_same_document = _planning_snapshot(revision="43", target="sem-2")
     with pytest.raises(SnapshotSetError, match="document"):

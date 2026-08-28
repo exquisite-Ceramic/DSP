@@ -18,6 +18,8 @@ from semantic_runtime import (
     ReconstructionResult,
     RevisionChangedError,
     SemanticAspect,
+    SemanticEnvironmentRef,
+    SemanticProjectionRef,
     SnapshotKind,
     SnapshotSet,
     SnapshotSetError,
@@ -26,6 +28,14 @@ from semantic_runtime import (
 )
 
 PROJECT_ID = "project-001"
+PROJECTION_REF = SemanticProjectionRef(
+    "projection-1",
+    "projection-hash",
+    "semantic-model-v1",
+    "provider-set-hash",
+    "mapping-profile-set-hash",
+)
+ENVIRONMENT_REF = SemanticEnvironmentRef("environment-1", "environment-hash")
 
 
 def test_change_journal_and_dirty_map_track_entity_aspects_only() -> None:
@@ -127,12 +137,22 @@ def test_operation_contract_binds_operation_targets_arguments_and_requirements()
     assert first.operation_fingerprint is not None
 
 
-def _result_for(contract, *, revision: str = "42", coverage: Coverage | None = None, guarantees=None):
+def _result_for(
+    contract,
+    *,
+    revision: str = "42",
+    coverage: Coverage | None = None,
+    guarantees=None,
+    projection_ref: SemanticProjectionRef = PROJECTION_REF,
+    environment_ref: SemanticEnvironmentRef = ENVIRONMENT_REF,
+):
     return ReconstructionResult(
         document_ref=contract.coverage.document_ref,
         host_revision=revision,
         coverage=coverage or contract.coverage,
         guarantees=tuple(guarantees or contract.requirements),
+        projection_ref=projection_ref,
+        semantic_environment_ref=environment_ref,
     )
 
 
@@ -167,6 +187,8 @@ def test_freshness_resolver_emits_context_and_planning_snapshots() -> None:
     assert context_snapshot.freshness_contract_hash == context_contract.hash
     assert planning_snapshot.freshness_contract_hash == operation_contract.hash
     assert planning_snapshot.coverage == operation_contract.coverage
+    assert planning_snapshot.projection_ref == PROJECTION_REF
+    assert planning_snapshot.semantic_environment_ref == ENVIRONMENT_REF
 
 
 def test_snapshot_hash_binds_contract_revision_coverage_and_guarantees() -> None:
@@ -300,6 +322,7 @@ def test_snapshot_set_accepts_only_planning_snapshots_and_hashes_members() -> No
     snapshot_set = SnapshotSet.create((planning,))
 
     assert snapshot_set.member_snapshot_ids == (planning.snapshot_id,)
+    assert snapshot_set.semantic_environment_ref == ENVIRONMENT_REF
     assert snapshot_set.hash
 
     context_contract = build_context_contract(

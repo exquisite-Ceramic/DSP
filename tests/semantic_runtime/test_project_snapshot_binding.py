@@ -11,8 +11,30 @@ from semantic_runtime import (
     FreshnessState,
     ReconstructionResult,
     SemanticAspect,
+    SemanticEnvironmentRef,
+    SemanticProjectionRef,
     build_operation_contract,
 )
+
+PROJECTION_REF = SemanticProjectionRef(
+    "projection-1",
+    "projection-hash",
+    "semantic-model-v1",
+    "provider-set-hash",
+    "mapping-profile-set-hash",
+)
+ENVIRONMENT_REF = SemanticEnvironmentRef("environment-1", "environment-hash")
+
+
+def _result(current, revision, *, guarantees):
+    return ReconstructionResult(
+        document_ref=current.coverage.document_ref,
+        host_revision=revision,
+        coverage=current.coverage,
+        guarantees=guarantees,
+        projection_ref=PROJECTION_REF,
+        semantic_environment_ref=ENVIRONMENT_REF,
+    )
 
 
 def test_freshness_contract_and_snapshot_bind_project_id() -> None:
@@ -36,16 +58,17 @@ def test_freshness_contract_and_snapshot_bind_project_id() -> None:
     snapshot = FreshnessResolver(DirtyMap()).resolve(
         first,
         expected_host_revision="42",
-        reconstruct=lambda contract, revision: ReconstructionResult(
-            document_ref=contract.coverage.document_ref,
-            host_revision=revision,
-            coverage=contract.coverage,
+        reconstruct=lambda contract, revision: _result(
+            contract,
+            revision,
             guarantees=(AspectGuarantee(SemanticAspect.PLACEMENT),),
         ),
     )
 
     assert first.project_id == "project-001"
     assert snapshot.project_id == "project-001"
+    assert snapshot.projection_ref == PROJECTION_REF
+    assert snapshot.semantic_environment_ref == ENVIRONMENT_REF
     assert first.hash != second_project.hash
 
 
@@ -62,10 +85,9 @@ def test_snapshot_aspect_guarantee_is_bound_to_contract_coverage() -> None:
     snapshot = FreshnessResolver(DirtyMap()).resolve(
         contract,
         expected_host_revision="42",
-        reconstruct=lambda current, revision: ReconstructionResult(
-            document_ref=current.coverage.document_ref,
-            host_revision=revision,
-            coverage=current.coverage,
+        reconstruct=lambda current, revision: _result(
+            current,
+            revision,
             guarantees=(AspectGuarantee(SemanticAspect.PLACEMENT),),
         ),
     )
@@ -90,10 +112,9 @@ def test_mismatched_guarantee_scope_is_rejected_before_dirty_map_is_fresh() -> N
         resolver.resolve(
             contract,
             expected_host_revision="42",
-            reconstruct=lambda current, revision: ReconstructionResult(
-                document_ref=current.coverage.document_ref,
-                host_revision=revision,
-                coverage=current.coverage,
+            reconstruct=lambda current, revision: _result(
+                current,
+                revision,
                 guarantees=(
                     AspectGuarantee(
                         SemanticAspect.PLACEMENT,
