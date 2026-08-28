@@ -976,6 +976,7 @@ get_environment(environment_id)
 ```
 
 所有依赖语义版本状态的查询 MUST 使用显式锁定的 Semantic Environment，MUST NOT 使用隐式 latest/default Provider 状态。
+
 ## 10.4 SemanticProvider capability interfaces
 
 Provider SHOULD 按能力实现，而不是强迫所有 Provider 实现同一大接口：

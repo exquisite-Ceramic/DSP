@@ -938,3 +938,20 @@ This plan has been checked against the approved design for:
 - focused/full/final-head CI evidence.
 
 Placeholder scan: no `TBD`, `TODO`, `implement later`, or `Similar to Task N` instructions remain. Type/signature scan: all seven method signatures match the merged PR #6 `SemanticService` contract, and `SemanticClaimInput` is explicitly the MCP input type consumed by the two claim-bearing tools.
+---
+
+## Execution Evidence — PR #7 Semantic MCP Adapter
+
+- Implementation/code verification head: `aff6f800f7e1140af642fd41957dcf63d0984fde`.
+- Focused Semantic MCP verification: `63 passed`.
+- Full Python regression: `294 passed, 4 skipped`.
+- Existing live-AutoCAD skips only:
+  - `tests/integration/test_current_selection.py:23` — requires live AutoCAD host (`AGENT_HOST_TEST=1`).
+  - `tests/integration/test_move.py:19` — requires live AutoCAD host (`AGENT_HOST_TEST=1`).
+  - `tests/integration/test_move_idempotency.py:20` — requires live AutoCAD host (`AGENT_HOST_TEST=1`).
+  - `tests/integration/test_revision_conflict.py:19` — requires live AutoCAD host (`AGENT_HOST_TEST=1`).
+- GitHub Actions evidence: run `33159937972`, job `98811676262`.
+- Real official MCP client conformance hard-asserts protocol `2026-07-28`, exact seven-tool discovery, success structured content, typed/sanitized failures, and pre-handler nested claim rejection.
+- Closeout review: no Critical/Important blocker found; no Provider/Gateway/LLM ownership leakage, no implicit latest/default Semantic Environment selection, no raw remote exception leakage, no wire-contract drift, and no additional public Semantic MCP tools.
+- Closeout fixes: synchronized main spec §10.3 to the merged explicit-environment Core API; removed the one-time documentation sync workflow; corrected the §10.3/§10.4 Markdown spacing.
+- Final-head CI is required after this evidence record changes the branch head; its final SHA/run/job are recorded in PR metadata rather than recursively editing this file.
