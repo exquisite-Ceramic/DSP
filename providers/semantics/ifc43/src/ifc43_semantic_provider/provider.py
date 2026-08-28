@@ -5,12 +5,15 @@ from semantic_service import (
     ProviderType,
     ResolvedTerm,
     SemanticCapability,
+    SemanticClaim,
     SemanticProviderManifest,
     TermDescription,
     TermSchema,
+    ValidationFinding,
 )
 
 from .catalog import IFC43_CATALOG, Ifc43Catalog
+from .validation import validate_claim_against_ifc43
 
 
 class Ifc43SemanticProvider:
@@ -54,6 +57,9 @@ class Ifc43SemanticProvider:
     def get_term_schema(self, term_id: str) -> TermSchema:
         record = self._catalog.get(term_id)
         return TermSchema(record.term_id, self._catalog.schema_for(term_id), self._provenance)
+
+    def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]:
+        return validate_claim_against_ifc43(self._catalog, claim, self._provenance)
 
 
 IFC43_PROVIDER = Ifc43SemanticProvider()
