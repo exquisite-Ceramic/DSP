@@ -12,6 +12,12 @@ from semantic_service import (
 from tests.semantic_service.helpers import VocabularyProvider
 
 
+class InvalidManifestProvider:
+    @property
+    def manifest(self):
+        return object()
+
+
 def test_identical_registration_is_idempotent():
     registry = SemanticProviderRegistry()
     provider = VocabularyProvider()
@@ -33,6 +39,12 @@ def test_claimed_mapping_without_mapping_protocol_is_rejected():
     bad = VocabularyProvider(extra_capabilities={SemanticCapability.MAPPING})
     with pytest.raises(ProviderCapabilityError, match="MAPPING"):
         registry.register(bad)
+
+
+def test_invalid_manifest_object_is_rejected_with_typed_error():
+    registry = SemanticProviderRegistry()
+    with pytest.raises(ProviderCapabilityError, match="manifest"):
+        registry.register(InvalidManifestProvider())
 
 
 def test_missing_exact_provider_raises_provider_not_found():
