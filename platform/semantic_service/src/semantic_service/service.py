@@ -16,6 +16,7 @@ from semantic_service.errors import (
 from semantic_service.manifest import AuthorityMode, SemanticCapability, SemanticProviderManifest
 from semantic_service.providers import (
     MappingCandidate,
+    ProviderProvenance,
     ResolvedTerm,
     SemanticClaim,
     SemanticMappingProvider,
@@ -89,12 +90,31 @@ class SemanticService:
             f"{type(exc).__name__}"
         ) from exc
 
+    @staticmethod
+    def _assert_pinned_provenance(
+        operation: str,
+        pinned: PinnedProvider,
+        provenance: object,
+    ) -> None:
+        expected = ProviderProvenance(
+            pinned.provider_id,
+            pinned.version,
+            pinned.content_hash,
+        )
+        if provenance != expected:
+            raise SemanticServiceError(
+                f"{operation} provider provenance mismatch for "
+                f"{pinned.provider_id}@{pinned.version}"
+            )
+
     def resolve_term(self, term_id: str, environment_id: str) -> ResolvedTerm:
         provider, pinned = self._vocabulary_provider(term_id, environment_id)
         try:
-            return provider.resolve_term(term_id)
+            result = provider.resolve_term(term_id)
         except Exception as exc:
             self._raise_term_error("resolve_term", pinned, exc)
+        self._assert_pinned_provenance("resolve_term", pinned, getattr(result, "provenance", None))
+        return result
 
     def describe_term(
         self,
@@ -104,16 +124,20 @@ class SemanticService:
     ) -> TermDescription:
         provider, pinned = self._vocabulary_provider(term_id, environment_id)
         try:
-            return provider.describe_term(term_id, locale)
+            result = provider.describe_term(term_id, locale)
         except Exception as exc:
             self._raise_term_error("describe_term", pinned, exc)
+        self._assert_pinned_provenance("describe_term", pinned, getattr(result, "provenance", None))
+        return result
 
     def get_term_schema(self, term_id: str, environment_id: str) -> TermSchema:
         provider, pinned = self._vocabulary_provider(term_id, environment_id)
         try:
-            return provider.get_term_schema(term_id)
+            result = provider.get_term_schema(term_id)
         except Exception as exc:
             self._raise_term_error("get_term_schema", pinned, exc)
+        self._assert_pinned_provenance("get_term_schema", pinned, getattr(result, "provenance", None))
+        return result
 
     def find_mappings(
         self,
@@ -132,12 +156,19 @@ class SemanticService:
                     f"provider {pinned.provider_id}@{pinned.version} does not implement MAPPING"
                 )
             try:
-                results.extend(provider.find_mappings(source_claim, target_namespace))
+                provider_results = provider.find_mappings(source_claim, target_namespace)
             except Exception as exc:
                 raise SemanticServiceError(
                     f"find_mappings failed via {pinned.provider_id}@{pinned.version}: "
                     f"{type(exc).__name__}"
                 ) from exc
+            for item in provider_results:
+                self._assert_pinned_provenance(
+                    "find_mappings",
+                    pinned,
+                    getattr(item, "provenance", None),
+                )
+            results.extend(provider_results)
         return tuple(
             sorted(
                 results,
@@ -161,12 +192,19 @@ class SemanticService:
                     f"provider {pinned.provider_id}@{pinned.version} does not implement VALIDATION"
                 )
             try:
-                results.extend(provider.validate_claim(claim))
+                provider_results = provider.validate_claim(claim)
             except Exception as exc:
                 raise SemanticServiceError(
                     f"validate_claim failed via {pinned.provider_id}@{pinned.version}: "
                     f"{type(exc).__name__}"
                 ) from exc
+            for item in provider_results:
+                self._assert_pinned_provenance(
+                    "validate_claim",
+                    pinned,
+                    getattr(item, "provenance", None),
+                )
+            results.extend(provider_results)
         return tuple(
             sorted(
                 results,
