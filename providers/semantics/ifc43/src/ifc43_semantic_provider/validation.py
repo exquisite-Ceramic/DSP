@@ -150,4 +150,14 @@ def validate_claim_against_ifc43(
     else:
         findings.append(_finding(CONTEXT_RULE, ValidationStatus.NOT_APPLICABLE, provenance))
 
+    if claim.unit is not None:
+        findings.append(
+            _finding(
+                CONTEXT_RULE,
+                ValidationStatus.NOT_APPLICABLE,
+                provenance,
+                "unit validation requires IFC model unit-assignment context",
+            )
+        )
+
     return tuple(findings)
