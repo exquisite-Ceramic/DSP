@@ -10,14 +10,20 @@ from semantic_service.environment import (
 from semantic_service.errors import (
     NamespaceAuthorityError,
     ProviderCapabilityError,
+    SemanticServiceError,
     TermResolutionError,
 )
 from semantic_service.manifest import AuthorityMode, SemanticCapability, SemanticProviderManifest
 from semantic_service.providers import (
+    MappingCandidate,
     ResolvedTerm,
+    SemanticClaim,
+    SemanticMappingProvider,
+    SemanticValidationProvider,
     SemanticVocabularyProvider,
     TermDescription,
     TermSchema,
+    ValidationFinding,
 )
 from semantic_service.registry import SemanticProviderRegistry
 
@@ -108,6 +114,70 @@ class SemanticService:
             return provider.get_term_schema(term_id)
         except Exception as exc:
             self._raise_term_error("get_term_schema", pinned, exc)
+
+    def find_mappings(
+        self,
+        source_claim: SemanticClaim,
+        environment_id: str,
+        target_namespace: str | None = None,
+    ) -> tuple[MappingCandidate, ...]:
+        environment = self._environments.get(environment_id)
+        results: list[MappingCandidate] = []
+        for pinned in environment.providers:
+            if SemanticCapability.MAPPING not in pinned.capabilities:
+                continue
+            provider = self._registry.get(pinned.provider_id, pinned.version)
+            if not isinstance(provider, SemanticMappingProvider):
+                raise ProviderCapabilityError(
+                    f"provider {pinned.provider_id}@{pinned.version} does not implement MAPPING"
+                )
+            try:
+                results.extend(provider.find_mappings(source_claim, target_namespace))
+            except Exception as exc:
+                raise SemanticServiceError(
+                    f"find_mappings failed via {pinned.provider_id}@{pinned.version}: "
+                    f"{type(exc).__name__}"
+                ) from exc
+        return tuple(
+            sorted(
+                results,
+                key=lambda item: (item.mapping_id, item.provider_id, item.provider_version),
+            )
+        )
+
+    def validate_claim(
+        self,
+        claim: SemanticClaim,
+        environment_id: str,
+    ) -> tuple[ValidationFinding, ...]:
+        environment = self._environments.get(environment_id)
+        results: list[ValidationFinding] = []
+        for pinned in environment.providers:
+            if SemanticCapability.VALIDATION not in pinned.capabilities:
+                continue
+            provider = self._registry.get(pinned.provider_id, pinned.version)
+            if not isinstance(provider, SemanticValidationProvider):
+                raise ProviderCapabilityError(
+                    f"provider {pinned.provider_id}@{pinned.version} does not implement VALIDATION"
+                )
+            try:
+                results.extend(provider.validate_claim(claim))
+            except Exception as exc:
+                raise SemanticServiceError(
+                    f"validate_claim failed via {pinned.provider_id}@{pinned.version}: "
+                    f"{type(exc).__name__}"
+                ) from exc
+        return tuple(
+            sorted(
+                results,
+                key=lambda item: (
+                    item.provider_id,
+                    item.provider_version,
+                    item.rule_id,
+                    item.status.value,
+                ),
+            )
+        )
 
     def get_provider_manifest(self, provider_id: str, version: str) -> SemanticProviderManifest:
         return self._registry.get_manifest(provider_id, version)
