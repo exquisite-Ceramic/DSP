@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DesignFactContracts;
+using Xunit;
 
 namespace DesignFactContracts.Tests;
 
