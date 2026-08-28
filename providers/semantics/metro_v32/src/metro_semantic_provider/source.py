@@ -36,7 +36,7 @@ def validate_root_metadata(payload: Mapping[str, object]) -> None:
 
 
 def load_raw_machine_source() -> Mapping[str, object]:
-    resource = files("metro_semantic_provider").joinpath("data", "metro_v3_2.yaml")
+    resource = files("metro_semantic_provider").joinpath("data").joinpath("metro_v3_2.yaml")
     try:
         payload = yaml.safe_load(resource.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
