@@ -1,0 +1,33 @@
+name: Normalized Design Fact Contract
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "docs/superpowers/specs/2026-08-28-normalized-design-fact-contract-design.md"
+      - "docs/superpowers/plans/2026-08-28-normalized-design-fact-contract.md"
+      - ".github/workflows/normalized-design-fact-contract.yml"
+
+jobs:
+  python-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e . pytest jsonschema
+      - run: |
+          python -m pytest \
+            contracts/python/tests/test_normalized_design_fact_contract.py \
+            contracts/python/tests/test_normalized_design_fact_schema.py \
+            contracts/python/tests/test_design_fact_architecture.py -q
+
+  dotnet-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet test contracts/dotnet/DesignFactContracts.Tests/DesignFactContracts.Tests.csproj --configuration Release
