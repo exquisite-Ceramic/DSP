@@ -12,7 +12,9 @@ from semantic_service import (
     ResolvedTerm,
     SemanticCapability,
     SemanticClaim,
+    SemanticProvider,
     SemanticProviderManifest,
+    SemanticProviderRegistry,
     TermDescription,
     TermSchema,
     ValidationFinding,
@@ -66,6 +68,8 @@ class VocabularyProvider:
         namespace: str = "ifc",
         authority: AuthorityMode = AuthorityMode.AUTHORITATIVE,
         content_hash: str | None = None,
+        compatibility: tuple[str, ...] = ("semantic-service.v1",),
+        requires: tuple[ProviderRef, ...] = (),
         extra_capabilities: set[SemanticCapability] | frozenset[SemanticCapability] = frozenset(),
         claim_projection: bool = False,
         fail_resolve: bool = False,
@@ -80,6 +84,8 @@ class VocabularyProvider:
             authority=authority,
             capabilities=frozenset(capabilities),
             content_hash=content_hash,
+            compatibility=compatibility,
+            requires=requires,
         )
         self.fail_resolve = fail_resolve
         self.resolve_calls: list[str] = []
@@ -115,6 +121,8 @@ class MappingProvider:
         authority: AuthorityMode = AuthorityMode.EXTENSION,
         mappings: tuple[MappingCandidate, ...] = (),
         content_hash: str | None = None,
+        compatibility: tuple[str, ...] = ("semantic-service.v1",),
+        requires: tuple[ProviderRef, ...] = (),
     ) -> None:
         self._manifest = make_manifest(
             provider_id=provider_id,
@@ -123,6 +131,8 @@ class MappingProvider:
             authority=authority,
             capabilities=frozenset({SemanticCapability.MAPPING}),
             content_hash=content_hash,
+            compatibility=compatibility,
+            requires=requires,
         )
         self.mappings = tuple(mappings)
         self.calls: list[tuple[SemanticClaim, str | None]] = []
@@ -150,6 +160,8 @@ class ValidationProvider:
         authority: AuthorityMode = AuthorityMode.EXTENSION,
         findings: tuple[ValidationFinding, ...] = (),
         content_hash: str | None = None,
+        compatibility: tuple[str, ...] = ("semantic-service.v1",),
+        requires: tuple[ProviderRef, ...] = (),
     ) -> None:
         self._manifest = make_manifest(
             provider_id=provider_id,
@@ -158,6 +170,8 @@ class ValidationProvider:
             authority=authority,
             capabilities=frozenset({SemanticCapability.VALIDATION}),
             content_hash=content_hash,
+            compatibility=compatibility,
+            requires=requires,
         )
         self.findings = tuple(findings)
         self.calls: list[SemanticClaim] = []
@@ -169,3 +183,76 @@ class ValidationProvider:
     def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]:
         self.calls.append(claim)
         return self.findings
+
+
+def register_all(*providers: SemanticProvider) -> SemanticProviderRegistry:
+    registry = SemanticProviderRegistry()
+    for provider in providers:
+        registry.register(provider)
+    return registry
+
+
+def all_refs(registry: SemanticProviderRegistry) -> tuple[ProviderRef, ...]:
+    refs: list[ProviderRef] = []
+    for provider_id in (
+        "acme.design.standard",
+        "buildingSMART.ifc43",
+        "dsp.metro.semantic",
+        "shadow.ifc",
+    ):
+        for version in registry.versions(provider_id):
+            refs.append(ProviderRef(provider_id, version))
+    return tuple(sorted(refs))
+
+
+def registry_with_ifc() -> SemanticProviderRegistry:
+    return register_all(VocabularyProvider())
+
+
+def registry_with_ifc_and_enterprise() -> SemanticProviderRegistry:
+    return register_all(
+        VocabularyProvider(),
+        MappingProvider(
+            provider_id="acme.design.standard",
+            version="2026.08",
+            namespace="acme",
+            authority=AuthorityMode.AUTHORITATIVE,
+        ),
+    )
+
+
+def registry_with_metro_requiring_ifc() -> SemanticProviderRegistry:
+    return register_all(
+        VocabularyProvider(),
+        MappingProvider(
+            provider_id="dsp.metro.semantic",
+            version="3.2",
+            namespace="metro",
+            authority=AuthorityMode.AUTHORITATIVE,
+            requires=(ProviderRef("buildingSMART.ifc43", "4.3.2.0"),),
+        ),
+    )
+
+
+def registry_with_two_ifc_authorities() -> SemanticProviderRegistry:
+    return register_all(
+        VocabularyProvider(),
+        VocabularyProvider(
+            provider_id="shadow.ifc",
+            version="1",
+            namespace="ifc",
+            authority=AuthorityMode.AUTHORITATIVE,
+        ),
+    )
+
+
+def registry_with_ifc_authority_and_metro_extension() -> SemanticProviderRegistry:
+    return register_all(
+        VocabularyProvider(),
+        MappingProvider(
+            provider_id="dsp.metro.semantic",
+            version="3.2",
+            namespace="ifc",
+            authority=AuthorityMode.EXTENSION,
+        ),
+    )
