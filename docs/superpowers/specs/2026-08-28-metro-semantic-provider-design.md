@@ -60,7 +60,7 @@ Metro semantic interpretation            DOMAIN
 Project / enterprise frozen decisions    later layer
 ```
 
-PR #10 must preserve the distinction between standard semantics, domain semantics, and project decisions.
+PR #10 MUST preserve the distinction between standard semantics, domain semantics, and project decisions.
 
 ## Architectural Classification
 
@@ -90,6 +90,7 @@ The following concrete dependency directions are forbidden:
 
 ```text
 Metro Provider       → ifc43_semantic_provider implementation
+Metro Provider       → ifcopenshell
 semantic_service     → Metro Provider implementation
 semantic_runtime     → Metro Provider implementation
 semantic_mcp         → Metro Provider implementation
@@ -119,7 +120,7 @@ The source contains multiple kinds of material and PR #10 MUST preserve their di
 
 - Metro domain vocabulary;
 - legal IFC usage guidance;
-- project-extension `PsetProj_*` / `QtoProj_*` data dictionary material;
+- project-extension `PsetProj_*` / `QtoProj_*` data-dictionary material;
 - field requirement levels such as P-M / P-C / P-R;
 - prohibited or invalid IFC usage;
 - IDS-oriented requirements;
@@ -196,7 +197,7 @@ A prose or formatting-only source change MAY change the source-document digest w
 
 A machine-semantic change MUST change `content_hash`.
 
-The concrete source digest is an implementation artifact and is not a main-Spec architecture invariant.
+The concrete source digest is an implementation artifact and is not a main-Spec architecture invariant. If the original human source is not vendored into the package, CI SHALL verify the pinned digest metadata and machine source consistency; recomputing the human-source digest requires access to the exact source artifact and is not a runtime dependency.
 
 ## Normative Classification
 
@@ -223,7 +224,7 @@ The implementation MAY encode these as strings or an internal enum, but their se
 
 `RECOMMENDED` means guidance exists but PR #10 MUST NOT silently upgrade it into a unique active mapping or mandatory project decision.
 
-`EXAMPLE` is presentation/test/reference material and MUST NOT become a machine constraint merely because it appears in the source.
+`EXAMPLE` is presentation/test/reference material and MUST NOT become a vocabulary, active mapping, or validation constraint merely because it appears in the source. If examples are retained in the checked-in source for traceability, they MUST remain outside the normalized semantic catalog and semantic hash.
 
 `DECISION_OPTION` represents an explicitly unfrozen project decision option.
 
@@ -311,6 +312,16 @@ Representative Metro vocabulary may include domain concepts, project-extension p
 
 Implemented only for ACTIVE deterministic mappings supported by the reviewed V3.2 machine source.
 
+PR #10 freezes one mapping direction:
+
+```text
+metro:* source semantic term
+    ↓
+legal ifc:* canonical target
+```
+
+PR #10 does not implement IFC→Metro enrichment mapping, Host→Metro classification, or Host→IFC classification through this provider.
+
 Unfrozen decision options, recommendations, examples, and project-extension drafts that still require project choice MUST NOT be returned as active mappings.
 
 ### VALIDATION
@@ -397,7 +408,7 @@ Rule IDs are machine identities and therefore contribute to machine-semantic con
 
 ## Metro Machine Data Model
 
-The machine source SHALL be able to represent at least four record classes:
+The machine source SHALL be able to represent at least four semantic record classes:
 
 ```text
 terms
@@ -405,6 +416,8 @@ mappings
 validation_rules
 decisions
 ```
+
+Non-semantic examples/reference snippets may be retained separately for traceability but MUST NOT be emitted into the normalized semantic catalog.
 
 ### Term records
 
@@ -498,7 +511,7 @@ applicability
 evidence/source references
 ```
 
-Example conceptual schema:
+Example record shape:
 
 ```yaml
 mapping_id: metro:Mapping.TunnelSegment.ToIfcFacilityPartCommon
@@ -511,6 +524,8 @@ target:
     - term_id: ifc:IfcFacilityPartCommon.PredefinedType
       equals: SEGMENT
 ```
+
+This example illustrates the machine-record shape only. It MUST NOT be interpreted as an architectural assertion that this exact V3.2 mapping is already `NORMATIVE` and `ACTIVE`. During implementation, a mapping receives `ACTIVE` status only after source review proves that the V3.2 rule is unambiguous, legal under IFC4X3_ADD2, and not merely a recommendation, example, project-extension draft requiring registration, or unfrozen DEC choice.
 
 ### Public mapping projection
 
@@ -553,15 +568,26 @@ A Metro term with only unfrozen options returns no active mapping.
 
 This is intentional fail-closed behavior.
 
+### Mapping direction
+
+For PR #10, an active mapping MUST have:
+
+```text
+source term namespace = metro
+target term namespace = ifc
+```
+
+A `SemanticClaim` whose mapping source term is not an exact `metro:*` term returns no Metro mapping candidate.
+
+This prevents PR #10 from becoming an IFC→Metro inference engine or a Host-native classifier. Later phases may add separate domain-upgrade or project-specific mapping behavior under an explicitly designed contract.
+
 ### Target namespace filtering
 
-When `target_namespace="ifc"`, the Metro Provider returns only active mappings whose target is in the IFC namespace.
+When `target_namespace="ifc"`, the Metro Provider returns active IFC targets.
 
-For unsupported target namespaces it returns no candidate rather than inventing cross-domain behavior.
+For any other non-null target namespace, it returns no candidate.
 
-### Non-Metro source claims
-
-`find_mappings()` is not a Host-native classifier.
+### Host/enterprise boundary
 
 PR #10 MUST NOT inspect AutoCAD layer names, Revit categories, Tekla classes, Host IDs, or enterprise conventions such as `A-WALL`.
 
@@ -597,7 +623,7 @@ The exact dependency is enforced through Semantic Environment pinning, not a con
 
 ### Integration conformance
 
-Focused integration tests SHALL create an environment containing the exact IFC and Metro providers and assert that every active canonical `ifc:*` target used by Metro resolves through the IFC Provider.
+Focused integration tests SHALL create an environment containing the exact IFC and Metro providers and assert that every active canonical `ifc:*` target and every machine-relevant canonical IFC datatype/reference used by Metro resolves through the IFC Provider.
 
 This protects against a reproducible Metro machine source containing false IFC names.
 
@@ -682,6 +708,12 @@ If evaluation requires another claim, entity state, relationship, project stage,
 ### Units
 
 Where correct unit interpretation requires an IFC `IfcUnitAssignment`, project unit context, or quantity context absent from the claim, Metro validation returns a contextual `NOT_APPLICABLE` finding rather than assuming a unit system.
+
+### IFC-extension validation scope
+
+A claim is not automatically outside Metro validation merely because its canonical term is `ifc:*`. Because the Metro provider declares `ifc` as `EXTENSION`, it MAY return Metro-specific findings for explicit IFC usage covered by Metro rules, such as a prohibited pseudo-entity token or a domain usage constraint, while leaving standard IFC legality to the IFC Provider.
+
+Unrelated claims return `NOT_APPLICABLE`.
 
 ### Out of scope
 
@@ -865,6 +897,8 @@ unknown requirement level
 invalid cardinality representation
 mapping source references unknown Metro term
 validation rule references unknown Metro term
+ACTIVE mapping source is not metro:*
+ACTIVE mapping target is not ifc:*
 ACTIVE mapping target has malformed canonical ID
 conflicting ACTIVE mapping definitions
 DEC state contradicts selected/frozen option
@@ -972,8 +1006,9 @@ ifc EXTENSION
 Verify:
 
 - machine source loads deterministically;
-- source document digest metadata is exact and pinned;
+- source-document digest metadata is pinned;
 - representative machine records preserve normative classification;
+- example/reference material is not emitted as machine semantic records;
 - duplicate/conflicting records fail closed;
 - catalog is immutable;
 - source iteration/key order does not alter normalized semantic hash.
@@ -1006,7 +1041,7 @@ Verify:
 
 ### IFC reference conformance
 
-In an environment containing exact IFC+Metro providers, every ACTIVE canonical `ifc:*` target and machine IFC datatype reference used by Metro SHALL resolve through the IFC Provider.
+In an environment containing exact IFC+Metro providers, every ACTIVE canonical `ifc:*` target and machine-relevant canonical IFC datatype/reference used by Metro SHALL resolve through the IFC Provider.
 
 Representative negative source names remain unresolved by IFC.
 
@@ -1014,11 +1049,13 @@ Representative negative source names remain unresolved by IFC.
 
 Verify:
 
-- deterministic ACTIVE mapping returns a `MappingCandidate`;
+- an approved deterministic `metro:* → ifc:*` ACTIVE mapping returns a `MappingCandidate`;
+- non-`metro:*` source claims return no Metro mapping candidate;
 - returned provenance matches the pinned Metro provider;
 - mapping IDs are stable;
 - full constraints are available through the mapping term schema;
-- target namespace filtering works;
+- `target_namespace="ifc"` returns active IFC candidates;
+- other target namespaces return no candidate;
 - recommendation/example/unfrozen decision records do not return active mappings;
 - a Metro term with no active mapping returns an empty result.
 
@@ -1037,7 +1074,8 @@ Verify deterministic claim-local behavior for representative:
 - allowed enum value;
 - invalid enum value;
 - explicit prohibited usage;
-- non-Metro claim → NOT_APPLICABLE where appropriate;
+- unrelated claim → NOT_APPLICABLE;
+- Metro-specific IFC-extension rule may evaluate an explicit `ifc:*` usage without redefining IFC vocabulary;
 - missing model/unit/context → NOT_APPLICABLE rather than guessed PASS/FAIL;
 - stable rule IDs and exact provenance.
 
@@ -1072,7 +1110,7 @@ Metro Provider → D5/D6/D7
 platform core   → concrete Metro provider
 ```
 
-The provider must also contain no Host-native product conventions such as AutoCAD layer names, Revit ElementId/category identifiers, or enterprise `A-WALL` classification logic.
+The provider MUST also contain no Host-native product conventions such as AutoCAD layer names, Revit ElementId/category identifiers, or enterprise `A-WALL` classification logic.
 
 ### Regression
 
@@ -1129,6 +1167,7 @@ PR #10 explicitly does not implement:
 - freezing DEC-01 through DEC-10 on behalf of a project;
 - treating recommended/example `PsetProj_*` content as already project-approved;
 - a project-specific Metro provider;
+- IFC→Metro enrichment mapping;
 - `NormalizedDesignFact`;
 - Host-native extraction;
 - AutoCAD/Revit/Tekla classification logic;
@@ -1178,7 +1217,7 @@ reviewed pinned metro_v3_2.yaml
 immutable MetroCatalog
         │
         ├─ metro:* authoritative vocabulary
-        ├─ ACTIVE deterministic domain mappings
+        ├─ ACTIVE deterministic metro:* → ifc:* mappings
         ├─ claim-local Metro validation
         └─ unfrozen decision / IDS-oriented metadata
         ↓
