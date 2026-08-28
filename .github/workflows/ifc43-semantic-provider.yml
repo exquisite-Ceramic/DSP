@@ -28,4 +28,6 @@ jobs:
         run: |
           pytest -q tests/semantic_providers/ifc43/test_source_version.py \
                     tests/semantic_providers/ifc43/test_normalization.py \
-                    tests/semantic_providers/ifc43/test_pset_qto.py
+                    tests/semantic_providers/ifc43/test_pset_qto.py \
+                    tests/semantic_providers/ifc43/test_catalog.py \
+                    tests/semantic_providers/ifc43/test_term_identity.py
