@@ -6,6 +6,8 @@ Approved in architecture discussion on 2026-08-28. This document defines the des
 
 Implementation MUST NOT begin until this written design has been reviewed and approved by the user. After approval, the next step is a separate implementation plan produced with the project planning workflow.
 
+Where this design specifies implementation details not frozen by Spec v0.6, those details are PR #9 implementation decisions and MUST NOT be interpreted as amendments to the main Spec.
+
 ## Goal
 
 Add an independent reference Semantic Provider for the official IFC4.3 standard semantics used by DSP.
