@@ -13,7 +13,7 @@ def test_entity_and_relationship_are_normalized_with_distinct_kinds():
     records = records_by_id()
     assert records["ifc:IfcWall"].kind == "ENTITY"
     assert records["ifc:IfcRelAggregates"].kind == "RELATIONSHIP"
-    assert records["ifc:IfcWall"].machine_schema["supertype"] == "ifc:IfcBuildingElement"
+    assert records["ifc:IfcWall"].machine_schema["supertype"] == "ifc:IfcBuiltElement"
 
 
 def test_direct_attribute_uses_owner_qualified_identity():
