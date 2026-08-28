@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DesignFactContracts;
 using Xunit;
 
@@ -36,6 +37,19 @@ public sealed class NormalizedDesignFactTests
         Assert.Empty(batch.Facts);
         using var document = JsonDocument.Parse(batch.ToJson());
         Assert.Equal(0, document.RootElement.GetProperty("facts").GetArrayLength());
+    }
+
+    [Fact]
+    public void BatchRejectsFactWithMissingRequiredNullableWireField()
+    {
+        var fact = JsonNode.Parse(ReadVector("valid_property.json"))!.AsObject();
+        Assert.True(fact.Remove("unit"));
+        var payload = new JsonObject
+        {
+            ["facts"] = new JsonArray(fact),
+        }.ToJsonString();
+
+        Assert.ThrowsAny<Exception>(() => NormalizedDesignFactBatch.FromJson(payload));
     }
 
     [Theory]
