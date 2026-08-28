@@ -185,6 +185,9 @@ internal static class ContractValidation
         {
             throw new JsonException($"Missing NormalizedDesignFact fields: {string.Join(", ", missing)}");
         }
+
+        ValidateStringEnum<FactKind>(root.GetProperty("fact_kind"), "fact_kind");
+        ValidateStringEnum<ValueType>(root.GetProperty("value_type"), "value_type");
     }
 
     internal static void ValidateValue(JsonElement value, ValueType valueType)
@@ -204,6 +207,21 @@ internal static class ContractValidation
         if (!valid)
         {
             throw new ArgumentException($"value is incompatible with value_type {valueType}");
+        }
+    }
+
+    private static void ValidateStringEnum<TEnum>(JsonElement value, string fieldName)
+        where TEnum : struct, Enum
+    {
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw new JsonException($"{fieldName} must be a string enum value");
+        }
+
+        var text = value.GetString();
+        if (text is null || !Enum.GetNames<TEnum>().Contains(text, StringComparer.Ordinal))
+        {
+            throw new JsonException($"invalid {fieldName}: {text}");
         }
     }
 
