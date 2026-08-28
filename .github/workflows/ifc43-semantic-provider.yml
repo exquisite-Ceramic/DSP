@@ -30,4 +30,5 @@ jobs:
                     tests/semantic_providers/ifc43/test_normalization.py \
                     tests/semantic_providers/ifc43/test_pset_qto.py \
                     tests/semantic_providers/ifc43/test_catalog.py \
-                    tests/semantic_providers/ifc43/test_term_identity.py
+                    tests/semantic_providers/ifc43/test_term_identity.py \
+                    tests/semantic_providers/ifc43/test_provider_manifest.py
