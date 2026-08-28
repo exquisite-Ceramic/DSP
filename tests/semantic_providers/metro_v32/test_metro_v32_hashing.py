@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from metro_semantic_provider.catalog import build_catalog
+from metro_semantic_provider.golden import METRO_V32_GOLDEN_CONTENT_HASH
 from metro_semantic_provider.hashing import semantic_content_hash
 from metro_semantic_provider.source import load_raw_machine_source
 
@@ -14,6 +15,13 @@ def test_repeated_builds_have_identical_hash():
     second = build_catalog(load_raw_machine_source()).content_hash
     assert first == second
     assert len(first) == 64
+
+
+def test_reviewed_catalog_matches_golden_hash():
+    assert (
+        build_catalog(load_raw_machine_source()).content_hash
+        == METRO_V32_GOLDEN_CONTENT_HASH
+    )
 
 
 def test_machine_source_record_order_does_not_change_catalog_hash():
