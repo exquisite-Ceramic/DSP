@@ -21,6 +21,7 @@ from semantic_service import (
     TermDescription,
     TermSchema,
     ValidationFinding,
+    ValidationStatus,
 )
 
 
@@ -126,6 +127,8 @@ class MappingProvider:
         content_hash: str | None = None,
         compatibility: tuple[str, ...] = ("semantic-service.v1",),
         requires: tuple[ProviderRef, ...] = (),
+        call_log: list[tuple[str, str]] | None = None,
+        fail: bool = False,
     ) -> None:
         self._manifest = make_manifest(
             provider_id=provider_id,
@@ -138,7 +141,9 @@ class MappingProvider:
             requires=requires,
         )
         self.mappings = tuple(mappings)
-        self.calls: list[tuple[SemanticClaim, str | None]] = []
+        self.calls = 0
+        self.call_log = call_log if call_log is not None else []
+        self.fail = fail
 
     @property
     def manifest(self) -> SemanticProviderManifest:
@@ -149,7 +154,10 @@ class MappingProvider:
         source_claim: SemanticClaim,
         target_namespace: str | None = None,
     ) -> tuple[MappingCandidate, ...]:
-        self.calls.append((source_claim, target_namespace))
+        self.calls += 1
+        self.call_log.append((self.manifest.provider_id, self.manifest.version))
+        if self.fail:
+            raise RuntimeError("fake mapping failure")
         return self.mappings
 
 
@@ -165,6 +173,8 @@ class ValidationProvider:
         content_hash: str | None = None,
         compatibility: tuple[str, ...] = ("semantic-service.v1",),
         requires: tuple[ProviderRef, ...] = (),
+        call_log: list[tuple[str, str]] | None = None,
+        fail: bool = False,
     ) -> None:
         self._manifest = make_manifest(
             provider_id=provider_id,
@@ -177,14 +187,19 @@ class ValidationProvider:
             requires=requires,
         )
         self.findings = tuple(findings)
-        self.calls: list[SemanticClaim] = []
+        self.calls = 0
+        self.call_log = call_log if call_log is not None else []
+        self.fail = fail
 
     @property
     def manifest(self) -> SemanticProviderManifest:
         return self._manifest
 
     def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]:
-        self.calls.append(claim)
+        self.calls += 1
+        self.call_log.append((self.manifest.provider_id, self.manifest.version))
+        if self.fail:
+            raise RuntimeError("fake validation failure")
         return self.findings
 
 
@@ -293,4 +308,55 @@ def service_with_ifc_extension_only() -> tuple[SemanticService, SemanticEnvironm
     registry = register_all(extension)
     store = SemanticEnvironmentStore()
     environment = store.pin((ProviderRef("dsp.metro.semantic", "3.2"),), registry)
+    return SemanticService(registry, store), environment
+
+
+def mapping_service_fixture() -> tuple[
+    SemanticService, SemanticEnvironment, MappingProvider, MappingProvider, MappingProvider
+]:
+    call_log: list[tuple[str, str]] = []
+    selected_a = MappingProvider(provider_id="a.mapping", call_log=call_log)
+    selected_b = MappingProvider(provider_id="b.mapping", call_log=call_log)
+    unselected = MappingProvider(provider_id="z.unselected", call_log=call_log)
+    selected_a.mappings = (
+        MappingCandidate("map-b", "ifc:IfcWall", _provenance(selected_a.manifest)),
+    )
+    selected_b.mappings = (
+        MappingCandidate("map-a", "ifc:IfcWall", _provenance(selected_b.manifest)),
+    )
+    registry = register_all(selected_b, unselected, selected_a)
+    store = SemanticEnvironmentStore()
+    environment = store.pin(
+        (ProviderRef("b.mapping", "1"), ProviderRef("a.mapping", "1")),
+        registry,
+    )
+    return SemanticService(registry, store), environment, selected_a, selected_b, unselected
+
+
+def validation_service_with_fail_and_pass() -> tuple[SemanticService, SemanticEnvironment]:
+    fail_provider = ValidationProvider(provider_id="a.standard.validation", namespace="ifc")
+    pass_provider = ValidationProvider(provider_id="b.domain.validation", namespace="metro")
+    fail_provider.findings = (
+        ValidationFinding(
+            "rule-standard",
+            ValidationStatus.FAIL,
+            _provenance(fail_provider.manifest),
+        ),
+    )
+    pass_provider.findings = (
+        ValidationFinding(
+            "rule-domain",
+            ValidationStatus.PASS,
+            _provenance(pass_provider.manifest),
+        ),
+    )
+    registry = register_all(pass_provider, fail_provider)
+    store = SemanticEnvironmentStore()
+    environment = store.pin(
+        (
+            ProviderRef("b.domain.validation", "1"),
+            ProviderRef("a.standard.validation", "1"),
+        ),
+        registry,
+    )
     return SemanticService(registry, store), environment
