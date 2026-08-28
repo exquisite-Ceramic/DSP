@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsp.local/schemas/normalized-design-fact-batch.schema.json",
+  "title": "NormalizedDesignFactBatch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["facts"],
+  "properties": {
+    "facts": {
+      "type": "array",
+      "items": {"$ref": "https://dsp.local/schemas/normalized-design-fact.schema.json"}
+    }
+  }
+}

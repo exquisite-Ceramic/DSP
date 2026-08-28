@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsp.local/schemas/normalized-design-fact.schema.json",
+  "title": "NormalizedDesignFact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fact_id",
+    "producer",
+    "host_ref",
+    "source_revision",
+    "subject_native_ref",
+    "fact_kind",
+    "predicate",
+    "value",
+    "value_type",
+    "unit",
+    "geometry_ref",
+    "source_scheme",
+    "source_code",
+    "provenance"
+  ],
+  "properties": {
+    "fact_id": {"type": "string", "minLength": 1},
+    "producer": {"type": "string", "minLength": 1},
+    "host_ref": {"$ref": "#/definitions/host_ref"},
+    "source_revision": {"type": "integer", "minimum": 0},
+    "subject_native_ref": {"$ref": "#/definitions/native_subject_ref"},
+    "fact_kind": {
+      "type": "string",
+      "enum": ["PROPERTY", "CLASSIFICATION", "PLACEMENT", "BOUNDS", "GEOMETRY", "RELATIONSHIP", "IDENTITY"]
+    },
+    "predicate": {"type": ["string", "null"], "minLength": 1},
+    "value": {},
+    "value_type": {
+      "type": "string",
+      "enum": ["NULL", "STRING", "INTEGER", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY"]
+    },
+    "unit": {"type": ["string", "null"], "minLength": 1},
+    "geometry_ref": {"type": ["string", "null"], "minLength": 1},
+    "source_scheme": {"type": ["string", "null"], "minLength": 1},
+    "source_code": {"type": ["string", "null"], "minLength": 1},
+    "provenance": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "definitions": {
+    "host_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_type", "host_instance_id", "document_id"],
+      "properties": {
+        "host_type": {"type": "string", "minLength": 1},
+        "host_instance_id": {"type": "string", "minLength": 1},
+        "document_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "native_subject_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "native_id"],
+      "properties": {
+        "document_id": {"type": "string", "minLength": 1},
+        "native_id": {"type": "string", "minLength": 1},
+        "native_kind": {"type": ["string", "null"], "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "source_scheme": {"type": "string", "minLength": 1},
+            "source_code": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "properties": {
+            "source_scheme": {"type": "null"},
+            "source_code": {"type": "null"}
+          }
+        }
+      ]
+    },
+    {
+      "oneOf": [
+        {"properties": {"value_type": {"const": "NULL"}, "value": {"type": "null"}}},
+        {"properties": {"value_type": {"const": "STRING"}, "value": {"type": "string"}}},
+        {"properties": {"value_type": {"const": "INTEGER"}, "value": {"type": "integer"}}},
+        {"properties": {"value_type": {"const": "NUMBER"}, "value": {"type": "number"}}},
+        {"properties": {"value_type": {"const": "BOOLEAN"}, "value": {"type": "boolean"}}},
+        {"properties": {"value_type": {"const": "OBJECT"}, "value": {"type": "object"}}},
+        {"properties": {"value_type": {"const": "ARRAY"}, "value": {"type": "array"}}}
+      ]
+    }
+  ]
+}

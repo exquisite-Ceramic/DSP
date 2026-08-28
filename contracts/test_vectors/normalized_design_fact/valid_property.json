@@ -1,0 +1,16 @@
+{
+  "fact_id": "fact-property-001",
+  "producer": "autocad.semantic-adapter",
+  "host_ref": {"host_type": "AUTOCAD", "host_instance_id": "acad-1", "document_id": "doc-1"},
+  "source_revision": 7,
+  "subject_native_ref": {"document_id": "doc-1", "native_id": "A31", "native_kind": "LWPOLYLINE"},
+  "fact_kind": "PROPERTY",
+  "predicate": "thickness",
+  "value": 300,
+  "value_type": "INTEGER",
+  "unit": "mm",
+  "geometry_ref": null,
+  "source_scheme": null,
+  "source_code": null,
+  "provenance": ["host-read:A31@7"]
+}
