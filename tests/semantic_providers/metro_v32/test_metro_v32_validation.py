@@ -57,6 +57,31 @@ def test_explicit_ifc_tunnel_usage_fails():
     )
 
 
+@pytest.mark.parametrize(
+    ("term_id", "value", "rule_id"),
+    [
+        (
+            "ifc:IfcTrackElement.PredefinedType",
+            "TURNOUT",
+            "metro:Rule.ProhibitIfcTrackElementTurnout",
+        ),
+        (
+            "ifc:IfcReferent.PredefinedType",
+            "KILOMETERPOINT",
+            "metro:Rule.ProhibitIfcReferentKilometerPoint",
+        ),
+    ],
+)
+def test_bracketed_ifc_usage_rules_match_claim_local_predefined_type(term_id, value, rule_id):
+    findings = _validate(
+        SemanticClaim(subject="x", canonical_term_id=term_id, value=value)
+    )
+    assert any(
+        item.rule_id == rule_id and item.status is ValidationStatus.FAIL
+        for item in findings
+    )
+
+
 def test_p_m_does_not_invent_missing_sibling_failure():
     findings = _validate(
         SemanticClaim(
