@@ -21,6 +21,7 @@ class SemanticProviderRegistry:
 
     def __init__(self) -> None:
         self._providers: dict[tuple[str, str], SemanticProvider] = {}
+        self._manifests: dict[tuple[str, str], SemanticProviderManifest] = {}
 
     def register(self, provider: SemanticProvider) -> SemanticProviderManifest:
         if not isinstance(provider, SemanticProvider):
@@ -40,40 +41,49 @@ class SemanticProviderRegistry:
                 )
 
         key = (manifest.provider_id, manifest.version)
-        existing = self._providers.get(key)
-        if existing is not None:
-            if existing.manifest == manifest:
-                return existing.manifest
+        existing_manifest = self._manifests.get(key)
+        if existing_manifest is not None:
+            if existing_manifest == manifest:
+                return existing_manifest
             raise ProviderRegistrationConflictError(
                 f"immutable provider version conflict: {manifest.provider_id}@{manifest.version}"
             )
 
         self._providers[key] = provider
+        self._manifests[key] = manifest
         return manifest
 
     def get(self, provider_id: str, version: str) -> SemanticProvider:
         key = (provider_id.strip(), version.strip())
         try:
-            return self._providers[key]
+            provider = self._providers[key]
+            frozen_manifest = self._manifests[key]
+        except KeyError as exc:
+            raise ProviderNotFoundError(f"provider not found: {key[0]}@{key[1]}") from exc
+        if provider.manifest != frozen_manifest:
+            raise ProviderRegistrationConflictError(
+                f"registered provider manifest drift: {key[0]}@{key[1]}"
+            )
+        return provider
+
+    def get_manifest(self, provider_id: str, version: str) -> SemanticProviderManifest:
+        key = (provider_id.strip(), version.strip())
+        try:
+            return self._manifests[key]
         except KeyError as exc:
             raise ProviderNotFoundError(f"provider not found: {key[0]}@{key[1]}") from exc
 
-    def get_manifest(self, provider_id: str, version: str) -> SemanticProviderManifest:
-        return self.get(provider_id, version).manifest
-
     def versions(self, provider_id: str) -> tuple[str, ...]:
         normalized = provider_id.strip()
-        return tuple(sorted(version for current, version in self._providers if current == normalized))
+        return tuple(sorted(version for current, version in self._manifests if current == normalized))
 
     def providers_with_capability(
         self,
         capability: SemanticCapability,
     ) -> tuple[SemanticProvider, ...]:
-        return tuple(
-            provider
-            for _, provider in sorted(
-                self._providers.items(),
-                key=lambda item: item[0],
-            )
-            if capability in provider.manifest.capabilities
-        )
+        providers: list[SemanticProvider] = []
+        for key, manifest in sorted(self._manifests.items(), key=lambda item: item[0]):
+            if capability not in manifest.capabilities:
+                continue
+            providers.append(self.get(*key))
+        return tuple(providers)
