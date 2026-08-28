@@ -1,0 +1,28 @@
+name: Metro semantic provider verification
+
+on:
+  push:
+    branches:
+      - 'feat/metro-semantic-provider'
+    paths:
+      - 'providers/semantics/metro_v32/**'
+      - 'tests/semantic_providers/metro_v32/**'
+      - '.github/workflows/metro-semantic-provider.yml'
+  workflow_dispatch:
+
+jobs:
+  metro-provider:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: providers/semantics/metro_v32/src:platform/semantic_service/src:.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install RED dependencies
+        run: |
+          python -m pip install pytest PyYAML==6.0.3
+          python -m pip install -e platform/semantic_service
+      - name: Run Metro source tests
+        run: pytest -q tests/semantic_providers/metro_v32/test_metro_v32_source.py
