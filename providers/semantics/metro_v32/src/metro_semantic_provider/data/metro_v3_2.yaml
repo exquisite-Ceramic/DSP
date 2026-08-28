@@ -1,0 +1,3341 @@
+metadata:
+  provider_id: dsp.metro.semantic
+  provider_version: '3.2'
+  source_document_title: IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版
+  source_document_sha256: 596a140612f4d3af49dccfe01c235be28cf76b8280334bfc2920f29fc8ee422b
+  target_ifc_provider_id: buildingSMART.ifc43
+  target_ifc_provider_version: 4.3.2.0
+  target_ifc_schema: IFC4X3_ADD2
+source_coverage:
+  chapter21_project_pset_containers:
+  - PsetProj_RailwayIdentity
+  - PsetProj_SpatialPartition
+  - PsetProj_AlignmentDesign
+  - PsetProj_HorizontalSegmentDesign
+  - PsetProj_Chainage
+  - PsetProj_TrackGeometry
+  - PsetProj_RailSpecification
+  - PsetProj_Turnout
+  - PsetProj_StationIdentity
+  - PsetProj_SpaceFunction
+  - PsetProj_PlatformScreenDoor
+  - PsetProj_TunnelSegment
+  - PsetProj_SegmentRing
+  - PsetProj_SegmentBlock
+  - PsetProj_BoreholeInvestigation
+  - PsetProj_GeotechnicalStratum
+  - PsetProj_ClearanceEnvelope
+  - PsetProj_AssetCommon
+  - PsetProj_FanPerformance
+  - PsetProj_PumpPerformance
+  - PsetProj_SignalOccurrence
+  - PsetProj_GeometryQuality
+  - PsetProj_CoordinateMetadata
+  - PsetProj_ObjectIdentity
+  - PsetProj_BuildingElementDesign
+  - PsetProj_WallDesign
+  - PsetProj_SlabDesign
+  - PsetProj_StructuralElement
+  - PsetProj_PileDesign
+  - PsetProj_DoorOperation
+  - PsetProj_WindowPerformance
+  - PsetProj_VerticalCirculation
+  - PsetProj_FinishSpecification
+  - PsetProj_OpeningCoordination
+  - PsetProj_EmbeddedItem
+  - PsetProj_TemporarySupport
+  - PsetProj_JointAndWaterproofing
+  structured_property_rows: 236
+  inline_only_project_psets:
+  - PsetProj_StationIdentity
+  - PsetProj_WallDesign
+  - PsetProj_SlabDesign
+  - PsetProj_PileDesign
+  - PsetProj_DoorOperation
+  - PsetProj_WindowPerformance
+  - PsetProj_FinishSpecification
+  - PsetProj_JointAndWaterproofing
+  decision_ids:
+  - DEC-01
+  - DEC-02
+  - DEC-03
+  - DEC-04
+  - DEC-05
+  - DEC-06
+  - DEC-07
+  - DEC-08
+  - DEC-09
+  - DEC-10
+  prohibited_entity_names:
+  - IfcTrack
+  - IfcTunnel
+  - IfcTunnelPart
+  - IfcSprinkler
+  - IfcFanCoilUnit
+  - IfcPrecastConcreteElement
+terms:
+- term_id: metro:ProjectPset.RailwayIdentity
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_RailwayIdentity
+    applicable_to: IfcRailway
+- term_id: metro:ProjectPset.SpatialPartition
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SpatialPartition
+    applicable_to: 空间区段
+- term_id: metro:ProjectPset.AlignmentDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_AlignmentDesign
+    applicable_to: IfcAlignment
+- term_id: metro:ProjectPset.HorizontalSegmentDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    applicable_to: 水平线形段
+- term_id: metro:ProjectPset.Chainage
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_Chainage
+    applicable_to: 线性对象
+- term_id: metro:ProjectPset.TrackGeometry
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_TrackGeometry
+    applicable_to: 轨道系统/区段
+- term_id: metro:ProjectPset.RailSpecification
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_RailSpecification
+    applicable_to: IfcRail/IfcRailType
+- term_id: metro:ProjectPset.Turnout
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_Turnout
+    applicable_to: 道岔装配体
+- term_id: metro:ProjectPset.StationIdentity
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_StationIdentity
+    applicable_to: IfcBuilding
+- term_id: metro:ProjectPset.SpaceFunction
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SpaceFunction
+    applicable_to: IfcSpace
+- term_id: metro:ProjectPset.PlatformScreenDoor
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_PlatformScreenDoor
+    applicable_to: PSD 系统/门
+- term_id: metro:ProjectPset.TunnelSegment
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_TunnelSegment
+    applicable_to: 地下空间区段
+- term_id: metro:ProjectPset.SegmentRing
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SegmentRing
+    applicable_to: 管片环
+- term_id: metro:ProjectPset.SegmentBlock
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SegmentBlock
+    applicable_to: 管片块
+- term_id: metro:ProjectPset.BoreholeInvestigation
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_BoreholeInvestigation
+    applicable_to: IfcBorehole
+- term_id: metro:ProjectPset.GeotechnicalStratum
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_GeotechnicalStratum
+    applicable_to: 地层
+- term_id: metro:ProjectPset.ClearanceEnvelope
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_ClearanceEnvelope
+    applicable_to: 限界包络
+- term_id: metro:ProjectPset.AssetCommon
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_AssetCommon
+    applicable_to: 机电设备
+- term_id: metro:ProjectPset.FanPerformance
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_FanPerformance
+    applicable_to: IfcFan
+- term_id: metro:ProjectPset.PumpPerformance
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_PumpPerformance
+    applicable_to: IfcPump
+- term_id: metro:ProjectPset.SignalOccurrence
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SignalOccurrence
+    applicable_to: IfcSignal
+- term_id: metro:ProjectPset.GeometryQuality
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_GeometryQuality
+    applicable_to: 网格/转换几何
+- term_id: metro:ProjectPset.CoordinateMetadata
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_CoordinateMetadata
+    applicable_to: IfcProject/IfcSite
+- term_id: metro:ProjectPset.ObjectIdentity
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_ObjectIdentity
+    applicable_to: 全部业务对象
+- term_id: metro:ProjectPset.BuildingElementDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_BuildingElementDesign
+    applicable_to: 建筑/结构构件
+- term_id: metro:ProjectPset.WallDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_WallDesign
+    applicable_to: IfcWall
+- term_id: metro:ProjectPset.SlabDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_SlabDesign
+    applicable_to: IfcSlab
+- term_id: metro:ProjectPset.StructuralElement
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_StructuralElement
+    applicable_to: 结构构件
+- term_id: metro:ProjectPset.PileDesign
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_PileDesign
+    applicable_to: IfcPile
+- term_id: metro:ProjectPset.DoorOperation
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_DoorOperation
+    applicable_to: IfcDoor
+- term_id: metro:ProjectPset.WindowPerformance
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_WindowPerformance
+    applicable_to: IfcWindow
+- term_id: metro:ProjectPset.VerticalCirculation
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_VerticalCirculation
+    applicable_to: 楼梯/坡道/栏杆
+- term_id: metro:ProjectPset.FinishSpecification
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_FinishSpecification
+    applicable_to: IfcCovering
+- term_id: metro:ProjectPset.OpeningCoordination
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_OpeningCoordination
+    applicable_to: IfcOpeningElement
+- term_id: metro:ProjectPset.EmbeddedItem
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_EmbeddedItem
+    applicable_to: 预埋件/锚固件
+- term_id: metro:ProjectPset.TemporarySupport
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_TemporarySupport
+    applicable_to: 临时支撑
+- term_id: metro:ProjectPset.JointAndWaterproofing
+  kind: PROJECT_PSET
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_kind: PROJECT_PSET
+    carrier_name: PsetProj_JointAndWaterproofing
+    applicable_to: 缝及防水构件
+- term_id: metro:RailwayIdentity.LineCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailwayIdentity
+    property_name: LineCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:RailwayIdentity.LineName
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailwayIdentity
+    property_name: LineName
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:RailwayIdentity.OperationDirectionConvention
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailwayIdentity
+    property_name: OperationDirectionConvention
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:RailwayIdentity.OwnerOrganizationCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailwayIdentity
+    property_name: OwnerOrganizationCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:RailwayIdentity.DesignStage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailwayIdentity
+    property_name: DesignStage
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:SpatialPartition.PartitionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpatialPartition
+    property_name: PartitionCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:SpatialPartition.PartitionRole
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpatialPartition
+    property_name: PartitionRole
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - TRACK
+    - STATION
+    - TUNNEL
+    - MEP
+  requirement_level: P-M
+- term_id: metro:SpatialPartition.StartChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpatialPartition
+    property_name: StartChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SpatialPartition.EndChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpatialPartition
+    property_name: EndChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SpatialPartition.ResponsibleDiscipline
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpatialPartition
+    property_name: ResponsibleDiscipline
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.AlignmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: AlignmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.TrackDirection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: TrackDirection
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - UP
+    - DOWN
+    - DEPOT
+    - CONNECTING
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.DesignSpeed
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: DesignSpeed
+    datatype: ifc:IfcLinearVelocityMeasure
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.Gauge
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: Gauge
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.ChainagePrefix
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: ChainagePrefix
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - DK
+    - ZDK
+    - YDK
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.DesignDiscipline
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: DesignDiscipline
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.SourceDocumentId
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: SourceDocumentId
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:AlignmentDesign.RevisionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AlignmentDesign
+    property_name: RevisionCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:HorizontalSegmentDesign.ClothoidParameterA
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    property_name: ClothoidParameterA
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:HorizontalSegmentDesign.DesignElementCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    property_name: DesignElementCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:HorizontalSegmentDesign.TurnDirection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    property_name: TurnDirection
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - LEFT
+    - RIGHT
+    - STRAIGHT
+  requirement_level: P-M
+- term_id: metro:HorizontalSegmentDesign.StartChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    property_name: StartChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:HorizontalSegmentDesign.EndChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_HorizontalSegmentDesign
+    property_name: EndChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:Chainage.ChainagePrefix
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: ChainagePrefix
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - DK
+    - ZDK
+    - YDK
+  requirement_level: P-M
+- term_id: metro:Chainage.DesignChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: DesignChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:Chainage.StartChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: StartChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:Chainage.EndChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: EndChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:Chainage.ChainageEquationCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: ChainageEquationCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:Chainage.LateralOffset
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: LateralOffset
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:Chainage.VerticalOffset
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: VerticalOffset
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:Chainage.Side
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Chainage
+    property_name: Side
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - LEFT
+    - RIGHT
+    - CENTER
+  requirement_level: P-C
+- term_id: metro:TrackGeometry.Gauge
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: Gauge
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:TrackGeometry.DesignSpeed
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: DesignSpeed
+    datatype: ifc:IfcLinearVelocityMeasure
+  requirement_level: P-M
+- term_id: metro:TrackGeometry.AlignmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: AlignmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:TrackGeometry.TrackDirection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: TrackDirection
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - UP
+    - DOWN
+  requirement_level: P-M
+- term_id: metro:TrackGeometry.StartChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: StartChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:TrackGeometry.EndChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: EndChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:TrackGeometry.VibrationMitigationGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: VibrationMitigationGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:TrackGeometry.RailInclination
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TrackGeometry
+    property_name: RailInclination
+    datatype: ifc:IfcRatioMeasure
+  requirement_level: P-C
+- term_id: metro:RailSpecification.RailProfileCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailSpecification
+    property_name: RailProfileCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:RailSpecification.SteelGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailSpecification
+    property_name: SteelGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:RailSpecification.MassPerLength
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailSpecification
+    property_name: MassPerLength
+    datatype: ifc:IfcMassPerLengthMeasure
+  requirement_level: P-M
+- term_id: metro:RailSpecification.ManufacturingStandard
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailSpecification
+    property_name: ManufacturingStandard
+    datatype: ifc:IfcLabel
+  requirement_level: P-R
+- term_id: metro:RailSpecification.WeldedJointType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_RailSpecification
+    property_name: WeldedJointType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:Turnout.TurnoutID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: TurnoutID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:Turnout.TurnoutModel
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: TurnoutModel
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:Turnout.TurnoutNumber
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: TurnoutNumber
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:Turnout.Handing
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: Handing
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - LEFT
+    - RIGHT
+    - SYMMETRIC
+  requirement_level: P-M
+- term_id: metro:Turnout.FrogAngle
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: FrogAngle
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-M
+- term_id: metro:Turnout.DivergingRadius
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: DivergingRadius
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:Turnout.CenterChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: CenterChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:Turnout.PointMachineIDs
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_Turnout
+    property_name: PointMachineIDs
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.SpaceFunctionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: SpaceFunctionCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:SpaceFunction.PrimaryFunction
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: PrimaryFunction
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - PUBLIC
+    - EQUIPMENT
+    - MANAGEMENT
+    - CIRCULATION
+  requirement_level: P-M
+- term_id: metro:SpaceFunction.PaidAreaStatus
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: PaidAreaStatus
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - PAID
+    - UNPAID
+    - BOUNDARY
+    - NA
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.FireCompartmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: FireCompartmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.SmokeZoneCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: SmokeZoneCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.OccupancyType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: OccupancyType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.RequiredClearHeight
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: RequiredClearHeight
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.RoomDepartment
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: RoomDepartment
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SpaceFunction.AssetResponsibility
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SpaceFunction
+    property_name: AssetResponsibility
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:PlatformScreenDoor.DoorID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: DoorID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.DoorType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: DoorType
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - FULL_HEIGHT
+    - HALF_HEIGHT
+    - SLIDING
+    - EMERGENCY
+    - END
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.PlatformSide
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: PlatformSide
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - LEFT
+    - RIGHT
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.OpeningDirection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: OpeningDirection
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:PlatformScreenDoor.DesignChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: DesignChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.CarDoorAlignmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: CarDoorAlignmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.InterlockInterfaceID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: InterlockInterfaceID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:PlatformScreenDoor.ClearOpeningWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: ClearOpeningWidth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:PlatformScreenDoor.AssetCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PlatformScreenDoor
+    property_name: AssetCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:StructuralElement.StructuralRole
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: StructuralRole
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - PRIMARY
+    - SECONDARY
+    - RETAINING
+    - TEMPORARY
+    - NONSTRUCTURAL
+  requirement_level: P-M
+- term_id: metro:StructuralElement.StructuralSystemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: StructuralSystemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:StructuralElement.DesignStrengthClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: DesignStrengthClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:StructuralElement.ExposureClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: ExposureClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:StructuralElement.ConcreteCover
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: ConcreteCover
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:StructuralElement.DesignLoadClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: DesignLoadClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:StructuralElement.SeismicGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: SeismicGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:StructuralElement.PourSectionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: PourSectionCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:StructuralElement.ConstructionSequence
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: ConstructionSequence
+    datatype: ifc:IfcInteger
+  requirement_level: P-C
+- term_id: metro:StructuralElement.DesignDrawingReference
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StructuralElement
+    property_name: DesignDrawingReference
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.CirculationCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: CirculationCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.FromStoreyCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: FromStoreyCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.ToStoreyCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: ToStoreyCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.ClearWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: ClearWidth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.RequiredHeadroom
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: RequiredHeadroom
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:VerticalCirculation.DesignSlope
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: DesignSlope
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-C
+- term_id: metro:VerticalCirculation.AccessibilityClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: AccessibilityClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:VerticalCirculation.EvacuationRouteCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: EvacuationRouteCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:VerticalCirculation.TactileWarningRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: TactileWarningRequired
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:VerticalCirculation.AntiSlipClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: AntiSlipClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:VerticalCirculation.HandrailHeight
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_VerticalCirculation
+    property_name: HandrailHeight
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.SupportCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: SupportCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:TemporarySupport.SupportSystemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: SupportSystemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:TemporarySupport.SupportStage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: SupportStage
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:TemporarySupport.InstallationSequence
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: InstallationSequence
+    datatype: ifc:IfcInteger
+  requirement_level: P-M
+- term_id: metro:TemporarySupport.RemovalSequence
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: RemovalSequence
+    datatype: ifc:IfcInteger
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.DesignAxialForce
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: DesignAxialForce
+    datatype: ifc:IfcForceMeasure
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.PreloadForce
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: PreloadForce
+    datatype: ifc:IfcForceMeasure
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.DesignMoment
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: DesignMoment
+    datatype: ifc:IfcTorqueMeasure
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.MonitoringPointCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: MonitoringPointCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.Reusable
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: Reusable
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:TemporarySupport.TemporaryOrPermanent
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TemporarySupport
+    property_name: TemporaryOrPermanent
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - TEMPORARY
+    - PERMANENT
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.OpeningCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: OpeningCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.OpeningPurpose
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: OpeningPurpose
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - DOOR
+    - WINDOW
+    - DUCT
+    - PIPE
+    - CABLE
+    - ACCESS
+    - RESERVATION
+    - OTHER
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.ResponsibleDiscipline
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ResponsibleDiscipline
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.RequestingSystemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: RequestingSystemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.HostObjectGuid
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: HostObjectGuid
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.ServiceObjectGuid
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ServiceObjectGuid
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.ShapeType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ShapeType
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - RECTANGULAR
+    - CIRCULAR
+    - IRREGULAR
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.ClearWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ClearWidth
+    unresolved_datatype: 长度
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.ClearHeight
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ClearHeight
+    unresolved_datatype: 长度
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.ClearDiameter
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ClearDiameter
+    unresolved_datatype: 长度
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.BottomElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: BottomElevation
+    unresolved_datatype: 长度
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.CenterElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: CenterElevation
+    unresolved_datatype: 长度
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.ReservationMethod
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ReservationMethod
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - CAST_IN
+    - CORE_DRILL
+    - CUTTING
+    - OTHER
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.SleeveRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: SleeveRequired
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.FirestoppingRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: FirestoppingRequired
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.WaterproofingRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: WaterproofingRequired
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:OpeningCoordination.ApprovalStatus
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ApprovalStatus
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - PROPOSED
+    - COORDINATED
+    - APPROVED
+    - INSTALLED
+    - CANCELLED
+  requirement_level: P-M
+- term_id: metro:OpeningCoordination.ApprovalReference
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_OpeningCoordination
+    property_name: ApprovalReference
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:EmbeddedItem.EmbeddedItemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: EmbeddedItemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.ItemCategory
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: ItemCategory
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - PLATE
+    - ANCHOR
+    - SLEEVE
+    - CHANNEL
+    - INSERT
+    - OTHER
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.ResponsibleDiscipline
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: ResponsibleDiscipline
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.HostObjectGuid
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: HostObjectGuid
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.RelatedEquipmentGuid
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: RelatedEquipmentGuid
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:EmbeddedItem.MaterialGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: MaterialGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.SizeSpecification
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: SizeSpecification
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.AnchorDepth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: AnchorDepth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:EmbeddedItem.DesignPulloutForce
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: DesignPulloutForce
+    datatype: ifc:IfcForceMeasure
+  requirement_level: P-C
+- term_id: metro:EmbeddedItem.InstallationStage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: InstallationStage
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:EmbeddedItem.CorrosionProtection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: CorrosionProtection
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:EmbeddedItem.ApprovalStatus
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_EmbeddedItem
+    property_name: ApprovalStatus
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.TunnelSegmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: TunnelSegmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.ConstructionMethod
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: ConstructionMethod
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - SHIELD
+    - NATM
+    - CUT_AND_COVER
+    - PIPE_JACKING
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.SectionType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: SectionType
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.StartChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: StartChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.EndChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: EndChainage
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.ExcavationMethod
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: ExcavationMethod
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:TunnelSegment.SupportClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: SupportClass
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:TunnelSegment.WaterproofSystem
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: WaterproofSystem
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.DesignServiceLife
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: DesignServiceLife
+    datatype_options:
+    - ifc:IfcTimeMeasure
+    - ifc:IfcDuration
+  requirement_level: P-M
+- term_id: metro:TunnelSegment.InterfaceCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: InterfaceCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:TunnelSegment.GeologyRiskClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_TunnelSegment
+    property_name: GeologyRiskClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SegmentRing.RingNo
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: RingNo
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:SegmentRing.RingType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: RingType
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - STANDARD
+    - LEFT_TAPER
+    - RIGHT_TAPER
+    - SPECIAL
+    - OPENING
+  requirement_level: P-M
+- term_id: metro:SegmentRing.NominalWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: NominalWidth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:SegmentRing.TaperAmount
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: TaperAmount
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SegmentRing.AssemblyAngle
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: AssemblyAngle
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-C
+- term_id: metro:SegmentRing.StaggerAngle
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: StaggerAngle
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-C
+- term_id: metro:SegmentRing.DesignChainageStart
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: DesignChainageStart
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:SegmentRing.DesignChainageEnd
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: DesignChainageEnd
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:SegmentRing.WaterproofGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: WaterproofGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:SegmentRing.OpeningRingType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: OpeningRingType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SegmentRing.AssetCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: AssetCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SegmentRing.ErectionDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: ErectionDate
+    datatype: ifc:IfcDate
+  requirement_level: P-C
+- term_id: metro:SegmentRing.ProductionBatch
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentRing
+    property_name: ProductionBatch
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SegmentBlock.BlockCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: BlockCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:SegmentBlock.BlockRole
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: BlockRole
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - STANDARD
+    - ADJACENT
+    - KEY
+  requirement_level: P-M
+- term_id: metro:SegmentBlock.BlockPosition
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: BlockPosition
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-M
+- term_id: metro:SegmentBlock.ConcreteStrengthClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: ConcreteStrengthClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:SegmentBlock.BoltHoleCount
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: BoltHoleCount
+    datatype: ifc:IfcCountMeasure
+  requirement_level: P-C
+- term_id: metro:SegmentBlock.GroutHoleCount
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: GroutHoleCount
+    datatype: ifc:IfcCountMeasure
+  requirement_level: P-C
+- term_id: metro:SegmentBlock.Manufacturer
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: Manufacturer
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SegmentBlock.ProductionDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: ProductionDate
+    datatype: ifc:IfcDate
+  requirement_level: P-C
+- term_id: metro:SegmentBlock.QualityCertificateRef
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SegmentBlock
+    property_name: QualityCertificateRef
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:BoreholeInvestigation.BoreholeID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: BoreholeID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.CollarElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: CollarElevation
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.FinalDepth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: FinalDepth
+    datatype: ifc:IfcPositiveLengthMeasure
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.GroundwaterLevel
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: GroundwaterLevel
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:BoreholeInvestigation.InvestigationDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: InvestigationDate
+    datatype: ifc:IfcDate
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.SurveyMethod
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: SurveyMethod
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.SourceReportID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: SourceReportID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:BoreholeInvestigation.DataQualityClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BoreholeInvestigation
+    property_name: DataQualityClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.StratumCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: StratumCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:GeotechnicalStratum.StratumName
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: StratumName
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:GeotechnicalStratum.GeologicalAge
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: GeologicalAge
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.WeatheringGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: WeatheringGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.MaterialDescription
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: MaterialDescription
+    datatype: ifc:IfcText
+  requirement_level: P-M
+- term_id: metro:GeotechnicalStratum.CharacteristicBearingCapacity
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: CharacteristicBearingCapacity
+    datatype: ifc:IfcPressureMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.PermeabilityCoefficient
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: PermeabilityCoefficient
+    datatype: ifc:IfcLinearVelocityMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.RQD
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: RQD
+    datatype: ifc:IfcRatioMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.Cohesion
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: Cohesion
+    datatype: ifc:IfcPressureMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.FrictionAngle
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: FrictionAngle
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.NaturalDensity
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: NaturalDensity
+    datatype: ifc:IfcMassDensityMeasure
+  requirement_level: P-C
+- term_id: metro:GeotechnicalStratum.WaterContent
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeotechnicalStratum
+    property_name: WaterContent
+    datatype: ifc:IfcRatioMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.EnvelopeType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: EnvelopeType
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.ApplicableVehicleType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: ApplicableVehicleType
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.ApplicableTrack
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: ApplicableTrack
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.SpeedMin
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: SpeedMin
+    datatype: ifc:IfcLinearVelocityMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.SpeedMax
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: SpeedMax
+    datatype: ifc:IfcLinearVelocityMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.CantMin
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: CantMin
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.CantMax
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: CantMax
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.ChainageStart
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: ChainageStart
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.ChainageEnd
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: ChainageEnd
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.SourceStandard
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: SourceStandard
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.Revision
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: Revision
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ClearanceEnvelope.SafetyMargin
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: SafetyMargin
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:ClearanceEnvelope.GeometryGenerationMethod
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ClearanceEnvelope
+    property_name: GeometryGenerationMethod
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - SECTION_SWEEP
+    - DYNAMIC_SIMULATION
+    - IMPORTED_MESH
+  requirement_level: P-M
+- term_id: metro:AssetCommon.AssetCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: AssetCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:AssetCommon.SystemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: SystemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:AssetCommon.EquipmentTag
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: EquipmentTag
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:AssetCommon.Manufacturer
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: Manufacturer
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:AssetCommon.ModelNumber
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: ModelNumber
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:AssetCommon.SerialNumber
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: SerialNumber
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:AssetCommon.InstallationDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: InstallationDate
+    datatype: ifc:IfcDate
+  requirement_level: P-C
+- term_id: metro:AssetCommon.CommissioningDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: CommissioningDate
+    datatype: ifc:IfcDate
+  requirement_level: P-C
+- term_id: metro:AssetCommon.DesignLife
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: DesignLife
+    datatype: ifc:IfcDuration
+  requirement_level: P-C
+- term_id: metro:AssetCommon.MaintenanceZone
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: MaintenanceZone
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:AssetCommon.ControlInterfaceID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_AssetCommon
+    property_name: ControlInterfaceID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:GeometryQuality.GeometrySource
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: GeometrySource
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - NATIVE
+    - PARAMETRIC
+    - VENDOR
+    - SCAN
+    - CONVERTED
+  requirement_level: P-M
+- term_id: metro:GeometryQuality.IsParametric
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: IsParametric
+    datatype: ifc:IfcBoolean
+  requirement_level: P-M
+- term_id: metro:GeometryQuality.TessellationReason
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: TessellationReason
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:GeometryQuality.ChordTolerance
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: ChordTolerance
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:GeometryQuality.AngularTolerance
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: AngularTolerance
+    datatype: ifc:IfcPlaneAngleMeasure
+  requirement_level: P-C
+- term_id: metro:GeometryQuality.TriangleCount
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: TriangleCount
+    datatype: ifc:IfcCountMeasure
+  requirement_level: P-C
+- term_id: metro:GeometryQuality.SourceFileRef
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_GeometryQuality
+    property_name: SourceFileRef
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-R
+- term_id: metro:CoordinateMetadata.CoordinateTemplateID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: CoordinateTemplateID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.EngineeringOriginDescription
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: EngineeringOriginDescription
+    datatype: ifc:IfcText
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.SurveyControlPointID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: SurveyControlPointID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.VerticalDatumName
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: VerticalDatumName
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.UnitConvention
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: UnitConvention
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.CoordinateVerificationDate
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: CoordinateVerificationDate
+    datatype: ifc:IfcDate
+  requirement_level: P-M
+- term_id: metro:CoordinateMetadata.CoordinateVerifier
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_CoordinateMetadata
+    property_name: CoordinateVerifier
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.ObjectCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: ObjectCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.DisciplineCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: DisciplineCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.LocationCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: LocationCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.SystemCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: SystemCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:ObjectIdentity.TypeCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: TypeCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.SequenceNumber
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: SequenceNumber
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.RevisionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: RevisionCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:ObjectIdentity.StatusCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_ObjectIdentity
+    property_name: StatusCode
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - DESIGN
+    - APPROVED
+    - INSTALLED
+    - AS_BUILT
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.ElementCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: ElementCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.DesignDiscipline
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: DesignDiscipline
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - ARC
+    - STR
+    - TUN
+    - MEP
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.DesignStage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: DesignStage
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.ConstructionZoneCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: ConstructionZoneCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:BuildingElementDesign.WorkPackageCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: WorkPackageCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:BuildingElementDesign.DrawingReference
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: DrawingReference
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.DesignStatus
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: DesignStatus
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - WORKING
+    - SHARED
+    - PUBLISHED
+    - AS_BUILT
+  requirement_level: P-M
+- term_id: metro:BuildingElementDesign.AssetRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: AssetRequired
+    datatype: ifc:IfcBoolean
+  requirement_level: P-C
+- term_id: metro:BuildingElementDesign.ResponsibilityOrganization
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_BuildingElementDesign
+    property_name: ResponsibilityOrganization
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:StationIdentity.StationCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StationIdentity
+    property_name: StationCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:StationIdentity.CenterChainage
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StationIdentity
+    property_name: CenterChainage
+    unresolved_datatype: 长度
+  requirement_level: P-M
+- term_id: metro:StationIdentity.StationType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_StationIdentity
+    property_name: StationType
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:WallDesign.WallFunction
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: WallFunction
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - STRUCTURAL
+    - PARTITION
+    - RETAINING
+    - DIAPHRAGM
+    - FIRE_SEPARATION
+    - WATERPROOF_ENCLOSURE
+  requirement_level: P-M
+- term_id: metro:WallDesign.DesignThickness
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: DesignThickness
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:WallDesign.BaseElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: BaseElevation
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:WallDesign.TopElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: TopElevation
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:WallDesign.WaterproofGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: WaterproofGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:WallDesign.FireCompartmentCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: FireCompartmentCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:WallDesign.FinishCodeSideA
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: FinishCodeSideA
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:WallDesign.FinishCodeSideB
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: FinishCodeSideB
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:WallDesign.HostGridCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WallDesign
+    property_name: HostGridCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-R
+- term_id: metro:SlabDesign.SlabFunction
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: SlabFunction
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - ROOF
+    - FLOOR
+    - BASESLAB
+    - INTERMEDIATE
+    - PLATFORM
+    - LANDING
+    - EQUIPMENT_FOUNDATION
+  requirement_level: P-M
+- term_id: metro:SlabDesign.DesignThickness
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: DesignThickness
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-M
+- term_id: metro:SlabDesign.TopElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: TopElevation
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SlabDesign.BottomElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: BottomElevation
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:SlabDesign.DesignLoadClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: DesignLoadClass
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SlabDesign.WaterproofGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: WaterproofGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:SlabDesign.FinishCodeTop
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: FinishCodeTop
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SlabDesign.FinishCodeBottom
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: FinishCodeBottom
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:SlabDesign.ConstructionJointZoneCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_SlabDesign
+    property_name: ConstructionJointZoneCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:DoorOperation.DoorCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: DoorCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:DoorOperation.DoorFunction
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: DoorFunction
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - GENERAL
+    - FIRE
+    - SMOKE
+    - SECURITY
+    - ACCESSIBLE
+    - FLOOD
+    - MAINTENANCE
+    - PSD
+  requirement_level: P-M
+- term_id: metro:DoorOperation.OpeningDirectionCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: OpeningDirectionCode
+    datatype: ifc:IfcLabel
+  requirement_level: P-M
+- term_id: metro:DoorOperation.OperationMode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: OperationMode
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - MANUAL
+    - AUTOMATIC
+    - POWER_ASSISTED
+  requirement_level: P-M
+- term_id: metro:DoorOperation.ClearOpeningWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: ClearOpeningWidth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:DoorOperation.ClearOpeningHeight
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: ClearOpeningHeight
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:DoorOperation.ThresholdHeight
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: ThresholdHeight
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:DoorOperation.EvacuationDirection
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: EvacuationDirection
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:DoorOperation.AccessControlInterfaceID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: AccessControlInterfaceID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:DoorOperation.DoorCloserType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: DoorCloserType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:DoorOperation.HoldOpenInterfaceID
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_DoorOperation
+    property_name: HoldOpenInterfaceID
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.JointCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: JointCode
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:JointAndWaterproofing.JointType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: JointType
+    datatype: ifc:IfcLabel
+    allowed_values:
+    - CONSTRUCTION
+    - EXPANSION
+    - SETTLEMENT
+    - SEISMIC
+    - WATERPROOF
+    - INTERFACE
+  requirement_level: P-M
+- term_id: metro:JointAndWaterproofing.AdjacentObjectGuidA
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: AdjacentObjectGuidA
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:JointAndWaterproofing.AdjacentObjectGuidB
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: AdjacentObjectGuidB
+    datatype: ifc:IfcIdentifier
+  requirement_level: P-M
+- term_id: metro:JointAndWaterproofing.NominalWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: NominalWidth
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.WaterstopType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: WaterstopType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.SealantType
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: SealantType
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.WaterproofGrade
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: WaterproofGrade
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.MovementCapacity
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: MovementCapacity
+    datatype: ifc:IfcLengthMeasure
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.FireStoppingRating
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: FireStoppingRating
+    datatype: ifc:IfcLabel
+  requirement_level: P-C
+- term_id: metro:JointAndWaterproofing.InspectionRequirement
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_JointAndWaterproofing
+    property_name: InspectionRequirement
+    datatype: ifc:IfcText
+  requirement_level: P-C
+- term_id: metro:PileDesign.PileNo
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: PileNo
+- term_id: metro:PileDesign.PileFunction
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: PileFunction
+- term_id: metro:PileDesign.DesignLength
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: DesignLength
+- term_id: metro:PileDesign.DesignDiameterOrWidth
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: DesignDiameterOrWidth
+- term_id: metro:PileDesign.PileHeadElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: PileHeadElevation
+- term_id: metro:PileDesign.PileTipElevation
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: PileTipElevation
+- term_id: metro:PileDesign.BearingStratumCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: BearingStratumCode
+- term_id: metro:PileDesign.CharacteristicCapacity
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: CharacteristicCapacity
+- term_id: metro:PileDesign.ConstructionMethodCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: ConstructionMethodCode
+- term_id: metro:PileDesign.ConcreteStrengthClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: ConcreteStrengthClass
+- term_id: metro:PileDesign.ReinforcementCageCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: ReinforcementCageCode
+- term_id: metro:PileDesign.TestRequirement
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: TestRequirement
+- term_id: metro:PileDesign.ConstructionLotCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_PileDesign
+    property_name: ConstructionLotCode
+- term_id: metro:WindowPerformance.WindowCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: WindowCode
+- term_id: metro:WindowPerformance.OpeningMode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: OpeningMode
+- term_id: metro:WindowPerformance.SafetyGlazingRequired
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: SafetyGlazingRequired
+- term_id: metro:WindowPerformance.AntiFallRequirement
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: AntiFallRequirement
+- term_id: metro:WindowPerformance.AcousticTarget
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: AcousticTarget
+- term_id: metro:WindowPerformance.WaterTightnessTarget
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: WaterTightnessTarget
+- term_id: metro:WindowPerformance.AirTightnessTarget
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: AirTightnessTarget
+- term_id: metro:WindowPerformance.WindResistanceTarget
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: WindResistanceTarget
+- term_id: metro:WindowPerformance.BlastResistanceTarget
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: BlastResistanceTarget
+- term_id: metro:WindowPerformance.MaintenanceAccessCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_WindowPerformance
+    property_name: MaintenanceAccessCode
+- term_id: metro:FinishSpecification.FinishCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: FinishCode
+- term_id: metro:FinishSpecification.BaseMaterial
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: BaseMaterial
+- term_id: metro:FinishSpecification.FinishMaterial
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: FinishMaterial
+- term_id: metro:FinishSpecification.NominalThickness
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: NominalThickness
+- term_id: metro:FinishSpecification.FireClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: FireClass
+- term_id: metro:FinishSpecification.SlipResistanceClass
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: SlipResistanceClass
+- term_id: metro:FinishSpecification.ColorCode
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: ColorCode
+- term_id: metro:FinishSpecification.MaintenanceZone
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: MaintenanceZone
+- term_id: metro:FinishSpecification.SampleReference
+  kind: PROJECT_PROPERTY
+  normative_class: PROJECT_EXTENSION_DRAFT
+  schema:
+    carrier_name: PsetProj_FinishSpecification
+    property_name: SampleReference
+- term_id: metro:RailwayFacility
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:TrackSpace
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:PlainTrackSection
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:TurnoutTrackSection
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:RunningRail
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Sleeper
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Frog
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:TurnoutAssembly
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:TrackPanel
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:RailFastening
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:RailJoint
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Station
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:FunctionalSpace
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Borehole
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:GeotechnicalStratum
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Fan
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Pump
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:Signal
+  kind: DOMAIN_CONCEPT
+  normative_class: NORMATIVE
+  schema: {}
+- term_id: metro:ProjectLengthUnit
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:TunnelAggregationParent
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:TrackBed
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:CrossPassageSpace
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:ClearanceEnvelope
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:AlignmentFileStrategy
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:TypeInstancePropertyOverride
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:SegmentOpeningGeometryDepth
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:MepPortRequirement
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+- term_id: metro:CustomEnumLanguage
+  kind: DECISION_SUBJECT
+  normative_class: DECISION_OPTION
+  schema: {}
+mappings:
+- mapping_id: metro:Mapping.RailwayFacility.ToIfcRailway
+  source_term_id: metro:RailwayFacility
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcRailway
+  constraints: []
+- mapping_id: metro:Mapping.TrackSpace.ToIfcRailwayPart
+  source_term_id: metro:TrackSpace
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcRailwayPart
+  constraints:
+  - term_id: ifc:IfcRailwayPart.PredefinedType
+    equals: TRACK
+- mapping_id: metro:Mapping.PlainTrackSection.ToIfcRailwayPart
+  source_term_id: metro:PlainTrackSection
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcRailwayPart
+  constraints:
+  - term_id: ifc:IfcRailwayPart.PredefinedType
+    equals: PLAINTRACK
+- mapping_id: metro:Mapping.TurnoutTrackSection.ToIfcRailwayPart
+  source_term_id: metro:TurnoutTrackSection
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcRailwayPart
+  constraints:
+  - term_id: ifc:IfcRailwayPart.PredefinedType
+    equals: TURNOUTTRACK
+- mapping_id: metro:Mapping.RunningRail.ToIfcRail
+  source_term_id: metro:RunningRail
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcRail
+  constraints:
+  - term_id: ifc:IfcRail.PredefinedType
+    equals: RAIL
+- mapping_id: metro:Mapping.Sleeper.ToIfcTrackElement
+  source_term_id: metro:Sleeper
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcTrackElement
+  constraints:
+  - term_id: ifc:IfcTrackElement.PredefinedType
+    equals: SLEEPER
+- mapping_id: metro:Mapping.Frog.ToIfcTrackElement
+  source_term_id: metro:Frog
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcTrackElement
+  constraints:
+  - term_id: ifc:IfcTrackElement.PredefinedType
+    equals: FROG
+- mapping_id: metro:Mapping.TurnoutAssembly.ToIfcElementAssembly
+  source_term_id: metro:TurnoutAssembly
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcElementAssembly
+  constraints:
+  - term_id: ifc:IfcElementAssembly.PredefinedType
+    equals: TURNOUTPANEL
+- mapping_id: metro:Mapping.TrackPanel.ToIfcElementAssembly
+  source_term_id: metro:TrackPanel
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcElementAssembly
+  constraints:
+  - term_id: ifc:IfcElementAssembly.PredefinedType
+    equals: TRACKPANEL
+- mapping_id: metro:Mapping.RailFastening.ToIfcMechanicalFastener
+  source_term_id: metro:RailFastening
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcMechanicalFastener
+  constraints:
+  - term_id: ifc:IfcMechanicalFastener.PredefinedType
+    equals: RAILFASTENING
+- mapping_id: metro:Mapping.RailJoint.ToIfcMechanicalFastener
+  source_term_id: metro:RailJoint
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcMechanicalFastener
+  constraints:
+  - term_id: ifc:IfcMechanicalFastener.PredefinedType
+    equals: RAILJOINT
+- mapping_id: metro:Mapping.Station.ToIfcBuilding
+  source_term_id: metro:Station
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcBuilding
+  constraints: []
+- mapping_id: metro:Mapping.FunctionalSpace.ToIfcSpace
+  source_term_id: metro:FunctionalSpace
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcSpace
+  constraints: []
+- mapping_id: metro:Mapping.Borehole.ToIfcBorehole
+  source_term_id: metro:Borehole
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcBorehole
+  constraints: []
+- mapping_id: metro:Mapping.GeotechnicalStratum.ToIfcGeotechnicalStratum
+  source_term_id: metro:GeotechnicalStratum
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcGeotechnicalStratum
+  constraints: []
+- mapping_id: metro:Mapping.Fan.ToIfcFan
+  source_term_id: metro:Fan
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcFan
+  constraints: []
+- mapping_id: metro:Mapping.Pump.ToIfcPump
+  source_term_id: metro:Pump
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcPump
+  constraints: []
+- mapping_id: metro:Mapping.Signal.ToIfcSignal
+  source_term_id: metro:Signal
+  state: ACTIVE
+  normative_class: NORMATIVE
+  target_term_id: ifc:IfcSignal
+  constraints: []
+validation_rules:
+- rule_id: metro:Rule.ProhibitIfcTrackEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcTrack
+    replacement_term_id: ifc:IfcRailwayPart
+- rule_id: metro:Rule.ProhibitIfcTunnelEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcTunnel
+    replacement_term_id: ifc:IfcFacilityPartCommon
+- rule_id: metro:Rule.ProhibitIfcTunnelPartEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcTunnelPart
+    replacement_term_id: ifc:IfcFacilityPartCommon
+- rule_id: metro:Rule.ProhibitIfcSprinklerEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcSprinkler
+    replacement_term_id: ifc:IfcFireSuppressionTerminal
+- rule_id: metro:Rule.ProhibitIfcFanCoilUnitEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcFanCoilUnit
+    replacement_term_id: ifc:IfcUnitaryEquipment
+- rule_id: metro:Rule.ProhibitIfcPrecastConcreteElementEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcPrecastConcreteElement
+- rule_id: metro:Rule.ProhibitIfcTrackElementTurnout
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcTrackElement[TURNOUT]
+    replacement_term_id: ifc:IfcElementAssembly
+- rule_id: metro:Rule.ProhibitIfcReferentKilometerPoint
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcReferent[KILOMETERPOINT]
+    replacement_term_id: ifc:IfcReferent
+- rule_id: metro:Rule.ProhibitIfcElectricDistributionBoardEntity
+  kind: PROHIBITED_IFC_USAGE
+  normative_class: PROHIBITED
+  operands:
+    forbidden_token: IfcElectricDistributionBoard
+    replacement_term_id: ifc:IfcDistributionBoard
+decisions:
+- decision_id: DEC-01
+  subject_term_id: metro:ProjectLengthUnit
+  state: UNFROZEN
+  options:
+  - m
+  - mm
+  recommended_option: m
+  selected_option: null
+- decision_id: DEC-02
+  subject_term_id: metro:TunnelAggregationParent
+  state: UNFROZEN
+  options:
+  - ifc:IfcRailway
+  - ifc:IfcProject
+  - ifc:IfcSite
+  recommended_option: null
+  selected_option: null
+- decision_id: DEC-03
+  subject_term_id: metro:TrackBed
+  state: UNFROZEN
+  options:
+  - ifc:IfcSlab
+  - ifc:IfcCourse
+  recommended_option: null
+  selected_option: null
+- decision_id: DEC-04
+  subject_term_id: metro:CrossPassageSpace
+  state: UNFROZEN
+  options:
+  - ifc:IfcSpace
+  - ifc:IfcFacilityPartCommon
+  recommended_option: null
+  selected_option: null
+- decision_id: DEC-05
+  subject_term_id: metro:ClearanceEnvelope
+  state: UNFROZEN
+  options:
+  - ifc:IfcSpatialZone
+  - ifc:IfcVirtualElement
+  recommended_option: ifc:IfcSpatialZone
+  selected_option: null
+- decision_id: DEC-06
+  subject_term_id: metro:AlignmentFileStrategy
+  state: UNFROZEN
+  options:
+  - MAIN_FILE_REFERENCE
+  - DUPLICATE_SAME_GUID
+  recommended_option: MAIN_FILE_REFERENCE
+  selected_option: null
+- decision_id: DEC-07
+  subject_term_id: metro:TypeInstancePropertyOverride
+  state: UNFROZEN
+  options:
+  - ALLOW
+  - PROHIBIT
+  - CONTROLLED
+  recommended_option: CONTROLLED
+  selected_option: null
+- decision_id: DEC-08
+  subject_term_id: metro:SegmentOpeningGeometryDepth
+  state: UNFROZEN
+  options:
+  - FULL
+  - AS_NEEDED
+  - PROPERTY_ONLY
+  recommended_option: null
+  selected_option: null
+- decision_id: DEC-09
+  subject_term_id: metro:MepPortRequirement
+  state: UNFROZEN
+  options:
+  - ALL_SYSTEMS
+  - KEY_SYSTEMS
+  - NONE
+  recommended_option: KEY_SYSTEMS
+  selected_option: null
+- decision_id: DEC-10
+  subject_term_id: metro:CustomEnumLanguage
+  state: UNFROZEN
+  options:
+  - ENGLISH_CODE
+  - CHINESE
+  - BILINGUAL
+  recommended_option: BILINGUAL
+  selected_option: null
