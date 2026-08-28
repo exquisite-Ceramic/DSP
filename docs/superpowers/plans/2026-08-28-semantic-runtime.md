@@ -109,7 +109,7 @@ Evolve the v0.5 freshness MVP into the provider-neutral v0.6 D5 baseline:
 - [x] Keep `.github/workflows/semantic-runtime.yml` unchanged because its existing paths/install commands already cover D5 code, tests, this plan, and full regression.
 - [x] Update PR #5 description to the v0.6 baseline and explicitly preserve follow-up boundaries.
 - [x] Record pre-closeout implementation evidence from run #70: **40 focused passed; 181 full passed, 4 skipped**.
-- [ ] Final closeout commit receives fresh merge-ref CI. Record authoritative final counts in PR #5, then mark the PR ready for review if mergeable and green.
+- [x] Closeout commit `3096e546e5027ebe52609eb98e0687c8092c5741` received fresh PR merge-ref CI in run #72: **42 focused passed; 183 full passed, 4 skipped**. All four skips are the existing live-AutoCAD tests gated by `AGENT_HOST_TEST=1`.
 
 ### Task 5 verification commands
 
@@ -151,4 +151,4 @@ Only after D5 + Semantic Service + D4 contract boundaries are frozen: Parameter 
 
 ## Closeout status
 
-Tasks 1–4 are implementation-complete. Task 5 has completed public-surface and leakage review and updated PR scope. The final gate is fresh GitHub Actions verification on the closeout commit; once green, PR #5 can leave Draft and enter normal review.
+Tasks 1–5 are complete. The v0.6 D5 baseline is implementation-complete, public-surface/leakage guarded, and verified on the PR merge ref. PR #5 may leave Draft and enter normal review; merging remains a separate review decision.
