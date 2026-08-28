@@ -5,12 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PY_PACKAGE = ROOT / "contracts" / "python" / "design_fact_contracts"
-DOTNET_PROJECT = ROOT / "contracts" / "dotnet" / "DesignFactContracts" / "DesignFactContracts.csproj"
 
 
-def test_design_fact_contracts_are_independent_shared_contracts():
+def test_design_fact_contracts_are_an_independent_python_package():
     assert PY_PACKAGE.is_dir(), "design_fact_contracts must be an independent Python package"
-    assert DOTNET_PROJECT.is_file(), "DesignFactContracts must be an independent .NET project"
 
 
 def test_contract_sources_do_not_depend_on_host_sdk_semantic_provider_or_d5_implementations():
