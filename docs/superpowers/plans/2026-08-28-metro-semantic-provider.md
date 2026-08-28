@@ -455,13 +455,11 @@ def semantic_content_hash(payload: object) -> str:
 
 `normalize_machine_source(payload) -> MetroNormalizedSource` must enforce all Task 2 RED invariants. Hash payload includes machine schema, normative/requirement class, source coverage, mapping state/constraints, rules, decision state/options/recommendation/selection. It excludes description, source page/line/section, URLs, examples, YAML ordering.
 
-`MetroCatalog` exposes immutable tuples/indexes and:
+`MetroCatalog` exposes immutable tuples/indexes and these interfaces:
 
-```python
-def get(self, term_id: str) -> MetroTermRecord: ...
-def schema_for(self, term_id: str) -> Mapping[str, object]: ...
-def build_catalog(payload: Mapping[str, object]) -> MetroCatalog: ...
-```
+- `MetroCatalog.get(term_id: str) -> MetroTermRecord`
+- `MetroCatalog.schema_for(term_id: str) -> Mapping[str, object]`
+- `build_catalog(payload: Mapping[str, object]) -> MetroCatalog`
 
 `get()` must also expose mapping IDs as `MAPPING_RULE`, validation-rule IDs as `VALIDATION_RULE`, and `metro:Decision.DEC-xx` as `DECISION` synthetic vocabulary records. Unknown terms raise `MetroTermNotFoundError`.
 
@@ -479,16 +477,7 @@ git commit -m "feat(semantic): build Metro V3.2 machine catalog"
 
 **Files:** `mapping.py`, `test_metro_v32_mapping.py`
 
-**Produces:**
-
-```python
-def find_mappings_for_claim(
-    catalog: MetroCatalog,
-    source_claim: SemanticClaim,
-    provenance: ProviderProvenance,
-    target_namespace: str | None = None,
-) -> tuple[MappingCandidate, ...]: ...
-```
+**Produces:** `find_mappings_for_claim(catalog: MetroCatalog, source_claim: SemanticClaim, provenance: ProviderProvenance, target_namespace: str | None = None) -> tuple[MappingCandidate, ...]`
 
 - [ ] **Step 1: RED tests**
 
@@ -547,15 +536,7 @@ git commit -m "feat(semantic): add Metro deterministic mappings"
 
 **Files:** `validation.py`, `test_metro_v32_validation.py`
 
-**Produces:**
-
-```python
-def validate_claim_against_metro(
-    catalog: MetroCatalog,
-    claim: SemanticClaim,
-    provenance: ProviderProvenance,
-) -> tuple[ValidationFinding, ...]: ...
-```
+**Produces:** `validate_claim_against_metro(catalog: MetroCatalog, claim: SemanticClaim, provenance: ProviderProvenance) -> tuple[ValidationFinding, ...]`
 
 - [ ] **Step 1: RED tests**
 
