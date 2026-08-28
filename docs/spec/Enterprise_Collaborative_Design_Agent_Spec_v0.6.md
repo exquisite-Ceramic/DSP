@@ -944,7 +944,7 @@ PlanningSnapshot / ChangeSet 必须固定 `SemanticEnvironmentRef`。
 
 ## 16.3 Provider conflict
 
-Provider 不得静默覆盖兞他 Provider 的权威 namespace。
+Provider 不得静默覆盖其他 Provider 的权威 namespace。
 
 冲突必须：
 
@@ -2011,7 +2011,7 @@ D6/D7 不应在 Phase B–E 的语义边界未冻结前继续扩大实现。
 v0.6 进入 `Accepted` 前，至少完成：
 
 1. Host Plane / Semantic Plane / Action Plane / Collaboration Kernel 的职责无重叠；
-2. Semantic MCP Server 与 SemanticProvider Protocol 的边界通过 ADR 冻结［
+2. Semantic MCP Server 与 SemanticProvider Protocol 的边界通过 ADR 冻结；
 3. IFC4.3 与 Metro Semantic 权威关系冻结；
 4. `SemanticIdentity : HostBinding = 1:N` 冻结；
 5. `ExternalIdentity` 替代 `ifc_global_id` 特例；
