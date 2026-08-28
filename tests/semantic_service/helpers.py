@@ -15,6 +15,9 @@ from semantic_service import (
     SemanticProvider,
     SemanticProviderManifest,
     SemanticProviderRegistry,
+    SemanticEnvironment,
+    SemanticEnvironmentStore,
+    SemanticService,
     TermDescription,
     TermSchema,
     ValidationFinding,
@@ -256,3 +259,38 @@ def registry_with_ifc_authority_and_metro_extension() -> SemanticProviderRegistr
             authority=AuthorityMode.EXTENSION,
         ),
     )
+
+
+def service_with_ifc_authority_and_extension() -> tuple[
+    SemanticService, VocabularyProvider, VocabularyProvider, SemanticEnvironment
+]:
+    authoritative = VocabularyProvider()
+    extension = VocabularyProvider(
+        provider_id="dsp.metro.semantic",
+        version="3.2",
+        namespace="ifc",
+        authority=AuthorityMode.EXTENSION,
+    )
+    registry = register_all(authoritative, extension)
+    store = SemanticEnvironmentStore()
+    environment = store.pin(
+        (
+            ProviderRef("buildingSMART.ifc43", "4.3.2.0"),
+            ProviderRef("dsp.metro.semantic", "3.2"),
+        ),
+        registry,
+    )
+    return SemanticService(registry, store), authoritative, extension, environment
+
+
+def service_with_ifc_extension_only() -> tuple[SemanticService, SemanticEnvironment]:
+    extension = VocabularyProvider(
+        provider_id="dsp.metro.semantic",
+        version="3.2",
+        namespace="ifc",
+        authority=AuthorityMode.EXTENSION,
+    )
+    registry = register_all(extension)
+    store = SemanticEnvironmentStore()
+    environment = store.pin((ProviderRef("dsp.metro.semantic", "3.2"),), registry)
+    return SemanticService(registry, store), environment
