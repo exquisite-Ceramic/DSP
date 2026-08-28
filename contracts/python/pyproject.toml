@@ -1,7 +1,7 @@
 [project]
 name = "host-contracts"
 version = "0.1.0"
-description = "Python mirror of the DSP HostContract."
+description = "Python mirror of the DSP HostContract and shared normalized design fact contracts."
 requires-python = ">=3.11"
 
 [build-system]
@@ -10,4 +10,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["host_contracts*"]
+include = ["host_contracts*", "design_fact_contracts*"]
