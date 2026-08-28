@@ -966,13 +966,16 @@ semantic.query_rules
 平台内部逻辑接口建议至少包含：
 
 ```python
-resolve_term(term_id)
-describe_term(term_id, locale=None)
-get_term_schema(term_id)
-validate_claim(claim, environment)
-find_mappings(source_claim, target_namespace=None)
+resolve_term(term_id, environment_id)
+describe_term(term_id, environment_id, locale=None)
+get_term_schema(term_id, environment_id)
+validate_claim(claim, environment_id)
+find_mappings(source_claim, environment_id, target_namespace=None)
+get_provider_manifest(provider_id, version)
 get_environment(environment_id)
 ```
+
+所有依赖语义版本状态的查询 MUST 使用显式锁定的 Semantic Environment，MUST NOT 使用隐式 latest/default Provider 状态。
 
 ## 10.4 SemanticProvider capability interfaces
 
