@@ -43,7 +43,7 @@ platform/semantic_service/
     service.py           # environment-scoped routing and aggregation
 
 tests/semantic_service/
-  helpers.py             # deterministic fake providers for tests only
+  helpers.py             # deterministic fake providers/factories for tests only
   test_manifest.py
   test_provider_contracts.py
   test_registry.py
@@ -113,14 +113,8 @@ def _manifest(**changes):
 
 
 def test_manifest_hash_is_order_independent_for_set_like_fields():
-    first = _manifest(
-        namespaces=("ifc", "ifc-ext"),
-        compatibility=("z", "a"),
-    )
-    second = _manifest(
-        namespaces=("ifc-ext", "ifc"),
-        compatibility=("a", "z"),
-    )
+    first = _manifest(namespaces=("ifc", "ifc-ext"), compatibility=("z", "a"))
+    second = _manifest(namespaces=("ifc-ext", "ifc"), compatibility=("a", "z"))
     assert first.manifest_hash == second.manifest_hash
 
 
@@ -141,8 +135,6 @@ def test_namespace_token_with_colon_is_rejected():
 ```
 
 - [ ] **Step 2: Run the focused test and verify RED**
-
-Run:
 
 ```bash
 PYTHONPATH=platform/semantic_service/src pytest -q tests/semantic_service/test_manifest.py
@@ -170,19 +162,19 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-Create these classes in `errors.py`:
+Create these classes in `errors.py` as empty typed subclasses with short docstrings:
 
 ```python
-class SemanticServiceError(ValueError): ...
-class ManifestValidationError(SemanticServiceError): ...
-class ProviderRegistrationConflictError(SemanticServiceError): ...
-class ProviderNotFoundError(SemanticServiceError): ...
-class ProviderCapabilityError(SemanticServiceError): ...
-class ProviderDependencyError(SemanticServiceError): ...
-class NamespaceAuthorityError(SemanticServiceError): ...
-class EnvironmentIntegrityError(SemanticServiceError): ...
-class EnvironmentNotFoundError(SemanticServiceError): ...
-class TermResolutionError(SemanticServiceError): ...
+class SemanticServiceError(ValueError): pass
+class ManifestValidationError(SemanticServiceError): pass
+class ProviderRegistrationConflictError(SemanticServiceError): pass
+class ProviderNotFoundError(SemanticServiceError): pass
+class ProviderCapabilityError(SemanticServiceError): pass
+class ProviderDependencyError(SemanticServiceError): pass
+class NamespaceAuthorityError(SemanticServiceError): pass
+class EnvironmentIntegrityError(SemanticServiceError): pass
+class EnvironmentNotFoundError(SemanticServiceError): pass
+class TermResolutionError(SemanticServiceError): pass
 ```
 
 - [ ] **Step 4: Implement minimal manifest normalization and hashing**
@@ -202,25 +194,9 @@ def _hash_payload(payload: object) -> str:
     return sha256(encoded).hexdigest()
 ```
 
-`manifest_hash` payload must contain exactly:
-
-```python
-{
-    "provider_id": self.provider_id,
-    "provider_type": self.provider_type.value,
-    "version": self.version,
-    "content_hash": self.content_hash,
-    "namespaces": list(self.namespaces),
-    "capabilities": [item.value for item in self.capabilities],
-    "authority": [item.payload() for item in self.authority],
-    "compatibility": list(self.compatibility),
-    "requires": [item.payload() for item in self.requires],
-}
-```
+`manifest_hash` payload must contain exactly `provider_id`, `provider_type`, `version`, `content_hash`, sorted `namespaces`, sorted `capabilities`, sorted `authority`, sorted `compatibility`, and sorted exact `requires` records. Labels/descriptions/health/transport data are absent.
 
 - [ ] **Step 5: Export only the Task 1 public types and run GREEN**
-
-Run:
 
 ```bash
 PYTHONPATH=platform/semantic_service/src pytest -q tests/semantic_service/test_manifest.py
@@ -237,7 +213,7 @@ git commit -m "feat(semantic): add provider manifest contracts"
 
 ---
 
-### Task 2: Provider-neutral semantic DTOs and capability Protocols
+### Task 2: Provider-neutral semantic DTOs, capability Protocols, and explicit test factories
 
 **Files:**
 - Create: `platform/semantic_service/src/semantic_service/providers.py`
@@ -246,19 +222,15 @@ git commit -m "feat(semantic): add provider manifest contracts"
 - Modify: `platform/semantic_service/src/semantic_service/__init__.py`
 
 **Interfaces:**
-- Consumes `SemanticProviderManifest` from Task 1.
 - Produces `ProviderProvenance`, `ResolvedTerm`, `TermDescription`, `TermSchema`, `SemanticClaim`, `MappingCandidate`, `ValidationStatus`, `ValidationFinding`.
-- Produces runtime-checkable protocols `SemanticProvider`, `SemanticVocabularyProvider`, `SemanticMappingProvider`, `SemanticValidationProvider`, `SemanticProjectionProvider`.
-- PROJECTION is intentionally only a marker over `manifest`; no `project_facts()` signature appears in this PR.
+- Produces runtime-checkable `SemanticProvider`, `SemanticVocabularyProvider`, `SemanticMappingProvider`, `SemanticValidationProvider`; `SemanticProjectionProvider` is a marker protocol with no batch method.
+- Test-only `helpers.py` produces all fake-provider/factory names used by Tasks 2–7, so later tests have no implicit fixture contract.
 
 - [ ] **Step 1: Write protocol/DTO RED tests**
-
-`test_provider_contracts.py` must prove a vocabulary-only fake satisfies only the vocabulary protocol and that PROJECTION does not require a temporary batch API:
 
 ```python
 from semantic_service import (
     SemanticMappingProvider,
-    SemanticProjectionProvider,
     SemanticValidationProvider,
     SemanticVocabularyProvider,
 )
@@ -272,9 +244,9 @@ def test_capability_protocols_are_separate():
     assert not isinstance(provider, SemanticValidationProvider)
 
 
-def test_projection_contract_is_marker_only():
+def test_projection_phase_does_not_require_batch_api():
     provider = VocabularyProvider(claim_projection=True)
-    assert isinstance(provider, SemanticProjectionProvider)
+    assert provider.manifest.capabilities
     assert not hasattr(provider, "project_facts")
 ```
 
@@ -288,7 +260,7 @@ Expected: import failure for provider DTOs/protocols.
 
 - [ ] **Step 3: Implement immutable DTOs and protocols**
 
-Use these exact method signatures:
+Use these exact provider signatures:
 
 ```python
 @runtime_checkable
@@ -304,26 +276,48 @@ class SemanticVocabularyProvider(SemanticProvider, Protocol):
 
 @runtime_checkable
 class SemanticMappingProvider(SemanticProvider, Protocol):
-    def find_mappings(
-        self,
-        source_claim: SemanticClaim,
-        target_namespace: str | None = None,
-    ) -> tuple[MappingCandidate, ...]: ...
+    def find_mappings(self, source_claim: SemanticClaim, target_namespace: str | None = None) -> tuple[MappingCandidate, ...]: ...
 
 @runtime_checkable
 class SemanticValidationProvider(SemanticProvider, Protocol):
     def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]: ...
 
-@runtime_checkable
 class SemanticProjectionProvider(SemanticProvider, Protocol):
     pass
 ```
 
-`ProviderProvenance` is exactly `(provider_id, version, content_hash)`. `ValidationStatus` is `PASS`, `FAIL`, `NOT_APPLICABLE`. `SemanticClaim.assurance` is a string token and defaults to `"UNKNOWN"`; do not import D5 `AssuranceLevel`.
+`ProviderProvenance` is exactly `(provider_id, version, content_hash)`. `ValidationStatus` is `PASS`, `FAIL`, `NOT_APPLICABLE`. `SemanticClaim.assurance` is a string token defaulting to `"UNKNOWN"`; do not import D5 `AssuranceLevel`.
 
-- [ ] **Step 4: Add deterministic fake providers for later tests**
+- [ ] **Step 4: Implement every later test factory explicitly in `helpers.py`**
 
-`helpers.py` supplies `VocabularyProvider`, `MappingProvider`, and `ValidationProvider` that construct valid manifests and return fixed tuples. Keep all IFC/Metro example semantics in tests only.
+Create these classes/functions with the listed return contract:
+
+```python
+class VocabularyProvider: ...
+class MappingProvider: ...
+class ValidationProvider: ...
+
+def make_manifest(
+    *, provider_id: str, version: str, namespace: str,
+    authority: AuthorityMode, capabilities: frozenset[SemanticCapability],
+    content_hash: str | None = None, compatibility: tuple[str, ...] = ("semantic-service.v1",),
+    requires: tuple[ProviderRef, ...] = (),
+) -> SemanticProviderManifest: ...
+
+def register_all(*providers: SemanticProvider) -> SemanticProviderRegistry: ...
+def all_refs(registry: SemanticProviderRegistry) -> tuple[ProviderRef, ...]: ...
+def registry_with_ifc() -> SemanticProviderRegistry: ...
+def registry_with_ifc_and_enterprise() -> SemanticProviderRegistry: ...
+def registry_with_metro_requiring_ifc() -> SemanticProviderRegistry: ...
+def registry_with_two_ifc_authorities() -> SemanticProviderRegistry: ...
+def registry_with_ifc_authority_and_metro_extension() -> SemanticProviderRegistry: ...
+def service_with_ifc_authority_and_extension() -> tuple[SemanticService, VocabularyProvider, VocabularyProvider, SemanticEnvironment]: ...
+def service_with_ifc_extension_only() -> tuple[SemanticService, SemanticEnvironment]: ...
+def mapping_service_fixture() -> tuple[SemanticService, SemanticEnvironment, MappingProvider, MappingProvider, MappingProvider]: ...
+def validation_service_with_fail_and_pass() -> tuple[SemanticService, SemanticEnvironment]: ...
+```
+
+Task 2 initially defines these helpers against the public names already available; where a later production class (`SemanticProviderRegistry`, `SemanticEnvironment`, `SemanticService`) does not exist yet, add the helper function only in the task that first provides that production class. The names/signatures above are frozen now and MUST NOT be renamed later.
 
 - [ ] **Step 5: Run Task 1+2 tests GREEN**
 
@@ -348,17 +342,16 @@ git commit -m "feat(semantic): define semantic provider capabilities"
 - Create: `platform/semantic_service/src/semantic_service/registry.py`
 - Create: `tests/semantic_service/test_registry.py`
 - Modify: `platform/semantic_service/src/semantic_service/__init__.py`
+- Modify: `tests/semantic_service/helpers.py` to activate registry factories frozen in Task 2.
 
 **Interfaces:**
-- `SemanticProviderRegistry.register(provider: SemanticProvider) -> SemanticProviderManifest`
+- `register(provider: SemanticProvider) -> SemanticProviderManifest`
 - `get(provider_id: str, version: str) -> SemanticProvider`
 - `get_manifest(provider_id: str, version: str) -> SemanticProviderManifest`
 - `versions(provider_id: str) -> tuple[str, ...]`
 - `providers_with_capability(capability: SemanticCapability) -> tuple[SemanticProvider, ...]`
 
 - [ ] **Step 1: Write registry RED tests**
-
-Cover idempotency, immutable conflicts, multiple versions, missing provider, and claimed capability mismatch:
 
 ```python
 def test_identical_registration_is_idempotent():
@@ -384,6 +377,8 @@ def test_claimed_mapping_without_mapping_protocol_is_rejected():
         registry.register(bad)
 ```
 
+Add tests for `ProviderNotFoundError`, deterministic sorted `versions()`, and coexistence of two versions of one provider.
+
 - [ ] **Step 2: Verify RED**
 
 ```bash
@@ -392,23 +387,15 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service/test
 
 - [ ] **Step 3: Implement registration without replacement semantics**
 
-Use `(provider_id, version)` as the internal key. If an existing manifest equals the incoming manifest, return the existing manifest and retain the originally registered provider object. If the incoming manifest differs in any machine field, raise `ProviderRegistrationConflictError`; never hot-swap the provider behind an occupied immutable version.
+Use `(provider_id, version)` as the internal key. Equal manifest re-registration returns the existing manifest and retains the originally registered provider object. Any different manifest under the occupied key raises `ProviderRegistrationConflictError`; never hot-swap an immutable version.
 
 - [ ] **Step 4: Enforce claimed capability protocols**
 
-At registration:
+Require VOCABULARY → `SemanticVocabularyProvider`, MAPPING → `SemanticMappingProvider`, VALIDATION → `SemanticValidationProvider`. PROJECTION has no concrete method check in this phase beyond the base `SemanticProvider` manifest contract.
 
-```python
-checks = {
-    SemanticCapability.VOCABULARY: SemanticVocabularyProvider,
-    SemanticCapability.MAPPING: SemanticMappingProvider,
-    SemanticCapability.VALIDATION: SemanticValidationProvider,
-}
-```
+- [ ] **Step 5: Activate registry helper factories and run GREEN**
 
-For each claimed capability above, require `isinstance(provider, protocol)`. `PROJECTION` has no method check beyond `SemanticProvider` because this phase deliberately freezes only the marker.
-
-- [ ] **Step 5: Run registry and prior tests GREEN**
+Implement `register_all`, `all_refs`, `registry_with_ifc`, `registry_with_ifc_and_enterprise`, `registry_with_metro_requiring_ifc`, `registry_with_two_ifc_authorities`, and `registry_with_ifc_authority_and_metro_extension` exactly as frozen in Task 2.
 
 ```bash
 PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service
@@ -419,7 +406,7 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service
 ```bash
 git add platform/semantic_service/src/semantic_service/registry.py \
   platform/semantic_service/src/semantic_service/__init__.py \
-  tests/semantic_service/test_registry.py
+  tests/semantic_service/test_registry.py tests/semantic_service/helpers.py
 git commit -m "feat(semantic): add immutable provider registry"
 ```
 
@@ -431,24 +418,23 @@ git commit -m "feat(semantic): add immutable provider registry"
 - Create: `platform/semantic_service/src/semantic_service/environment.py`
 - Create: `tests/semantic_service/test_environment.py`
 - Modify: `platform/semantic_service/src/semantic_service/__init__.py`
+- Modify: `tests/semantic_service/helpers.py` to activate environment-dependent factories.
 
 **Interfaces:**
 - `PinnedProvider.from_manifest(manifest) -> PinnedProvider`
-- `SemanticEnvironment(providers, environment_id, content_hash)` is immutable.
 - `SemanticEnvironmentStore.pin(selections: Iterable[ProviderRef], registry: SemanticProviderRegistry) -> SemanticEnvironment`
 - `get(environment_id: str) -> SemanticEnvironment`
 - `get_by_hash(content_hash: str) -> SemanticEnvironment`
 
 - [ ] **Step 1: Write environment RED tests**
 
-Required cases:
-
 ```python
 def test_pin_is_order_independent_and_content_addressed():
     registry = registry_with_ifc_and_enterprise()
+    refs = all_refs(registry)
     store = SemanticEnvironmentStore()
-    first = store.pin((ProviderRef("ifc", "1"), ProviderRef("acme", "2")), registry)
-    second = store.pin((ProviderRef("acme", "2"), ProviderRef("ifc", "1")), registry)
+    first = store.pin(refs, registry)
+    second = store.pin(tuple(reversed(refs)), registry)
     assert first == second
     assert first.environment_id == f"sem-env:{first.content_hash}"
 
@@ -471,7 +457,7 @@ def test_ifc_extension_can_coexist_with_authority():
     assert len(environment.providers) == 2
 ```
 
-Also add parameterized tests proving that changing provider version, `content_hash`, authority, capabilities, compatibility, or dependency declaration changes the environment hash.
+Add parameterized tests proving that changing provider version, `content_hash`, authority, capabilities, compatibility, or dependency declaration changes the environment hash.
 
 - [ ] **Step 2: Verify RED**
 
@@ -481,42 +467,24 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service/test
 
 - [ ] **Step 3: Implement `PinnedProvider` and canonical environment hashing**
 
-`PinnedProvider.payload()` contains exactly:
-
-```python
-{
-    "provider_id": ...,
-    "provider_type": ...,
-    "version": ...,
-    "content_hash": ...,
-    "manifest_hash": ...,
-    "namespaces": [...],
-    "capabilities": [...],
-    "authority": [...],
-    "compatibility": [...],
-    "requires": [...],
-}
-```
-
-Sort pinned records by `(provider_id, version)` before hashing. Hash canonical JSON with the same SHA-256 helper semantics as Task 1. Build `environment_id` from the full digest, not a truncated digest.
+`PinnedProvider.payload()` contains provider id/type/version/content hash/manifest hash plus namespaces, capabilities, authority, compatibility, and exact requires. Sort records by `(provider_id, version)` before canonical JSON SHA-256. Build `environment_id` from the full digest.
 
 - [ ] **Step 4: Implement exact dependency and namespace authority barriers**
 
-`pin()` must resolve every selection through the registry first. Every declared `requires` ref must occur in the selected exact-ref set. Build an `authorities: dict[str, ProviderRef]`; a second `AUTHORITATIVE` owner for the same namespace raises `NamespaceAuthorityError`. `EXTENSION` entries do not occupy that owner slot.
+Resolve every selection through registry. Every `requires` ref must occur in the selected exact-ref set. A second `AUTHORITATIVE` owner for the same namespace raises `NamespaceAuthorityError`; `EXTENSION` never occupies that owner slot.
 
-- [ ] **Step 5: Implement immutable dual-key store**
+- [ ] **Step 5: Implement immutable dual-key store and activate environment helpers**
 
-Store by both `environment_id` and `content_hash`. Re-pinning the identical provider set returns the existing equal environment. If either key is occupied by a non-equal object, raise `EnvironmentIntegrityError`. Unknown lookup raises `EnvironmentNotFoundError`.
+Store by `environment_id` and `content_hash`. Equal re-pin is idempotent. Occupied key with non-equal object raises `EnvironmentIntegrityError`; unknown lookup raises `EnvironmentNotFoundError`. Environment helper factories must now return real `SemanticEnvironment` values.
 
-- [ ] **Step 6: Run all focused semantic-service tests GREEN and commit**
+- [ ] **Step 6: Run GREEN and commit**
 
 ```bash
 PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service
 
 git add platform/semantic_service/src/semantic_service/environment.py \
   platform/semantic_service/src/semantic_service/__init__.py \
-  tests/semantic_service/test_environment.py \
-  tests/semantic_service/helpers.py
+  tests/semantic_service/test_environment.py tests/semantic_service/helpers.py
 git commit -m "feat(semantic): pin immutable semantic environments"
 ```
 
@@ -528,6 +496,7 @@ git commit -m "feat(semantic): pin immutable semantic environments"
 - Create: `platform/semantic_service/src/semantic_service/service.py`
 - Create: `tests/semantic_service/test_service_vocabulary.py`
 - Modify: `platform/semantic_service/src/semantic_service/__init__.py`
+- Modify: `tests/semantic_service/helpers.py` to activate service factories.
 
 **Interfaces:**
 - `SemanticService(registry: SemanticProviderRegistry, environments: SemanticEnvironmentStore)`
@@ -538,10 +507,6 @@ git commit -m "feat(semantic): pin immutable semantic environments"
 - `get_environment(environment_id: str) -> SemanticEnvironment`
 
 - [ ] **Step 1: Write vocabulary routing RED tests**
-
-Prove: only the pinned `AUTHORITATIVE` provider is called; an `EXTENSION` provider is never fallback; missing authority fails; missing VOCABULARY capability fails; malformed term without `namespace:local` fails; provider exception becomes `TermResolutionError` containing provider id/version.
-
-Example:
 
 ```python
 def test_resolve_term_calls_only_authoritative_provider():
@@ -558,6 +523,8 @@ def test_extension_is_not_fallback_when_authority_missing():
         service.resolve_term("ifc:IfcWall", environment.environment_id)
 ```
 
+Also test missing VOCABULARY capability, malformed term without `namespace:local`, unknown environment, and provider exception → `TermResolutionError` containing provider id/version.
+
 - [ ] **Step 2: Verify RED**
 
 ```bash
@@ -566,22 +533,11 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service/test
 
 - [ ] **Step 3: Implement namespace parsing and authoritative provider selection**
 
-Private helper behavior:
+Split once on `:`; load the explicit environment; find exactly one pinned provider declaring `AUTHORITATIVE` for that namespace; require VOCABULARY in its pinned capability set; retrieve exactly that provider id/version from registry. Never consult an unpinned or extension fallback provider.
 
-```text
-term_id -> split once on ':' -> namespace
-load environment by explicit environment_id
-find pinned records whose authority contains namespace/AUTHORITATIVE
-require exactly one
-require VOCABULARY in pinned capabilities
-resolve exact provider object from registry by pinned id/version
-```
+- [ ] **Step 4: Implement vocabulary calls, error wrapping, and service helper factories**
 
-Do not consult providers outside the selected environment. Do not fall back from failed/missing authority to `EXTENSION`.
-
-- [ ] **Step 4: Implement vocabulary calls and error wrapping**
-
-Call the appropriate protocol method. On provider exception, raise `TermResolutionError` with operation, provider id, provider version, and original exception type in the message; chain with `raise ... from exc`.
+On provider exception, raise `TermResolutionError` containing operation/provider id/version/original exception type and chain the cause. Activate `service_with_ifc_authority_and_extension()` and `service_with_ifc_extension_only()` in `helpers.py`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -590,8 +546,7 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service
 
 git add platform/semantic_service/src/semantic_service/service.py \
   platform/semantic_service/src/semantic_service/__init__.py \
-  tests/semantic_service/test_service_vocabulary.py \
-  tests/semantic_service/helpers.py
+  tests/semantic_service/test_service_vocabulary.py tests/semantic_service/helpers.py
 git commit -m "feat(semantic): route pinned vocabulary queries"
 ```
 
@@ -610,8 +565,6 @@ git commit -m "feat(semantic): route pinned vocabulary queries"
 
 - [ ] **Step 1: Write deterministic fan-out RED tests**
 
-Tests must prove:
-
 ```python
 def test_mapping_uses_only_selected_providers_and_sorts_results():
     service, environment, selected_a, selected_b, unselected = mapping_service_fixture()
@@ -628,7 +581,7 @@ def test_validation_preserves_standard_failure_and_domain_pass():
     assert [item.status for item in findings] == [ValidationStatus.FAIL, ValidationStatus.PASS]
 ```
 
-Also prove provider call order is `(provider_id, version)`, mapping output sorting is `(mapping_id, provider_id, provider_version)`, validation output sorting is `(provider_id, provider_version, rule_id, status)`, `NOT_APPLICABLE` is preserved, and a provider exception aborts with wrapped `SemanticServiceError` rather than returning partial guessed success.
+Also prove provider call order `(provider_id, version)`, mapping sort `(mapping_id, provider_id, provider_version)`, validation sort `(provider_id, provider_version, rule_id, status)`, preservation of `NOT_APPLICABLE`, and provider exception abort with wrapped `SemanticServiceError` rather than partial guessed success.
 
 - [ ] **Step 2: Verify RED**
 
@@ -638,11 +591,11 @@ PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service/test
 
 - [ ] **Step 3: Implement selected-provider capability fan-out**
 
-Iterate over `environment.providers` already sorted by id/version. For each pinned provider whose capability set contains MAPPING or VALIDATION, retrieve that exact provider from registry and invoke the matching protocol. Never use `registry.providers_with_capability()` directly for runtime fan-out because that would include unpinned versions/providers.
+Iterate only `environment.providers`; for selected MAPPING/VALIDATION capability records, retrieve the exact provider from registry and invoke it. Never use global `providers_with_capability()` for runtime fan-out because that includes unpinned registrations.
 
-- [ ] **Step 4: Aggregate without winner selection or voting**
+- [ ] **Step 4: Aggregate without winner selection or voting and activate remaining helpers**
 
-Mapping returns every candidate after deterministic sort. Validation returns every finding, including `NOT_APPLICABLE`; no pass count can erase a failure. Preserve provider-provided provenance fields unchanged.
+Return every mapping candidate after deterministic sort. Return every validation finding including `NOT_APPLICABLE`; no pass count erases failure. Preserve provider provenance. Activate `mapping_service_fixture()` and `validation_service_with_fail_and_pass()`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -650,8 +603,7 @@ Mapping returns every candidate after deterministic sort. Validation returns eve
 PYTHONPATH=platform/semantic_service/src:. pytest -q tests/semantic_service
 
 git add platform/semantic_service/src/semantic_service/service.py \
-  tests/semantic_service/test_service_mapping_validation.py \
-  tests/semantic_service/helpers.py
+  tests/semantic_service/test_service_mapping_validation.py tests/semantic_service/helpers.py
 git commit -m "feat(semantic): aggregate pinned mapping and validation"
 ```
 
@@ -666,12 +618,10 @@ git commit -m "feat(semantic): aggregate pinned mapping and validation"
 - Modify: `platform/semantic_service/src/semantic_service/__init__.py`
 
 **Interfaces:**
-- Public package exports all stable Task 1–6 contracts and does not export internal hashing/routing helpers.
-- Integration proof uses existing D5 `SemanticEnvironmentRef(environment_id, content_hash)` without adding any import from `semantic_service` into D5.
+- Public package exports stable Task 1–6 contracts, not internal hashing/routing helpers.
+- Integration proof uses existing D5 `SemanticEnvironmentRef(environment_id, content_hash)` without adding a production dependency in either direction.
 
-- [ ] **Step 1: Add public-surface and import-boundary RED/guard tests**
-
-`test_public_surface.py`:
+- [ ] **Step 1: Add public-surface and import-boundary guard tests**
 
 ```python
 import ast
@@ -682,15 +632,10 @@ import semantic_service as s
 
 def test_public_surface_contains_phase_c_contracts_only():
     required = (
-        "SemanticProviderManifest",
-        "SemanticProviderRegistry",
-        "SemanticEnvironment",
-        "SemanticEnvironmentStore",
-        "SemanticService",
-        "SemanticVocabularyProvider",
-        "SemanticMappingProvider",
-        "SemanticValidationProvider",
-        "SemanticProjectionProvider",
+        "SemanticProviderManifest", "SemanticProviderRegistry",
+        "SemanticEnvironment", "SemanticEnvironmentStore", "SemanticService",
+        "SemanticVocabularyProvider", "SemanticMappingProvider",
+        "SemanticValidationProvider", "SemanticProjectionProvider",
     )
     assert [name for name in required if not hasattr(s, name)] == []
     assert not hasattr(s, "NormalizedDesignFactBatch")
@@ -699,9 +644,7 @@ def test_public_surface_contains_phase_c_contracts_only():
 
 def test_semantic_service_has_no_d5_mcp_or_host_imports():
     package = Path(s.__file__).resolve().parent
-    forbidden_roots = {
-        "semantic_runtime", "mcp", "fastmcp", "autodesk", "revit", "tekla"
-    }
+    forbidden_roots = {"semantic_runtime", "mcp", "fastmcp", "autodesk", "revit", "tekla"}
     found = []
     for path in sorted(package.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -716,17 +659,18 @@ def test_semantic_service_has_no_d5_mcp_or_host_imports():
     assert found == []
 ```
 
-- [ ] **Step 2: Add D5 environment-ref compatibility test**
+- [ ] **Step 2: Add D5 environment-ref compatibility test with an explicit factory call**
 
 ```python
 from semantic_runtime import SemanticEnvironmentRef
 from semantic_service import ProviderRef, SemanticEnvironmentStore
+from tests.semantic_service.helpers import registry_with_ifc
 
 
-def test_pinned_environment_values_construct_existing_d5_ref(registry_with_ifc):
+def test_pinned_environment_values_construct_existing_d5_ref():
+    registry = registry_with_ifc()
     environment = SemanticEnvironmentStore().pin(
-        (ProviderRef("buildingSMART.ifc43", "4.3.2.0"),),
-        registry_with_ifc,
+        (ProviderRef("buildingSMART.ifc43", "4.3.2.0"),), registry
     )
     ref = SemanticEnvironmentRef(environment.environment_id, environment.content_hash)
     assert ref.payload() == {
@@ -735,7 +679,7 @@ def test_pinned_environment_values_construct_existing_d5_ref(registry_with_ifc):
     }
 ```
 
-The test may import both packages; production `semantic_service` source may not.
+The test imports both packages; production `semantic_service` does not import D5.
 
 - [ ] **Step 3: Finalize curated `__all__`**
 
@@ -743,15 +687,12 @@ Export stable errors, enums, manifest values, provider DTOs/protocols, registry,
 
 - [ ] **Step 4: Add dedicated GitHub Actions workflow**
 
-Create `.github/workflows/semantic-service.yml`:
-
 ```yaml
 name: Semantic service verification
 
 on:
   push:
-    branches:
-      - 'feat/semantic-service-core'
+    branches: ['feat/semantic-service-core']
     paths:
       - 'platform/semantic_service/**'
       - 'tests/semantic_service/**'
@@ -789,8 +730,6 @@ jobs:
 
 - [ ] **Step 5: Run the complete local verification set**
 
-From a clean environment with the editable packages installed:
-
 ```bash
 python -m pip install -e contracts/python -e hosts/autocad/sidecar \
   -e platform/semantic_runtime -e platform/semantic_service
@@ -799,7 +738,7 @@ pytest -q contracts/python/tests tests/contracts tests/integration \
   tests/orchestrator tests/semantic_runtime tests/semantic_service
 ```
 
-Expected: Semantic Service focused suite passes; full regression has no new failures. Existing live-AutoCAD-gated skips remain skips unless the live host is explicitly enabled.
+Expected: focused Semantic Service suite passes; full regression has no new failures. Existing live-AutoCAD-gated skips remain skips unless explicitly enabled.
 
 - [ ] **Step 6: Commit the conformance/CI gate**
 
@@ -825,21 +764,21 @@ git commit -m "test(semantic): enforce Semantic Service boundaries"
 
 - [ ] **Step 1: Review architecture invariants before claiming completion**
 
-Verify the production package contains no MCP SDK imports, no `semantic_runtime` import, no Host product branches/mappings, no concrete IFC/Metro provider implementation, no mutable `latest` API, and no `project_facts` payload contract.
+Verify no MCP SDK import, no `semantic_runtime` production import, no Host product branch/mapping, no concrete IFC/Metro provider implementation, no mutable `latest` API, and no `project_facts` payload contract.
 
 - [ ] **Step 2: Verify exact spec coverage**
 
-Map the design requirements to tests: immutable registration; capability split; authority conflict; extension coexistence; exact dependency; environment hash determinism; explicit environment-scoped vocabulary routing; selected-only mapping/validation fan-out; provenance preservation; D5 ref compatibility; architecture import guard.
+Map design requirements to tests: immutable registration; capability split; authority conflict; extension coexistence; exact dependency; environment hash determinism; explicit environment-scoped vocabulary routing; selected-only mapping/validation fan-out; provenance preservation; D5 ref compatibility; architecture guard.
 
-- [ ] **Step 3: Wait for fresh GitHub Actions at the final head and record evidence**
+- [ ] **Step 3: Obtain fresh GitHub Actions at the final head and record evidence**
 
-Only claim completion after the final PR head SHA has a successful `Semantic service verification` run. Record exact focused/full counts and any expected skips in this plan execution record and PR body.
+Only claim completion after the final PR head SHA has a successful `Semantic service verification` run. Record exact focused/full counts and expected skips in the plan execution record and PR body.
 
 - [ ] **Step 4: Keep PR #6 Draft until implementation review gates pass**
 
-PR #6 is stacked on `feat/semantic-runtime` while PR #5 remains unmerged. After PR #5 merges, retarget PR #6 to `main`, obtain fresh CI on the resulting head/merge ref, and only then mark PR #6 Ready for review. Do not merge automatically.
+PR #6 remains stacked on `feat/semantic-runtime` while PR #5 is unmerged. After PR #5 merges, retarget PR #6 to `main`, obtain fresh CI on the resulting head/merge ref, and only then mark Ready for review. Do not merge automatically.
 
-- [ ] **Step 5: Commit the execution record only after fresh-head verification**
+- [ ] **Step 5: Commit the execution record after fresh-head verification**
 
 ```bash
 git add docs/superpowers/plans/2026-08-28-semantic-service-core.md
@@ -848,13 +787,11 @@ git commit -m "docs: record Semantic Service core verification"
 
 ## Implementation Order / Review Gates
 
-Execute Tasks 1 → 8 strictly in order. Each Task 1–7 is a standalone reviewer gate with its own RED → minimal GREEN → focused regression → commit cycle. Do not combine concrete IFC/Metro content or Semantic MCP transport into these commits even if the generic interfaces make those follow-ups easy.
-
-The expected PR evolution is:
+Execute Tasks 1 → 8 strictly in order. Tasks 1–7 each use RED → minimal GREEN → focused regression → commit. Do not combine concrete IFC/Metro content or Semantic MCP transport into these commits.
 
 ```text
 Task 1  Manifest + errors                         RED/GREEN
-Task 2  Provider DTOs/protocols                  RED/GREEN
+Task 2  Provider DTOs/protocols + helper API     RED/GREEN
 Task 3  Immutable Registry                       RED/GREEN
 Task 4  Environment pinning/store                RED/GREEN
 Task 5  Vocabulary routing                       RED/GREEN
