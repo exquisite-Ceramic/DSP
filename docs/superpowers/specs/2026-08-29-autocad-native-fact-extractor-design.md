@@ -4,15 +4,13 @@
 
 Approved in architecture discussion on 2026-08-29 for Spec v0.6 Phase E, Step 19: AutoCAD native fact extractor.
 
-This document freezes the Step 19 boundary between AutoCAD-native observation and the `NormalizedDesignFact` contract introduced in Step 18. It does not amend the main Spec beyond choosing concrete Step 19 implementation details consistent with the frozen architecture.
+This document freezes the Step 19 boundary between AutoCAD-native observation and the `NormalizedDesignFact` contract introduced in Step 18. It chooses concrete Step 19 implementation details consistent with the main Spec; it does not amend the main Spec.
 
-Implementation MUST NOT begin until this written design has been reviewed and approved by the user. After approval, the next step is a separate implementation plan produced with the project planning workflow.
+Implementation MUST NOT begin until this written design has been reviewed and approved by the user. After approval, the next step is a separate implementation plan.
 
 ## Goal
 
-Introduce a read-only AutoCAD-native fact extraction path that captures stable Host-local snapshots inside the AutoCAD plugin and converts those snapshots, through a thin sidecar adapter, into the already-frozen `NormalizedDesignFactBatch` contract.
-
-The intended Step 19 pipeline is:
+Introduce a read-only AutoCAD-native extraction path that captures Host-local snapshots inside the AutoCAD plugin and converts those snapshots, through a thin sidecar adapter, into the frozen `NormalizedDesignFactBatch` contract.
 
 ```text
 AutoCAD Entity
@@ -26,81 +24,57 @@ Sidecar DesignFactAdapter
 NormalizedDesignFactBatch
 ```
 
-Step 19 answers:
+Step 19 answers what AutoCAD natively observed at one known document revision. It does not decide what IFC / DSP Core / Metro / Enterprise meaning those observations have.
 
-```text
-What native facts can AutoCAD expose, at one known document revision,
-in a Host-local shape that can be deterministically normalized?
-```
+## Architecture Alignment
 
-Step 19 does not answer:
-
-```text
-What IFC / DSP Core / Metro / Enterprise semantic meaning do those facts have?
-```
-
-That interpretation belongs to Step 20+ Semantic Providers.
-
-## Source-of-Truth Alignment
-
-Spec v0.6 freezes these relevant principles:
+Spec v0.6 freezes the relevant boundary:
 
 - Host design-time native state remains authoritative in the Host application.
 - Host native facts pass through a Semantic Adapter into a stable data contract.
 - L1 Normalized interoperability uses `NormalizedDesignFact` while canonical classification may remain unknown.
 - Core modules must not understand AutoCAD Handle, AutoCAD layer conventions, Autodesk SDK types, or enterprise mappings.
-- Phase E Step 19 is AutoCAD native fact extraction; Step 20 is enterprise A-WALL mapping; Step 21 proves `A-WALL → IfcWall` without D5 changes.
+- Phase E Step 19 is AutoCAD native extraction; Step 20 is enterprise A-WALL mapping; Step 21 proves `A-WALL → IfcWall` without D5 changes.
 
-The approved Step 18 design also freezes `NormalizedDesignFact` as a Host-neutral transport contract and explicitly keeps `autocad.layer / A-WALL` as evidence rather than canonical meaning.
+The Step 18 contract already freezes `autocad.layer / A-WALL` as source evidence rather than canonical meaning.
 
-## Architectural Choice
-
-### Chosen approach: plugin native snapshot + sidecar thin normalization
+## Chosen Architecture
 
 ```text
 Autodesk API zone
   hosts/autocad/plugin/AutoCAD.AgentHost/Native/*
         ↓
-Host-local snapshot DTO
-        ↓ HostCommand READ response
-Sidecar DesignFactAdapter
+Host-local snapshot JSON
+        ↓ HostCommand READ
+AutoCAD sidecar DesignFactAdapter
         ↓
 design_fact_contracts.NormalizedDesignFactBatch
 ```
 
-This preserves the current AutoCAD architecture in which `Native/` is the only zone allowed to reference `Autodesk.*`.
+This preserves the existing rule that `Native/` is the only AutoCAD plugin zone allowed to reference `Autodesk.*`.
 
-### Rejected approach: plugin directly emits `NormalizedDesignFact`
+Rejected alternatives:
 
-This would reduce one transformation step but couple the Autodesk plugin more tightly to the stable ingestion contract. Step 19 instead keeps native observation and normalized transport as separate responsibilities.
-
-### Rejected approach: platform/Semantic Service understands AutoCAD properties
-
-This would recreate Host-specific branches in platform code and violate the v0.6 boundary. AutoCAD-native interpretation remains inside the AutoCAD Host plane.
+1. **Plugin directly emits `NormalizedDesignFact`** — fewer lines, but couples Autodesk-native observation to the stable cross-Host ingestion contract.
+2. **Platform/Semantic Service understands AutoCAD properties** — violates the v0.6 Host-neutral core boundary and would cause Host-specific growth in platform code.
 
 ## Component Responsibilities
 
-### 1. Plugin Native Extractor
+### Plugin Native Extractor
 
-The plugin owns direct AutoCAD SDK access.
+The plugin owns direct AutoCAD SDK access. It SHALL:
 
-It SHALL:
-
-- execute read-only entity extraction inside the active AutoCAD document;
-- acquire the existing document lock before reading;
-- use one AutoCAD transaction for one extraction request where practical;
-- freeze one document revision for the returned snapshot set;
-- resolve requested entity handles to live entities;
+- execute a read-only extraction request against the active AutoCAD document;
+- acquire the existing document lock;
+- capture one document revision for the complete request;
+- use one read transaction for the requested entity set where practical;
+- resolve requested handles to live entities;
 - capture only Host-native observations;
-- never assign IFC / Metro / DSP Core / enterprise canonical semantics.
+- never assign IFC, Metro, DSP Core, or enterprise canonical semantics.
 
-The extractor MUST remain inside the Host plugin boundary and may use Autodesk SDK types internally.
+### Host-local Snapshot
 
-### 2. Host-local NativeSnapshot
-
-`NativeSnapshot` is a Host-local response shape, not a new cross-Host public contract.
-
-The minimum logical shape is:
+The snapshot is AutoCAD-local and MUST NOT move into `contracts/`.
 
 ```text
 AutoCADNativeSnapshotBatch {
@@ -118,84 +92,78 @@ AutoCADNativeEntitySnapshot {
 }
 ```
 
-The wire response between AutoCAD plugin and AutoCAD sidecar may use JSON-compatible object shapes consistent with the existing `HostCommandResult.payload` mechanism.
+It is carried inside the existing JSON-compatible `HostCommandResult.payload` mechanism.
 
-This DTO is intentionally AutoCAD-specific and MUST NOT move into `contracts/`.
+### Sidecar DesignFactAdapter
 
-### 3. Sidecar DesignFactAdapter
-
-The sidecar adapter owns the thin transformation from AutoCAD-local snapshot shape to the stable Step 18 contract.
-
-It SHALL:
+The sidecar adapter SHALL:
 
 - depend on `design_fact_contracts`;
+- validate the Host-local snapshot shape;
 - create `DesignFactHostRef` and `NativeSubjectRef` values;
-- preserve `document_id`, `host_instance_id`, `revision`, handle, native kind, layer, and bounds evidence;
-- generate deterministic `fact_id` values;
+- preserve document/runtime identity, revision, handle, native kind, layer, and optional bounds;
+- produce deterministic `fact_id` values;
 - return `NormalizedDesignFactBatch`;
-- perform no semantic mapping beyond transport-level `fact_kind` / `predicate` selection.
+- perform only transport-level `fact_kind` / `predicate` selection.
 
 It MUST NOT import Semantic Service, D5, IFC4.3, Metro, or Enterprise mapping implementations.
 
-## Host Instance Identity
+## Host Runtime Identity
 
-`NormalizedDesignFact.host_ref` requires:
-
-```text
-host_type
-host_instance_id
-document_id
-```
-
-Step 19 SHALL use:
+Every normalized fact uses:
 
 ```text
 host_type = "autocad"
+host_instance_id = <plugin-session UUID>
+document_id = <active AutoCAD document id>
 ```
 
-`host_instance_id` is a runtime AutoCAD/plugin-session identity and MAY change when AutoCAD restarts. It is not persistent semantic identity and MUST NOT be used as `SemanticId`.
+The plugin SHALL create one UUID string when the plugin process/AppDomain initializes and reuse it for the lifetime of that plugin session. It MAY change after AutoCAD restarts. It is runtime identity, not `SemanticId`.
 
-The plugin SHALL expose one non-empty host instance identifier for the life of the plugin session. The implementation may generate this once during plugin process/lifecycle initialization.
+## Revision Consistency
 
-## Document Revision Consistency
-
-A returned `AutoCADNativeSnapshotBatch` MUST represent one document revision.
+One snapshot batch MUST correspond to one document revision.
 
 The extractor SHALL:
 
 1. identify the active document;
-2. acquire the document lock;
-3. capture the current document revision;
-4. read all requested entities for that request under the same read operation;
-5. return that frozen revision with the snapshot batch.
+2. acquire its document lock;
+3. capture the current revision;
+4. read all requested entities for that request;
+5. return the captured revision with the batch.
 
-The sidecar MUST copy that batch revision into every emitted `NormalizedDesignFact.source_revision`.
+The sidecar MUST copy the batch revision into every emitted `NormalizedDesignFact.source_revision`.
 
-Step 19 MUST NOT combine facts read from different document revisions into one normalized batch while pretending they share a revision.
+Step 19 MUST NOT combine observations from different revisions into one batch while claiming one revision.
 
-## Entity Resolution Semantics
+## Handle-Scoped Read Contract
 
-The request is handle-scoped.
-
-Conceptual read operation:
+The plugin adds one HostCommand READ operation:
 
 ```text
-design.extract_native_snapshot(handles[])
+design.extract_native_snapshot
+```
+
+Input payload:
+
+```text
+handles: string[]
 ```
 
 Rules:
 
-- `handles` is required as an array of non-empty strings;
-- an empty array is valid and returns an empty entity snapshot list at the current revision;
-- duplicate handles SHOULD be normalized deterministically so the response does not duplicate facts accidentally;
-- malformed handles, erased entities, unresolved handles, or entities that cannot be opened for read MUST fail closed rather than silently claiming successful complete extraction;
-- the response SHOULD identify the failed handle in the contract error detail where the existing Host error model permits it.
+- `handles` is required;
+- every handle must be a non-empty string and valid AutoCAD handle token;
+- empty array is valid and returns an empty entity list at the current revision;
+- duplicate handles are de-duplicated while preserving first-seen order;
+- malformed, unresolved, erased, or unreadable requested entities cause the request to fail closed;
+- an extraction failure SHOULD identify the offending handle using the existing Host error model.
 
-Step 19 deliberately chooses fail-closed explicit extraction over silently skipping missing requested entities, because later freshness/coverage logic must distinguish “read and found nothing” from “could not read the requested subject.”
+Requested subjects are never silently skipped. Later freshness/coverage logic must be able to distinguish “successful empty request” from “requested entity could not be read.”
 
-## Native Entity Kind
+## Native Kind
 
-For the frozen Step 19 proof path, `native_kind` SHALL use AutoCAD's native/DXF entity type token where available rather than a .NET CLR class name.
+`native_kind` SHALL use the AutoCAD/DXF entity token from the SDK where available, rather than the .NET CLR class name.
 
 Examples:
 
@@ -205,46 +173,35 @@ LINE
 ARC
 ```
 
-This keeps the evidence closer to AutoCAD's native vocabulary and avoids leaking implementation-language type names into normalized facts.
-
-If the SDK cannot produce a non-empty native kind for an otherwise readable entity, extraction MUST fail closed for that entity.
+A readable entity without a non-empty native kind fails closed.
 
 ## Layer Evidence
 
-Every readable AutoCAD `Entity` exposes a layer name.
+The native snapshot preserves the actual AutoCAD layer string without interpretation.
 
-The native snapshot SHALL preserve the actual layer string without enterprise interpretation.
-
-The sidecar SHALL emit one normalized classification evidence fact per entity:
+For every entity, the sidecar emits:
 
 ```text
 fact_kind     = CLASSIFICATION
 predicate     = "layer"
-value         = <actual AutoCAD layer string>
+value         = <actual layer>
 value_type    = STRING
 source_scheme = "autocad.layer"
-source_code   = <actual AutoCAD layer string>
+source_code   = <actual layer>
 ```
 
-For an entity on `A-WALL` this becomes:
+Therefore an `A-WALL` entity carries:
 
 ```text
 source_scheme = "autocad.layer"
 source_code   = "A-WALL"
 ```
 
-Step 19 MUST NOT contain:
+No layer name is privileged. Step 19 MUST NOT contain `A-WALL → IfcWall` or any other canonical layer mapping.
 
-```text
-A-WALL → IfcWall
-A-WALL → any canonical wall classification
-```
+## Native-Kind Identity Evidence
 
-No specific layer name is privileged by the extractor.
-
-## Identity Evidence
-
-The sidecar SHALL emit one transport-level identity/native-kind fact per entity:
+For every entity, the sidecar also emits:
 
 ```text
 fact_kind  = IDENTITY
@@ -253,7 +210,7 @@ value      = <native_kind>
 value_type = STRING
 ```
 
-The subject identity remains:
+The subject remains the frozen Step 18 native reference:
 
 ```text
 subject_native_ref.document_id
@@ -261,11 +218,11 @@ subject_native_ref.native_id
 subject_native_ref.native_kind
 ```
 
-No `semantic_id` is allocated in Step 19.
+No `semantic_id` is allocated.
 
 ## Bounds Evidence
 
-If AutoCAD geometric extents are valid for the entity, the native snapshot MAY include axis-aligned bounds:
+If the entity has valid AutoCAD geometric extents, the snapshot MAY include:
 
 ```text
 bounds = {
@@ -274,7 +231,7 @@ bounds = {
 }
 ```
 
-The sidecar SHALL emit one fact:
+The sidecar then emits:
 
 ```text
 fact_kind  = BOUNDS
@@ -283,86 +240,74 @@ value      = <bounds object>
 value_type = OBJECT
 ```
 
-Step 19 does not:
-
-- embed full entity geometry;
-- define coordinate canonicalization;
-- change geometry fidelity state;
-- claim `EXACT` canonical geometry;
-- perform topology reconstruction.
-
-If an entity type does not provide valid geometric extents, absence of the BOUNDS fact is permitted as long as identity and layer evidence were successfully extracted.
+Absence of valid extents is allowed and simply omits the BOUNDS fact. Step 19 does not embed full geometry, canonicalize coordinates, assign geometry fidelity, or perform topology reconstruction.
 
 ## Deterministic Fact IDs
 
-Repeated normalization of the same native observation at the same document revision SHALL produce the same `fact_id`.
+Fact IDs are stable for the same observation at the same revision.
 
-The logical ID input is:
+The canonical fact key is UTF-8 text:
 
 ```text
-document_id
-source_revision
-native_id
-fact_kind
-predicate
+autocad-fact-v1|<document_id>|<source_revision>|<native_id>|<fact_kind>|<predicate>
 ```
 
-The implementation SHALL use a deterministic namespaced digest/UUID scheme rather than random UUIDs.
+`fact_id` SHALL be the lowercase hexadecimal SHA-256 digest of that exact key.
 
-The algorithm MUST be stable within Step 19 v1 and covered by tests. The exact hashing/UUID primitive is an implementation detail documented in the implementation plan.
+Changing revision, entity, fact kind, or predicate changes the ID. Re-normalizing the same key produces the same ID. The version prefix prevents a future algorithm/key-shape revision from being ambiguous.
 
 ## Producer and Provenance
 
-The sidecar SHALL set a stable producer token identifying the AutoCAD design-fact adapter, for example:
+Every emitted fact SHALL use:
 
 ```text
 producer = "autocad.sidecar.design_fact_adapter.v1"
 ```
 
-The exact frozen token will be chosen in implementation and tested.
-
-Each emitted fact SHALL carry ordered provenance references sufficient to identify its Host-native origin without embedding SDK objects.
-
-At minimum provenance SHALL include a deterministic native source reference derived from:
+Every fact SHALL include one ordered provenance item:
 
 ```text
-host_type
-document_id
-native_id
-source_revision
+autocad.native|document=<document_id>|native=<native_id>|revision=<source_revision>
 ```
 
-Step 19 provenance is source evidence only; it does not assign an assurance level.
+This string is evidence only. It does not assign assurance or semantic authority.
 
-## Sidecar Public API
+## Sidecar API Boundary
 
-The sidecar SHALL expose an internal typed entry point suitable for later Semantic ingestion:
+Step 19 adds a typed sidecar entry point:
 
 ```text
 extract_design_facts(handles: list[str]) -> NormalizedDesignFactBatch
 ```
 
-The sidecar MAY expose this through its existing Host-facing MCP surface as a read-only tool if that is needed for reference-path testing, but Step 19 MUST NOT introduce a new Semantic MCP ingestion endpoint.
+Implementation path:
 
-The implementation plan must choose the smallest path needed to prove Step 19 without expanding protocol scope unnecessarily.
+```text
+CommandDispatcher.extract_design_facts
+  ↓
+HostCommand READ design.extract_native_snapshot
+  ↓
+DesignFactAdapter.normalize
+  ↓
+NormalizedDesignFactBatch
+```
+
+**Step 19 SHALL NOT add a new Host MCP tool or Semantic MCP endpoint.** The proof uses the existing internal sidecar/HostCommand path. Protocol exposure, if later required, is a separate decision.
 
 ## Error Handling
 
-Step 19 uses existing Host command/envelope error semantics.
-
-The extractor SHALL fail closed for:
+The extractor fails closed for:
 
 - no active AutoCAD document;
 - blank/malformed requested handle;
-- unresolved handle;
-- erased entity;
+- unresolved or erased handle;
 - unreadable entity;
 - missing native kind;
-- blank layer where AutoCAD contract assumptions require a layer;
-- invalid/non-JSON-compatible extracted value;
-- revision/identity inconsistency discovered during normalization.
+- blank layer;
+- invalid snapshot values;
+- document/runtime/revision inconsistency.
 
-The adapter SHALL also rely on `NormalizedDesignFact` constructor validation and MUST propagate contract-validation failures rather than repair malformed input silently.
+The sidecar relies on `NormalizedDesignFact` validation and propagates malformed snapshot/contract failures rather than repairing them silently.
 
 ## Dependency Direction
 
@@ -372,135 +317,105 @@ Allowed:
 AutoCAD Native/* → Autodesk.*
 AutoCAD command handler → Native extractor
 AutoCAD sidecar → HostContracts
-AutoCAD sidecar DesignFactAdapter → design_fact_contracts
+AutoCAD DesignFactAdapter → design_fact_contracts
 ```
 
 Forbidden:
 
 ```text
-contracts/design_fact_contracts → AutoCAD plugin/sidecar
+design_fact_contracts → AutoCAD implementation
 Semantic Service → Autodesk.*
 D5 → Autodesk.*
 AutoCAD extractor → semantic_service
 AutoCAD extractor → semantic_runtime
-AutoCAD extractor → IFC provider
-AutoCAD extractor → Metro provider
-AutoCAD extractor → Enterprise mapping provider
+AutoCAD extractor → IFC / Metro / Enterprise semantic providers
 ```
 
-The Step 19 implementation SHALL include architecture tests enforcing these boundaries where practical.
-
-## Proposed Repository Changes
-
-Expected plugin changes:
+## Expected Repository Changes
 
 ```text
 hosts/autocad/plugin/AutoCAD.AgentHost/
-├─ Native/
-│  └─ AutoCADNativeFactApi.cs
-├─ Commands/
-│  ├─ HostCommandHandler.cs
-│  └─ Design/
-│     └─ ExtractNativeSnapshotHandler.cs
-└─ Identity/ or Bootstrap/
-   └─ host-instance session identity
-```
+├─ Native/AutoCADNativeFactApi.cs
+├─ Commands/Design/ExtractNativeSnapshotHandler.cs
+├─ Commands/HostCommandHandler.cs
+└─ Identity/HostInstanceIdentity.cs
 
-Expected sidecar changes:
-
-```text
 hosts/autocad/sidecar/src/autocad_sidecar/
-├─ adapter/
-│  └─ design_fact_adapter.py
-└─ execution/
-   └─ command_dispatcher.py
+├─ adapter/design_fact_adapter.py
+└─ execution/command_dispatcher.py
 ```
 
-The implementation plan SHALL refine exact paths after checking current test conventions and build constraints.
+Tests and CI files may also be added, but Step 18 contract definitions themselves MUST NOT be changed unless a genuine contract defect is discovered and separately approved.
 
 ## Testing Strategy
 
 Implementation SHALL use TDD.
 
-### Pure sidecar unit tests
+Pure tests without live AutoCAD MUST prove:
 
-Use synthetic Host-local snapshot payloads to prove:
-
-- empty snapshot batch → empty `NormalizedDesignFactBatch`;
-- one entity → identity + classification facts;
-- valid bounds → BOUNDS fact;
-- `A-WALL` preserved as `autocad.layer / A-WALL`;
+- empty snapshot → empty `NormalizedDesignFactBatch`;
+- one entity → IDENTITY + CLASSIFICATION;
+- valid bounds → BOUNDS;
+- `A-WALL` remains `autocad.layer / A-WALL` evidence;
 - no `semantic_id` or `ifc:IfcWall` appears;
-- repeated same revision snapshot yields identical fact IDs;
-- changing revision changes fact IDs;
-- document/host identity is copied correctly;
-- malformed snapshots fail closed.
+- same snapshot/revision → same fact IDs;
+- revision change → different fact IDs;
+- runtime/document identity is copied correctly;
+- malformed snapshot fails closed;
+- duplicate handles cannot duplicate emitted facts.
 
-These tests MUST NOT require live AutoCAD.
+Host command/fake transport tests MUST prove the sidecar sends `design.extract_native_snapshot` and normalizes its response.
 
-### Host command / transport tests
+Architecture/source tests MUST prove:
 
-Use current injected/fake transport patterns to prove the sidecar sends the correct read command and normalizes the response.
+- Autodesk references remain confined to plugin `Native/` under the existing ADR rule;
+- the new command handler delegates native reads rather than embedding mapping logic;
+- no IFC/Metro/Enterprise canonical mapping is hardcoded into Step 19;
+- Semantic Service and D5 gain no AutoCAD dependency.
 
-### Plugin architecture/source tests
+A live AutoCAD integration test MAY be added as optional/skipped-by-default proof, but ordinary CI MUST NOT require a live AutoCAD instance.
 
-Prove:
-
-- Autodesk SDK references remain confined to `Native/` according to ADR-001;
-- the new command handler delegates native reading rather than embedding semantic mapping;
-- no IFC/Metro/Enterprise semantic token is hardcoded into the extractor path.
-
-### Optional live AutoCAD integration
-
-A live-host test MAY prove one known selected/known-handle entity returns a valid normalized batch, but live AutoCAD is not required for ordinary CI success.
-
-## Explicit Non-Goals for Step 19
+## Explicit Non-Goals
 
 Step 19 MUST NOT implement or modify:
 
 - enterprise A-WALL mapping provider (Step 20);
-- `A-WALL → IfcWall` canonical mapping proof (Step 21);
+- `A-WALL → IfcWall` proof (Step 21);
 - task-scoped aspect/fidelity upgrading (Step 22);
-- SemanticClaim production;
-- IFC4.3 Provider behavior;
-- Metro Semantic Provider behavior;
-- DSP Core Provider behavior;
+- `SemanticClaim` production;
+- IFC4.3 / Metro / DSP Core Provider behavior;
 - D5 reconstruction, identity allocation, freshness, coverage, maturity, or assurance;
-- canonical unit conversion;
-- canonical coordinate conversion;
+- canonical unit or coordinate conversion;
 - full geometry serialization/reconstruction;
-- Revit/Tekla extractors;
+- Revit/Tekla extraction;
 - Host write behavior;
 - ProviderBinding / ExecutionGrant;
+- Host MCP catalog expansion;
 - Semantic MCP ingestion protocol.
 
 ## Acceptance Criteria
 
-Step 19 is complete when all of the following are true:
+Step 19 is complete when:
 
-1. AutoCAD has a read-only native snapshot extraction path for requested handles.
-2. Autodesk SDK objects do not cross the plugin native boundary.
+1. AutoCAD has a read-only native snapshot operation for requested handles.
+2. Autodesk SDK objects remain inside the plugin native boundary.
 3. One extraction request is represented at one frozen document revision.
-4. The snapshot includes Host instance/document identity and entity handle/native kind/layer, with bounds when available.
-5. The sidecar converts snapshots into the frozen Step 18 `NormalizedDesignFactBatch` without modifying that contract.
-6. Each readable entity produces transport-level native-kind identity and layer classification evidence facts.
+4. The snapshot carries session/document identity plus handle, DXF/native kind, layer, and optional bounds.
+5. The sidecar converts snapshots into the unchanged Step 18 `NormalizedDesignFactBatch`.
+6. Each readable entity produces native-kind IDENTITY and layer CLASSIFICATION evidence; valid extents additionally produce BOUNDS.
 7. `A-WALL` is transported only as `autocad.layer / A-WALL` evidence.
-8. No `IfcWall`, IFC mapping, Metro mapping, Enterprise mapping, or D5 behavior is introduced.
-9. Fact IDs are deterministic for the same document revision and observation.
-10. Requested missing/malformed/unreadable entities fail closed rather than being silently omitted.
+8. No IFC/Metro/Enterprise mapping or D5 behavior is introduced.
+9. Fact IDs follow the frozen deterministic SHA-256 rule.
+10. Missing/malformed/unreadable requested entities fail closed rather than being silently omitted.
 11. Pure tests run without live AutoCAD and prove snapshot-to-NDF behavior.
 12. Existing relevant Host/sidecar/contract regression tests remain green.
-13. Architecture tests prove no new Host-specific dependency leaks into Semantic Service or D5.
+13. Architecture tests prove no Host-specific dependency leaks into Semantic Service or D5.
 
 ## Phase Boundary After Step 19
 
-After Step 19 is merged, Phase E proceeds to Step 20:
+After Step 19 is merged, Phase E proceeds to Step 20: the enterprise A-WALL mapping provider.
 
-```text
-enterprise A-WALL mapping provider
-```
-
-At that point a fact such as:
+Step 20 may interpret:
 
 ```text
 fact_kind     = CLASSIFICATION
@@ -510,6 +425,4 @@ source_scheme = autocad.layer
 source_code   = A-WALL
 ```
 
-may be interpreted by an Enterprise Semantic Provider.
-
-The AutoCAD extractor itself remains unchanged when that mapping is added.
+The AutoCAD extractor itself must not change when that mapping is added.
