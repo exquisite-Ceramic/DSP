@@ -35,6 +35,7 @@ from semantic_service.providers import (
     ValidationFinding,
     ValidationStatus,
 )
+from semantic_service.registry import SemanticProviderRegistry
 
 __all__ = [
     "AuthorityMode",
@@ -58,6 +59,7 @@ __all__ = [
     "SemanticProjectionProvider",
     "SemanticProvider",
     "SemanticProviderManifest",
+    "SemanticProviderRegistry",
     "SemanticServiceError",
     "SemanticValidationProvider",
     "SemanticVocabularyProvider",
