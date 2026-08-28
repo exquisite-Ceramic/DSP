@@ -24,6 +24,19 @@ jobs:
         run: |
           python -m pip install pytest ifcopenshell==0.8.5
           python -m pip install -e platform/semantic_service
+      - name: Diagnose IfcOpenShell direct attributes
+        run: |
+          python - <<'PY'
+          from ifc43_semantic_provider.source import load_ifc43_source
+          schema = load_ifc43_source().schema
+          for name in ("IfcActionRequest", "IfcWall"):
+              entity = schema.declaration_by_name(name).as_entity()
+              print(name)
+              print("attributes", len(entity.attributes()), [a.name() for a in entity.attributes()])
+              print("derived", len(entity.derived()), list(entity.derived()))
+              print("all_attributes", len(entity.all_attributes()), [a.name() for a in entity.all_attributes()])
+              print("attribute_count", entity.attribute_count())
+          PY
       - name: Run IFC4.3 focused tests
         run: |
           pytest -q tests/semantic_providers/ifc43/test_source_version.py \
