@@ -70,7 +70,7 @@ def test_handler_is_read_only_and_delegates_native_access():
     assert HANDLER.is_file()
     source = HANDLER.read_text(encoding="utf-8")
 
-    assert '"READ"' in source
+    assert "HostCommandMode.READ" in source
     assert "DocumentLockManager.Acquire" in source
     assert "AutoCADNativeFactApi.Extract" in source
     assert "JsonSerializer.SerializeToElement" in source
