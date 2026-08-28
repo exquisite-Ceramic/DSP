@@ -188,6 +188,10 @@ internal static class ContractValidation
 
         ValidateStringEnum<FactKind>(root.GetProperty("fact_kind"), "fact_kind");
         ValidateStringEnum<ValueType>(root.GetProperty("value_type"), "value_type");
+        if (root.GetProperty("provenance").ValueKind != JsonValueKind.Array)
+        {
+            throw new JsonException("provenance must be a JSON array");
+        }
     }
 
     internal static void ValidateValue(JsonElement value, ValueType valueType)

@@ -131,8 +131,8 @@ class NormalizedDesignFact:
         object.__setattr__(self, "value", frozen_value)
         _validate_value_type(frozen_value, value_type)
 
-        if isinstance(self.provenance, str) or not isinstance(self.provenance, Iterable):
-            raise ValueError("provenance must be an iterable of non-empty strings")
+        if not isinstance(self.provenance, (list, tuple)):
+            raise ValueError("provenance must be an ordered array of non-empty strings")
         normalized_provenance = tuple(_require_non_empty(item, "provenance item") for item in self.provenance)
         object.__setattr__(self, "provenance", normalized_provenance)
 
