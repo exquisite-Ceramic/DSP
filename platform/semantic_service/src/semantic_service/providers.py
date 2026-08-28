@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from semantic_service.manifest import SemanticProviderManifest
@@ -21,6 +23,18 @@ def _optional_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _freeze_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _freeze_value(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_value(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,12 +76,18 @@ class TermDescription:
 @dataclass(frozen=True, slots=True)
 class TermSchema:
     term_id: str
-    schema: dict[str, object]
+    schema: Mapping[str, object]
     provenance: ProviderProvenance
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "term_id", _required_text(self.term_id, "term_id"))
-        object.__setattr__(self, "schema", dict(self.schema))
+        object.__setattr__(
+            self,
+            "schema",
+            MappingProxyType(
+                {key: _freeze_value(value) for key, value in self.schema.items()}
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
