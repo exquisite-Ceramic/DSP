@@ -44,3 +44,5 @@ jobs:
           fi
           git commit -m 'docs: restore progressive runtime and governance contracts'
           git push
+
+# retry after validated transfer chunks
