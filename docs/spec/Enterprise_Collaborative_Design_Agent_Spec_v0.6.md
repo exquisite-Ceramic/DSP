@@ -4,7 +4,8 @@
 > 日期：2026-08-28  
 > 取代：`Enterprise_Collaborative_Design_Agent_Spec_v0.5.md` 作为下一版候选规格  
 > 适用范围：多 Host 设计协同、Host MCP、Semantic MCP、Canonical Action、D5 Collaboration Kernel、D6 参数绑定、D7 ChangeSet/执行闭环  
-> Metro Semantic 基线：`IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版`，目标 Schema 为 `IFC4X3_ADD2 / IFC 4.3.2.0`
+> Metro Semantic 基线：`IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版`，目标 Schema 为 `IFC4X3_ADD2 / IFC 4.3.2.0`  
+> 本次修订：恢复 v0.5 Runtime/Governance Contract Freeze 内容，并将 Progressive Semantic Modeling 与 v0.6 Semantic MCP/D5 架构统一。
 
 ---
 
@@ -33,9 +34,13 @@ Canonical Action
   ↓
 Canonical Semantic State
   ↓
-ChangeSet / Approval
+Progressive Semantic State
   ↓
-Provider Binding
+Impact / ChangeSet / Approval
+  ↓
+ExecutionSlice / ExecutionUnit
+  ↓
+Provider Binding / ExecutionGrant
   ↓
 Host Execution
   ↓
@@ -52,8 +57,12 @@ Semantic Reconstruction
 4. Metro Semantic、企业标准、专业规则通过 Semantic Provider 扩展；
 5. LLM 仅在受约束的 Canonical Action Space 内选择动作和填写意图槽；
 6. 可确定性绑定的参数不交给 LLM；
-7. 任何写操作在执行前绑定 PlanningSnapshot、SemanticEnvironment 与审批上下文；
-8. 执行结果必须由 Host read-back / delta 形成闭环验证。
+7. D5 采用 Progressive Semantic Modeling / On-demand Reconstruction，只重建当前任务需要的语义与几何；
+8. 任何写操作在执行前绑定 PlanningSnapshot、SnapshotSet、SemanticEnvironment 与审批上下文；
+9. 所有模型写操作通过 immutable ChangeSet，并经过 ApprovalScopeBoundary 与授权链；
+10. 跨 Host 执行通过 ExecutionSlice / ExecutionUnit / ProviderBinding 分层，不使用 Host-to-Host 硬编码；
+11. 执行结果必须由 Host read-back / ActualDelta 形成闭环验证与 scope check；
+12. LangGraph、Gateway、Semantic Service、D5、Host Provider 各自保持单一 owner，不形成“全能中枢”。
 
 ## 1.2 非目标
 
@@ -64,7 +73,9 @@ v0.6 不要求：
 - 让 LLM 根据自然语言 `description` 推断安全规则；
 - 为每个 Host 成对实现 Host↔Host 映射；
 - 让 Metro Semantic 覆盖或修改 IFC 官方定义；
-- 在没有 Freshness / Assurance / Snapshot 的情况下执行高风险写操作。
+- 在没有 Freshness / Coverage / Assurance / Snapshot / Authorization 的情况下执行高风险写操作；
+- 要求设计师高频编辑时持续维护全量、实时 IFC/Metro 镜像；
+- 通过 XA/2PC 解决跨 Host 分布式事务。
 
 ---
 
@@ -171,7 +182,77 @@ MCP 只定义服务协议和发现/调用机制，不定义领域权威边界。
 
 ---
 
+## 2.6 Progressive by default
+
+DSP 的 semantic runtime MUST 默认采用：
+
+```text
+task-scoped
+aspect-scoped
+coverage-scoped
+on-demand reconstruction
+```
+
+而不是：
+
+```text
+every edit
+→ full semantic rebuild
+→ full IFC/Metro mirror
+```
+
+Progressive 不等于弱约束。进入具体 operation / approval / execution 前，系统仍必须通过 Freshness、Coverage、Assurance、Snapshot 与 Policy barrier。
+
+## 2.7 ChangeSet 与授权是唯一写路径
+
+所有 `MODEL_OPERATION` 必须：
+
+```text
+Canonical Action
+→ PlanningSnapshot/SnapshotSet
+→ Impact
+→ immutable ChangeSet
+→ Approval/ExecutionGrant
+→ ProviderBinding
+→ Host mutation
+→ Verify/Reconcile
+```
+
+LLM、Semantic Provider、Gateway、Host MCP 都不得绕过该链直接完成生产级模型修改。
+
+---
+
 # 3. 分层架构
+
+DSP 至少区分六个逻辑平面：
+
+## 3.1 Source of Truth
+
+| State | Authoritative owner | Consistency model |
+|---|---|---|
+| Design-time native state | Host Application | 实时编辑事实 |
+| Semantic definitions / mappings | Semantic Service + pinned Providers | version/hash pinned |
+| Canonical semantic projection | D5 | progressive reconstruction + freshness/coverage barrier |
+| Change history | Change Journal | append-only |
+| Agent workflow state | LangGraph checkpoint | recoverable/replayable |
+| Execution intent | immutable ChangeSet | approval/audit unit |
+| Authorization evidence | Gateway | ApprovalRecord / ExecutionGrant |
+
+Host 与 D5 不是双主数据库；D5 是 task-scoped canonical projection，Host 仍是 native realtime source of truth。
+
+## 3.2 Logical planes
+
+
+```text
+Host Plane
+Semantic Plane
+Action Plane
+Collaboration State Plane
+Governance Plane
+Execution Plane
+```
+
+参考拓扑：
 
 ```text
                               ┌──────────────────────┐
@@ -180,39 +261,60 @@ MCP 只定义服务协议和发现/调用机制，不定义领域权威边界。
                                          │
                                          ▼
                               ┌──────────────────────┐
-                              │ Orchestrator / LLM   │
+                              │ LangGraph / LLM      │
+                              │ Orchestrator         │
                               └───────┬──────┬───────┘
                                       │      │
                          action space │      │ semantic context
                                       ▼      ▼
                          ┌────────────────┐  ┌────────────────────┐
-                         │ D4 Resolver    │  │ Semantic MCP Server│
-                         │ + Action Catalog│ │ Semantic Service   │
-                         └────────┬───────┘  └─────────┬──────────┘
-                                  │                    │
-                                  │             SemanticProvider
-                                  │           ┌────────┼──────────────┐
-                                  │           ▼        ▼              ▼
-                                  │        IFC4.3   Metro          Enterprise
-                                  │        Provider Semantic       Semantic
+                         │ D4 Resolver    │  │ Context Composer   │
+                         │ + Action Catalog│ └──────────┬─────────┘
+                         └────────┬───────┘             │
+                                  │                     ▼
+                                  │          ┌────────────────────┐
+                                  │          │ Enterprise Gateway │
+                                  │          │ Auth/Policy/Audit  │
+                                  │          └───────┬──────┬─────┘
+                                  │                  │      │
+                                  │                  │      └───────────────┐
+                                  │                  ▼                      ▼
+                                  │        ┌────────────────────┐   ┌──────────────────┐
+                                  │        │ Semantic MCP Server│   │ Host/Execution MCP│
+                                  │        │ Semantic Service   │   │ Providers          │
+                                  │        └─────────┬──────────┘   └─────────┬────────┘
+                                  │                  │                        │
+                                  │           SemanticProvider                │
+                                  │      ┌───────────┼────────────┐           │
+                                  │      ▼           ▼            ▼           │
+                                  │   IFC4.3       Metro      Enterprise       │
+                                  │   Provider     Semantic    Semantic         │
                                   │
                                   ▼
                          ┌──────────────────────────┐
                          │ D5 Collaboration Kernel  │
-                         │ Identity / Projection    │
-                         │ Freshness / Assurance    │
+                         │ Progressive Projection   │
+                         │ Identity / Freshness     │
+                         │ Coverage / Assurance     │
                          │ Snapshot / Journal       │
                          └────────────┬─────────────┘
                                       │
                                       ▼
                          ┌──────────────────────────┐
                          │ D6 Parameter Binder      │
+                         │ + Host Interaction       │
+                         └────────────┬─────────────┘
+                                      │
+                                      ▼
+                         ┌──────────────────────────┐
+                         │ Impact / Dependency      │
+                         │ Constraint / Propagation │
                          └────────────┬─────────────┘
                                       │
                                       ▼
                          ┌──────────────────────────┐
                          │ D7 ChangeSet / Approval  │
-                         │ ProviderBinding          │
+                         │ Slice / Unit / Binding   │
                          └────────────┬─────────────┘
                                       │
                     ┌─────────────────┴──────────────────┐
@@ -225,13 +327,27 @@ MCP 只定义服务协议和发现/调用机制，不定义领域权威边界。
                 AutoCAD                                Revit
 ```
 
----
+核心边界：
 
-# 4. 互操作等级
+```text
+Host MCP        = 怎么在具体 Host 执行
+Semantic MCP    = 标准/领域语义和规则是什么
+D4              = 当前允许表达什么 canonical action
+D5              = 当前设计已被理解成什么，以及理解到什么程度
+D6              = 这次 action 的参数具体是什么
+Impact Layer    = 这次修改可能影响什么、什么必须传播/验证
+D7              = 准备审批、分片、绑定、执行和验证什么
+Gateway         = 谁能调用什么、能否执行、如何审计
+LangGraph       = task/workflow/checkpoint/HITL 的最终编排者
+```
 
-DSP 定义四级语义互操作能力：
+# 4. 互操作等级与 Progressive Semantic Model
 
-## L0 — Native
+DSP 的语义模型不是“一次性把 Host 转成完整 IFC”，而是按任务所需逐步提升语义深度、几何精度与事实覆盖范围。
+
+## 4.1 四级语义互操作能力
+
+### L0 — Native
 
 只有 Host 原生对象和原生 ID。
 
@@ -242,22 +358,23 @@ Revit ElementId 38912
 
 仅支持 Host-local 操作。
 
-## L1 — Normalized
+### L1 — Normalized
 
-数据结构已统一为 `NormalizedDesignFact`，但分类可能未知。
+数据结构已统一为 `NormalizedDesignFact`，但 canonical classification 可以未知。
 
-可用于：
+可表达：
 
 - identity；
+- native kind / source scheme；
 - placement；
 - bounds；
 - revision；
-- basic geometry；
+- basic geometry reference；
 - native classification evidence。
 
-## L2 — Canonical
+### L2 — Canonical
 
-至少具备：
+至少具备任务所需的：
 
 ```text
 SemanticIdentity
@@ -268,11 +385,11 @@ Freshness
 Assurance / Provenance
 ```
 
-L2 是跨 Host 高层协作的最低要求。
+L2 是跨 Host 高层协作的最低语义基础，但不意味着实体所有 aspect 已完整重建。
 
-## L3 — Domain / Enterprise
+### L3 — Domain / Enterprise
 
-在 L2 基础上增加：
+在 L2 基础上按需增加：
 
 ```text
 Metro Semantic
@@ -282,9 +399,143 @@ IDS / domain validation
 project-specific mappings
 ```
 
-领域特定操作可要求 L3。
+领域特定操作 MAY 要求 L3。
 
----
+## 4.2 Progressive Semantic Modeling
+
+同一个实体可以随任务逐步提升语义：
+
+```text
+Host Native
+   ↓
+Normalized Fact
+   ↓
+Canonical IFC/DSP semantics
+   ↓
+Metro / Enterprise / discipline semantics
+```
+
+例如 AutoCAD `A31`：
+
+```text
+阶段 1：
+  native_id = A31
+  native_kind = LWPOLYLINE
+  layer = A-WALL
+
+阶段 2：
+  SemanticId = S-WALL-001
+  placement / bounds resolved
+
+阶段 3：
+  classification = ifc:IfcWall
+  dsp:WallThickness = 200mm
+
+阶段 4：
+  metro:WallDesign.DesignThickness = 200mm
+  Metro IDS / engineering constraints resolved
+```
+
+平台 MUST NOT 因为对象最终可能参与 L3 协作，就在每次 Host 编辑后维护其完整 L3 镜像。
+
+## 4.3 Aspect-level progressive state
+
+Semantic Entity 的不同 aspect 可以处于不同的解析深度与覆盖状态：
+
+```text
+S-WALL-001
+
+IDENTITY        resolved
+PLACEMENT       resolved
+CLASSIFICATION  canonical
+PROPERTIES      partial
+RELATIONSHIPS   unresolved
+GEOMETRY        bounds
+METRO           unresolved
+```
+
+因此：
+
+```text
+entity is L2
+```
+
+只能作为粗粒度能力标签，不能替代 aspect-level coverage。
+
+D5 / Snapshot 必须能够表达“哪些 aspect / property / relationship 已被重建”，而不能把局部解析伪装成完整模型。
+
+## 4.4 Geometry Progressive Levels
+
+几何精度独立于 semantic depth：
+
+| Level | 内容 | 典型用途 |
+|---|---|---|
+| `NONE` | 不读取 geometry | 纯属性/分类任务 |
+| `BOUNDS` | AABB/OBB/axis/centroid | 定位、粗过滤、action applicability |
+| `APPROXIMATE` | 简化 mesh/curve | broad-phase clash、快速规划 |
+| `EXACT` | 精确可计算几何 | 精确碰撞、洞口、几何约束 |
+| `NATIVE` | Host 原生 kernel/context | 必须由 Host native API 决定的操作 |
+
+Context Freshness SHOULD 默认限制在 `NONE/BOUNDS`；只有 chosen operation 明确要求时才升级到 `APPROXIMATE/EXACT/NATIVE`。
+
+## 4.5 四个正交维度
+
+DSP 不得把下列概念合并：
+
+```text
+Semantic Depth
+  NATIVE → NORMALIZED → CANONICAL → DOMAIN
+
+Geometry Fidelity
+  NONE → BOUNDS → APPROXIMATE → EXACT → NATIVE
+
+Freshness
+  UNKNOWN / DIRTY / RECONSTRUCTING / FRESH / STALE
+
+Assurance
+  UNKNOWN / HEURISTIC / RULE_DERIVED / STANDARD_MAPPED / NATIVE_ASSERTED
+```
+
+示例：
+
+```yaml
+classification:
+  depth: CANONICAL
+  freshness: FRESH
+  assurance: RULE_DERIVED
+
+geometry:
+  fidelity: BOUNDS
+  freshness: FRESH
+
+metro:
+  depth: DOMAIN
+  coverage: UNRESOLVED
+```
+
+**Freshness 回答“已知事实是否仍与当前 Host revision 对齐”；Coverage/Maturity 回答“系统到底已经理解到了什么”；Assurance 回答“这些理解是如何得到、可信到什么程度”。**
+
+## 4.6 On-demand Semantic Reconstruction
+
+Progressive Model 的默认策略：
+
+```text
+Task requirement
+   ↓
+required semantic aspects / depth / geometry fidelity
+   ↓
+Freshness + Coverage check
+   ↓
+selective reconstruction
+   ↓
+Semantic Providers
+   ↓
+new/updated SemanticProjection
+   ↓
+Snapshot
+```
+
+系统 MUST 优先重用仍满足 contract 的已有 projection；不相关 aspect 不得因任务无关而被强制重建。
 
 # 5. D1 — Host Contract
 
@@ -391,7 +642,7 @@ host revision
 
 ## 7.1 职责
 
-D3 负责发现和标准化 Host/Execution Provider 的“能做什么”。
+D3 负责发现和标准化 Host/Execution Provider 的“能做什么”，而不是决定当前用户最终要执行什么。
 
 Design Capability Profile 至少包含：
 
@@ -409,9 +660,23 @@ rollback_supported
 idempotent
 verification_contract
 provider input/output schema
+provider version / trust metadata
 ```
 
-## 7.2 Semantic constraint 与 Native constraint 分离
+## 7.2 Capability 四类语义
+
+D3 MUST 区分：
+
+| Category | 作用 | 修改模型 | ChangeSet |
+|---|---|---:|---:|
+| `MODEL_OPERATION` | 修改设计事实 | 是 | 必须 |
+| `INTERACTION` | Host-native 用户输入 | 否 | 否 |
+| `VIEW` | 改变视图/导航 | 否 | 否 |
+| `CONTEXT` | 读取 Host 当前上下文 | 否 | 否 |
+
+VIEW / CONTEXT / INTERACTION 不得因为“也是 MCP Tool”而进入模型事务路径。
+
+## 7.3 Semantic constraint 与 Native constraint 分离
 
 禁止继续使用一个模糊的 `entity_constraints` 同时表达：
 
@@ -433,9 +698,46 @@ canonical_entity_constraints
 provider_native_constraints
 ```
 
-前者用于 D4 eligibility；后者用于后期 ProviderBinding。
+- `canonical_entity_constraints`：由 Canonical Action / D4 eligibility 使用；
+- `provider_native_constraints`：由 ProviderBinding / execution validation 使用。
 
----
+Provider Profile MAY 声明 native constraint；平台 Canonical Action Contract 声明 canonical semantic constraint。
+
+## 7.4 Freshness ownership
+
+Provider Profile 的 freshness 默认解释为 **execution / Phase B requirements**。
+
+Context Freshness（Phase A）由平台根据：
+
+```text
+operation taxonomy
+canonical applicability
+task
+current selection/context
+```
+
+派生最小要求。
+
+第三方 Provider MUST NOT 通过 Profile 强迫平台为了“发现能力”读取无关高成本语义或 EXACT geometry。
+
+## 7.5 Provider 只实现 capability，不拥有 canonical action
+
+多个 Provider MAY 实现同一个：
+
+```text
+wall.thickness.set.v1
+```
+
+但 Provider 的：
+
+```text
+revit.set_parameter
+cad.offset_polyline
+```
+
+仅属于 execution interface。
+
+LLM MUST NOT 直接选择 provider/server/tool。
 
 # 8. Canonical Action Catalog
 
@@ -1063,20 +1365,23 @@ AI/LLM 不得自行降低 assurance requirement。
 
 ---
 
-# 19. D5 — Collaboration Kernel
+# 19. D5 — Collaboration Kernel / Progressive Semantic Runtime
 
 ## 19.1 职责
 
 D5 负责回答：
 
-> 当前设计在 canonical collaboration world 中是什么？
+> 当前设计在 canonical collaboration world 中是什么，以及当前任务要求的那部分语义是否足够新鲜、足够完整、足够可信？
 
 D5 不负责：
 
 - Host-native mapping 规则；
+- IFC/Metro/企业 Vocabulary 的权威定义；
 - LLM action description；
 - provider execution schema；
 - 最终 Host API 调用。
+
+D5 通过 Semantic Service contract 使用语义 Provider，而不依赖具体 IFC/Metro/Enterprise 实现。
 
 ## 19.2 SemanticIdentity
 
@@ -1110,8 +1415,6 @@ S-WALL-001
 
 D5 不得为 IFC GlobalId 建特殊字段。
 
-统一模型：
-
 ```text
 ExternalIdentity
   semantic_id
@@ -1141,11 +1444,10 @@ connectivity
 constraints
 source extensions
 assurance / provenance
+coverage / maturity metadata
 ```
 
-实例只存 term id，不重复存 vocabulary description。
-
-示例：
+实例只存 term id，不复制 Vocabulary description。
 
 ```yaml
 semantic_id: S-WALL-001
@@ -1179,7 +1481,47 @@ CONSTRAINTS
 
 `CLASSIFICATION` 为一等 aspect。
 
-## 19.7 Freshness
+Domain extensions（如 Metro）可在 coverage 中进一步细分，但不得通过新增 Host-specific aspect 污染 Core。
+
+## 19.7 Progressive Coverage / Maturity
+
+D5 必须区分“事实不存在/尚未解析”和“事实已经解析但 stale”。
+
+建议：
+
+```text
+UNRESOLVED
+PARTIAL
+RESOLVED
+```
+
+Coverage 可细到：
+
+```text
+entity
+aspect
+property family
+relationship family
+domain extension
+geometry fidelity
+```
+
+例如：
+
+```yaml
+coverage:
+  identity: RESOLVED
+  classification: RESOLVED
+  properties:
+    dsp:WallThickness: RESOLVED
+    fire_rating: UNRESOLVED
+  geometry:
+    fidelity: BOUNDS
+  relationships: PARTIAL
+  metro: UNRESOLVED
+```
+
+## 19.8 Freshness
 
 D5 保留：
 
@@ -1191,9 +1533,30 @@ UNKNOWN
 RECONSTRUCTING
 ```
 
-以及 Context Freshness / Operation Freshness 两阶段 barrier。
+Freshness 与 coverage 正交：
 
-## 19.8 Change Journal / DirtyMap
+- `UNRESOLVED` 不是 `STALE`；
+- `FRESH` 不意味着“所有语义都已解析”；
+- `RESOLVED` 不意味着“当前 revision 仍然 fresh”。
+
+## 19.9 Assurance / Provenance
+
+每个关键 claim MAY 带：
+
+```text
+assurance_level
+producer
+provider_id/version
+mapping_profile
+rule_id
+evidence
+confidence
+source_revision
+```
+
+Freshness barrier 与 Assurance barrier 可以分别失败。
+
+## 19.10 Change Journal / DirtyMap
 
 Host delta 经 semantic ingest 后形成：
 
@@ -1214,13 +1577,90 @@ document + semantic_id + aspect
 
 跟踪状态。
 
----
+## 19.11 Reconstruction Engine
 
-# 20. Snapshot 与 SemanticProjectionRef
+Reconstruction Engine 负责把任务 requirement 转换为 selective reconstruction 工作：
 
-## 20.1 ReconstructionResult
+```text
+required coverage
++ required freshness
++ required assurance
++ geometry fidelity
+      ↓
+missing / stale set
+      ↓
+Native Fact read / Semantic Provider calls
+      ↓
+Projection update
+      ↓
+Snapshot
+```
 
-Reconstruction 不得只返回 freshness guarantee，还应绑定实际 semantic projection：
+Reconstruction MUST 是 task-scoped / coverage-scoped，不得把“需要一项属性”自动扩大为全项目 IFC 重建。
+
+# 20. Semantic Freshness Contract / Snapshot / SnapshotSet
+
+## 20.1 SemanticFreshnessContract
+
+Freshness 必须由显式 contract 驱动，而不是简单 `ensure_fresh=true`。
+
+```text
+SemanticFreshnessContract {
+  contract_id
+  project_id
+  contract_type: CONTEXT|OPERATION
+  root_entities[]
+  requirements[] {
+    aspect
+    required_state
+    minimum_coverage?
+    semantic_depth?
+    geometry_fidelity?
+    minimum_assurance?
+  }
+  neighborhood {
+    depth
+    relations[]
+  }
+}
+```
+
+## 20.2 Two-phase Freshness
+
+### Phase A — Context Freshness
+
+Operation Resolution / 初步 LLM planning 前，只重建发现 action space 所需最小事实：
+
+```text
+selection
+identity
+classification/native kind
+document revision
+lightweight properties
+geometry <= BOUNDS by default
+```
+
+产出 `ContextSnapshot`。
+
+### Phase B — Operation Freshness
+
+Canonical operation + material arguments/targets 已知后，根据 operation definition 精确生成要求：
+
+```text
+OperationProposal
+  ↓
+OperationFreshnessContract
+  ↓
+selective reconstruction
+  ↓
+PlanningSnapshot
+```
+
+若 operation、targets 或会改变 required aspects 的关键参数变化，MUST 重新生成 Phase B contract。
+
+## 20.3 ReconstructionResult
+
+Reconstruction 不得只返回 freshness guarantee，还必须绑定实际 semantic projection/environment：
 
 ```text
 ReconstructionResult
@@ -1232,7 +1672,7 @@ ReconstructionResult
   semantic_environment_ref
 ```
 
-## 20.2 SemanticProjectionRef
+## 20.4 SemanticProjectionRef
 
 ```text
 projection_id
@@ -1243,27 +1683,60 @@ provider_set_hash
 mapping_profile_set_hash
 ```
 
-## 20.3 SemanticSnapshot
+## 20.5 SemanticSnapshot
 
 ```text
-snapshot_id
-kind
-project_id
-freshness_contract_id/hash
-document_ref
-base_host_revision
-coverage
-aspect_guarantees
-semantic_projection_ref
-semantic_environment_ref
-hash
+SemanticSnapshot
+  snapshot_id
+  kind: CONTEXT|PLANNING
+  project_id
+  freshness_contract_id/hash
+  document_ref
+  base_host_revision
+  coverage
+  aspect_guarantees[]
+  semantic_projection_ref
+  semantic_environment_ref
+  hash
 ```
+
+`aspect_guarantees` 只能对 contract coverage 声明保证；局部 reconstruction 不得被解释为整个 document fresh。
+
+## 20.6 SnapshotSet
+
+所有 ChangeSet Core 统一引用 Planning `SnapshotSet`，即使 MVP 只有一个 Host。
+
+```text
+SnapshotSet {
+  snapshot_set_id
+  kind: PLANNING
+  members[] {
+    document_ref
+    snapshot_id
+    snapshot_hash
+    base_host_revision
+    semantic_projection_ref
+    semantic_environment_ref
+  }
+  hash
+}
+```
+
+跨 Host：
+
+```text
+PS-CAD-01 ─┐
+PS-RVT-01 ─┼→ SnapshotSet PSS-01 → ChangeSet
+PS-TKL-01 ─┘
+```
+
+任一 member revision / snapshot hash / semantic environment 发生变化，都必须使 SnapshotSet hash 变化并触发 ChangeSet 重新验证。
+
+## 20.7 Snapshot invariant
 
 PlanningSnapshot 必须能够证明：
 
-> 审批时看的是哪一份 Host revision、哪一份 semantic projection、哪一套 provider/mapping 环境。
-
----
+> 审批时看的是哪一个 Host revision、哪一份 semantic projection、哪一个 coverage、哪套 provider/mapping environment，以及哪些 aspect/fidelity/assurance 被保证。
 
 # 21. D5 Read API
 
@@ -1331,7 +1804,7 @@ Current thickness:
 
 ---
 
-# 23. D6 — Parameter Binder
+# 23. D6 — Parameter Binder / Host Interaction
 
 ## 23.1 Slot Binding Model
 
@@ -1353,8 +1826,6 @@ PROVIDER
 
 LLM 主要填写 `INTENT`。
 
-例如：
-
 ```text
 wall.thickness.set.v1
 
@@ -1371,95 +1842,451 @@ thickness:
 把这堵墙加厚到 300mm
 ```
 
-LLM 只需要输出：
+LLM 只需给出 operation + `thickness=300mm`；target 可从 ContextSnapshot 确定性绑定。
+
+## 23.3 Host-native Interaction
+
+当某个参数不能从 intent/context/default/derived 确定性获得，而必须由设计师在 Host canvas 中选择时，D6 发起 Host-native interaction。
+
+首批 interaction：
 
 ```text
-operation = wall.thickness.set.v1
-thickness = 300mm
+SELECT_ENTITIES
+PICK_POINT
+PICK_DIRECTION
+INPUT_NUMBER
+CONFIRM
+CANCEL
 ```
 
-D6 从 ContextSnapshot 绑定 target。
+LLM 不应通过自然语言要求用户手工输入 native id 或坐标来替代可用的 Host interaction。
 
-## 23.3 BoundOperationProposal
+## 23.4 InteractionSession
+
+长时间用户交互必须显式 session 化：
 
 ```text
-operation
-arguments
-binding_evidence
-snapshot_ref
-semantic_environment_ref
+InteractionSession {
+  interaction_id
+  task_id
+  host_instance_id
+  document_id
+  interaction_type
+  input_constraints
+  result_schema
+  state: PENDING|COMPLETED|CANCELLED|EXPIRED
+  result?
+  created_at
+  expires_at
+}
 ```
 
----
+`interaction.start` 属于 side-effecting operation，必须使用稳定 idempotency_key；网络重试不得弹出第二个 Host prompt。
 
-# 24. D7 — ChangeSet / Approval / Execution
-
-## 24.1 ChangeSet
-
-ChangeSet 代表准备被执行和审批的 canonical change，而不是 Host command 集合。
-
-至少包含：
+## 23.5 BoundOperationProposal
 
 ```text
-changeset_id
-planning_snapshot_set
-semantic_environment_ref
-canonical_operations
-before/after intent
+BoundOperationProposal
+  operation
+  arguments
+  binding_evidence
+  context_snapshot_ref
+  planning_requirements
+  semantic_environment_ref
+```
+
+Binding evidence 至少区分：
+
+```text
+target ← ContextSnapshot.selection
+thickness ← UserIntent
+point ← InteractionSession
+unit ← CanonicalDefault
+```
+
+## 23.6 Provider-bound slot
+
+`PROVIDER` slot 只在 ProviderBinding 以后出现，例如：
+
+```text
+Revit ElementId
+AutoCAD Handle
+internal unit
+revision token
+idempotency key
+```
+
+这些字段不得进入 LLM-visible canonical schema。
+
+## 23.7 Host-native UX / View Navigation
+
+Host 内交互 SHOULD 优先保持 ambient / spatial：
+
+```text
+Agent Orb → Peek → Task Card → Host Canvas
+```
+
+该 UI 形态不是 Semantic/D5 contract，但主架构必须保持：
+
+- entity selection / point / direction picking 在 Host Canvas 完成；
+- VIEW 不产生 ChangeSet；
+- CONTEXT 为 read-only；
+- INTERACTION 通过 InteractionSession；
+- MODEL_OPERATION 才进入 ChangeSet/Approval。
+
+典型 VIEW：
+
+```text
+FIT_ENTITIES
+FOCUS_ENTITY
+RESTORE_VIEW
+NEXT_ISSUE
+```
+
+# 24. Semantic Dependency / Constraint / Impact / Propagation
+
+## 24.1 五类图不得混淆
+
+| Graph | 生命周期 | 回答的问题 |
+|---|---|---|
+| Relationship Graph | 长期 | A 与 B 有什么关系？ |
+| Dependency Graph | 长期 | A 改了可能影响 B 吗？ |
+| Constraint / Invariant Graph | 长期 | 修改后必须/应该满足什么？ |
+| Change Impact Graph | task runtime | 这次修改实际预计影响什么？ |
+| Change DAG | task runtime | 最终派生修改的因果/执行结构是什么？ |
+
+IFC/Metro relationship 不得自动等价为 dependency。
+
+Semantic Provider 可以提供 relationship、constraint、rule evidence；D5/Dependency layer 决定它们是否参与当前 task impact。
+
+## 24.2 Dependency strength
+
+```text
+HARD
+SOFT
+ADVISORY
+```
+
+- HARD：保持系统/工程 invariant；
+- SOFT：存在设计选择；
+- ADVISORY：只影响检查/提示。
+
+## 24.3 Propagation owner
+
+```text
+HOST_NATIVE
+SEMANTIC_RUNTIME
+AGENT
+```
+
+- `HOST_NATIVE`：Host associativity 自己产生副作用，平台 predict + verify；
+- `SEMANTIC_RUNTIME`：规则可确定性派生；
+- `AGENT`：存在设计自由度，需要 replan / HITL。
+
+## 24.4 Propagation actions
+
+至少：
+
+```text
+AUTO_MUTATE
+RECOMPUTE
+REVALIDATE
+MARK_DIRTY
+REPLAN
+BLOCK
+```
+
+Dependency propagation MUST NOT 被实现成“所有相关对象都自动修改”。
+
+## 24.5 Exception-first review
+
+大量派生影响应按：
+
+```text
+rule
+strategy
+discipline
 risk
-policy decision
-approval state
-verification plan
+scope
 ```
 
-## 24.2 ProviderBinding
+分组。
 
-只有执行阶段才做：
+安全、确定性的 propagation 可汇总展示；跨专业、高风险、有设计自由度或超出 intent boundary 的部分进入 `Exception Set`。
+
+## 24.6 Metro Semantic 与 dependency
+
+Metro Provider 可提供：
+
+```text
+domain relationships
+IDS requirements
+engineering constraints
+validation rules
+mapping provenance
+```
+
+但 Metro Provider 不直接拥有 ChangeSet propagation 决策。
+
+其输出作为 evidence 进入 Dependency / Constraint / Impact Analyzer。
+
+# 25. D7 — ChangeSet / Approval / Execution / Verification
+
+## 25.1 生成链路
+
+```text
+BoundOperationProposal
+   ↓
+Operation Freshness → PlanningSnapshot → SnapshotSet
+   ↓
+Impact Analyzer / Propagation
+   ↓
+ApprovalScopeBoundary
+   ↓
+ChangeSetBuilder
+   ↓
+Immutable ChangeSet
+   ↓
+Preview
+   ↓
+ApprovalToken → ApprovalRecord
+   ↓
+Execution Planner
+   ↓
+ExecutionSlice[]
+   ↓
+ExecutionUnit[]
+   ↓
+RevisionBarrier
+   ↓
+ProviderBinding[]
+   ↓
+binding_set_hash
+   ↓
+ExecutionGrant
+   ↓
+HostCommand
+   ↓
+ActualDelta
+   ↓
+Verify / Scope Check / Reconcile
+```
+
+## 25.2 ChangeSet
+
+ChangeSet 是被规划和审批的 **canonical logical transaction**，不是 Host command 集合。
+
+```text
+ChangeSet {
+  changeset_id
+  task_id / project_id
+  base_snapshot_set_id/hash
+  semantic_environment_ref
+  root_operations[]
+  derived_operations[]
+  preconditions[]
+  affected_entities[]
+  semantic_impacts[]
+  validation_tasks[]
+  approval_scope_boundary_ref
+  risk
+  approval
+  verification
+  rollback
+  hash
+  status
+}
+```
+
+ChangeSet 进入 Preview/Approval 后 SHOULD immutable；任何 canonical operation/target/argument/approved effect scope 变化必须新建 ChangeSet。
+
+## 25.3 ExecutionSlice
+
+ExecutionSlice 是：
+
+```text
+Host instance
++
+document
++
+approved scope
+```
+
+边界，不是 provider 边界。
+
+```text
+ExecutionSlice {
+  execution_slice_id
+  changeset_id
+  host_instance_id
+  document_id
+  approved_scope_ref
+  execution_units[]
+  status
+}
+```
+
+Cross-host ChangeSet：
+
+```text
+ChangeSet
+├── XS-CAD-01
+├── XS-RVT-01
+└── XS-TKL-01
+```
+
+## 25.4 ExecutionUnit — 必须保持 canonical
+
+ExecutionUnit 是最小 provider-binding 单位，但本身仍是 provider-neutral canonical object：
+
+```text
+ExecutionUnit {
+  execution_unit_id
+  execution_slice_id
+  canonical_operation
+  targets[]
+  arguments
+  preconditions[]
+  expected_effects[]
+}
+```
+
+**ExecutionUnit MUST NOT 包含 `provider_tool`、AutoCAD Handle、Revit ElementId、internal unit 等 native execution payload。**
+
+## 25.5 ProviderBinding
+
+只有 execution planning 后才做：
 
 ```text
 SemanticId
-  ↓
+   ↓
 HostBinding
-  ↓
-provider-native id
-  ↓
+   ↓
+provider-native identity
+   ↓
 provider execution schema
 ```
 
-例如：
-
 ```text
-S-WALL-001
-→ Revit ElementId 38912
-→ internal unit conversion
-→ revision 84
-→ Revit tool input
+ProviderBinding {
+  binding_id
+  execution_unit_id
+  canonical_operation
+  provider_server
+  provider_tool
+  provider_version
+  host_instance_id
+  input_adapter_version
+  native_binding_metadata
+  verification_contract
+  rollback_contract
+  binding_expires_at
+}
 ```
 
-ProviderBinding 不由 LLM 完成。
+ProviderBinding 不由 LLM 完成，且不得改变 ExecutionUnit 的 canonical semantics。
 
-## 24.3 ExecutionUnit
-
-ExecutionUnit 是 Host/provider-specific 的最终执行单元，必须带：
+同一 Slice 的全部 ProviderBinding 按规范化顺序生成：
 
 ```text
-changeset_id
-provider_id
-provider_tool
-native arguments
-expected revision
-idempotency key
-verification contract
+binding_set_hash
 ```
 
-## 24.4 Verification
+## 25.6 ApprovalScopeBoundary
 
-执行后：
+用户批准的是：
+
+```text
+ChangeSet hash
++
+effect scope
+```
+
+不是 Host API 的任意隐式副作用。
+
+ApprovalScopeBoundary 至少支持：
+
+```text
+existing_entity_rules
+creation_rules
+deletion_rules
+propagation_bundle_ids
+execution_slice_scopes
+scope_hash
+```
+
+CREATE / COPY / OFFSET / SPLIT / ROUTE 等不能仅靠“旧实体白名单”判断范围。
+
+## 25.7 ApprovalToken / ApprovalRecord / ExecutionGrant
+
+```text
+ApprovalToken
+  ↓ one-time apply admission
+ApprovalRecord
+  ↓ durable approval evidence
+ExecutionGrant
+  ↓ per ExecutionSlice authorization
+Provider / Sidecar
+```
+
+ApprovalRecord 至少绑定：
+
+```text
+changeset_hash
+approved_scope_hash
+semantic_environment_ref/hash
+policy_snapshot_hash
+approver
+approved_at
+```
+
+ExecutionGrant 至少绑定：
+
+```text
+approval_id
+changeset_hash
+execution_slice_id
+binding_set_hash
+host_instance_id
+approved_scope_hash
+allowed_operations
+expires_at
+```
+
+ProviderBinding 改变但 canonical ChangeSet/scope 未改变时：
+
+```text
+old binding_set_hash → old grant invalid
+new binding_set_hash → reissue grant
+```
+
+不必重复用户审批。
+
+## 25.8 HostCommand
+
+最终 native execution payload 才进入：
+
+```text
+HostCommand {
+  command_id
+  task_id / project_id
+  document_id
+  mode
+  provider operation
+  target_native_refs[]
+  payload
+  preconditions[]
+  idempotency_key
+  deadline_at?
+}
+```
+
+## 25.9 Verification / Reconcile
 
 ```text
 Host write
   ↓
-Host read-back / delta
+Host read-back / ActualDelta
   ↓
 Host revision update
   ↓
@@ -1467,81 +2294,831 @@ D5 dirty/reconstruct
   ↓
 new SemanticSnapshot
   ↓
-compare intended vs observed semantic effect
+expected semantic result comparison
+  +
+ApprovalScopeBoundary comparison
 ```
 
----
+`Host success=true` 不等于 semantic verified。
 
-# 25. “墙体加厚到 300mm”完整流程
+## 25.10 SCOPE_BREACH
 
-假定：
+若：
+
+```text
+ActualDelta ⊄ ApprovalScopeBoundary
+```
+
+必须返回：
+
+```text
+SCOPE_BREACH
+```
+
+并：
+
+```text
+stop not-yet-started slices
+→ compensate/rollback when safe
+→ Exception Set
+→ new ChangeSet
+→ reapproval
+```
+
+不得只记录 warning 后继续。
+
+## 25.11 Cross-host Saga / Compensation
+
+DSP 不实现 XA/2PC。
+
+跨 Host ChangeSet 使用 Saga：
+
+```text
+Slice A success
+Slice B failure
+  ↓
+PARTIALLY_COMMITTED
+  ↓
+Compensation Planner
+  ↓
+Compensating ChangeSet(s)
+```
+
+补偿自身也是 ChangeSet，必须可审计、可验证；不得用隐藏 undo 绕过平台记录。
+
+## 25.12 Optimistic concurrency
+
+设计师持续编辑时不锁住整个 Host。
+
+执行前必须：
+
+```text
+RevisionBarrier
+```
+
+Host revision / precondition 不匹配返回：
+
+```text
+REVISION_CONFLICT
+```
+
+然后由 Orchestrator：
+
+```text
+reconstruct → revalidate → replan/new ChangeSet
+```
+
+# 26. “墙体加厚到 300mm”完整流程
+
+假定设计师当前只要求“把这堵墙加厚到 300mm”。
+
+初始 D5 可能只有：
 
 ```text
 S-WALL-001
-classification = ifc:IfcWall
-current dsp:WallThickness = 200mm
-Metro evidence = PsetProj_WallDesign.DesignThickness = 200mm
-freshness = FRESH
-assurance = STANDARD_MAPPED / RULE_DERIVED
+HostBinding = Revit ElementId 38912 / 或 AutoCAD Handle A31
+IDENTITY = FRESH
+PLACEMENT = FRESH
+GEOMETRY = BOUNDS
+CLASSIFICATION = unresolved or canonical
+PROPERTIES.thickness = unresolved or 200mm
+METRO = unresolved
 ```
 
 流程：
 
 ```text
-1. 用户
-   “把这堵墙加厚到300mm”
+1. User
+   “把这堵墙加厚到 300mm”
 
-2. D5 ContextSnapshot
-   selection = S-WALL-001
-   classification = ifc:IfcWall
+2. D5 Context Freshness
+   只保证 operation discovery 所需：
+   identity / selection / classification / lightweight context
+   geometry 不升级到 EXACT
 
-3. Semantic Service
-   IFC Provider → IfcWall definition
-   Metro Provider → wall domain rules / DesignThickness requirement
+3. Progressive reconstruction（如需要）
+   AutoCAD:
+      layer/fact → Enterprise Provider → ifc:IfcWall
+   Revit:
+      native semantic evidence → thin mapping → ifc:IfcWall
 
 4. D4
-   eligible action = wall.thickness.set.v1
+   eligible canonical action:
+      wall.thickness.set.v1
 
 5. LLM
-   thickness = 300mm
+   只填写 INTENT：
+      thickness = 300mm
 
 6. D6
    target = S-WALL-001       [CONTEXT]
    thickness = 300mm         [INTENT]
 
-7. D5 Operation Freshness / Assurance
-   CLASSIFICATION = FRESH
-   PROPERTIES = FRESH
-   assurance requirement satisfied
+7. Operation Freshness Contract
+   要求：
+      CLASSIFICATION = FRESH
+      PROPERTIES.wall_thickness = FRESH
+      required coverage = resolved
+      assurance >= configured minimum
+      geometry fidelity = only if operation/provider verification requires
 
-8. D7 ChangeSet
-   before = 200mm
-   after  = 300mm
-   bind PlanningSnapshot + SemanticEnvironment
+8. D5 selective reconstruction
+   得到 PlanningSnapshot PS-001
+   bind SemanticProjectionRef + SemanticEnvironmentRef
 
-9. ProviderBinding
-   Revit:
-      S-WALL-001 → ElementId 38912
-      300mm → Revit internal unit
+9. Impact Analyzer
+   检查：
+      related openings / connections / annotations / metro constraints
+   生成 predicted impact + propagation bundles + Exception Set
 
-   or AutoCAD:
-      S-WALL-001 → Handle A31
-      enterprise semantic/provider mapping → native execution plan
+10. ChangeSetBuilder
+    ChangeSet CS-001:
+      before = 200mm
+      after  = 300mm
+      base SnapshotSet = PSS-001
+      ApprovalScopeBoundary = ASB-001
 
-10. Host execution
+11. Preview / Approval
+    user/policy approves:
+      CS-001 hash + ASB-001 hash + SemanticEnvironment
+    persist ApprovalRecord AR-001
 
-11. HostDelta
+12. Execution Planner
+    Revit path:
+       ExecutionSlice XS-RVT-01
+    or AutoCAD path:
+       ExecutionSlice XS-CAD-01
 
-12. D5 reconstruction
-    new canonical thickness = 300mm
+13. Expand canonical ExecutionUnit
+    EU-001:
+       operation = wall.thickness.set.v1
+       target = S-WALL-001
+       thickness = 300mm
 
-13. Verification
-    intended semantic effect == observed semantic effect
+14. RevisionBarrier
+    exact target Host revision still matches planning preconditions
+
+15. ProviderBinding
+    Revit:
+       S-WALL-001 → ElementId 38912
+       300mm → Revit internal unit
+       provider tool selected deterministically
+
+    AutoCAD:
+       S-WALL-001 → Handle A31
+       enterprise/native execution adapter selected
+
+    EU-001 本身不改变。
+
+16. Gateway
+    binding_set_hash
+      ↓
+    ExecutionGrant EG-001
+
+17. Host execution
+    HostCommand + idempotency_key
+
+18. Host ActualDelta
+    native changes + implicit associativity effects
+
+19. D5
+    dirty → selective reconstruction
+    publish new SemanticProjection / Snapshot
+
+20. Verify / Scope Check
+    intended wall thickness == observed 300mm
+    ActualDelta ⊆ ApprovalScopeBoundary
+
+21. Result
+    inside scope + verify pass → SUCCEEDED
+
+    outside scope → SCOPE_BREACH
+      → stop remaining slices
+      → compensate/reapproval
 ```
 
----
+关键点：
 
-# 26. Semantic Authority 与冲突规则
+- Revit 与 AutoCAD 共用同一个 canonical operation / ChangeSet 语义；
+- 差异只在 HostBinding / ProviderBinding / HostCommand；
+- Progressive Model 只提升当前 operation 需要的语义，不重建无关 Metro/geometry；
+- 若 Metro rule 是本次操作的 policy/validation requirement，才将相关 domain coverage 提升到 L3。
+
+# 27. Enterprise MCP Gateway 与 Runtime Surfaces
+
+## 27.1 Gateway 定位
+
+Semantic MCP Server 与 Enterprise MCP Gateway 不是同一个组件。
+
+```text
+Agent / Orchestrator
+       ↓
+Enterprise MCP Gateway
+       ├── Semantic MCP
+       └── Host / Execution MCP
+```
+
+Gateway 负责治理；Semantic MCP 负责语义服务。
+
+## 27.2 Gateway MUST
+
+```text
+Authentication / Authorization
+Policy enforcement
+MCP routing
+quota / rate limit
+audit / trace
+approval admission
+ExecutionGrant issuance/enforcement
+data egress policy
+```
+
+## 27.3 Gateway MUST NOT
+
+```text
+BIM/CAD design planning
+own LangGraph workflow state
+own canonical ChangeSet
+modify Host native model
+redefine IFC/Metro semantics
+perform free-form engineering reasoning
+```
+
+## 27.4 三类 Runtime Surface
+
+### LLM-facing
+
+每一步只暴露 3~10 个：
+
+```text
+ResolvedOperation
+```
+
+以及 task-scoped semantic context。
+
+不得暴露 provider/native details。
+
+### Orchestrator-facing
+
+稳定、少量服务，例如：
+
+```text
+context.current_document
+context.current_selection
+semantic.read
+semantic.ensure_context_fresh
+semantic.ensure_operation_fresh
+operation.resolve
+interaction.start/result
+impact.analyze
+changeset.build/preview/apply/status
+execution.plan
+provider.resolve
+execution.grant
+changeset.verify/rollback
+```
+
+实现 MAY 使用 MCP/HTTP/internal RPC，但逻辑上不等于 LLM 工具列表。
+
+### Provider-facing MCP
+
+可大量扩张：
+
+```text
+cad.move
+cad.offset
+revit.set_parameter
+interaction.pick_point
+view.fit
+context.current_selection
+semantic.resolve_term
+semantic.validate_claim
+```
+
+新增 Provider Tool SHOULD NOT 要求修改 stable Orchestrator surface。
+
+# 28. LangGraph Orchestration / Module Interaction
+
+## 28.1 Workflow owner
+
+LangGraph 是业务 task/workflow/checkpoint/HITL 的最终编排者。
+
+```text
+START
+ ↓ ResolveIntent
+ ↓ ResolveHostContext
+ ↓ EnsureContextFreshness
+ ↓ ResolveOperations
+ ↓ LLM OperationProposal
+ ↓ D6 ParameterBinding / HostInteraction
+ ↓ EnsureOperationFreshness
+ ↓ AnalyzeImpact / Propagation
+ ↓ BuildChangeSet
+ ↓ Preview
+ ↓ Policy / Approval
+ ↓ ExecutionPlanning
+ ↓ RevisionBarrier
+ ↓ ProviderBinding
+ ↓ ExecutionGrant
+ ↓ Apply
+ ↓ Verify / Reconcile / ScopeCheck
+END
+```
+
+若当前实现未来替换 LangGraph，替代框架必须保持同一 ownership/invariant，而不能让 Host UI、MCP Server、LLM 各自维护独立最终 agent loop。
+
+## 28.2 Deterministic nodes
+
+以下 SHOULD 是确定性模块/服务：
+
+```text
+Operation Resolver
+Freshness Resolver
+Parameter Binder
+Impact Analyzer
+ChangeSetBuilder
+Execution Planner
+Provider Resolver
+Policy Engine
+Verify/Reconcile
+Scope Comparator
+```
+
+LangGraph 负责状态迁移、checkpoint、异常恢复，不把这些规则委托给自由形式 LLM。
+
+## 28.3 Async operation
+
+Host interaction、重型 reconstruction、长时间 execution 必须显式返回 typed handle：
+
+```text
+AsyncOperationRef
+```
+
+LangGraph checkpoint/resume 只能依赖显式 handle，不依赖 server hidden session state。
+
+## 28.4 Human change capture
+
+```text
+Designer edits Host
+  ↓
+native events
+  ↓
+Host Plugin Change Sensor
+  ↓ lightweight HostDelta
+Sidecar queue
+  ↓
+D5 Journal / DirtyMap
+```
+
+Host event callback 中 MUST NOT：
+
+```text
+call LLM
+wait Gateway
+run geometry reconstruction
+perform cross-service transaction
+```
+
+## 28.5 Module ownership
+
+一个长期状态只能有一个 authoritative owner：
+
+- Host native design state → Host；
+- SemanticProjection/Snapshot/DirtyMap → D5；
+- Semantic definitions/provider versions → Semantic Service/Provider；
+- ChangeSet → ChangeSet Store；
+- ApprovalRecord/ExecutionGrant → Gateway；
+- InteractionSession → Interaction Coordinator；
+- workflow checkpoint → LangGraph。
+
+# 29. 通用 Envelope / Idempotency / Structured Error
+
+## 29.1 Request / Response Envelope
+
+所有跨服务/进程请求 SHOULD 使用统一 envelope：
+
+```text
+RequestEnvelope {
+  request_id
+  task_id
+  project_id
+  actor_context
+  correlation_ids
+  deadline_at
+  idempotency_key?
+  payload
+}
+
+AsyncOperationRef {
+  type: INTERACTION_SESSION|RECONSTRUCTION_JOB|EXECUTION_JOB|OTHER
+  id
+}
+
+ResponseEnvelope {
+  request_id
+  status: OK|PENDING|ERROR
+  correlation_ids
+  snapshot_ref?
+  operation_ref?: AsyncOperationRef
+  result?
+  error?: ErrorShape
+}
+```
+
+## 29.2 request_id 与 idempotency_key
+
+```text
+request_id
+= 一次 transport attempt
+
+idempotency_key
+= 一个逻辑副作用
+```
+
+同一副作用网络重试：
+
+```text
+new request_id
+same idempotency_key
+```
+
+所有 MODEL_OPERATION 与 `interaction.start` 必须具有稳定 idempotency_key。
+
+## 29.3 Deadline
+
+`deadline_at` 必须是 absolute timestamp。
+
+```text
+child.deadline_at <= parent.deadline_at
+```
+
+转发方 MAY 缩短，不得自行延长。
+
+## 29.4 PENDING
+
+任何：
+
+```text
+status = PENDING
+```
+
+必须返回 typed `AsyncOperationRef`。
+
+调用方不得依赖自然语言 message 或隐式 server session 来猜后续 job/session。
+
+## 29.5 ErrorShape
+
+```text
+ErrorShape {
+  error_code
+  category
+  message
+  correlation_ids
+  retryable
+  details[]
+}
+```
+
+category：
+
+```text
+PROTOCOL
+POLICY
+SEMANTIC
+EXECUTION
+CONSISTENCY
+```
+
+## 29.6 Core error codes
+
+至少保留/新增：
+
+```text
+UNAUTHORIZED
+QUOTA_EXCEEDED
+SCHEMA_INVALID
+APPROVAL_REQUIRED
+EXECUTION_GRANT_INVALID
+CAPABILITY_FORBIDDEN
+PROVIDER_UNAVAILABLE
+
+FRESHNESS_INSUFFICIENT
+ASSURANCE_INSUFFICIENT
+SEMANTIC_COVERAGE_INSUFFICIENT
+SNAPSHOT_STALE
+SEMANTIC_PROVIDER_UNAVAILABLE
+SEMANTIC_ENVIRONMENT_MISMATCH
+SEMANTIC_TERM_CONFLICT
+MAPPING_AMBIGUOUS
+
+REVISION_CONFLICT
+HOST_LOCK_UNAVAILABLE
+HOST_COMMAND_FAILED
+INTERACTION_CANCELLED
+
+VERIFY_FAILED
+SCOPE_BREACH
+SLICE_PARTIAL_FAILED
+```
+
+自然语言错误文本不得成为 retry/replan/compensation 的机器决策依据。
+
+# 30. 安全、授权与威胁模型
+
+## 30.1 安全原则
+
+```text
+least privilege
+default deny
+capability as permission boundary
+immutable approval evidence
+audit cannot be bypassed
+```
+
+## 30.2 授权链
+
+```text
+User / enterprise IdP
+  ↓ OAuth2/OIDC
+Agent Runtime
+  ↓
+Enterprise Gateway
+  ↓ policy
+ApprovalToken
+  ↓ changeset.apply admission
+ApprovalRecord
+  ↓
+ExecutionSlice / ProviderBinding / binding_set_hash
+  ↓
+ExecutionGrant
+  ↓ mTLS/workload identity/delegation
+Provider / Sidecar
+  ↓
+Host Plugin
+```
+
+Provider 不得获得用户原始 IdP token，只获得最小 delegation context。
+
+## 30.3 SemanticEnvironment 进入批准证据
+
+Approval / Planning 必须绑定：
+
+```text
+ChangeSet hash
+ApprovalScopeBoundary hash
+SemanticEnvironmentRef/hash
+PolicySnapshot hash
+```
+
+批准后 Provider/Vocabulary 自动升级不得静默改变已批准语义。
+
+## 30.4 威胁模型
+
+| Threat | 典型向量 | 必须缓解 |
+|---|---|---|
+| Prompt injection | 图纸文字/属性/第三方文档诱导写操作 | 设计内容视为 data；写路径必须 ChangeSet+Policy+Approval |
+| Malicious execution provider | 虚报 low risk/rollback/verification | certification + conformance + policy override |
+| Malicious semantic provider | 篡改 mapping/term/rule | namespace authority + version pinning + content hash + provenance |
+| Capability escalation | Skill/LLM 诱导越权 | Policy filter before LLM + Gateway enforcement |
+| Replay | 重放 approval/apply/command | one-time token + grant + stable idempotency + hashes |
+| Data exfiltration | 第三方 MCP 上传模型 | egress policy + DLP + data classification |
+| Local privilege escalation | 伪造 Sidecar/IPC | local ACL + workload identity/handshake |
+| Semantic drift | Provider 自动升级 | SemanticEnvironment pinning |
+
+## 30.5 Data boundary
+
+进入 LLM context 的设计数据由 Context Composer 白名单构造。
+
+默认不得把：
+
+```text
+full model
+full exact geometry
+credentials
+native internal ids not required for context
+```
+
+直接进入 prompt。
+
+## 30.6 Offline write
+
+v0.6 默认：
+
+- VIEW / CONTEXT / INTERACTION MAY 在 Gateway degraded 时按本地 policy 继续；
+- MODEL_OPERATION MUST NOT 在缺少 Gateway authorization / ApprovalRecord / ExecutionGrant 时执行；
+- Semantic Runtime 无法提供所需 PlanningSnapshot 时不得 Apply。
+
+未来 offline write 必须由独立 ADR 引入 signed offline capability lease。
+
+# 31. 可观测性与审计
+
+## 31.1 Correlation model
+
+```text
+task_id
+ |- interaction_id[]
+ '- changeset_id
+     |- execution_slice_id[]
+         |- execution_unit_id[]
+         |   '- command_id[]
+         '- execution_id[]
+```
+
+全链路 SHOULD 传播 W3C TraceContext。
+
+## 31.2 审计事件
+
+至少：
+
+```text
+operation.resolved
+semantic.term.resolved
+semantic.mapping.applied
+semantic.claim.validated
+semantic.environment.pinned
+semantic.projection.published
+freshness.enforced
+assurance.checked
+impact.analyzed
+changeset.built
+preview.presented
+approval.granted/denied
+provider.bound
+execution.grant.issued/denied
+changeset.applied
+verify.completed
+scope.checked/breached
+compensation.executed
+policy.denied
+```
+
+审计 MUST append-only，并包含 actor、timestamp、correlation ids 与关键 hash/ref。
+
+## 31.3 Metrics
+
+至少：
+
+```text
+resolver_pipeline_latency
+semantic_provider_latency
+mapping_hit_rate
+freshness_barrier_duration
+reconstruction_duration
+projection_publish_duration
+apply_success_rate
+revision_conflict_rate
+verify_failure_rate
+scope_breach_rate
+interaction_completion_rate
+```
+
+Host native event callback 中不得同步发送重型 telemetry。
+
+# 32. 性能与容量目标
+
+参考初始负载：
+
+```text
+单文档 <= 50,000 entities
+单 task affected entities <= 500
+```
+
+v0.6 初始 p95 目标：
+
+| Metric | Target |
+|---|---:|
+| CURRENT_SELECTION 等轻量 context | <= 500 ms |
+| Operation Resolver（provider <= 200） | <= 300 ms |
+| cached resolver path | <= 50 ms |
+| Semantic term/description cached lookup | <= 50 ms |
+| Semantic mapping/validation single claim cached | <= 100 ms |
+| Freshness barrier（geometry <= APPROXIMATE, depth <= 2） | <= 5 s |
+| MOVE ChangeSet + Preview ready | <= 2 s |
+| Apply → HostDelta（<=100 entities） | <= 3 s |
+| Read-back Verify（<=100 entities） | <= 5 s |
+
+上述数值是 baseline candidate，必须通过 reference vertical slice 实测后再冻结 SLO。
+
+预计超时的 reconstruction/execution SHOULD 转为 async job，不得无限阻塞 Host UI。
+
+# 33. 版本化、兼容与弃用
+
+## 33.1 HostContract
+
+HostContract 使用 major.minor。
+
+- major 不兼容 → 拒绝协作；
+- minor → 协商兼容版本；
+- 新增可选字段属于 minor；
+- native API 类型泄漏进公共 contract 属于架构破坏。
+
+## 33.2 Canonical Action
+
+Canonical operation 使用稳定版本 id：
+
+```text
+wall.thickness.set.v1
+curve.offset.v1
+```
+
+语义破坏性变化必须注册新 major operation id，不得原地修改既有含义。
+
+## 33.3 Semantic Provider
+
+Provider version/content hash 进入 `SemanticEnvironment`。
+
+影响机器语义的：
+
+```text
+domain/range/unit/constraint/mapping semantics
+```
+
+必须改变 content/environment hash。
+
+presentation-only：
+
+```text
+label/description/translation/example
+```
+
+不应自动改变 semantic content hash。
+
+## 33.4 Protocol compatibility
+
+Semantic MCP / Host MCP 的 transport/protocol upgrade 不得自动改变领域 contract。
+
+Provider Manifest 必须声明：
+
+```text
+compatible contract/protocol versions
+```
+
+## 33.5 Deprecation
+
+Canonical Action / Provider / Semantic term extension SHOULD 支持：
+
+```text
+ANNOUNCED
+DOWN_RANKED
+REMOVED
+```
+
+并保留 successor / migration metadata。
+
+# 34. 部署拓扑与运行环境
+
+## 34.1 推荐部署
+
+| Component | Location |
+|---|---|
+| Host Plugin | 设计师工作站 in-process |
+| Host Sidecar / Host MCP | 设计师工作站本地进程 |
+| Enterprise Gateway | 企业私有云/数据中心 |
+| Registry / Policy | Gateway 信任域 |
+| Semantic MCP Service | 服务端/可本地部署 |
+| D5 Semantic Runtime | 服务端集群或项目级服务 |
+| Semantic Providers | in-process / service / MCP / database，按 manifest |
+| ChangeSet / Approval / Audit Store | 企业服务端 |
+
+## 34.2 网络
+
+```text
+Plugin ↔ Sidecar
+  local IPC / authenticated loopback
+
+Workstation ↔ Gateway
+  HTTPS + mTLS
+
+Gateway ↔ remote Providers
+  mTLS + workload identity
+```
+
+所有节点要求可靠时钟同步，用于 deadline/audit/grant expiry。
+
+## 34.3 Cache
+
+Semantic Service SHOULD 支持：
+
+```text
+immutable provider version cache
+pinned SemanticEnvironment cache
+approved definition offline read cache
+```
+
+缓存不得绕过 authority/version/hash 校验。
+
+## 34.4 Degraded mode
+
+Gateway 不可用：
+
+```text
+VIEW / CONTEXT / INTERACTION → MAY
+MODEL_OPERATION → MUST NOT
+```
+
+Semantic Provider 暂时不可用但 pinned/cache definition 足够完成已批准 read/verify 时 MAY 降级；若 authoritative term/mapping/validation 是当前操作必要条件，则 fail closed。
+
+# 35. Semantic Authority 与冲突规则
 
 ## 26.1 Namespace ownership
 
@@ -1594,7 +3171,7 @@ add validation rules
 
 ---
 
-# 27. Description / Presentation Metadata
+# 36. Description / Presentation Metadata
 
 ## 27.1 Semantic Term
 
@@ -1667,7 +3244,7 @@ mapping semantics
 
 ---
 
-# 28. 缓存、可用性与失败策略
+# 37. 缓存、可用性与失败策略
 
 ## 28.1 Semantic MCP 可用性
 
@@ -1695,7 +3272,7 @@ Semantic Service SHOULD 支持：
 
 ---
 
-# 29. Policy 与安全边界
+# 38. Policy Execution Gates
 
 写操作必须至少经过：
 
@@ -1723,7 +3300,7 @@ LLM 不得：
 
 ---
 
-# 30. Repository Target Layout
+# 39. Repository Target Layout
 
 建议目标目录：
 
@@ -1732,6 +3309,8 @@ contracts/
   host/
   semantic_ingest/
   canonical_actions/
+  runtime_envelope/
+  changeset/
 
 hosts/
   autocad/
@@ -1739,15 +3318,21 @@ hosts/
     sidecar/
   revit/
     ...
+  tekla/
+    ...
 
 platform/
+  gateway/                    # auth / policy / audit / grants
   capability/                 # D3
   canonical_actions/          # shared action contracts
-  orchestrator/               # D4 orchestration/resolution
+  orchestrator/               # LangGraph + D4 workflow integration
   semantic_service/           # Semantic MCP / registry / routing
-  semantic_runtime/           # D5 Collaboration Kernel
+  semantic_runtime/           # D5 Collaboration Kernel / Progressive Runtime
+  dependency/                 # relationship/dependency/constraint/impact
   parameter_binding/          # D6
-  changeset/                  # D7
+  interaction/                # InteractionSession / coordinator
+  changeset/                  # D7 ChangeSet / scope / slice / unit
+  execution/                  # ProviderBinding / grants / verify / saga
 
 providers/
   semantics/
@@ -1758,31 +3343,76 @@ providers/
 
 tests/
   contracts/
+  gateway/
   semantic_service/
   semantic_runtime/
+  dependency/
   operation_resolution/
   parameter_binding/
+  interaction/
   changeset/
+  execution/
   integration/
   conformance/
+  failure_injection/
 ```
 
 AutoCAD Sidecar 的 Host MCP 保留在 Host 目录，不移动到 Semantic Provider。
 
----
+Gateway、Semantic MCP、Host MCP 是不同边界，不得因都使用 MCP 而合并实现职责。
 
-# 31. Conformance 与测试
+# 40. Conformance 与测试
 
-## 31.1 Host Contract
+## 40.1 测试分层
 
-保持：
+| Layer | 验证对象 |
+|---|---|
+| Host Contract Tests | DTO / schema / IPC / native leakage |
+| Execution Provider Conformance | schema / revision / idempotency / transaction / ActualDelta / verify |
+| Semantic Provider Conformance | manifest / authority / term / mapping / validation / version |
+| D5 Runtime Simulation | progressive coverage / freshness / assurance / snapshot |
+| ChangeSet/Governance | scope / approval / grant / binding / saga |
+| Failure Injection | timeout / replay / conflicts / partial failure |
+| E2E Golden | MOVE / wall thickness / OFFSET / cross-host |
 
-- JSON Schema；
-- Python/.NET mirror；
-- golden files；
-- real Host smoke test。
+## 40.2 Execution Provider 必测
 
-## 31.2 Semantic Provider Conformance
+至少：
+
+```text
+input/output schema validation
+REVISION_CONFLICT
+same idempotency_key retry => no duplicate side effect
+transaction abort => no half commit
+ActualDelta includes implicit Host associativity
+verification independently proves success
+provider switch does not change ExecutionUnit/ChangeSet
+binding_set_hash change invalidates ExecutionGrant
+```
+
+## 40.3 Scope / ChangeSet 必测
+
+```text
+CREATE rule inside scope => pass
+CREATE kind/count/derivation outside scope => SCOPE_BREACH
+DELETE outside scope => SCOPE_BREACH
+ActualDelta outside disclosed propagation => stop remaining slices
+ChangeSet semantic change => new hash / old approval invalid
+```
+
+## 40.4 Snapshot / Progressive Runtime 必测
+
+```text
+Context Freshness does not read EXACT geometry unless required
+Operation Freshness upgrades fidelity only when chosen operation requires
+UNRESOLVED != STALE
+partial coverage cannot claim full-document fresh
+CLASSIFICATION has independent freshness
+PlanningSnapshot binds ProjectionRef + EnvironmentRef
+SnapshotSet member revision/hash/environment change invalidates set
+```
+
+## 40.5 Semantic Provider Conformance
 
 每个 Provider 必须测试：
 
@@ -1795,38 +3425,89 @@ schema output
 mapping determinism
 validation determinism
 conflict behavior
+authority enforcement
+environment pinning
 ```
 
-## 31.3 Metro Semantic Conformance
+## 40.6 Metro Semantic Conformance
 
 Metro Provider 至少测试：
 
 - IFC4X3_ADD2 合法实体白名单；
 - 禁止 IFC 名称；
 - official Pset/Qto 与 `PsetProj_` 区分；
-- `IFC-M / IFC-O / P-M / P-C / P-R / 禁止` 转换；
+- `IFC-M / IFC-O / P-M / P-C / P-R / PROHIBITED`；
 - IDS requirement；
 - 墙/板/Alignment/轨道/隧道/MEP reference cases；
 - 单位与字段类型；
-- mapping provenance。
+- mapping provenance；
+- Metro rule 不覆盖 `ifc:*` canonical authority。
 
-## 31.4 Acceptance proof
+## 40.7 Failure injection
 
-必须有一个“新增 Enterprise Mapping Provider 不修改 D5 Core”的验收测试：
+至少：
+
+```text
+Apply committed but response lost => idempotent replay
+approval wait during designer edit => RevisionBarrier blocks
+second cross-host Slice fails => Saga/partial state
+Sidecar restart => explicit recovery/failure
+Interaction user cancel => CANCELLED + checkpoint resume
+semantic provider unavailable => cached/pinned policy or fail closed
+provider semantic version drift => ENVIRONMENT_MISMATCH
+ActualDelta outside scope => SCOPE_BREACH
+PENDING without AsyncOperationRef => contract failure
+```
+
+## 40.8 Extensibility proof
+
+必须有：
 
 ```text
 A-WALL-* → IfcWall
 ```
 
-安装/移除 mapping pack 仅改变 Provider/config，不改变 Collaboration Kernel 源码。
+验收测试。
 
----
+新增/删除 Enterprise Mapping Provider 只能改变 Provider/config，不得修改 D5 Core。
 
-# 32. Migration from v0.5 / current branch
+还必须有：
 
-## 32.1 可直接保留
+```text
+AutoCAD wall ↔ Revit wall
+same SemanticId
+same canonical operation
+different ProviderBinding
+```
 
-当前 D5 中以下概念继续有效：
+证明 cross-host identity/action 不依赖 Host-specific core branch。
+
+# 41. Migration from v0.5 / current branch
+
+## 41.1 v0.5 Runtime/Governance contracts — 保留并升级
+
+以下不是 legacy，应继续作为 baseline：
+
+```text
+Enterprise Gateway boundary
+LangGraph workflow ownership
+ChangeJournal / DirtyMap
+Two-phase Freshness
+ContextSnapshot / PlanningSnapshot / SnapshotSet
+ExecutionSlice
+canonical ExecutionUnit
+ProviderBinding
+ApprovalToken / ApprovalRecord / ExecutionGrant
+ApprovalScopeBoundary / SCOPE_BREACH
+InteractionSession
+RequestEnvelope / AsyncOperationRef / ErrorShape
+ActualDelta reconciliation
+Dependency / Constraint / Impact / Propagation
+Saga / Compensating ChangeSet
+audit / correlation / performance / compatibility / deployment rules
+```
+
+## 41.2 D5 当前实现可直接保留
 
 ```text
 ChangeJournal
@@ -1841,7 +3522,7 @@ SnapshotSet
 revision / coverage / guarantee barriers
 ```
 
-## 32.2 必须修改
+## 41.3 必须修改
 
 ### Identity
 
@@ -1863,19 +3544,16 @@ HostBinding[]
 ExternalIdentity[]
 ```
 
-### SemanticAspect
+### Progressive D5
 
-新增：
+新增/固化：
 
 ```text
 CLASSIFICATION
-```
-
-### Snapshot
-
-增加：
-
-```text
+coverage / maturity
+semantic depth
+geometry fidelity
+Assurance / Provenance
 SemanticProjectionRef
 SemanticEnvironmentRef
 ```
@@ -1889,19 +3567,34 @@ canonical semantic constraints
 provider native constraints
 ```
 
-### Canonical Action
-
-补充：
+Canonical Action 增加：
 
 ```text
 title
 description
 slot binding
 semantic term refs
-freshness/assurance requirements
+freshness / coverage / assurance requirements
+effects / verification
 ```
 
-## 32.3 新增子系统
+### D7
+
+当前 v0.6 中把 `ExecutionUnit` 写成 provider-specific 的表述必须废弃。
+
+恢复：
+
+```text
+ExecutionSlice
+  ↓
+ExecutionUnit (canonical)
+  ↓
+ProviderBinding (provider/native)
+  ↓
+HostCommand
+```
+
+## 41.4 新增子系统
 
 ```text
 Semantic Service / Semantic MCP Server
@@ -1912,128 +3605,207 @@ Metro Semantic Provider
 Semantic Environment
 Semantic Ingest Contract
 Assurance
+Progressive Coverage/Maturity
 ```
 
----
+## 41.5 不恢复的旧设计
 
-# 33. 实施顺序
+不得恢复：
+
+```text
+ifc_global_id special field in D5 Core
+native+semantic mixed entity_constraints
+Host-specific mapping inside semantic_runtime
+full realtime IFC mirror requirement
+```
+
+# 42. 实施顺序
 
 建议顺序：
 
 ```text
 Phase A — Architecture Freeze
-  1. 本 Spec v0.6
+  1. 本 Spec v0.6 corrected baseline
   2. ADR-005 Semantic Service / Provider Boundary
-  3. Contract naming/version policy
+  3. ADR-006 Progressive Semantic Runtime
+  4. ADR-007 ChangeSet Execution / Approval Boundary
+  5. Contract naming/version policy
 
 Phase B — D5 Baseline Completion
-  4. SemanticIdentity / HostBinding / ExternalIdentity
-  5. CLASSIFICATION aspect
-  6. ProjectionRef / EnvironmentRef
+  6. SemanticIdentity / HostBinding / ExternalIdentity
+  7. CLASSIFICATION aspect
+  8. Progressive coverage/maturity model
+  9. geometry fidelity in FreshnessContract
+  10. ProjectionRef / EnvironmentRef / SnapshotSet invariant
 
 Phase C — Semantic Service
-  7. SemanticProvider contracts
-  8. Semantic Registry / Routing
-  9. Semantic MCP Server
-  10. environment pinning/cache
+  11. SemanticProvider contracts
+  12. Semantic Registry / Routing
+  13. Semantic MCP Server
+  14. environment pinning/cache
 
 Phase D — Reference Providers
-  11. DSP Core Provider
-  12. IFC4.3 Provider
-  13. Metro Semantic Provider
+  15. DSP Core Provider
+  16. IFC4.3 Provider
+  17. Metro Semantic Provider
 
-Phase E — Ingestion Proof
-  14. NormalizedDesignFact contract
-  15. AutoCAD native fact extractor
-  16. fake enterprise A-WALL mapping provider
-  17. prove A-WALL → IfcWall without D5 changes
+Phase E — Ingestion / Progressive Proof
+  18. NormalizedDesignFact contract
+  19. AutoCAD native fact extractor
+  20. enterprise A-WALL mapping provider
+  21. prove A-WALL → IfcWall without D5 changes
+  22. prove task only upgrades required aspects/fidelity
 
-Phase F — Action / Binding / ChangeSet
-  18. Canonical Action contract upgrade
-  19. D4 semantic eligibility
-  20. D6 Slot Binder
-  21. D7 ChangeSet / ProviderBinding / verification
+Phase F — Action / Interaction
+  23. Canonical Action contract upgrade
+  24. D4 semantic eligibility
+  25. D6 Slot Binder
+  26. InteractionSession / Host interaction
+
+Phase G — Impact / ChangeSet / Governance
+  27. Dependency/Constraint/Impact contracts
+  28. ApprovalScopeBoundary
+  29. ChangeSet immutable core
+  30. ExecutionSlice + canonical ExecutionUnit
+  31. ProviderBinding / binding_set_hash
+  32. ApprovalRecord / ExecutionGrant
+  33. Verify / ScopeComparator / Saga
+
+Phase H — Full E2E
+  34. wall thickness Revit
+  35. wall thickness AutoCAD
+  36. OFFSET CREATE scope case
+  37. cross-host SnapshotSet/Saga failure injection
 ```
 
-D6/D7 不应在 Phase B–E 的语义边界未冻结前继续扩大实现。
+原则：
 
----
+- D6/D7 不应在 D5/Semantic Service 核心语义边界未冻结前扩大；
+- 但 v0.5 已冻结的 D7/治理 contract 应先保留在 Spec 中，避免实现阶段重新发明。
 
-# 34. Architecture Invariants
+# 43. Architecture Invariants
 
-以下约束应作为自动架构测试或 code review checklist：
+以下约束应成为自动架构测试或 code review checklist：
 
 1. `semantic_runtime` 不 import AutoCAD/Revit/Tekla native package。
 2. `semantic_runtime` 不 hardcode enterprise layer/family/category mapping。
 3. `semantic_runtime` 不特殊硬编码 IFC GlobalId 字段。
-4. 平台组件通过 Semantic Service contract 使用语义，不直接调用具体 Provider 实现。
+4. 平台通过 Semantic Service contract 使用语义，不直接依赖具体 Semantic Provider。
 5. MCP 是 protocol/transport；Provider Protocol 是 domain contract。
 6. `ifc:*` canonical identity 只能由 pinned IFC Provider 权威定义。
-7. Metro/Enterprise 只能扩展、映射和约束 IFC，不得重定义 IFC canonical meaning。
-8. D4 LLM action space 不暴露 provider-native execution schema。
-9. D6 可确定性绑定的 slot 不交给 LLM。
-10. D7 写操作必须绑定 PlanningSnapshot + SemanticEnvironment。
-11. Snapshot 必须能追溯 exact Host revision、semantic projection 与 provider/mapping set。
-12. 高风险 operation 在 freshness / assurance 不满足时 fail closed。
+7. Metro/Enterprise 只能扩展、映射、约束 IFC，不得重定义 IFC canonical meaning。
+8. Progressive Semantic Runtime MUST 是 task/aspect/coverage scoped，不维护无条件全量实时 IFC 镜像。
+9. `FRESH` 不等于“语义完整”；coverage/maturity 与 freshness 必须分离。
+10. geometry fidelity 与 semantic depth 必须分离。
+11. D4 LLM action space 不暴露 provider-native execution schema。
+12. D6 可确定性绑定的 slot 不交给 LLM。
+13. 所有 MODEL_OPERATION MUST 通过 immutable ChangeSet。
+14. `ExecutionSlice` 是 Host/document/approved-scope 边界，不是 provider 边界。
+15. `ExecutionUnit` MUST 保持 canonical/provider-neutral。
+16. provider tool/native arguments 只能进入 ProviderBinding/HostCommand。
+17. Preview/Approval/Execute 必须绑定同一个 ChangeSet hash 与 approved scope。
+18. ApprovalRecord 必须绑定 SemanticEnvironment。
+19. ProviderBinding 集变化必须改变 binding_set_hash，并使旧 ExecutionGrant 失效。
+20. Host ActualDelta 是执行副作用 reconciliation 的权威事实。
+21. `ActualDelta ⊄ ApprovalScopeBoundary` 必须 SCOPE_BREACH。
+22. Cross-host failure 使用 Saga/Compensating ChangeSet，不使用 XA/2PC。
+23. Snapshot 必须绑定 exact Host revision、coverage、semantic projection、SemanticEnvironment。
+24. SnapshotSet 任一 member 变化必须改变 set hash。
+25. 高风险 operation 在 freshness/coverage/assurance 不满足时 fail closed。
+26. Relationship / Dependency / Constraint / Impact / ChangeDAG 不得混淆。
+27. `request_id` 与 `idempotency_key` 必须分离。
+28. PENDING 响应必须返回 typed AsyncOperationRef。
+29. Gateway 不得承担设计规划或 semantic authority。
+30. Semantic MCP 不得拥有 DSP Canonical Action。
+31. MODEL_OPERATION 在无有效 Gateway authorization/grant 的 degraded mode 下不得执行。
 
----
-
-# 35. 术语表
+# 44. 术语表
 
 | 术语 | 定义 |
 |---|---|
 | Host | 设计软件运行环境，如 AutoCAD、Revit |
 | Host Provider | 提供 Host read/write 能力的插件/Sidecar/MCP |
 | Host Contract | DSP 与 Host 边界的低语义数据契约 |
+| Enterprise Gateway | AuthN/AuthZ、Policy、Routing、Audit、Approval/Grant 的治理边界 |
 | Native Fact | 从 Host 读取的原生事实 |
 | NormalizedDesignFact | Host-neutral 固定结构的事实传输契约 |
+| Progressive Semantic Modeling | 按任务/aspect/coverage 渐进提升语义深度，而非维护全量实时语义镜像 |
+| Semantic Depth | NATIVE / NORMALIZED / CANONICAL / DOMAIN 的语义深度 |
+| Geometry Fidelity | NONE / BOUNDS / APPROXIMATE / EXACT / NATIVE |
+| Semantic Coverage / Maturity | 某 entity/aspect/property/domain 已解析到什么程度 |
 | Semantic Provider | 提供 vocabulary/mapping/validation/projection 的领域实现 |
 | Semantic MCP Server | DSP 统一语义服务的 MCP 协议入口 |
 | IFC4.3 Provider | IFC 标准语义权威 Provider |
 | Metro Semantic | IFC4.3 之上的地铁领域语义、PsetProj、IDS、映射和规则 |
 | DSP Core Semantic | DSP 跨行业协同需要的自有语义 |
-| SemanticEnvironment | 某一时刻被 pin 的完整 Provider/version/hash 集合 |
+| SemanticEnvironment | 某一时刻被 pin 的 Provider/version/hash 集合 |
 | SemanticIdentity | 跨 Host 的 DSP 稳定对象身份 |
 | HostBinding | SemanticIdentity 到 Host native entity 的绑定 |
 | ExternalIdentity | IFC GlobalId 等外部身份的 scheme/value 绑定 |
-| SemanticProjection | 当前设计的 canonical semantic state |
-| Freshness | semantic fact 相对于 Host revision 的新鲜状态 |
+| SemanticProjection | 当前设计已经重建出的 canonical semantic state |
+| Freshness | 已知 semantic fact 相对于 Host revision 的新鲜状态 |
 | Assurance | semantic claim 的来源与可信等级 |
+| SemanticFreshnessContract | 指定 coverage/aspect/fidelity/assurance 的阶段性重建契约 |
+| ContextSnapshot | Phase A freshness 结果 |
+| PlanningSnapshot | Phase B operation freshness 结果 |
+| SnapshotSet | 一个或多个 PlanningSnapshot 的不可变跨 document 集合 |
 | Canonical Action | Host-independent 的用户/Agent 动作语义 |
-| Slot Binding | Canonical Action 参数的来源分类与绑定过程 |
-| ChangeSet | 被规划/审批的 canonical change 集合 |
-| ProviderBinding | Canonical target/argument 到 Host provider-native 输入的确定性转换 |
+| Slot Binding | Canonical Action 参数来源与确定性绑定过程 |
+| InteractionSession | Host-native 长时间用户交互的显式 session |
+| Dependency Graph | 描述变化可能影响关系，不等同 Relationship Graph |
+| Change Impact Graph | 当前 ChangeSet/task 的实际预计影响图 |
+| ChangeSet | 被规划/审批的 canonical immutable logical transaction |
+| ApprovalScopeBoundary | 被预览/批准的 effect scope predicates |
+| ExecutionSlice | Host instance + document + approved scope 的执行分片 |
+| ExecutionUnit | Slice 内 provider-neutral canonical 最小执行单元 |
+| ProviderBinding | ExecutionUnit 到具体 provider/tool/native binding 的执行期绑定 |
+| ApprovalRecord | 持久不可变批准事实 |
+| ExecutionGrant | 针对一个 Slice + binding set 的短生命周期执行授权 |
+| HostDelta / ActualDelta | Host 实际产生的变更，是 reconciliation 权威依据 |
+| SCOPE_BREACH | ActualDelta 超出 ApprovalScopeBoundary 的阻断型一致性错误 |
+| Compensating ChangeSet | Saga 场景用于逆向/补偿的可审计 ChangeSet |
+| AsyncOperationRef | PENDING 请求的 typed session/job handle |
 
----
+# 45. v0.6 冻结条件
 
-# 36. v0.6 冻结条件
+v0.6 进入 `Accepted / Contract Freeze` 前，至少完成：
 
-v0.6 进入 `Accepted` 前，至少完成：
-
-1. Host Plane / Semantic Plane / Action Plane / Collaboration Kernel 的职责无重叠；
+1. Host Plane / Semantic Plane / Action Plane / Collaboration Kernel / Governance Plane 职责无重叠；
 2. Semantic MCP Server 与 SemanticProvider Protocol 的边界通过 ADR 冻结；
 3. IFC4.3 与 Metro Semantic 权威关系冻结；
-4. `SemanticIdentity : HostBinding = 1:N` 冻结；
-5. `ExternalIdentity` 替代 `ifc_global_id` 特例；
-6. `CLASSIFICATION` 进入 D5 SemanticAspect；
-7. SemanticSnapshot 绑定 ProjectionRef + EnvironmentRef；
-8. Canonical Action description/slot semantic metadata 模型冻结；
-9. D6 binding classes 冻结；
-10. 用“墙体加厚到 300mm”演练通过 Revit 和 AutoCAD 两种 Provider 路径；
-11. 用 `A-WALL → IfcWall` 证明企业 Mapping Provider 可插拔且 D5 Core 不改代码；
-12. Metro reference case 通过 Schema / PsetProj / IDS / mapping / provenance 全链路验证。
+4. Progressive Semantic Model 的 semantic depth / geometry fidelity / coverage / freshness / assurance 五类概念冻结；
+5. `SemanticIdentity : HostBinding = 1:N` 冻结；
+6. `ExternalIdentity` 替代 `ifc_global_id` 特例；
+7. `CLASSIFICATION` 进入 D5 SemanticAspect；
+8. SemanticFreshnessContract 的 two-phase / coverage / geometry fidelity 结构冻结；
+9. SemanticSnapshot 绑定 ProjectionRef + EnvironmentRef，SnapshotSet cross-host invariant 冻结；
+10. Canonical Action description/slot semantic metadata 模型冻结；
+11. D6 binding classes + InteractionSession 冻结；
+12. D7 `ChangeSet → ExecutionSlice → ExecutionUnit → ProviderBinding → ExecutionGrant` 链冻结；
+13. `ExecutionUnit` 明确保持 provider-neutral；
+14. ApprovalScopeBoundary / SCOPE_BREACH / Saga compensation 冻结；
+15. RequestEnvelope / ErrorShape / idempotency / AsyncOperationRef 冻结；
+16. Enterprise Gateway 的 authorization/governance 边界冻结；
+17. Dependency / Constraint / Impact / Propagation 边界冻结；
+18. 用“墙体加厚到 300mm”演练通过 Revit 和 AutoCAD 两种 Provider 路径；
+19. 用 `A-WALL → IfcWall` 证明 Enterprise Mapping Provider 可插拔且 D5 Core 不改代码；
+20. Metro reference case 通过 Schema / PsetProj / IDS / mapping / provenance；
+21. 至少一个 cross-host SnapshotSet + Slice/Saga failure-injection 测试通过。
 
----
-
-# 37. 一句话系统边界
+# 46. 一句话系统边界
 
 ```text
-Host MCP        = 怎么做
-Semantic MCP    = 是什么 / 规则是什么
-D5              = 当前设计是什么
-Canonical Action= 允许表达什么动作
-D6              = 这次动作的参数具体是什么
-D7              = 准备执行、审批、绑定和验证什么
-LLM             = 在受约束空间中理解意图，不拥有系统真相和执行权
+Host MCP         = 在具体 Host 里怎么做
+Semantic MCP     = 标准/领域语义与规则是什么
+Gateway          = 谁能调用什么、是否允许执行、如何审计
+D4               = 当前允许表达什么 Canonical Action
+D5               = 当前设计已经被理解成什么、理解到什么程度、是否新鲜/可信
+D6               = 这次 Action 的参数具体是什么，缺失参数如何从 Host 交互获得
+Impact Layer     = 这次修改会影响什么、哪些必须传播/验证
+D7 ChangeSet     = 准备审批什么 canonical change
+ExecutionSlice   = 在哪个 Host/document/approved scope 执行
+ExecutionUnit    = Slice 内最小 canonical 执行单位
+ProviderBinding  = 这次由哪个 provider/native implementation 执行
+LLM              = 在受约束空间中理解意图，不拥有系统真相、权限或执行权
 ```
 
