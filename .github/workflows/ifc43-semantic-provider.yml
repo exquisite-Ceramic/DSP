@@ -1,0 +1,50 @@
+name: IFC4.3 semantic provider verification
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/ifc43-semantic-provider'
+    paths:
+      - 'providers/semantics/ifc43/**'
+      - 'tests/semantic_providers/ifc43/**'
+      - 'providers/semantics/dsp_core/**'
+      - 'platform/semantic_service/**'
+      - 'platform/semantic_mcp/**'
+      - 'platform/semantic_runtime/**'
+      - 'docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md'
+      - 'docs/superpowers/specs/2026-08-28-ifc43-semantic-provider-design.md'
+      - 'docs/superpowers/plans/2026-08-28-ifc43-semantic-provider.md'
+      - '.github/workflows/ifc43-semantic-provider.yml'
+  pull_request:
+    paths:
+      - 'providers/semantics/ifc43/**'
+      - 'tests/semantic_providers/ifc43/**'
+      - 'providers/semantics/dsp_core/**'
+      - 'platform/semantic_service/**'
+      - 'platform/semantic_mcp/**'
+      - 'platform/semantic_runtime/**'
+      - 'docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md'
+      - 'docs/superpowers/specs/2026-08-28-ifc43-semantic-provider-design.md'
+      - 'docs/superpowers/plans/2026-08-28-ifc43-semantic-provider.md'
+      - '.github/workflows/ifc43-semantic-provider.yml'
+  workflow_dispatch:
+
+jobs:
+  ifc43-provider:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install packages
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install -e contracts/python -e hosts/autocad/sidecar -e platform/semantic_runtime -e platform/semantic_service -e platform/semantic_mcp -e providers/semantics/dsp_core -e providers/semantics/ifc43
+      - name: Run IFC4.3 provider tests
+        run: pytest -q tests/semantic_providers/ifc43
+      - name: Run full Python regression tests
+        run: pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator tests/semantic_runtime tests/semantic_service tests/semantic_mcp tests/semantic_providers/dsp_core tests/semantic_providers/ifc43
