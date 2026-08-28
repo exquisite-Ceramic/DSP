@@ -1,20 +1,21 @@
 # Semantic MCP Adapter Design
 
 **Date:** 2026-08-28  
-**Status:** Chat design approved; written spec pending user review  
+**Status:** Chat design approved; v0.6 alignment incorporated; pending final user review  
 **Target branch:** `feat/semantic-mcp-adapter`  
-**Base:** `main` at `c40443cf83a9f2c56de0d854e3cce9960c3f128e`
+**Base:** `main` at `c40443cf83a9f2c56de0d854e3cce9960c3f128e`  
+**Primary architecture baseline:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
 
 ## 1. Purpose
 
 PR #7 adds a thin MCP transport adapter around the Semantic Service Core delivered by PR #6.
 
-The adapter exposes the existing Semantic Service logical API as a stable remote MCP tool surface. It does not own semantic interpretation, provider selection, provider lifecycle, environment construction, domain mappings, or Host-specific behavior.
+The adapter exposes the existing Semantic Service logical API as a stable remote MCP tool surface. It does not own semantic interpretation, provider selection, provider lifecycle, environment construction, domain mappings, Host-specific behavior, workflow orchestration, authorization, or LLM action-space selection.
 
 The design goal is:
 
 ```text
-MCP Client
+DSP Platform / Gateway-side MCP Client
     ↓
 official MCP Python SDK
     ↓
@@ -26,6 +27,8 @@ SemanticProvider Registry / SemanticEnvironmentStore / Providers
 ```
 
 The adapter is a transport/controller boundary, not a second semantic service layer.
+
+This design specializes and refines the Semantic MCP portion of DSP v0.6. If this document and the main v0.6 architecture baseline appear to conflict, the main architecture ownership rules remain authoritative unless this design explicitly identifies a baseline-document synchronization issue.
 
 ## 2. Architectural boundary
 
@@ -42,7 +45,7 @@ platform/semantic_mcp/
     transport.py
 ```
 
-The intended dependency direction is:
+The dependency direction is:
 
 ```text
 semantic_mcp
@@ -56,6 +59,15 @@ semantic_service
 
 `semantic_mcp` MUST NOT directly depend on concrete IFC, DSP Core, Metro, Enterprise, AutoCAD, Revit, Tekla, or other Host/domain Provider implementations.
 
+This preserves the v0.6 rule:
+
+```text
+MCP = service/discovery/call protocol
+Semantic Service/Providers = domain semantic ownership
+Gateway = auth/policy/routing/audit ownership
+LangGraph/Orchestrator = workflow ownership
+```
+
 ### 2.1 Framework decision
 
 PR #7 SHALL use the official MCP Python SDK already used by the AutoCAD sidecar, with repository-compatible dependency intent:
@@ -68,11 +80,33 @@ The server implementation SHALL use the official SDK server abstraction (`MCPSer
 
 The independent FastMCP framework is an explicit non-goal for PR #7. It MAY be reconsidered later if DSP needs framework-level MCP composition, proxying, transform pipelines, authentication orchestration, advanced dependency injection, or similar infrastructure capabilities.
 
-The adapter SHALL isolate MCP-framework-specific code so that a future framework change does not alter Semantic Service contracts, wire DTOs, semantic error codes, or the seven public tool contracts.
+The adapter SHALL isolate MCP-framework-specific code so that a future SDK/framework change does not alter Semantic Service contracts, wire DTOs, semantic error codes, environment semantics, or the seven public tool contracts.
+
+### 2.2 MCP protocol baseline
+
+PR #7 SHALL conform to the DSP v0.6 MCP protocol target baseline:
+
+```text
+MCP 2026-07-28
+```
+
+The Python package version is an implementation dependency; it is not the DSP protocol/domain contract.
+
+An SDK or MCP protocol upgrade MUST NOT implicitly change:
+
+- Semantic MCP tool names;
+- tool input/output business payloads;
+- semantic error codes or error meaning;
+- pinned Semantic Environment semantics;
+- Semantic Service/Provider ownership;
+- Gateway/governance ownership;
+- LLM-facing action-space rules.
+
+A future protocol upgrade that changes one of these DSP-level contracts requires an explicit architecture decision/spec revision rather than an incidental dependency bump.
 
 ## 3. Public MCP v1 tool surface
 
-PR #7 SHALL expose exactly these seven tools:
+PR #7 SHALL expose exactly these seven Semantic MCP v1 tools:
 
 ```text
 semantic.resolve_term
@@ -97,6 +131,34 @@ provider health tools
 
 No tool may introduce a mutable `latest` or implicit default Semantic Environment.
 
+### 3.1 Semantic MCP surface is not the LLM tool surface
+
+The seven Semantic MCP tools are a platform/Gateway-facing semantic service surface. They MUST NOT be interpreted as the LLM action/tool surface.
+
+The main DSP v0.6 ownership remains:
+
+```text
+Semantic MCP
+  = semantic definitions / mappings / validation / environment metadata
+
+Gateway / Context Composer / Orchestrator
+  = decides what task-scoped semantic information may be exposed onward
+
+LLM-facing surface
+  = constrained ResolvedOperations + task-scoped semantic context
+```
+
+In particular, the existence of:
+
+```text
+semantic.get_provider_manifest
+semantic.get_environment
+```
+
+does not authorize arbitrary Provider/runtime metadata exposure to the LLM.
+
+PR #7 MUST NOT introduce Provider-native execution details, Host-native identifiers, credentials, policy decisions, or unrestricted runtime metadata into its semantic tool payloads.
+
 ## 4. Environment scoping
 
 Every query whose answer depends on semantic interpretation MUST receive an explicit `environment_id`.
@@ -105,7 +167,7 @@ The adapter MUST NOT:
 
 - infer an environment from an MCP session;
 - use a global default environment;
-- select the newest provider version;
+- select the newest Provider version;
 - silently fall back to another environment;
 - mutate an environment during a tool call.
 
@@ -116,6 +178,24 @@ MCP session != semantic state
 ```
 
 `semantic.get_provider_manifest(provider_id, version)` remains exact-version metadata lookup and does not require an environment id because the Core method itself is exact-version and version-addressed.
+
+### 4.1 Main-spec contract synchronization note
+
+DSP v0.6 section 10.3 currently shows abbreviated illustrative SemanticService signatures that omit `environment_id` from some version-sensitive queries. The merged PR #6 Core contract and the stronger v0.6 pinned-provider/environment invariants require explicit environment scoping.
+
+PR #7 SHALL therefore use the actual merged SemanticService contract:
+
+```python
+resolve_term(term_id, environment_id)
+describe_term(term_id, environment_id, locale=None)
+get_term_schema(term_id, environment_id)
+validate_claim(claim, environment_id)
+find_mappings(source_claim, environment_id, target_namespace=None)
+get_provider_manifest(provider_id, version)
+get_environment(environment_id)
+```
+
+The abbreviated signatures in main spec section 10.3 are a baseline-document synchronization item; they MUST NOT be used to weaken pinned-environment behavior in code.
 
 ## 5. Wire-contract principles
 
@@ -141,7 +221,7 @@ array
 object
 ```
 
-The adapter MUST NOT serialize unknown Python objects by calling `str()`, `repr()`, pickle, or other implementation-specific fallback conversion.
+The adapter MUST NOT serialize unknown Python objects by calling `str()`, `repr()`, pickle, or another implementation-specific fallback conversion.
 
 Inbound `SemanticClaim.value` SHALL accept only recursively JSON-safe values:
 
@@ -154,11 +234,44 @@ array
 object with string keys
 ```
 
-Unsupported Python/runtime-only values SHALL be rejected rather than coerced.
+Unsupported runtime-only values SHALL be rejected rather than coerced.
 
-For unordered Core collections that are serialized as arrays, the wire encoder MUST emit a deterministic order. The canonical ordering rule SHALL be based on canonical JSON representation (sorted keys, compact separators, stable scalar encoding) unless a stronger domain key is explicitly defined for that field. The encoder MUST NOT depend on Python hash/set iteration order.
+For unordered Core collections serialized as arrays, the wire encoder MUST emit deterministic ordering. Unless a stronger domain key exists for the specific field, canonical ordering SHALL use canonical JSON representation with sorted object keys, compact separators, and stable scalar encoding. The encoder MUST NOT depend on Python hash/set iteration order.
 
-Successful tools SHALL return the business payload directly. The adapter SHALL NOT add a redundant custom `{ "result": ... }` envelope because MCP already defines the tool-call result envelope.
+Successful tools SHALL return the business payload directly inside the MCP tool result. The adapter SHALL NOT add a redundant custom `{ "result": ... }` business envelope.
+
+### 5.1 Relationship to the DSP Request/Response Envelope
+
+DSP v0.6 section 29 states that cross-service/process requests SHOULD use a common `RequestEnvelope` / `ResponseEnvelope` carrying governance/runtime context such as:
+
+```text
+request_id
+task_id
+project_id
+actor_context
+correlation_ids
+deadline_at
+idempotency_key?
+payload
+```
+
+The seven tool schemas in this design define the **business payload contract**, not a competing cross-service envelope.
+
+PR #7 SHALL NOT copy governance fields into `SemanticClaim`, term DTOs, Provider manifests, or Semantic Environment records.
+
+The intended layering is:
+
+```text
+DSP/Gateway request context or envelope
+        ↓
+MCP tool invocation
+        ↓
+Semantic MCP business payload defined here
+```
+
+PR #7 does not implement Enterprise Gateway envelope propagation. Where no DSP correlation context is supplied to the thin adapter, it MUST NOT invent request/task/project/correlation identifiers.
+
+This is a deliberate specialization of the main spec's `SHOULD`: the thin Adapter owns semantic tool payloads; Gateway/runtime integration owns the common governance envelope.
 
 ## 6. Tool contracts
 
@@ -236,7 +349,7 @@ provenance:
   content_hash: string
 ```
 
-Core `MappingProxyType`, tuple, and frozenset values SHALL be recursively converted to JSON object/array values without changing their semantic content. Unordered collections SHALL follow the canonical wire ordering rule in Section 5.
+Core `MappingProxyType`, tuple, and frozenset values SHALL be recursively converted to JSON object/array values without changing semantic content. Unordered collections SHALL follow the canonical wire-ordering rule in section 5.
 
 Delegation:
 
@@ -401,13 +514,15 @@ SemanticService.get_environment(environment_id)
 
 ## 7. Error model
 
-Errors are separated into three layers.
+Errors are separated into three layers and SHALL align with the DSP v0.6 structured error vocabulary.
 
 ### 7.1 MCP/input protocol errors
 
-Malformed MCP requests and tool input-schema violations are owned by the official MCP SDK. The adapter SHALL rely on the SDK for protocol-level validation rather than reimplementing JSON-RPC or MCP schema handling.
+Malformed MCP requests and tool input-schema violations are owned by the official MCP SDK. The adapter SHALL rely on the SDK for protocol-level validation rather than reimplement JSON-RPC or MCP schema handling.
 
 Examples include missing required tool arguments, arguments of incompatible JSON types, unknown tools, and malformed MCP requests.
+
+These are protocol-layer errors and are not Semantic Service domain failures.
 
 ### 7.2 Semantic domain errors
 
@@ -415,38 +530,45 @@ A valid MCP tool call that reaches Semantic Service but fails deterministically 
 
 Known `SemanticServiceError` subclasses SHALL be converted to an MCP tool result with `isError = true` and a stable structured semantic error payload.
 
-The structured payload shape is:
+The structured payload SHALL use the DSP v0.6 `ErrorShape` field vocabulary:
 
 ```yaml
 error:
-  code: string
-  category: string
-  retryable: false
+  error_code: string
+  category: SEMANTIC | CONSISTENCY
   message: string
+  correlation_ids: string[]
+  retryable: false
+  details: array
 ```
 
-The text content MAY repeat the safe human-readable `message` for agent readability.
+For PR #7:
 
-Stable wire error codes SHALL be:
+- `correlation_ids` SHALL be `[]` unless an explicit correlation context is supplied by a future Gateway/runtime integration;
+- `details` SHALL default to `[]` and MUST NOT be used to leak internal exception text;
+- the Adapter MUST NOT invent correlation identifiers;
+- natural-language `message` MUST NOT be used as the machine decision key.
 
-| Core error | Wire code | Category | Safe message |
+Stable semantic wire error mappings SHALL be:
+
+| Core error | `error_code` | Main-spec category | Safe message |
 | --- | --- | --- | --- |
-| `ManifestValidationError` | `SEMANTIC_MANIFEST_INVALID` | `MANIFEST` | `Semantic provider manifest is invalid.` |
-| `ProviderRegistrationConflictError` | `SEMANTIC_PROVIDER_REGISTRATION_CONFLICT` | `PROVIDER` | `Semantic provider registration conflicts with an existing immutable version.` |
-| `ProviderNotFoundError` | `SEMANTIC_PROVIDER_NOT_FOUND` | `PROVIDER` | `Semantic provider was not found.` |
-| `ProviderCapabilityError` | `SEMANTIC_PROVIDER_CAPABILITY` | `PROVIDER` | `Semantic provider capability requirements were not satisfied.` |
-| `ProviderDependencyError` | `SEMANTIC_PROVIDER_DEPENDENCY` | `PROVIDER` | `Semantic provider dependency requirements were not satisfied.` |
-| `NamespaceAuthorityError` | `SEMANTIC_NAMESPACE_AUTHORITY` | `AUTHORITY` | `Semantic namespace authority requirements were not satisfied.` |
-| `EnvironmentIntegrityError` | `SEMANTIC_ENVIRONMENT_INTEGRITY` | `ENVIRONMENT` | `Semantic environment integrity check failed.` |
-| `EnvironmentNotFoundError` | `SEMANTIC_ENVIRONMENT_NOT_FOUND` | `ENVIRONMENT` | `Semantic environment was not found.` |
-| `TermResolutionError` | `SEMANTIC_TERM_RESOLUTION` | `TERM` | `Semantic term resolution failed.` |
+| `ManifestValidationError` | `SEMANTIC_MANIFEST_INVALID` | `SEMANTIC` | `Semantic provider manifest is invalid.` |
+| `ProviderRegistrationConflictError` | `SEMANTIC_PROVIDER_REGISTRATION_CONFLICT` | `CONSISTENCY` | `Semantic provider registration conflicts with an existing immutable version.` |
+| `ProviderNotFoundError` | `SEMANTIC_PROVIDER_NOT_FOUND` | `SEMANTIC` | `Semantic provider was not found.` |
+| `ProviderCapabilityError` | `SEMANTIC_PROVIDER_CAPABILITY` | `SEMANTIC` | `Semantic provider capability requirements were not satisfied.` |
+| `ProviderDependencyError` | `SEMANTIC_PROVIDER_DEPENDENCY` | `SEMANTIC` | `Semantic provider dependency requirements were not satisfied.` |
+| `NamespaceAuthorityError` | `SEMANTIC_NAMESPACE_AUTHORITY` | `SEMANTIC` | `Semantic namespace authority requirements were not satisfied.` |
+| `EnvironmentIntegrityError` | `SEMANTIC_ENVIRONMENT_INTEGRITY` | `CONSISTENCY` | `Semantic environment integrity check failed.` |
+| `EnvironmentNotFoundError` | `SEMANTIC_ENVIRONMENT_NOT_FOUND` | `SEMANTIC` | `Semantic environment was not found.` |
+| `TermResolutionError` | `SEMANTIC_TERM_RESOLUTION` | `SEMANTIC` | `Semantic term resolution failed.` |
 | other `SemanticServiceError` | `SEMANTIC_SERVICE_ERROR` | `SEMANTIC` | `Semantic service request failed.` |
 
 The Adapter MUST use these stable safe messages for remote results and MUST NOT forward `str(exc)` wholesale. Internal exception text MAY be logged server-side according to deployment logging policy.
 
 PR #7 SHALL set `retryable = false` for all semantic wire errors. The Adapter MUST NOT guess transient/retry semantics that the Core does not model.
 
-Wire error codes and safe messages are part of the remote contract and SHOULD remain stable even if internal Python exception class organization changes later.
+Wire error codes are machine contract. Safe messages are stable presentation text; callers MUST NOT branch on the message.
 
 ### 7.3 Unexpected internal errors
 
@@ -454,10 +576,12 @@ Any uncaught non-domain exception SHALL be sanitized to:
 
 ```yaml
 error:
-  code: SEMANTIC_INTERNAL_ERROR
-  category: INTERNAL
-  retryable: false
+  error_code: SEMANTIC_INTERNAL_ERROR
+  category: SEMANTIC
   message: Semantic service request failed.
+  correlation_ids: []
+  retryable: false
+  details: []
 ```
 
 The remote result MUST NOT expose:
@@ -482,7 +606,7 @@ build_mcp_server(service: SemanticService) -> MCPServer
 
 The adapter receives a fully constructed `SemanticService`. It does not construct or discover Providers.
 
-A small transport helper MAY be provided:
+A small built-in transport helper MAY be provided:
 
 ```python
 run_streamable_http(
@@ -493,7 +617,7 @@ run_streamable_http(
 ) -> None
 ```
 
-The production transport baseline for PR #7 SHALL be:
+The transport baseline for PR #7 SHALL be:
 
 ```text
 transport = streamable-http
@@ -501,11 +625,11 @@ stateless_http = true
 json_response = true
 ```
 
-This matches the repository's existing AutoCAD MCP transport pattern.
+This matches the repository's existing AutoCAD MCP transport pattern and MUST remain compatible with the DSP v0.6 MCP 2026-07-28 baseline.
 
 ### 8.1 Stateless transport does not recreate semantic state
 
-MCP stateless mode means requests do not rely on MCP client session state. It does not require rebuilding Semantic Service for every request.
+MCP stateless mode means requests do not rely on hidden MCP client-session state. It does not require rebuilding Semantic Service for every request.
 
 One process MAY share one injected `SemanticService` across multiple stateless calls:
 
@@ -518,7 +642,9 @@ client C ─┘                         ↓
 
 Version-sensitive behavior remains controlled by explicit `environment_id`.
 
-### 8.2 Bind-host safety
+This aligns with the v0.6 rule that recoverable orchestration must rely on explicit identifiers/handles rather than hidden server session state.
+
+### 8.2 Bind-host safety and production exposure
 
 Until Gateway authentication/mTLS is implemented, the built-in HTTP runner SHALL accept loopback binding only:
 
@@ -530,7 +656,9 @@ localhost
 
 The helper SHALL reject broad external bindings such as `0.0.0.0`.
 
-This is a transport deployment boundary, not Semantic Service business logic.
+The built-in runner is an internal/development process surface. Production external exposure is expected to sit behind the Enterprise MCP Gateway, which owns authentication, authorization, routing, quota/rate limiting, audit/trace, and data-egress policy.
+
+PR #7 MUST NOT implement or duplicate those Gateway responsibilities.
 
 ### 8.3 Provider lifecycle ownership
 
@@ -546,7 +674,7 @@ provider.discover()
 provider.load_config()
 ```
 
-Future Provider runtime resources, remote Provider sessions, file/database handles, caches, or watchers belong to the future composition root/provider runtime layer.
+Future Provider runtime resources, remote Provider sessions, file/database handles, caches, or watchers belong to the future composition-root/provider-runtime layer.
 
 ## 9. Composition-root boundary
 
@@ -600,18 +728,17 @@ nested schema values → recursive JSON-safe values
 
 Unsupported runtime objects MUST fail rather than stringify. Tests for unordered collections MUST prove repeatable output independent of insertion/hash iteration order.
 
-### 10.2 Tool catalog contract tests
+### 10.2 Tool catalog and protocol contract tests
 
-Tests SHALL assert the exact seven-tool public surface and their required/optional inputs.
+Tests SHALL assert:
 
-Tests SHALL fail if PR #7 exposes:
+- the exact seven-tool public surface;
+- required/optional inputs;
+- no default/latest environment selector;
+- no `project_facts` or admin/discovery tools;
+- the adapter is exercised against the repository's MCP SDK in a way consistent with the MCP 2026-07-28 target baseline.
 
-```text
-semantic.project_facts
-provider registration/admin tools
-provider discovery tools
-implicit environment selection tools
-```
+A dependency upgrade MUST fail review/tests if it changes the frozen DSP tool/wire contract without an explicit spec decision.
 
 ### 10.3 Delegation tests
 
@@ -629,11 +756,23 @@ The Adapter MUST NOT:
 
 ### 10.4 Error-boundary tests
 
-Each known Core domain error SHALL map to the stable wire code, category, safe message, `retryable = false`, and `isError = true`.
+Each known Core domain error SHALL map to:
+
+```text
+stable error_code
+main-spec category (SEMANTIC or CONSISTENCY)
+stable safe message
+correlation_ids = [] unless explicitly supplied
+details = []
+retryable = false
+isError = true
+```
 
 Tests MUST prove raw `str(exc)` content is not forwarded for known errors.
 
 At least one deliberately sensitive unexpected exception SHALL prove traceback and exception text are not exposed remotely.
+
+Tests SHALL also prove the adapter does not create its own incompatible error-category taxonomy such as `PROVIDER`, `AUTHORITY`, `ENVIRONMENT`, or `INTERNAL` at the DSP `ErrorShape.category` level.
 
 ### 10.5 Real MCP conformance/integration tests
 
@@ -661,9 +800,13 @@ PR #7 SHALL add regression guards proving:
 - no `project_facts` transport contract exists in PR #7;
 - no Provider loader/discovery subsystem exists in PR #7;
 - no default/latest environment selection exists;
-- independent FastMCP framework imports are absent.
+- independent FastMCP framework imports are absent;
+- no Gateway auth/policy implementation is added to `semantic_mcp`;
+- no LLM action/tool-space logic is added to `semantic_mcp`;
+- semantic error `category` remains within the main-spec vocabulary;
+- no Host-native/provider-native execution detail becomes part of the semantic wire contract.
 
-## 12. Non-goals
+## 12. Explicit non-goals
 
 PR #7 MUST NOT implement:
 
@@ -677,9 +820,11 @@ PR #7 MUST NOT implement:
 - projection transport APIs;
 - remote Provider federation;
 - MCP-to-MCP Provider proxying;
-- Gateway authentication;
+- Gateway authentication/authorization/policy;
+- Gateway routing/quota/audit implementation;
 - TLS/mTLS implementation;
-- persistent MCP session semantics;
+- persistent/hidden MCP session semantics;
+- LLM action-space construction;
 - Host MCP functions;
 - D3/D4/D5/D6/D7 modifications;
 - Semantic Service Core behavior changes;
@@ -712,22 +857,44 @@ tests/semantic_mcp/
 
 The implementation plan may refine test-file names and grouping, but MUST preserve the architectural and remote-contract requirements in this design.
 
-## 14. Acceptance criteria
+## 14. Main-spec alignment matrix
+
+| DSP v0.6 requirement | PR #7 design treatment | Status |
+| --- | --- | --- |
+| MCP is protocol, not domain ownership | Thin adapter delegates to `SemanticService`; Core has no MCP dependency | Aligned |
+| MCP target baseline `2026-07-28` | Explicit protocol baseline in section 2.2 | Aligned |
+| Seven Semantic MCP v1 tools | Exact seven-tool catalog in section 3 | Aligned |
+| Complex projection APIs deferred | `project_facts` / projection tools are non-goals | Aligned |
+| Pinned Provider/environment semantics | Explicit `environment_id`; no latest/default fallback | Aligned |
+| Gateway owns auth/policy/routing/audit | Built-in runner stays loopback/internal; Gateway responsibilities excluded | Aligned |
+| LLM sees constrained action/context surface | Semantic MCP surface explicitly not equal to LLM tool surface | Aligned |
+| Common structured `ErrorShape` | Uses `error_code`, main categories, correlation IDs, retryable, details | Aligned |
+| Common Request/Response Envelope SHOULD | Tool schema defined as business payload; Gateway/runtime envelope remains external | Aligned by explicit specialization |
+| Provider runtime independent of domain interface | Adapter does not load/manage concrete Providers | Aligned |
+| No hidden session state for orchestration | Stateless MCP; semantic version/state explicit via IDs | Aligned |
+| Section 10.3 abbreviated Core signatures | Uses actual merged PR #6 explicit-environment API | Main-spec document sync required |
+
+## 15. Acceptance criteria
 
 PR #7 is complete only when all of the following are true:
 
 1. Exactly seven Semantic MCP v1 tools are exposed.
 2. Each tool delegates to the corresponding existing Semantic Service method.
 3. Version-sensitive tools require explicit `environment_id`.
-4. Successful results are stable JSON-safe payloads with no Python container leakage.
-5. Unordered Core collections use deterministic wire ordering independent of Python set/hash iteration order.
-6. Inbound claim values reject non-JSON-safe runtime values rather than coercing them.
-7. Known Core domain errors map to stable `isError=true` semantic error payloads with stable safe messages; raw exception strings are not forwarded.
-8. Unexpected exceptions are sanitized and do not leak internal details.
-9. No mapping winner selection, validation voting, environment fallback, or Provider selection logic exists in the Adapter.
-10. Streamable HTTP runs stateless with JSON responses and loopback-only built-in binding.
-11. Provider construction/lifecycle remains external to the Adapter.
-12. Real MCP client/server integration tests cover initialize, list, call, success, and tool execution error.
-13. Semantic Service Core remains free of MCP dependencies.
-14. No Provider loader, concrete Provider, projection API, or `project_facts` scope is introduced.
-15. The package uses the official MCP SDK only; independent FastMCP framework adoption remains deferred.
+4. MCP integration remains consistent with the DSP v0.6 `MCP 2026-07-28` target baseline.
+5. Successful results are stable JSON-safe payloads with no Python container leakage.
+6. Unordered Core collections use deterministic wire ordering independent of Python set/hash iteration order.
+7. Inbound claim values reject non-JSON-safe runtime values rather than coercing them.
+8. Known Core domain errors map to the DSP `ErrorShape` field vocabulary with stable `error_code`, `SEMANTIC`/`CONSISTENCY` category, safe message, empty-or-supplied correlation IDs, `retryable=false`, and safe details.
+9. Unexpected exceptions are sanitized and do not leak internal details.
+10. No mapping winner selection, validation voting, environment fallback, or Provider selection logic exists in the Adapter.
+11. Semantic MCP tools are not treated as the LLM action/tool surface.
+12. Streamable HTTP runs stateless with JSON responses and loopback-only built-in binding.
+13. Production governance remains an Enterprise Gateway responsibility; PR #7 does not duplicate Gateway auth/policy/routing/audit logic.
+14. Provider construction/lifecycle remains external to the Adapter.
+15. Real MCP client/server integration tests cover initialize, list, call, success, and tool execution error.
+16. Semantic Service Core remains free of MCP dependencies.
+17. No Provider loader, concrete Provider, projection API, or `project_facts` scope is introduced.
+18. The package uses the official MCP SDK only; independent FastMCP framework adoption remains deferred.
+19. Tool business payloads remain separate from the DSP governance envelope; semantic DTOs are not polluted with request/task/actor fields.
+20. The implementation plan explicitly treats the main-spec section 10.3 signature mismatch as documentation synchronization, not permission to remove environment pinning.
