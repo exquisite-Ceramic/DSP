@@ -4,7 +4,7 @@
 
 Introduce a provider-neutral `platform/semantic_service` subsystem that owns semantic provider contracts, immutable provider registration, namespace authority, deterministic routing, and pinned `SemanticEnvironment` construction without moving Host-native mapping, IFC/Metro vocabulary implementations, MCP transport, or D5 projection state into the service core.
 
-This is Phase C of `Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`. It starts only after the D5 v0.6 baseline has frozen `SemanticProjectionRef` and `SemanticEnvironmentRef`.
+This is Phase C of `Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`. It starts after the D5 v0.6 baseline has frozen `SemanticProjectionRef` and `SemanticEnvironmentRef`.
 
 ## Architectural Decision
 
@@ -18,7 +18,7 @@ SemanticService logical contract
         |
         +-- SemanticProviderRegistry
         +-- authority + routing
-        +-- SemanticEnvironment pinning/store
+        +-- SemanticEnvironmentStore
         +-- immutable provider metadata cache
         |
         v
@@ -61,7 +61,8 @@ platform/semantic_service/
     environment.py
     service.py
     errors.py
-  tests are kept under tests/semantic_service/
+
+tests/semantic_service/
 ```
 
 The package targets Python 3.11 and follows the existing `src/` packaging pattern used by `platform/semantic_runtime`.
@@ -70,7 +71,7 @@ The package targets Python 3.11 and follows the existing `src/` packaging patter
 
 `semantic_service` SHALL NOT import `semantic_runtime`.
 
-The two packages meet through stable values at an integration boundary:
+The packages meet through stable values at an integration boundary:
 
 ```text
 SemanticEnvironment.environment_id
@@ -80,9 +81,9 @@ SemanticEnvironment.content_hash
 D5 SemanticEnvironmentRef(environment_id, content_hash)
 ```
 
-The adapter constructing the D5 ref is deliberately trivial. This avoids making semantic definitions depend on D5 implementation types and prevents a semantic-service <-> D5 cycle.
+The adapter constructing the D5 ref is deliberately trivial. This avoids making semantic definitions depend on D5 implementation types and prevents a Semantic Service <-> D5 dependency cycle.
 
-The same rule applies to assurance and claim evidence: the service contract uses its own transport/domain values and a later D5 integration adapter converts those values into D5 guarantees.
+The same rule applies to assurance and claim evidence: the service contract uses provider-neutral values and a later D5 integration adapter converts them into D5 guarantees.
 
 ## Scope of the First PR
 
@@ -93,10 +94,10 @@ The first PR implements only:
 3. provider registry with immutable-version rules;
 4. namespace authority checks;
 5. deterministic capability routing;
-6. pinned SemanticEnvironment creation and immutable lookup;
+6. pinned `SemanticEnvironment` construction and immutable lookup;
 7. deterministic machine-semantic hashing;
 8. an in-memory immutable provider/environment metadata cache;
-9. logical SemanticService query methods for vocabulary, mapping, validation, provider manifest, and environment lookup;
+9. logical `SemanticService` query methods for vocabulary, mapping, validation, provider manifest, and environment lookup;
 10. conformance and architecture tests.
 
 ## Explicit Non-Goals
@@ -180,9 +181,9 @@ EXTENSION
 
 `AUTHORITATIVE` means the provider owns canonical term meaning for that namespace inside an environment.
 
-`EXTENSION` means the provider may contribute mapping/validation/domain extension behavior but cannot become the source of canonical vocabulary meaning for that namespace.
+`EXTENSION` means the provider may contribute mapping/validation/domain extension behavior involving that namespace but cannot become the source of canonical vocabulary meaning for that namespace.
 
-For example:
+Example:
 
 ```text
 buildingSMART.ifc43
@@ -190,14 +191,14 @@ buildingSMART.ifc43
 
 dsp.metro.semantic
   metro -> AUTHORITATIVE
-  ifc -> EXTENSION only if it needs to validate/map IFC claims
+  ifc -> EXTENSION
 ```
 
 The first PR does not implement an overlay policy that rewrites authoritative term definitions.
 
 ### Immutable version rule
 
-Within a registry:
+Within one registry:
 
 ```text
 (provider_id, version) -> exactly one content_hash
@@ -229,15 +230,13 @@ requires
 
 Labels, human descriptions, localized prose, health state, network address, process identity, and MCP transport metadata are excluded.
 
-The provider's declared `content_hash` is still mandatory. The service does not pretend it can recompute the internal contents of a remote future provider; provider conformance is responsible for changing `content_hash` when machine semantics change.
+The provider's declared `content_hash` remains mandatory. The service does not pretend it can recompute the internal contents of a remote future provider; provider conformance is responsible for changing `content_hash` whenever machine semantics change.
 
 ## Provider Capability Contracts
 
-Providers do not implement one giant interface.
+Providers do not implement one giant interface. All provider objects expose an immutable manifest, while capability-specific protocols remain separate.
 
-All provider objects expose an immutable manifest. Capability-specific protocols are separate.
-
-### SemanticVocabularyProvider
+### `SemanticVocabularyProvider`
 
 Provides canonical vocabulary functions for namespaces for which it is authoritative:
 
@@ -249,7 +248,7 @@ get_term_schema(term_id)
 
 Returned values include provider provenance (`provider_id`, `version`, `content_hash`).
 
-### SemanticMappingProvider
+### `SemanticMappingProvider`
 
 Provides deterministic mapping candidates:
 
@@ -257,9 +256,9 @@ Provides deterministic mapping candidates:
 find_mappings(source_claim, target_namespace=None)
 ```
 
-The service aggregates mapping candidates; it does not silently choose one by LLM-style preference. Every result carries provider/mapping provenance and a stable mapping identifier.
+The service aggregates candidates; it does not silently choose one by LLM-style preference. Every result carries provider/mapping provenance and a stable mapping identifier.
 
-### SemanticValidationProvider
+### `SemanticValidationProvider`
 
 Provides deterministic validation results:
 
@@ -267,19 +266,19 @@ Provides deterministic validation results:
 validate_claim(claim)
 ```
 
-Providers may return applicable pass/fail findings or `NOT_APPLICABLE`. Validation findings carry provider/rule provenance.
+Providers may return applicable pass/fail findings or `NOT_APPLICABLE`. Findings carry provider/rule provenance.
 
-### SemanticProjectionProvider
+### `SemanticProjectionProvider`
 
 The capability name is frozen now because it is part of the Provider Manifest and Phase C architecture.
 
-The first PR exports the projection capability contract as a marker tied to the provider manifest, but does **not** freeze a `project_facts()` payload signature yet. The concrete projection method is introduced together with `NormalizedDesignFactBatch` in Phase E so the service core does not invent a temporary fact DTO that immediately becomes legacy.
+The first PR exports the projection capability contract as a marker tied to the provider manifest, but does **not** freeze a `project_facts()` payload signature. The concrete projection method is introduced together with `NormalizedDesignFactBatch` in Phase E so the service core does not invent a temporary fact DTO that immediately becomes legacy.
 
 This is a deliberate phase boundary rather than an incomplete implementation.
 
 ## Semantic Claim Boundary
 
-Vocabulary queries do not need D5 objects. Mapping and validation use a provider-neutral `SemanticClaim` value aligned with Spec v0.6 section 17.3:
+Vocabulary queries do not need D5 objects. Mapping and validation use a provider-neutral `SemanticClaim` aligned with Spec v0.6 section 17.3:
 
 ```text
 subject
@@ -294,11 +293,11 @@ provider_id
 provider_version
 ```
 
-The service treats `assurance` as a canonical string token from the Spec vocabulary in this PR. D5 adapters map it to D5 `AssuranceLevel` when producing guarantees. This avoids a package dependency from Semantic Service to D5 while keeping the conversion explicit and testable.
+The service treats `assurance` as a canonical string token from the Spec vocabulary in this PR. A later D5 integration adapter maps it to D5 `AssuranceLevel`. This keeps the dependency explicit without making Semantic Service import D5.
 
-## Registry
+## SemanticProviderRegistry
 
-`SemanticProviderRegistry` owns registrations and deterministic lookup.
+`SemanticProviderRegistry` owns provider registration and immutable lookup. It does **not** own environment construction or storage.
 
 Required operations:
 
@@ -308,7 +307,6 @@ get(provider_id, version)
 get_manifest(provider_id, version)
 versions(provider_id)
 providers_with_capability(capability)
-pin_environment(selections)
 ```
 
 The registry contains provider objects for in-process testing/initial operation, but registration semantics are independent of provider transport. A future `McpSemanticProviderAdapter` can implement the same capability protocols without changing registry consumers.
@@ -318,18 +316,18 @@ The registry contains provider objects for in-process testing/initial operation,
 Registration fails closed when:
 
 - required manifest fields are empty/invalid;
-- a capability claimed by the manifest is not implemented by the supplied provider object, except PROJECTION marker behavior described above;
+- a capability claimed by the manifest is not implemented by the supplied provider object, except the PROJECTION marker behavior described above;
 - `(provider_id, version)` is already bound to another `content_hash`;
 - namespace declarations are malformed;
 - an exact declared dependency is self-referential.
 
-Dependency existence is checked when creating an environment, not when registering an isolated provider version, so providers can be loaded in any order.
+Dependency existence is checked when pinning an environment, not when registering an isolated provider version, so providers can be loaded in any order.
 
-## Semantic Environment
+## SemanticEnvironment
 
 `SemanticEnvironment` is the immutable interpretation environment used for planning/approval.
 
-It contains a sorted tuple of `PinnedProvider` records. Each pinned record contains:
+It contains a sorted tuple of `PinnedProvider` records. Each record contains:
 
 ```text
 provider_id
@@ -340,6 +338,7 @@ manifest_hash
 namespaces
 capabilities
 authority
+compatibility
 requires
 ```
 
@@ -366,39 +365,45 @@ environment_id = "sem-env:" + content_hash
 
 The full hash is retained. The same pinned provider set yields the same environment ID/hash; a different machine-semantic environment cannot reuse the ID.
 
-This avoids mutable aliases such as `production-latest` entering PlanningSnapshot semantics.
+This prevents mutable aliases such as `production-latest` from entering PlanningSnapshot semantics.
 
-### Pinning requirements
+## SemanticEnvironmentStore
 
-Environment creation requires explicit provider selections by `provider_id + version`.
+`SemanticEnvironmentStore` owns pinning and immutable environment lookup. It depends on a `SemanticProviderRegistry`; the registry does not depend on the store.
 
-There is no planning API that means "use latest".
+Required operations:
+
+```text
+pin(selections, registry) -> SemanticEnvironment
+get(environment_id) -> SemanticEnvironment
+get_by_hash(content_hash) -> SemanticEnvironment
+```
+
+Environment creation requires explicit selections by `provider_id + version`. There is no planning API meaning "use latest".
 
 For each selected provider, pinning verifies:
 
 1. registration exists;
-2. every exact `requires[]` dependency is selected at the required version;
-3. the selected dependency's registered hash is immutable;
-4. no namespace has more than one `AUTHORITATIVE` provider;
-5. every namespace used for canonical vocabulary resolution has a single authoritative owner when resolution is requested.
+2. every exact `requires[]` dependency is also selected at the required version;
+3. the dependency's registered version/hash is immutable;
+4. no namespace has more than one `AUTHORITATIVE` provider.
 
-A provider may coexist as `EXTENSION` for a namespace owned authoritatively by another provider.
+Vocabulary authority is additionally checked at resolution time: the requested term namespace must have exactly one authoritative selected provider with `VOCABULARY` capability.
 
-## Environment Store / Cache
+An `EXTENSION` provider may coexist with the authoritative owner of a namespace.
+
+### Store immutability
 
 The first PR provides an in-memory immutable store:
 
 ```text
 content_hash -> SemanticEnvironment
 environment_id -> SemanticEnvironment
-(provider_id, version) -> immutable manifest/provider registration
 ```
 
-Writing a different object under an occupied environment ID/hash fails closed.
+Writing a different object under an occupied ID/hash fails closed.
 
 The core does not implement disk persistence, distributed invalidation, TTLs, or automatic refresh. Those concerns belong to later adapters/deployment work.
-
-This cache is safe for approved pinned metadata because entries are immutable. It is not a cache of mutable "current semantic meaning".
 
 ## Routing Rules
 
@@ -414,7 +419,8 @@ routing is:
 
 ```text
 parse namespace `ifc`
--> find the environment's one AUTHORITATIVE provider for `ifc`
+-> load pinned environment
+-> find exactly one AUTHORITATIVE selected provider for `ifc`
 -> require VOCABULARY capability
 -> call that provider only
 -> return provider-provenanced result
@@ -424,21 +430,21 @@ There is no fallback to an extension provider when the authoritative provider is
 
 ### Mapping
 
-`find_mappings()` calls all selected MAPPING-capable providers in deterministic `(provider_id, version)` order.
+`find_mappings()` calls all selected `MAPPING`-capable providers in deterministic `(provider_id, version)` order.
 
-Results are aggregated and then sorted by stable `(mapping_id, provider_id, provider_version)` keys. Candidates are returned with provenance; the service does not silently collapse semantic conflicts.
+Results are aggregated and sorted by stable `(mapping_id, provider_id, provider_version)` keys. Candidates retain provenance; the service does not silently collapse semantic conflicts.
 
 ### Validation
 
-`validate_claim()` calls all selected VALIDATION-capable providers in deterministic order. Providers may return `NOT_APPLICABLE`.
+`validate_claim()` calls all selected `VALIDATION`-capable providers in deterministic order. Providers may return `NOT_APPLICABLE`.
 
 The service aggregates findings. It does not use majority voting and does not let a domain provider erase an authoritative standard failure.
 
-A later policy layer may decide which findings gate a specific action, but the Semantic Service must preserve them all with provenance.
+A later policy layer may decide which findings gate a specific action, but Semantic Service preserves every finding with provenance.
 
 ## SemanticService Logical Contract
 
-The initial service surface is:
+`SemanticService` composes one registry plus one environment store. Its initial surface is:
 
 ```text
 resolve_term(term_id, environment_id)
@@ -452,13 +458,13 @@ get_environment(environment_id)
 
 Every machine-semantic query that can vary by provider version requires an explicit pinned `environment_id`.
 
-This intentionally tightens the Spec's suggested signatures by making the pinned environment explicit rather than depending on an implicit process-wide default.
+This intentionally tightens the Spec's suggested signatures by making the pinned environment explicit instead of relying on an implicit process-wide default.
 
 The service does not expose `project_facts` in this PR.
 
 ## MCP Boundary for the Next PR
 
-The next PR may expose a thin MCP adapter with tools corresponding to:
+The next PR may expose a thin MCP adapter corresponding to:
 
 ```text
 semantic.resolve_term
@@ -481,8 +487,9 @@ The core package must remain usable and fully testable without MCP installed.
 ```text
 D5/Orchestrator integration
   -> SemanticService.resolve_term(term, env_id)
-  -> EnvironmentStore loads immutable environment
-  -> Registry resolves authoritative vocabulary provider
+  -> SemanticEnvironmentStore loads immutable environment
+  -> SemanticProviderRegistry resolves selected provider object
+  -> service enforces namespace authority/capability
   -> provider resolves term
   -> service returns term + provider provenance
 ```
@@ -501,7 +508,7 @@ provider-neutral SemanticClaim
 ### Snapshot binding
 
 ```text
-SemanticService pins environment
+SemanticEnvironmentStore pins environment
   -> SemanticEnvironment(environment_id, content_hash)
   -> integration constructs D5 SemanticEnvironmentRef
   -> D5 ReconstructionResult / PlanningSnapshot binds the ref
@@ -528,8 +535,8 @@ SemanticServiceError
 
 Rules:
 
-- manifest/version/hash conflicts never auto-replace an existing registration;
-- missing dependency prevents environment pinning;
+- manifest/version/hash conflicts never auto-replace existing registration;
+- missing dependencies prevent environment pinning;
 - dual authoritative namespace ownership prevents environment pinning;
 - missing authoritative vocabulary provider prevents canonical term resolution;
 - provider execution exceptions are wrapped with provider provenance and never converted into guessed semantic results;
@@ -539,7 +546,7 @@ Rules:
 
 Semantic Providers are untrusted implementations until certified by policy/conformance.
 
-The core therefore preserves:
+The core preserves:
 
 - immutable version/hash identity;
 - namespace authority;
@@ -548,45 +555,45 @@ The core therefore preserves:
 - result provenance;
 - fail-closed conflicts.
 
-The first PR does not implement trust scoring or Gateway authorization. Those may filter which registered provider versions are selectable before environment pinning, but they must not change the meaning of an already-pinned environment.
+The first PR does not implement trust scoring or Gateway authorization. Those may filter which registered versions are selectable before environment pinning, but they must not change the meaning of an already-pinned environment.
 
 ## Testing Strategy
 
 The first PR is test-driven and adds `tests/semantic_service/`.
 
-### Manifest/registration tests
+### Manifest / registration
 
 - identical registration is idempotent;
-- same `(provider_id, version)` with a different `content_hash` fails;
-- claimed capabilities must match implemented provider capability protocols;
+- same `(provider_id, version)` with another `content_hash` fails;
+- claimed capabilities match implemented capability protocols;
 - exact self-dependency fails;
-- multiple versions of one provider can coexist.
+- multiple versions of one provider coexist.
 
-### Authority tests
+### Authority
 
 - one authoritative provider owns `ifc` in an environment;
-- two authoritative `ifc` providers fail environment creation;
+- two authoritative `ifc` providers fail pinning;
 - an `EXTENSION` provider may coexist with the authoritative owner;
 - vocabulary resolution never falls back to an extension provider.
 
-### Environment tests
+### Environment
 
 - provider input order does not affect environment hash;
 - changing version changes environment hash;
 - changing provider content hash changes environment hash;
-- changing authority/capabilities/dependencies changes manifest/environment hash;
+- changing authority/capabilities/compatibility/dependencies changes manifest/environment hash;
 - identical pinned sets create identical content-addressed environment IDs;
 - missing exact dependency fails pinning;
 - environment store refuses mutable rebinding.
 
-### Routing tests
+### Routing
 
-- vocabulary lookup uses only the namespace authority;
+- vocabulary lookup uses only namespace authority;
 - mapping fan-out order and output order are deterministic;
 - validation aggregates findings without majority voting or overwrite;
 - all outputs retain provider provenance.
 
-### Architecture tests
+### Architecture
 
 `platform/semantic_service/src/semantic_service` must contain no imports/references that couple the core to:
 
@@ -617,15 +624,15 @@ The implementation plan should choose the smallest CI change that preserves exis
 
 ## PR / Branch Strategy
 
-The design branch is:
+The branch is:
 
 ```text
 feat/semantic-service-core
 ```
 
-It is stacked from the current D5 PR #5 head because the repository `main` branch does not yet contain the D5 v0.6 baseline. A draft Semantic Service PR should initially target `feat/semantic-runtime` so its diff contains only Semantic Service work.
+It is stacked from the current D5 PR #5 head because `main` does not yet contain the D5 v0.6 baseline. A draft Semantic Service PR should initially target `feat/semantic-runtime` so its diff contains only Semantic Service work.
 
-After PR #5 merges, retarget the Semantic Service PR to `main` and re-run the complete merge-ref verification before marking it ready for review.
+After PR #5 merges, retarget the Semantic Service PR to `main` and re-run complete merge-ref verification before marking it ready for review.
 
 ## Follow-up Boundaries
 
@@ -643,12 +650,13 @@ The Semantic Service Core baseline is complete when all of the following are tru
 
 - provider versions are immutable in the registry;
 - namespace authority conflicts fail closed;
+- registry and environment-store ownership are separate;
 - routing is deterministic inside one pinned environment;
 - the same provider set yields the same environment hash regardless of input order;
 - machine-semantic manifest changes alter environment identity;
-- the service can resolve vocabulary, mapping, and validation through capability contracts without knowledge of concrete IFC/Metro/Enterprise classes;
-- D5 can bind the resulting `environment_id + content_hash` without Semantic Service importing D5;
+- the service resolves vocabulary, mapping, and validation through capability contracts without knowledge of concrete IFC/Metro/Enterprise classes;
+- D5 can bind `environment_id + content_hash` without Semantic Service importing D5;
 - no MCP transport or Host-native mapping exists in the core package;
-- full existing Python regression remains green apart from the existing live-Host gated tests.
+- full existing Python regression remains green apart from existing live-Host gated tests.
 
 No unresolved implementation decisions are required before writing the implementation plan.
