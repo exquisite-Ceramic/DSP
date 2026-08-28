@@ -38,10 +38,23 @@ def test_vocab_results_carry_exact_pinned_provenance():
     assert resolved.provenance.content_hash == IFC43_CATALOG.content_hash
 
 
-def test_entity_schema_exposes_direct_and_inherited_members():
-    schema = IFC43_PROVIDER.get_term_schema("ifc:IfcWall").schema
-    assert "ifc:IfcWall.PredefinedType" in schema["direct_members"]
-    assert "ifc:IfcRoot.Name" in schema["inherited_members"]
+def test_entity_enum_pset_and_qto_schema_shapes_are_exposed():
+    wall = IFC43_PROVIDER.get_term_schema("ifc:IfcWall").schema
+    enum = IFC43_PROVIDER.get_term_schema("ifc:IfcWallTypeEnum").schema
+    pset = IFC43_PROVIDER.get_term_schema("ifc:Pset_WallCommon").schema
+    qto = IFC43_PROVIDER.get_term_schema("ifc:Qto_WallBaseQuantities").schema
+    assert "ifc:IfcWall.PredefinedType" in wall["direct_members"]
+    assert "ifc:IfcRoot.Name" in wall["inherited_members"]
+    assert "ifc:IfcWallTypeEnum.SOLIDWALL" in enum["literals"]
+    assert "ifc:Pset_WallCommon.FireRating" in pset["members"]
+    assert "ifc:Qto_WallBaseQuantities.Width" in qto["members"]
+
+
+def test_description_locale_falls_back_without_changing_identity():
+    described = IFC43_PROVIDER.describe_term("ifc:IfcWall", "zh-CN")
+    assert described.term_id == "ifc:IfcWall"
+    assert described.locale is None
+    assert described.text
 
 
 def test_provider_does_not_claim_mapping_or_concrete_projection_method():

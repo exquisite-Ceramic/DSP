@@ -1,4 +1,4 @@
-from semantic_service import SemanticClaim, ValidationStatus
+from semantic_service import ProviderProvenance, SemanticClaim, ValidationStatus
 
 from ifc43_semantic_provider import IFC43_PROVIDER
 
@@ -61,3 +61,35 @@ def test_entity_value_requires_model_context():
         SemanticClaim(subject="S1", canonical_term_id="ifc:IfcWall", value="reference"),
     )
     assert item.status is ValidationStatus.NOT_APPLICABLE
+
+
+def test_validation_is_deterministic_and_provenanced():
+    claim = SemanticClaim(
+        subject="S1",
+        canonical_term_id="ifc:Pset_WallCommon.LoadBearing",
+        value=True,
+    )
+    first = IFC43_PROVIDER.validate_claim(claim)
+    second = IFC43_PROVIDER.validate_claim(claim)
+    assert first == second
+    expected = ProviderProvenance(
+        IFC43_PROVIDER.manifest.provider_id,
+        IFC43_PROVIDER.manifest.version,
+        IFC43_PROVIDER.manifest.content_hash,
+    )
+    assert all(item.provenance == expected for item in first)
+
+
+def test_unit_validation_requires_model_unit_assignment_context():
+    result = IFC43_PROVIDER.validate_claim(
+        SemanticClaim(
+            subject="S1",
+            canonical_term_id="ifc:Qto_WallBaseQuantities.Width",
+            value=200,
+            unit="mm",
+        )
+    )
+    context = [item for item in result if item.rule_id == "ifc43.value.context"]
+    assert context
+    assert context[-1].status is ValidationStatus.NOT_APPLICABLE
+    assert context[-1].message == "unit validation requires IFC model unit-assignment context"
