@@ -609,23 +609,61 @@ class FreshnessResolver:
             raise CoverageMismatchError("reconstruction coverage must exactly match contract coverage")
 
         expected_coverage_ref = f"{contract.contract_id}#coverage"
-        strongest: dict[SemanticAspect, GeometryLevel] = {}
+        strongest: dict[SemanticAspect, AspectGuarantee] = {}
         for guarantee in result.guarantees:
             if guarantee.coverage_ref is not None and guarantee.coverage_ref != expected_coverage_ref:
                 raise CoverageMismatchError(
                     f"guarantee scope {guarantee.coverage_ref!r} does not match "
                     f"{expected_coverage_ref!r}"
                 )
-            strongest[guarantee.aspect] = max(
-                strongest.get(guarantee.aspect, GeometryLevel.NONE),
-                guarantee.geometry_level,
+            current = strongest.get(guarantee.aspect)
+            if current is None:
+                strongest[guarantee.aspect] = guarantee
+                continue
+            strongest[guarantee.aspect] = AspectGuarantee(
+                guarantee.aspect,
+                geometry_level=max(current.geometry_level, guarantee.geometry_level),
+                coverage_state=_max_optional(
+                    current.coverage_state,
+                    guarantee.coverage_state,
+                ),
+                semantic_depth=_max_optional(
+                    current.semantic_depth,
+                    guarantee.semantic_depth,
+                ),
+                assurance_level=max(
+                    current.assurance_level,
+                    guarantee.assurance_level,
+                ),
             )
 
         missing: list[str] = []
         for requirement in contract.requirements:
-            level = strongest.get(requirement.aspect)
-            if level is None or level < requirement.geometry_level:
-                missing.append(requirement.aspect.value)
+            guarantee = strongest.get(requirement.aspect)
+            prefix = requirement.aspect.value
+            if guarantee is None:
+                missing.append(f"{prefix}.freshness")
+                continue
+            if guarantee.geometry_level < requirement.geometry_level:
+                missing.append(f"{prefix}.geometry")
+            if (
+                requirement.minimum_coverage is not None
+                and (
+                    guarantee.coverage_state is None
+                    or guarantee.coverage_state < requirement.minimum_coverage
+                )
+            ):
+                missing.append(f"{prefix}.coverage")
+            if (
+                requirement.semantic_depth is not None
+                and (
+                    guarantee.semantic_depth is None
+                    or guarantee.semantic_depth < requirement.semantic_depth
+                )
+            ):
+                missing.append(f"{prefix}.semantic_depth")
+            if guarantee.assurance_level < requirement.minimum_assurance:
+                missing.append(f"{prefix}.assurance")
         if missing:
             raise FreshnessUnsatisfiedError(
                 "reconstruction did not satisfy: " + ", ".join(sorted(missing))

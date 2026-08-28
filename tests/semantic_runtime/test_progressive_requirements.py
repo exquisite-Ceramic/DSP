@@ -7,12 +7,29 @@ from semantic_runtime import (
     AspectRequirement,
     AssuranceLevel,
     CoverageState,
+    DirtyMap,
+    FreshnessResolver,
+    FreshnessState,
+    FreshnessUnsatisfiedError,
     GeometryLevel,
+    ReconstructionResult,
     SemanticAspect,
     SemanticDepth,
+    SemanticEnvironmentRef,
+    SemanticProjectionRef,
     build_operation_contract,
     requirements_from_mappings,
 )
+
+
+PROJECTION_REF = SemanticProjectionRef(
+    "projection-1",
+    "projection-hash",
+    "semantic-model-v1",
+    "provider-set-hash",
+    "mapping-profile-set-hash",
+)
+ENVIRONMENT_REF = SemanticEnvironmentRef("environment-1", "environment-hash")
 
 
 def test_classification_is_first_class_aspect() -> None:
@@ -146,3 +163,105 @@ def test_geometry_axis_remains_independent_from_other_axes() -> None:
     assert requirement.minimum_coverage is CoverageState.PARTIAL
     assert requirement.semantic_depth is SemanticDepth.NORMALIZED
     assert requirement.minimum_assurance is AssuranceLevel.HEURISTIC
+
+
+def _classification_requirement() -> AspectRequirement:
+    return AspectRequirement(
+        SemanticAspect.CLASSIFICATION,
+        minimum_coverage=CoverageState.RESOLVED,
+        semantic_depth=SemanticDepth.CANONICAL,
+        minimum_assurance=AssuranceLevel.STANDARD_MAPPED,
+    )
+
+
+def _resolve_classification(
+    guarantee: AspectGuarantee,
+):
+    requirement = _classification_requirement()
+    dirty = DirtyMap()
+    dirty.mark_dirty("doc-1", "sem-1", (SemanticAspect.CLASSIFICATION,))
+    contract = build_operation_contract(
+        project_id="project-1",
+        document_ref="doc-1",
+        canonical_operation="classify.v1",
+        targets=("sem-1",),
+        arguments={},
+        requirements=(requirement,),
+    )
+    resolver = FreshnessResolver(dirty)
+
+    def reconstruct(current, revision):
+        return ReconstructionResult(
+            document_ref=current.coverage.document_ref,
+            host_revision=revision,
+            coverage=current.coverage,
+            guarantees=(guarantee,),
+            projection_ref=PROJECTION_REF,
+            semantic_environment_ref=ENVIRONMENT_REF,
+        )
+
+    return dirty, contract, resolver, reconstruct
+
+
+def test_barrier_rejects_fresh_but_low_assurance_claim() -> None:
+    weak = AspectGuarantee(
+        SemanticAspect.CLASSIFICATION,
+        coverage_state=CoverageState.RESOLVED,
+        semantic_depth=SemanticDepth.CANONICAL,
+        assurance_level=AssuranceLevel.RULE_DERIVED,
+    )
+    dirty, contract, resolver, reconstruct = _resolve_classification(weak)
+
+    with pytest.raises(FreshnessUnsatisfiedError, match=r"CLASSIFICATION\.assurance"):
+        resolver.resolve(contract, expected_host_revision="42", reconstruct=reconstruct)
+
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.CLASSIFICATION) is FreshnessState.DIRTY
+
+
+def test_barrier_rejects_fresh_but_partial_coverage_claim() -> None:
+    weak = AspectGuarantee(
+        SemanticAspect.CLASSIFICATION,
+        coverage_state=CoverageState.PARTIAL,
+        semantic_depth=SemanticDepth.CANONICAL,
+        assurance_level=AssuranceLevel.STANDARD_MAPPED,
+    )
+    dirty, contract, resolver, reconstruct = _resolve_classification(weak)
+
+    with pytest.raises(FreshnessUnsatisfiedError, match=r"CLASSIFICATION\.coverage"):
+        resolver.resolve(contract, expected_host_revision="42", reconstruct=reconstruct)
+
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.CLASSIFICATION) is FreshnessState.DIRTY
+
+
+def test_barrier_rejects_fresh_but_shallow_semantic_claim() -> None:
+    weak = AspectGuarantee(
+        SemanticAspect.CLASSIFICATION,
+        coverage_state=CoverageState.RESOLVED,
+        semantic_depth=SemanticDepth.NORMALIZED,
+        assurance_level=AssuranceLevel.STANDARD_MAPPED,
+    )
+    dirty, contract, resolver, reconstruct = _resolve_classification(weak)
+
+    with pytest.raises(FreshnessUnsatisfiedError, match=r"CLASSIFICATION\.semantic_depth"):
+        resolver.resolve(contract, expected_host_revision="42", reconstruct=reconstruct)
+
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.CLASSIFICATION) is FreshnessState.DIRTY
+
+
+def test_barrier_accepts_classification_when_all_progressive_axes_are_satisfied() -> None:
+    strong = AspectGuarantee(
+        SemanticAspect.CLASSIFICATION,
+        coverage_state=CoverageState.RESOLVED,
+        semantic_depth=SemanticDepth.DOMAIN,
+        assurance_level=AssuranceLevel.NATIVE_ASSERTED,
+    )
+    dirty, contract, resolver, reconstruct = _resolve_classification(strong)
+
+    snapshot = resolver.resolve(
+        contract,
+        expected_host_revision="42",
+        reconstruct=reconstruct,
+    )
+
+    assert snapshot.aspect_guarantees[0].aspect is SemanticAspect.CLASSIFICATION
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.CLASSIFICATION) is FreshnessState.FRESH

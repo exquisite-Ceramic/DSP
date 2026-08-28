@@ -248,7 +248,13 @@ def test_freshness_resolver_rejects_silent_coverage_expansion() -> None:
 
 
 def test_freshness_resolver_rejects_missing_or_weaker_guarantees() -> None:
-    resolver = FreshnessResolver(DirtyMap())
+    dirty = DirtyMap()
+    dirty.mark_dirty(
+        "doc-1",
+        "sem-1",
+        (SemanticAspect.GEOMETRY, SemanticAspect.PLACEMENT),
+    )
+    resolver = FreshnessResolver(dirty)
     contract = build_operation_contract(
         project_id=PROJECT_ID,
         document_ref="doc-1",
@@ -261,7 +267,10 @@ def test_freshness_resolver_rejects_missing_or_weaker_guarantees() -> None:
         ),
     )
 
-    with pytest.raises(FreshnessUnsatisfiedError):
+    with pytest.raises(
+        FreshnessUnsatisfiedError,
+        match=r"GEOMETRY\.geometry, PLACEMENT\.freshness",
+    ):
         resolver.resolve(
             contract,
             expected_host_revision="42",
@@ -271,6 +280,9 @@ def test_freshness_resolver_rejects_missing_or_weaker_guarantees() -> None:
                 guarantees=(AspectGuarantee(SemanticAspect.GEOMETRY, GeometryLevel.BOUNDS),),
             ),
         )
+
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.GEOMETRY) is FreshnessState.DIRTY
+    assert dirty.state("doc-1", "sem-1", SemanticAspect.PLACEMENT) is FreshnessState.DIRTY
 
 
 def test_successful_barrier_marks_only_contract_guarantees_fresh() -> None:
