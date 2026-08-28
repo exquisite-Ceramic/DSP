@@ -28,7 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install RED-test dependencies
-        run: python -m pip install pytest
-      - name: Run Semantic MCP architecture RED test
-        run: pytest -q tests/semantic_mcp/test_architecture.py
+      - name: Install packages
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install -e platform/semantic_service -e platform/semantic_mcp
+      - name: Run Semantic MCP tests
+        run: pytest -q tests/semantic_mcp
