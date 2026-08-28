@@ -3,6 +3,7 @@ name: Semantic service verification
 on:
   push:
     branches:
+      - main
       - 'feat/semantic-service-core'
     paths:
       - 'platform/semantic_service/**'
