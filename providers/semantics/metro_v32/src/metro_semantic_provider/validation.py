@@ -61,6 +61,27 @@ def _datatype_status(datatype: str, value: object) -> ValidationStatus | None:
     return None
 
 
+def _matches_prohibited_token(forbidden: object, claim: SemanticClaim) -> bool:
+    if not isinstance(forbidden, str):
+        return False
+    term_id = claim.canonical_term_id
+    if term_id is None or not term_id.startswith("ifc:"):
+        return False
+    token = term_id.split(":", 1)[1]
+
+    entity, separator, bracketed_value = forbidden.partition("[")
+    if not separator:
+        return forbidden == token
+    if not entity or not bracketed_value.endswith("]"):
+        return False
+
+    expected_value = bracketed_value[:-1]
+    return (
+        token == f"{entity}.PredefinedType"
+        and claim.value == expected_value
+    )
+
+
 def _prohibited_findings(
     catalog: MetroCatalog,
     claim: SemanticClaim,
@@ -75,7 +96,7 @@ def _prohibited_findings(
         if rule.kind != "PROHIBITED_IFC_USAGE":
             continue
         forbidden = rule.operands.get("forbidden_token")
-        if forbidden == token:
+        if _matches_prohibited_token(forbidden, claim):
             findings.append(
                 _finding(
                     rule.rule_id,
