@@ -23,7 +23,7 @@
 - Existing `platform/semantic_service`, `platform/semantic_runtime`, and `platform/semantic_mcp` production Python modules MUST NOT be modified for PR #9.
 - Runtime vocabulary/validation queries MUST NOT perform network I/O.
 - Machine-semantic `content_hash` includes normalized schema/Pset/Qto semantics and excludes descriptions, examples, URLs, locale text, source iteration order, object reprs, and the IfcOpenShell package version by itself.
-- A golden `content_hash` for the first intentionally reviewed normalized IFC4.3.2.0 catalog MUST be frozen and verified in every focused CI run; never auto-update it.
+- A golden `content_hash` for the first intentionally reviewed normalized IFC4.3.2.0 catalog MUST be frozen and verified in every focused CI run; CI/tests MUST NOT rewrite the expected value.
 - Canonical lookup is exact and case-sensitive. No fuzzy matching, alias repair, or Metro substitution is allowed.
 - Top-level term IDs use `ifc:<standard-name>`; direct attributes/Pset properties/Qto quantities/enum literals use owner-qualified IDs such as `ifc:IfcWall.PredefinedType`, `ifc:Pset_WallCommon.FireRating`, and `ifc:IfcWallTypeEnum.SOLIDWALL`.
 - Inherited attributes keep the canonical identity of their declaring owner, e.g. `ifc:IfcRoot.Name`; do not manufacture `ifc:IfcWall.Name`.
@@ -109,7 +109,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-Create `tests/semantic_providers/ifc43/test_source_version.py` with these behaviors:
+Create `tests/semantic_providers/ifc43/test_source_version.py`:
 
 ```python
 from types import SimpleNamespace
@@ -137,7 +137,6 @@ def test_source_loader_rejects_mismatched_probe_identifier():
         schema_identifier="IFC4X3_ADD1",
         schema_version=(4, 3, 1, 0),
     )
-
     with pytest.raises(Ifc43SourceVersionError, match="IFC4X3_ADD2"):
         load_ifc43_source(
             probe_factory=lambda **_: bad_probe,
@@ -152,7 +151,6 @@ def test_source_loader_rejects_schema_definition_name_drift():
         schema_version=IFC_SCHEMA_VERSION,
     )
     bad_schema = SimpleNamespace(name=lambda: "IFC4X3_ADD1")
-
     with pytest.raises(Ifc43SourceVersionError, match="schema definition"):
         load_ifc43_source(
             probe_factory=lambda **_: good_probe,
@@ -168,7 +166,6 @@ def test_pset_loader_receives_exact_schema_identifier():
         schema_version=IFC_SCHEMA_VERSION,
     )
     good_schema = SimpleNamespace(name=lambda: IFC_SCHEMA_IDENTIFIER)
-
     load_ifc43_source(
         probe_factory=lambda **_: good_probe,
         schema_loader=lambda **_: good_schema,
@@ -215,7 +212,7 @@ class Ifc43ValidationError(Ifc43ProviderError):
 
 - [ ] **Step 4: Implement the exact source loader**
 
-Create `source.py` around this contract:
+Create `source.py`:
 
 ```python
 from __future__ import annotations
@@ -265,11 +262,10 @@ def load_ifc43_source(
     psets = pset_loader(IFC_SCHEMA_IDENTIFIER)
     if psets is None:
         raise Ifc43SourceVersionError("official Pset/Qto template source is unavailable")
-
     return Ifc43Source(identifier, version, schema, psets)
 ```
 
-Do not fall back to `IFC4X3`, `IFC4X3_ADD1`, a floating latest schema, or a Metro file.
+Do not fall back to `IFC4X3`, another addendum/corrigendum, a floating latest schema, or a Metro file.
 
 - [ ] **Step 5: Run source tests and confirm GREEN**
 
@@ -307,7 +303,7 @@ git commit -m "feat(semantic): gate IFC4.3 provider source"
 
 - [ ] **Step 1: Write failing normalization tests against real IFC4X3_ADD2 declarations**
 
-Create `test_normalization.py` with representative official facts:
+Create `test_normalization.py`:
 
 ```python
 from ifc43_semantic_provider.normalization import normalize_schema_declarations
@@ -368,7 +364,7 @@ Expected: import failure because `model`, `hashing`, and `normalization` are mis
 
 - [ ] **Step 3: Implement canonical hashing**
 
-Create `hashing.py` using the same provider-local canonical JSON discipline as DSP Core:
+Create `hashing.py`:
 
 ```python
 from __future__ import annotations
@@ -405,11 +401,9 @@ def canonical_hash(payload: object) -> str:
     return sha256(encoded).hexdigest()
 ```
 
-Do not import the DSP Core provider hashing module.
-
 - [ ] **Step 4: Implement immutable normalized records**
 
-Create `model.py` with focused immutable values:
+Create `model.py`:
 
 ```python
 from __future__ import annotations
@@ -419,16 +413,14 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 
-def freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
-    def freeze(item: object) -> object:
-        if isinstance(item, Mapping):
-            return MappingProxyType({str(k): freeze(v) for k, v in item.items()})
-        if isinstance(item, (tuple, list)):
-            return tuple(freeze(v) for v in item)
-        if isinstance(item, (set, frozenset)):
-            return frozenset(freeze(v) for v in item)
-        return item
-    return MappingProxyType({str(k): freeze(v) for k, v in value.items()})
+def freeze(item: object) -> object:
+    if isinstance(item, Mapping):
+        return MappingProxyType({str(k): freeze(v) for k, v in item.items()})
+    if isinstance(item, (tuple, list)):
+        return tuple(freeze(v) for v in item)
+    if isinstance(item, (set, frozenset)):
+        return frozenset(freeze(v) for v in item)
+    return item
 
 
 def plain(item: object) -> object:
@@ -471,7 +463,7 @@ class IfcTermRecord:
     def __post_init__(self) -> None:
         if not self.term_id.startswith("ifc:"):
             raise ValueError("IFC term_id must use ifc: namespace")
-        object.__setattr__(self, "machine_schema", freeze_mapping(self.machine_schema))
+        object.__setattr__(self, "machine_schema", freeze(self.machine_schema))
 
     def machine_payload(self) -> dict[str, object]:
         return {
@@ -481,13 +473,15 @@ class IfcTermRecord:
         }
 ```
 
-Descriptions remain outside `machine_payload()`.
+Descriptions are presentation-only because `machine_payload()` excludes them.
 
 - [ ] **Step 5: Implement recursive type normalization and declaration expansion**
 
-In `normalization.py`, implement these exact helper contracts:
+Create `normalization.py` with:
 
 ```python
+from __future__ import annotations
+
 from ifcopenshell.ifcopenshell_wrapper import simple_type
 
 from .errors import Ifc43CatalogBuildError
@@ -518,15 +512,12 @@ def normalize_parameter_type(raw: object) -> TypeExpression:
 
     named = raw.as_named_type()
     if named is not None:
-        return TypeExpression(
-            kind="NAMED",
-            name=f"ifc:{named.declared_type().name()}",
-        )
+        return TypeExpression(kind="NAMED", name=f"ifc:{named.declared_type().name()}")
 
-    simple = raw.as_simple_type()
-    if simple is not None:
+    primitive = raw.as_simple_type()
+    if primitive is not None:
         try:
-            name = _SIMPLE_NAMES[simple.declared_type()]
+            name = _SIMPLE_NAMES[primitive.declared_type()]
         except KeyError as exc:
             raise Ifc43CatalogBuildError("unsupported IFC simple type") from exc
         return TypeExpression(kind="SIMPLE", name=name)
@@ -534,34 +525,33 @@ def normalize_parameter_type(raw: object) -> TypeExpression:
     raise Ifc43CatalogBuildError("unsupported IFC parameter type")
 ```
 
-Then implement:
+Implement `normalize_schema_declarations(schema) -> tuple[IfcTermRecord, ...]` with these exact rules:
+
+- iterate `schema.declarations()` sorted by `declaration.name()`;
+- entity declarations become `ENTITY`, except names starting with `IfcRel`, which become `RELATIONSHIP`;
+- entity machine schema is `{"supertype": canonical-or-None, "abstract": bool, "direct_members": sorted tuple}`;
+- pair each direct `entity.attributes()` item with the corresponding `entity.derived()` flag and emit one `ATTRIBUTE` record per direct attribute;
+- attribute machine schema is `owner`, normalized `declared_type`, `optional`, and `derived`;
+- enumeration declaration emits one `ENUM` record plus one owner-qualified `ENUM_LITERAL` record per `enumeration_items()` value;
+- select declaration emits one `SELECT` record whose `members` are sorted canonical declaration IDs from `select_list()`;
+- type declaration emits one `DEFINED_TYPE` record with `underlying=normalize_parameter_type(declared_type()).payload()`;
+- descriptions are deterministic local strings such as `IFC4X3_ADD2 ENTITY IfcWall.` and never fetched over the network;
+- duplicate term IDs are accepted only when machine payloads are identical; conflicting duplicates raise `Ifc43CatalogBuildError`.
+
+For a direct attribute use:
 
 ```python
-def normalize_schema_declarations(schema: object) -> tuple[IfcTermRecord, ...]:
-    ...
-```
-
-Rules for `normalize_schema_declarations()`:
-
-- iterate `schema.declarations()` and sort by `declaration.name()` before output;
-- `declaration.as_entity()` -> `ENTITY` unless name starts `IfcRel`, then `RELATIONSHIP`;
-- entity schema contains `supertype`, `abstract`, and sorted `direct_members` term IDs;
-- pair each direct `entity.attributes()` item with the corresponding `entity.derived()` flag and emit one `ATTRIBUTE` record using `normalize_parameter_type(attribute.type_of_attribute())`;
-- `declaration.as_enumeration_type()` -> one `ENUM` record plus one `ENUM_LITERAL` record per `enumeration_items()` value;
-- `declaration.as_select_type()` -> `SELECT` with sorted canonical declaration references from `select_list()`;
-- `declaration.as_type_declaration()` -> `DEFINED_TYPE` with normalized `declared_type()`;
-- descriptions are deterministic presentation strings such as `"IFC4X3_ADD2 ENTITY IfcWall."`; do not query the network;
-- if the same term ID would be emitted twice with different machine semantics, raise `Ifc43CatalogBuildError`.
-
-For entity attributes, use this schema payload:
-
-```python
-{
-    "owner": "ifc:IfcWall",
-    "declared_type": normalize_parameter_type(attribute.type_of_attribute()).payload(),
-    "optional": attribute.optional(),
-    "derived": derived,
-}
+IfcTermRecord(
+    term_id=f"ifc:{entity.name()}.{attribute.name()}",
+    kind="ATTRIBUTE",
+    machine_schema={
+        "owner": f"ifc:{entity.name()}",
+        "declared_type": normalize_parameter_type(attribute.type_of_attribute()).payload(),
+        "optional": attribute.optional(),
+        "derived": derived,
+    },
+    description=f"IFC4X3_ADD2 ATTRIBUTE {entity.name()}.{attribute.name()}.",
+)
 ```
 
 - [ ] **Step 6: Run normalization tests and confirm GREEN**
@@ -643,13 +633,10 @@ Expected: import/attribute failure because `normalize_pset_qto()` is missing.
 
 - [ ] **Step 3: Implement deterministic official template traversal**
 
-Add to `normalization.py`:
+Add:
 
 ```python
-from ifcopenshell.util.pset import (
-    get_pset_template_type,
-    parse_applicable_entity,
-)
+from ifcopenshell.util.pset import get_pset_template_type, parse_applicable_entity
 
 
 def _template_files(psets: object) -> tuple[object, ...]:
@@ -667,7 +654,7 @@ def _applicability(template: object) -> tuple[dict[str, object], ...]:
                 "performance_history": item.performance_history,
             }
         )
-    return tuple(sorted(values, key=lambda item: repr(item)))
+    return tuple(sorted(values, key=repr))
 
 
 def _enum_values(property_template: object) -> tuple[str, ...]:
@@ -693,13 +680,13 @@ def _unit_ref(property_template: object) -> dict[str, object] | None:
 Implement `normalize_pset_qto(psets)` with these rules:
 
 1. iterate every `IfcPropertySetTemplate` in every `psets.templates` file;
-2. classify with `get_pset_template_type(template)` and ignore templates returning `None`;
-3. emit top-level `ifc:<Name>` with kind `PSET` or `QTO` and machine schema containing normalized applicability;
-4. iterate `template.HasPropertyTemplates or ()`, sort by `Name`, and emit owner-qualified member IDs;
-5. member kind is `PSET_PROPERTY` for PSET and `QTO_QUANTITY` for QTO;
-6. member machine schema contains `owner`, `template_type`, `primary_measure_type`, `enum_values`, and normalized `unit`;
-7. dedupe identical records from multiple template files; conflicting duplicates raise `Ifc43CatalogBuildError`;
-8. reject/ignore any non-official project prefix such as `PsetProj_` / `QtoProj_` if encountered.
+2. classify using `get_pset_template_type(template)` and ignore `None`;
+3. top-level term ID is `ifc:<Name>`, kind `PSET` or `QTO`, with normalized applicability;
+4. iterate `template.HasPropertyTemplates or ()`, sorted by `Name`;
+5. member kind is `PSET_PROPERTY` or `QTO_QUANTITY`;
+6. member schema is `owner`, `template_type`, string-or-None `primary_measure_type`, `enum_values`, and normalized `unit`;
+7. identical duplicate records are deduped; conflicting duplicates raise `Ifc43CatalogBuildError`;
+8. records beginning `ifc:PsetProj_` or `ifc:QtoProj_` are rejected from this standard catalog.
 
 - [ ] **Step 4: Run Pset/Qto tests and confirm GREEN**
 
@@ -735,7 +722,7 @@ git commit -m "feat(semantic): normalize IFC4.3 Pset and Qto semantics"
 
 - [ ] **Step 1: Write failing synthetic hash and real exact-identity tests**
 
-Create `test_catalog.py` with synthetic determinism tests that do not rely on the future golden literal:
+Create `test_catalog.py`:
 
 ```python
 from dataclasses import replace
@@ -759,19 +746,17 @@ def test_record_order_does_not_change_content_hash():
 def test_presentation_change_does_not_change_content_hash():
     a = term("ifc:IfcA", {"underlying": "STRING"})
     changed = replace(a, description="different presentation")
-    assert (
-        Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (a,)).content_hash
-        == Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (changed,)).content_hash
-    )
+    assert Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (a,)).content_hash == Ifc43Catalog(
+        "IFC4X3_ADD2", (4, 3, 2, 0), (changed,)
+    ).content_hash
 
 
 def test_machine_change_changes_content_hash():
     a = term("ifc:IfcA", {"underlying": "STRING"})
     changed = term("ifc:IfcA", {"underlying": "REAL"})
-    assert (
-        Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (a,)).content_hash
-        != Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (changed,)).content_hash
-    )
+    assert Ifc43Catalog("IFC4X3_ADD2", (4, 3, 2, 0), (a,)).content_hash != Ifc43Catalog(
+        "IFC4X3_ADD2", (4, 3, 2, 0), (changed,)
+    ).content_hash
 ```
 
 Create `test_term_identity.py`:
@@ -786,9 +771,10 @@ def catalog():
 
 
 def test_inherited_name_keeps_ifcroot_owner_identity():
-    wall = catalog().schema_for("ifc:IfcWall")
+    current = catalog()
+    wall = current.schema_for("ifc:IfcWall")
     assert "ifc:IfcRoot.Name" in wall["inherited_members"]
-    assert "ifc:IfcWall.Name" not in catalog().term_ids
+    assert "ifc:IfcWall.Name" not in current.term_ids
 
 
 def test_lookup_is_exact_and_case_sensitive():
@@ -811,17 +797,16 @@ Expected: import failure because `catalog.py` does not exist.
 
 - [ ] **Step 3: Implement immutable catalog and inherited-member projection**
 
-Create `catalog.py` around this shape:
+Create `catalog.py`:
 
 ```python
 from __future__ import annotations
 
-from collections.abc import Mapping
 from types import MappingProxyType
 
 from .errors import Ifc43CatalogBuildError, Ifc43TermNotFoundError
 from .hashing import canonical_hash
-from .model import IfcTermRecord, plain
+from .model import IfcTermRecord, freeze, plain
 from .normalization import normalize_pset_qto, normalize_schema_declarations
 from .source import Ifc43Source, load_ifc43_source
 
@@ -863,11 +848,11 @@ class Ifc43Catalog:
         except KeyError as exc:
             raise Ifc43TermNotFoundError(term_id) from exc
 
-    def schema_for(self, term_id: str) -> Mapping[str, object]:
+    def schema_for(self, term_id: str):
         record = self.get(term_id)
         schema = plain(record.machine_schema)
         if record.kind not in {"ENTITY", "RELATIONSHIP"}:
-            return MappingProxyType(schema)
+            return freeze(schema)
 
         inherited = []
         supertype = schema.get("supertype")
@@ -877,7 +862,7 @@ class Ifc43Catalog:
             inherited.extend(parent_schema.get("direct_members", ()))
             supertype = parent_schema.get("supertype")
         schema["inherited_members"] = sorted(set(inherited))
-        return MappingProxyType(schema)
+        return freeze(schema)
 
 
 def build_ifc43_catalog(source: Ifc43Source) -> Ifc43Catalog:
@@ -885,22 +870,13 @@ def build_ifc43_catalog(source: Ifc43Source) -> Ifc43Catalog:
     return Ifc43Catalog(source.schema_identifier, source.schema_version, records)
 ```
 
-Do not instantiate a module singleton yet; first establish the reviewed golden hash in the next step.
-
 - [ ] **Step 4: Run catalog/identity tests and confirm GREEN before golden lock**
 
+Run the Task 4 pytest command. Expected: all current tests pass.
+
+- [ ] **Step 5: Compute and manually inspect the first normalized catalog hash**
+
 Run:
-
-```bash
-pytest -q tests/semantic_providers/ifc43/test_catalog.py \
-          tests/semantic_providers/ifc43/test_term_identity.py
-```
-
-Expected: all current Task 4 tests pass.
-
-- [ ] **Step 5: Compute the first normalized catalog hash and inspect the corpus before freezing it**
-
-Run exactly:
 
 ```bash
 python - <<'PY'
@@ -922,17 +898,25 @@ for term_id in (
 PY
 ```
 
-Expected: every named reference term resolves; output includes one lowercase 64-hex `content_hash`. Review the term count and reference records. If any reference term is absent or semantically wrong, fix normalization and repeat this step. Do **not** freeze a hash for a known-bad catalog.
+Expected: every named reference term resolves and `content_hash` is one lowercase 64-hex value. Review the term count and reference records. If any reference fact is wrong, fix normalization and repeat before freezing the hash.
 
-- [ ] **Step 6: Freeze the exact reviewed hash and add the golden regression test**
+- [ ] **Step 6: After that explicit review, perform the one-time initial golden freeze**
 
-Create `golden.py` with the exact 64-hex value printed in Step 5:
+Run this only after Step 5 has been reviewed:
 
-```python
-EXPECTED_IFC43_CONTENT_HASH = "<copy the exact reviewed Step 5 hash here>"
+```bash
+HASH="$(python - <<'PY'
+from ifc43_semantic_provider.catalog import build_ifc43_catalog
+from ifc43_semantic_provider.source import load_ifc43_source
+print(build_ifc43_catalog(load_ifc43_source()).content_hash)
+PY
+)"
+test "${#HASH}" -eq 64
+printf 'EXPECTED_IFC43_CONTENT_HASH = "%s"\n' "$HASH" \
+  > providers/semantics/ifc43/src/ifc43_semantic_provider/golden.py
 ```
 
-This is the only plan step whose literal is generated from the pinned official corpus at execution time. Do not guess it and do not script an automatic rewrite.
+This command is only the initial reviewed freeze. No test, CI job, package import, or future update script may rewrite `golden.py` automatically.
 
 Append to `test_catalog.py`:
 
@@ -947,7 +931,7 @@ def test_exact_ifc4320_catalog_matches_reviewed_golden_hash():
     assert actual == EXPECTED_IFC43_CONTENT_HASH
 ```
 
-Then add the module singleton at the bottom of `catalog.py` only after the golden constant exists:
+Then add to the bottom of `catalog.py`:
 
 ```python
 from .golden import EXPECTED_IFC43_CONTENT_HASH
@@ -959,16 +943,9 @@ if IFC43_CATALOG.content_hash != EXPECTED_IFC43_CONTENT_HASH:
     )
 ```
 
-- [ ] **Step 7: Re-run focused catalog tests and confirm the golden lock is GREEN**
+- [ ] **Step 7: Re-run Task 4 tests and confirm the golden lock is GREEN**
 
-Run:
-
-```bash
-pytest -q tests/semantic_providers/ifc43/test_catalog.py \
-          tests/semantic_providers/ifc43/test_term_identity.py
-```
-
-Expected: all tests pass, including the real-corpus golden hash check.
+Run the Task 4 pytest command. Expected: all pass including the real-corpus golden check.
 
 - [ ] **Step 8: Commit Task 4**
 
@@ -991,20 +968,17 @@ git commit -m "feat(semantic): add immutable IFC4.3 catalog"
 
 **Interfaces:**
 - Consumes: existing `semantic_service` manifest/provider DTOs and `IFC43_CATALOG`.
-- Produces: `Ifc43SemanticProvider`, `IFC43_PROVIDER`, exact VOCABULARY methods and exact manifest/provenance.
+- Produces: `Ifc43SemanticProvider`, `IFC43_PROVIDER`, exact VOCABULARY methods and exact manifest/provenance. Registry acceptance is intentionally tested only after Task 6 adds `validate_claim()`.
 
-- [ ] **Step 1: Write failing manifest/vocabulary tests**
+- [ ] **Step 1: Write failing direct manifest/vocabulary tests**
 
 Create `test_provider_manifest.py`:
 
 ```python
-from semantic_service import (
-    AuthorityMode,
-    ProviderType,
-    SemanticCapability,
-)
+from semantic_service import AuthorityMode, ProviderType, SemanticCapability
 
 from ifc43_semantic_provider import IFC43_CATALOG, IFC43_PROVIDER
+from ifc43_semantic_provider.errors import Ifc43TermNotFoundError
 
 
 def test_manifest_matches_main_spec_v06_ifc_provider_identity():
@@ -1046,11 +1020,18 @@ def test_provider_does_not_claim_mapping_or_concrete_projection_method():
     assert SemanticCapability.MAPPING not in IFC43_PROVIDER.manifest.capabilities
     assert not hasattr(IFC43_PROVIDER, "find_mappings")
     assert not hasattr(IFC43_PROVIDER, "project_facts")
+
+
+def test_invalid_case_nonexistent_and_project_terms_fail_exactly():
+    for term_id in ("ifc:ifcwall", "ifc:IfcTunnel", "ifc:PsetProj_WallDesign"):
+        try:
+            IFC43_PROVIDER.resolve_term(term_id)
+        except Ifc43TermNotFoundError:
+            continue
+        raise AssertionError(f"unexpected resolution: {term_id}")
 ```
 
-Also assert exact failure for `ifc:IfcTunnel`, case mismatch, and `ifc:PsetProj_WallDesign` using `Ifc43TermNotFoundError`.
-
-- [ ] **Step 2: Run provider tests and confirm RED**
+- [ ] **Step 2: Run direct provider tests and confirm RED**
 
 Run:
 
@@ -1058,11 +1039,11 @@ Run:
 pytest -q tests/semantic_providers/ifc43/test_provider_manifest.py
 ```
 
-Expected: import failure because `provider.py` / curated package API do not exist.
+Expected: import failure because `provider.py` / curated API are absent.
 
-- [ ] **Step 3: Implement the provider manifest and vocabulary methods**
+- [ ] **Step 3: Implement manifest, provenance, vocabulary methods, and direct singleton**
 
-Create `provider.py` with these exact constants and behavior:
+Create `provider.py`:
 
 ```python
 from semantic_service import (
@@ -1121,11 +1102,14 @@ class Ifc43SemanticProvider:
     def get_term_schema(self, term_id: str) -> TermSchema:
         record = self._catalog.get(term_id)
         return TermSchema(record.term_id, self._catalog.schema_for(term_id), self._provenance)
+
+
+IFC43_PROVIDER = Ifc43SemanticProvider()
 ```
 
-`validate_claim()` is intentionally added in Task 6; until then the Task 5 provider test should register only after Task 6, or the manifest test should avoid registry registration because the registry correctly rejects a claimed VALIDATION capability without the method.
+The manifest intentionally claims VALIDATION before Task 6 implements the method, so Task 5 MUST NOT register the provider with `SemanticProviderRegistry` yet.
 
-- [ ] **Step 4: Create the curated package API**
+- [ ] **Step 4: Create curated package exports**
 
 Create `__init__.py`:
 
@@ -1138,10 +1122,11 @@ from .errors import (
     Ifc43TermNotFoundError,
     Ifc43ValidationError,
 )
-from .provider import Ifc43SemanticProvider
+from .provider import IFC43_PROVIDER, Ifc43SemanticProvider
 
 __all__ = [
     "IFC43_CATALOG",
+    "IFC43_PROVIDER",
     "Ifc43Catalog",
     "Ifc43CatalogBuildError",
     "Ifc43ProviderError",
@@ -1152,17 +1137,15 @@ __all__ = [
 ]
 ```
 
-Do not export a singleton yet if importing it would invite registry use before Task 6 finishes `validate_claim()`.
-
-- [ ] **Step 5: Run direct vocabulary tests and confirm GREEN**
+- [ ] **Step 5: Run direct provider tests and confirm GREEN**
 
 Run:
 
 ```bash
-pytest -q tests/semantic_providers/ifc43/test_provider_manifest.py -k 'not registry'
+pytest -q tests/semantic_providers/ifc43/test_provider_manifest.py
 ```
 
-Expected: direct manifest/vocabulary tests pass; no Semantic Service registry registration is attempted yet.
+Expected: all direct Task 5 tests pass. Do not add a registry test until Task 6.
 
 - [ ] **Step 6: Commit Task 5**
 
@@ -1175,22 +1158,21 @@ git commit -m "feat(semantic): add IFC4.3 vocabulary provider"
 
 ---
 
-### Task 6: Deterministic Claim-Level IFC Validation and Final Provider Singleton
+### Task 6: Deterministic Claim-Level IFC Validation and Registry Conformance
 
 **Files:**
 - Create: `providers/semantics/ifc43/src/ifc43_semantic_provider/validation.py`
 - Modify: `providers/semantics/ifc43/src/ifc43_semantic_provider/provider.py`
-- Modify: `providers/semantics/ifc43/src/ifc43_semantic_provider/__init__.py`
 - Create: `tests/semantic_providers/ifc43/test_validation.py`
 - Modify: `tests/semantic_providers/ifc43/test_provider_manifest.py`
 
 **Interfaces:**
 - Consumes: `SemanticClaim`, `ValidationFinding`, `ValidationStatus`, catalog term/type metadata.
-- Produces: `validate_claim_against_ifc43()`, `Ifc43SemanticProvider.validate_claim()`, final `IFC43_PROVIDER` singleton that satisfies registry capability checks.
+- Produces: `validate_claim_against_ifc43()`, `Ifc43SemanticProvider.validate_claim()`, and a provider accepted by the existing registry for all claimed capabilities.
 
-- [ ] **Step 1: Write failing validation and registry-capability tests**
+- [ ] **Step 1: Write failing validation and registry tests**
 
-Create `test_validation.py` with these cases:
+Create `test_validation.py`:
 
 ```python
 from semantic_service import SemanticClaim, ValidationStatus
@@ -1250,10 +1232,10 @@ def test_boolean_pset_property_rejects_string_value():
     assert item.status is ValidationStatus.FAIL
 
 
-def test_missing_model_context_returns_not_applicable_instead_of_guessing():
+def test_entity_value_requires_model_context():
     item = finding(
         "ifc43.value.context",
-        SemanticClaim(subject="S1", canonical_term_id="ifc:IfcWall", value="some-reference"),
+        SemanticClaim(subject="S1", canonical_term_id="ifc:IfcWall", value="reference"),
     )
     assert item.status is ValidationStatus.NOT_APPLICABLE
 ```
@@ -1262,15 +1244,14 @@ Append to `test_provider_manifest.py`:
 
 ```python
 from semantic_service import SemanticProviderRegistry
-from ifc43_semantic_provider import IFC43_PROVIDER
 
 
-def test_registry_accepts_all_claimed_capabilities():
+def test_registry_accepts_all_claimed_capabilities_after_validation_exists():
     registry = SemanticProviderRegistry()
     assert registry.register(IFC43_PROVIDER) == IFC43_PROVIDER.manifest
 ```
 
-- [ ] **Step 2: Run validation tests and confirm RED**
+- [ ] **Step 2: Run validation/registry tests and confirm RED**
 
 Run:
 
@@ -1279,68 +1260,53 @@ pytest -q tests/semantic_providers/ifc43/test_validation.py \
           tests/semantic_providers/ifc43/test_provider_manifest.py
 ```
 
-Expected: missing `validate_claim()` / `IFC43_PROVIDER`, or registry capability failure.
+Expected: `validate_claim` missing and registry reports claimed VALIDATION without protocol implementation.
 
-- [ ] **Step 3: Implement narrow deterministic validation helpers**
+- [ ] **Step 3: Implement explicit validation helpers with no model-level guessing**
 
-Create `validation.py` with stable rule IDs:
+Create `validation.py`:
 
 ```python
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from semantic_service import (
+    ProviderProvenance,
+    SemanticClaim,
+    ValidationFinding,
+    ValidationStatus,
+)
+
+from .errors import Ifc43TermNotFoundError
+
 IFC_SCOPE_RULE = "ifc43.scope"
 TERM_EXISTS_RULE = "ifc43.term.exists"
 ENUM_RULE = "ifc43.value.enum"
 TYPE_RULE = "ifc43.value.type"
 CONTEXT_RULE = "ifc43.value.context"
-```
 
-Implement:
-
-```python
-def validate_claim_against_ifc43(catalog, claim, provenance) -> tuple[ValidationFinding, ...]:
-    target = claim.canonical_term_id or claim.predicate
-    if target is None or not target.startswith("ifc:"):
-        return (ValidationFinding(IFC_SCOPE_RULE, ValidationStatus.NOT_APPLICABLE, provenance),)
-
-    try:
-        record = catalog.get(target)
-    except Ifc43TermNotFoundError:
-        return (ValidationFinding(TERM_EXISTS_RULE, ValidationStatus.FAIL, provenance),)
-
-    findings = [ValidationFinding(TERM_EXISTS_RULE, ValidationStatus.PASS, provenance)]
-    if claim.value is None:
-        findings.append(
-            ValidationFinding(CONTEXT_RULE, ValidationStatus.NOT_APPLICABLE, provenance)
-        )
-        return tuple(findings)
-
-    # ATTRIBUTE: follow declared_type through named DEFINED_TYPE / ENUM declarations.
-    # PSET_PROPERTY: use primary_measure_type.
-    # QTO_QUANTITY: use template_type such as Q_LENGTH/Q_AREA/Q_VOLUME/Q_COUNT.
-    # ENTITY/RELATIONSHIP/SELECT values require model-reference context -> NOT_APPLICABLE.
-    ...
-```
-
-Replace the final comment/ellipsis in the actual implementation with explicit helpers:
-
-```python
-def _named_type_id(record) -> str | None:
-    declared = record.machine_schema.get("declared_type")
-    if not isinstance(declared, Mapping) or declared.get("kind") != "NAMED":
-        return None
-    return declared.get("name")
+_QTO_NUMERIC_TYPES = {
+    "Q_LENGTH",
+    "Q_AREA",
+    "Q_VOLUME",
+    "Q_WEIGHT",
+    "Q_TIME",
+    "Q_COUNT",
+}
 
 
-def _enum_values(catalog, enum_term_id: str) -> tuple[str, ...]:
-    enum_record = catalog.get(enum_term_id)
-    if enum_record.kind != "ENUM":
-        return ()
-    literal_ids = enum_record.machine_schema["literals"]
-    return tuple(catalog.get(item).machine_schema["value"] for item in literal_ids)
+def _finding(rule_id, status, provenance, message=None):
+    return ValidationFinding(rule_id, status, provenance, message)
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _python_type_ok(simple_name: str, value: object) -> bool:
     if simple_name in {"REAL", "NUMBER"}:
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        return _is_number(value)
     if simple_name == "INTEGER":
         return isinstance(value, int) and not isinstance(value, bool)
     if simple_name == "BOOLEAN":
@@ -1352,15 +1318,111 @@ def _python_type_ok(simple_name: str, value: object) -> bool:
     if simple_name == "BINARY":
         return isinstance(value, (bytes, bytearray))
     return False
+
+
+def _type_target(catalog, expression: Mapping[str, object]):
+    kind = expression.get("kind")
+    if kind == "SIMPLE":
+        return ("SIMPLE", expression.get("name"))
+    if kind != "NAMED":
+        return ("CONTEXT", None)
+
+    term_id = expression.get("name")
+    if not isinstance(term_id, str):
+        return ("CONTEXT", None)
+    record = catalog.get(term_id)
+    if record.kind == "ENUM":
+        return ("ENUM", term_id)
+    if record.kind == "DEFINED_TYPE":
+        underlying = record.machine_schema.get("underlying")
+        if isinstance(underlying, Mapping):
+            return _type_target(catalog, underlying)
+    return ("CONTEXT", None)
+
+
+def _enum_values(catalog, enum_term_id: str) -> tuple[str, ...]:
+    enum_record = catalog.get(enum_term_id)
+    literal_ids = tuple(enum_record.machine_schema.get("literals", ()))
+    return tuple(catalog.get(item).machine_schema["value"] for item in literal_ids)
+
+
+def _value_target(catalog, record):
+    if record.kind == "ATTRIBUTE":
+        declared = record.machine_schema.get("declared_type")
+        if isinstance(declared, Mapping):
+            return _type_target(catalog, declared)
+        return ("CONTEXT", None)
+
+    if record.kind == "PSET_PROPERTY":
+        enum_values = tuple(record.machine_schema.get("enum_values", ()))
+        if enum_values:
+            return ("INLINE_ENUM", enum_values)
+        measure = record.machine_schema.get("primary_measure_type")
+        if isinstance(measure, str) and measure:
+            try:
+                return _type_target(catalog, {"kind": "NAMED", "name": f"ifc:{measure}"})
+            except Ifc43TermNotFoundError:
+                return ("CONTEXT", None)
+        return ("CONTEXT", None)
+
+    if record.kind == "QTO_QUANTITY":
+        template_type = record.machine_schema.get("template_type")
+        if template_type in _QTO_NUMERIC_TYPES:
+            return ("NUMBER", None)
+        return ("CONTEXT", None)
+
+    return ("CONTEXT", None)
+
+
+def validate_claim_against_ifc43(catalog, claim: SemanticClaim, provenance: ProviderProvenance):
+    target = claim.canonical_term_id or claim.predicate
+    if target is None or not target.startswith("ifc:"):
+        return (_finding(IFC_SCOPE_RULE, ValidationStatus.NOT_APPLICABLE, provenance),)
+
+    try:
+        record = catalog.get(target)
+    except Ifc43TermNotFoundError:
+        return (_finding(TERM_EXISTS_RULE, ValidationStatus.FAIL, provenance),)
+
+    findings = [_finding(TERM_EXISTS_RULE, ValidationStatus.PASS, provenance)]
+    if claim.value is None:
+        findings.append(_finding(CONTEXT_RULE, ValidationStatus.NOT_APPLICABLE, provenance))
+        return tuple(findings)
+
+    target_kind, target_value = _value_target(catalog, record)
+    if target_kind == "ENUM":
+        allowed = _enum_values(catalog, target_value)
+        status = ValidationStatus.PASS if claim.value in allowed else ValidationStatus.FAIL
+        findings.append(_finding(ENUM_RULE, status, provenance))
+    elif target_kind == "INLINE_ENUM":
+        status = ValidationStatus.PASS if claim.value in target_value else ValidationStatus.FAIL
+        findings.append(_finding(ENUM_RULE, status, provenance))
+    elif target_kind == "SIMPLE":
+        status = ValidationStatus.PASS if _python_type_ok(target_value, claim.value) else ValidationStatus.FAIL
+        findings.append(_finding(TYPE_RULE, status, provenance))
+    elif target_kind == "NUMBER":
+        status = ValidationStatus.PASS if _is_number(claim.value) else ValidationStatus.FAIL
+        findings.append(_finding(TYPE_RULE, status, provenance))
+    else:
+        findings.append(_finding(CONTEXT_RULE, ValidationStatus.NOT_APPLICABLE, provenance))
+
+    if claim.unit is not None:
+        findings.append(
+            _finding(
+                CONTEXT_RULE,
+                ValidationStatus.NOT_APPLICABLE,
+                provenance,
+                "unit validation requires IFC model unit-assignment context",
+            )
+        )
+    return tuple(findings)
 ```
 
-Add a resolver that walks `DEFINED_TYPE` `underlying` payloads until it reaches `SIMPLE`, and use the Pset `primary_measure_type` term to resolve the same chain. For enum-backed attributes, emit `ENUM_RULE` PASS/FAIL. For scalar simple/defined/Pset values, emit `TYPE_RULE` PASS/FAIL. For entities, relationships, selects, aggregates, unit-assignment-dependent checks, and any rule needing missing graph/file context, emit `CONTEXT_RULE` as `NOT_APPLICABLE`.
+This implementation validates only what the current claim contains. It deliberately does not infer an IFC instance graph, unit assignment, inverse relationship, WHERE-rule context, geometry, IDS, or Metro requirement.
 
-Do not evaluate Metro P-M/P-C/P-R, complete IFC cardinality, inverse relationships, WHERE rules, geometry, or IDS.
+- [ ] **Step 4: Wire validation into the provider**
 
-- [ ] **Step 4: Wire validation into the provider and export the final singleton**
-
-In `provider.py`:
+Modify `provider.py`:
 
 ```python
 from semantic_service import SemanticClaim, ValidationFinding
@@ -1368,14 +1430,11 @@ from .validation import validate_claim_against_ifc43
 
     def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]:
         return validate_claim_against_ifc43(self._catalog, claim, self._provenance)
-
-
-IFC43_PROVIDER = Ifc43SemanticProvider()
 ```
 
-Update `__init__.py` to export `IFC43_PROVIDER`.
+Keep the existing singleton `IFC43_PROVIDER = Ifc43SemanticProvider()` at module bottom.
 
-- [ ] **Step 5: Run validation + manifest tests and confirm GREEN**
+- [ ] **Step 5: Run validation + registry tests and confirm GREEN**
 
 Run:
 
@@ -1391,7 +1450,6 @@ Expected: all Task 5/6 tests pass and the real registry accepts the provider.
 ```bash
 git add providers/semantics/ifc43/src/ifc43_semantic_provider/validation.py \
         providers/semantics/ifc43/src/ifc43_semantic_provider/provider.py \
-        providers/semantics/ifc43/src/ifc43_semantic_provider/__init__.py \
         tests/semantic_providers/ifc43/test_validation.py \
         tests/semantic_providers/ifc43/test_provider_manifest.py
 git commit -m "feat(semantic): validate IFC4.3 semantic claims"
@@ -1408,9 +1466,9 @@ git commit -m "feat(semantic): validate IFC4.3 semantic claims"
 
 **Interfaces:**
 - Consumes: existing `SemanticProviderRegistry`, `SemanticEnvironmentStore`, `SemanticService`, existing `semantic_mcp.server.build_mcp_server`, existing `dsp_core_semantic_provider.DSP_CORE_PROVIDER`.
-- Produces: no production API; proves the provider works through the existing contracts without platform changes.
+- Produces: no production API; proves the provider works through existing contracts without platform changes.
 
-- [ ] **Step 1: Write failing/initial integration tests before changing production code**
+- [ ] **Step 1: Write service/environment authority tests**
 
 Create `test_service_integration.py`:
 
@@ -1422,6 +1480,7 @@ from semantic_service import (
     NamespaceAuthority,
     NamespaceAuthorityError,
     ProviderRef,
+    ProviderRegistrationConflictError,
     ProviderType,
     SemanticCapability,
     SemanticEnvironmentStore,
@@ -1455,12 +1514,6 @@ def test_service_resolves_ifc_term_through_exact_authoritative_owner():
     assert result.provenance.provider_id == "buildingSMART.ifc43"
 
 
-def test_ifc_provider_version_changes_environment_identity():
-    _, environment, _, _ = build_service()
-    assert "buildingSMART.ifc43" in {item.provider_id for item in environment.providers}
-    assert environment.environment_id.startswith("sem-env:")
-
-
 class ConflictingIfcOwner:
     manifest = SemanticProviderManifest(
         provider_id="test.conflicting-ifc",
@@ -1476,8 +1529,10 @@ class ConflictingIfcOwner:
 
     def resolve_term(self, term_id):
         raise AssertionError("must never route")
+
     def describe_term(self, term_id, locale=None):
         raise AssertionError("must never route")
+
     def get_term_schema(self, term_id):
         raise AssertionError("must never route")
 
@@ -1493,9 +1548,32 @@ def test_second_authoritative_ifc_owner_fails_environment_pinning():
             ),
             registry,
         )
+
+
+class ConflictingSameVersion:
+    manifest = SemanticProviderManifest(
+        provider_id="buildingSMART.ifc43",
+        provider_type=ProviderType.STANDARD,
+        version="4.3.2.0",
+        content_hash="different-machine-semantics",
+        namespaces=("ifc",),
+        capabilities=frozenset(),
+        authority=(),
+        compatibility=(),
+        requires=(),
+    )
+
+
+def test_same_provider_version_with_different_content_fails_closed():
+    registry = SemanticProviderRegistry()
+    registry.register(IFC43_PROVIDER)
+    with pytest.raises(ProviderRegistrationConflictError, match="immutable provider version conflict"):
+        registry.register(ConflictingSameVersion())
 ```
 
-Create `test_mcp_integration.py` by following the existing DSP Core real-client pattern:
+- [ ] **Step 2: Add real existing Semantic MCP client coverage**
+
+Create `test_mcp_integration.py`:
 
 ```python
 import pytest
@@ -1531,9 +1609,9 @@ async def test_real_mcp_client_resolves_ifc43_term_and_schema():
     assert "ifc:IfcRoot.Name" in schema.structured_content["schema"]["inherited_members"]
 ```
 
-- [ ] **Step 2: Encode the Metro V3.2 reference corpus as tests, not runtime data**
+- [ ] **Step 3: Encode Metro V3.2 reference facts as test literals only**
 
-Create `test_metro_reference_cases.py` with explicit literals derived from the approved Metro document:
+Create `test_metro_reference_cases.py`:
 
 ```python
 import pytest
@@ -1585,9 +1663,9 @@ def test_metro_reference_nonexistent_ifc_entities_are_rejected(term_id):
         IFC43_CATALOG.get(term_id)
 ```
 
-Do not import or parse the uploaded Metro Markdown file at runtime or during provider construction.
+Do not import or parse the Metro Markdown inside production provider code.
 
-- [ ] **Step 3: Run integration tests and diagnose only provider-side failures**
+- [ ] **Step 4: Run Task 7 integration tests**
 
 Run:
 
@@ -1598,17 +1676,9 @@ pytest -q tests/semantic_providers/ifc43/test_service_integration.py \
           tests/semantic_providers/ifc43/test_metro_reference_cases.py
 ```
 
-Expected: all pass without editing Semantic Service or Semantic MCP production code. If a test exposes an actual existing contract defect, stop and surface it rather than silently expanding PR #9 scope.
+Expected: all pass without editing Semantic Service or Semantic MCP production code. If an actual pre-existing contract defect appears, surface it instead of widening PR #9 silently.
 
-- [ ] **Step 4: Add an immutable same-version/different-content conformance test**
-
-Append to `test_service_integration.py` a provider clone whose manifest keeps `provider_id="buildingSMART.ifc43"` and `version="4.3.2.0"` but changes `content_hash`; assert `SemanticProviderRegistry.register()` raises `ProviderRegistrationConflictError` after the real provider is registered. This must test the existing registry behavior; do not modify the registry.
-
-- [ ] **Step 5: Re-run Task 7 tests and confirm GREEN**
-
-Run the same Task 7 pytest command. Expected: all pass.
-
-- [ ] **Step 6: Commit Task 7**
+- [ ] **Step 5: Commit Task 7**
 
 ```bash
 git add tests/semantic_providers/ifc43/test_service_integration.py \
@@ -1630,9 +1700,9 @@ git commit -m "test(semantic): integrate IFC4.3 provider"
 - Consumes: repository source tree and all Task 1-7 behavior.
 - Produces: enforceable dependency/non-goal guards, operator-facing package notes, focused CI, and final verification evidence.
 
-- [ ] **Step 1: Write architecture guards before final closeout**
+- [ ] **Step 1: Write architecture guards**
 
-Create `test_ifc43_architecture.py` using AST import inspection. At minimum assert:
+Create `test_ifc43_architecture.py`:
 
 ```python
 import ast
@@ -1656,6 +1726,7 @@ FORBIDDEN_PROVIDER_IMPORTS = {
     "requests",
     "httpx",
     "aiohttp",
+    "urllib",
 }
 
 FORBIDDEN_PROVIDER_TOKENS = (
@@ -1665,6 +1736,8 @@ FORBIDDEN_PROVIDER_TOKENS = (
     "QtoProj_",
     "wall.thickness.set.v1",
     "ElementId",
+    "project_facts",
+    "find_mappings",
 )
 
 
@@ -1691,15 +1764,13 @@ def test_platform_core_does_not_import_ifcopenshell_or_concrete_ifc_provider():
             assert import_roots(path).isdisjoint(forbidden), path
 
 
-def test_provider_contains_no_host_metro_action_ownership_tokens():
+def test_provider_contains_no_host_metro_action_or_projection_ownership_tokens():
     text = "\n".join(path.read_text() for path in PROVIDER_ROOT.glob("*.py"))
     for token in FORBIDDEN_PROVIDER_TOKENS:
         assert token not in text, token
 ```
 
-Also assert the provider source contains no `project_facts` symbol and no `find_mappings` method.
-
-- [ ] **Step 2: Run architecture test and make it GREEN without weakening guards**
+- [ ] **Step 2: Run architecture tests and make them GREEN without weakening guards**
 
 Run:
 
@@ -1707,30 +1778,30 @@ Run:
 pytest -q tests/semantic_providers/ifc43/test_ifc43_architecture.py
 ```
 
-Expected: pass. Fix dependency leakage in provider code; do not delete a guard merely to turn CI green.
+Expected: pass. Fix dependency leakage in production provider code; do not remove a guard to make CI green.
 
-- [ ] **Step 3: Write the package README**
+- [ ] **Step 3: Write package README**
 
 Create `providers/semantics/ifc43/README.md` covering:
 
 ```text
-- provider: buildingSMART.ifc43@4.3.2.0
-- schema: IFC4X3_ADD2
-- source engine: ifcopenshell==0.8.5
-- capabilities: VOCABULARY + claim-level VALIDATION + marker-only PROJECTION
-- no MAPPING
-- exact/case-sensitive term IDs
-- owner-qualified attribute/Pset/Qto/enum-literal IDs
-- golden content-hash policy
-- Metro V3.2 is reference-only here; Metro semantics live in the later provider
-- no complete IFC file/geometry/IDS validation claim
+provider: buildingSMART.ifc43@4.3.2.0
+schema: IFC4X3_ADD2
+source engine: ifcopenshell==0.8.5
+capabilities: VOCABULARY + claim-level VALIDATION + marker-only PROJECTION
+MAPPING: not claimed
+lookup: exact/case-sensitive
+member identity: owner-qualified attributes/Pset/Qto/enum literals
+hashing: normalized machine semantics + reviewed golden hash
+Metro V3.2: reference-only in PR #9
+not provided: complete IFC file, geometry, IDS, Host, or Metro validation/mapping
 ```
 
-Do not copy buildingSMART or Metro standard text into the README; describe the boundary.
+Do not copy buildingSMART or Metro standard text into the README.
 
 - [ ] **Step 4: Add focused GitHub Actions verification**
 
-Create `.github/workflows/ifc43-semantic-provider.yml` following the existing DSP Core workflow shape:
+Create `.github/workflows/ifc43-semantic-provider.yml`:
 
 ```yaml
 name: IFC4.3 semantic provider verification
@@ -1785,7 +1856,7 @@ jobs:
         run: pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator tests/semantic_runtime tests/semantic_service tests/semantic_mcp tests/semantic_providers/dsp_core tests/semantic_providers/ifc43
 ```
 
-- [ ] **Step 5: Run the full focused provider suite**
+- [ ] **Step 5: Run focused provider suite**
 
 Run:
 
@@ -1793,9 +1864,9 @@ Run:
 pytest -q tests/semantic_providers/ifc43
 ```
 
-Expected: all IFC4.3 provider tests pass, including exact source gate, Pset/Qto, golden hash, validation, service/MCP, Metro reference cases, and architecture guards.
+Expected: all IFC4.3 provider tests pass, including source gate, normalization, official Pset/Qto, golden hash, validation, service/MCP, Metro reference cases, and architecture guards.
 
-- [ ] **Step 6: Run the full relevant repository regression suite**
+- [ ] **Step 6: Run full relevant repository regression suite**
 
 Run:
 
@@ -1811,9 +1882,9 @@ pytest -q contracts/python/tests \
           tests/semantic_providers/ifc43
 ```
 
-Expected: all non-live tests pass. Existing live AutoCAD tests may remain skipped only under their existing explicit environment guard; no new skip is added for IFC provider behavior.
+Expected: all non-live tests pass. Existing live AutoCAD tests may remain skipped only under their current explicit environment guard; PR #9 adds no IFC-specific skip.
 
-- [ ] **Step 7: Verify no existing production platform file changed**
+- [ ] **Step 7: Verify the branch did not change existing production platform/Host code**
 
 Run:
 
@@ -1821,7 +1892,7 @@ Run:
 git diff --name-only main...HEAD
 ```
 
-Expected production changes are limited to the new `providers/semantics/ifc43/**` package plus its tests/workflow/docs. No file under `platform/semantic_service/src`, `platform/semantic_runtime/src`, `platform/semantic_mcp/src`, Host production code, D4/D5/D6/D7, or Gateway is modified.
+Expected production changes are limited to the new `providers/semantics/ifc43/**` package plus tests/workflow/docs. No file under `platform/semantic_service/src`, `platform/semantic_runtime/src`, `platform/semantic_mcp/src`, Host production code, D4/D5/D6/D7, or Gateway is modified.
 
 - [ ] **Step 8: Commit Task 8**
 
