@@ -1,0 +1,909 @@
+name: Refine DSP spec contract freeze
+
+on:
+  push:
+    branches: [feat/semantic-runtime]
+    paths: [.github/workflows/refine-spec-contract-freeze.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/semantic-runtime
+          fetch-depth: 0
+
+      - name: Refine v0.6 spec contracts
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          p = Path('docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md')
+          s = p.read_text(encoding='utf-8')
+
+          def replace_section(text, start_heading, next_heading, body):
+              start = text.index(start_heading)
+              end = text.index(next_heading, start)
+              return text[:start] + body.rstrip() + '\n\n' + text[end:]
+
+          # 1) Fix D4 -> D6 -> Phase-B freshness ordering.
+          s = replace_section(
+              s,
+              '## 9.2 两阶段使用 D5',
+              '## 9.3 LLM Action Space',
+              '''## 9.2 D4 / D6 / Phase-B Freshness 顺序
+
+D4 的 operation eligibility 与 Phase A Context Freshness 位于 LLM planning 之前；**Phase B Operation Freshness 必须在 D6 已完成 target/material argument 绑定之后**。
+
+规范顺序：
+
+```text
+Orchestrator
+  ↓
+D5 ContextSnapshot                 # Phase A
+  ↓
+D4 pre-resolution / schema compile
+  ↓
+LLM selects canonical operation
+  + fills INTENT slots
+  ↓
+D6 Parameter Binder
+  ├─ CONTEXT
+  ├─ CANONICAL_DEFAULT
+  ├─ DERIVED
+  └─ InteractionSession if required
+  ↓
+BoundOperationProposal
+  ↓
+derive OperationFreshnessContract
+  ↓
+D5 operation-specific
+Freshness + Coverage + Assurance barrier   # Phase B
+  ↓
+PlanningSnapshot / SnapshotSet
+  ↓
+Impact / ChangeSet
+```
+
+D4 MAY 在 Phase B 后再次执行确定性 schema/eligibility validation，但不得在 target/material arguments 尚未确定时声称完整 Operation Freshness 已满足。
+
+若 D6 改变 canonical operation、targets 或任何会改变 freshness/coverage/assurance requirements 的 material argument，MUST 重新派生 Phase B contract。'''
+          )
+
+          # 2) Restore formal ResolvedOperation + deterministic resolver/provider criteria.
+          if '## 9.4 ResolvedOperation Contract' not in s:
+              anchor = '\n---\n\n# 10. Semantic Service / Semantic MCP Server'
+              addition = '''
+## 9.4 ResolvedOperation Contract
+
+`ResolvedOperation` 是 D4 暴露给 Orchestrator/LLM 的 canonical operation candidate。它不是 ProviderBinding。
+
+```text
+ResolvedOperation {
+  operation_id
+  canonical_operation
+  title
+  description
+  llm_input_schema
+
+  canonical_entity_constraints
+
+  context_freshness_requirements
+  operation_freshness_requirements
+  coverage_requirements
+  assurance_requirements
+
+  effects
+  policy_decision
+  risk
+  task_score
+
+  preview_supported
+  rollback_supported
+  verification_contract
+
+  candidate_provider_ids[]   # internal routing hint; MUST NOT be required LLM output
+}
+```
+
+`candidate_provider_ids[]` 只证明当前存在一个或多个可能 implementation，不等于最终 ProviderBinding，也不得把 provider-native schema 泄漏进 LLM action space。
+
+## 9.5 Operation Resolver / Provider Resolver Pipeline
+
+Operation Resolver SHALL 先聚合 provider catalog 为 canonical operation 视图，再执行：
+
+```text
+All provider capabilities
+  ↓ aggregate by canonical_operation
+Host availability filter
+  ↓
+Canonical semantic entity filter
+  ↓
+Policy filter
+  ↓
+Task rank / Top-K
+  ↓
+3~10 ResolvedOperations
+```
+
+Provider Resolver 位于 Execution Planning 后，对 immutable `ExecutionUnit` 做 late binding，至少根据：
+
+```text
+Host / HostRuntimeRef
+provider_native_constraints
+Policy / Trust
+Provider version / compatibility
+Health / availability
+License / implementation status
+certification
+```
+
+Provider Resolver 只能替换 implementation，MUST NOT 修改 `canonical_operation / targets / arguments / expected_effects / approved scope`。
+'''
+              assert anchor in s
+              s = s.replace(anchor, addition + anchor, 1)
+
+          # 3a) Persistent HostBinding vs runtime Host instance.
+          s = replace_section(
+              s,
+              '## 19.3 HostBinding',
+              '## 19.4 ExternalIdentity',
+              '''## 19.3 HostBinding / HostRuntimeRef
+
+`HostBinding` 表达 **持久的 SemanticIdentity ↔ Host-native entity identity**。它不得把一次临时软件会话当成长期身份，也不得用 provider implementation id 代替 Host identity。
+
+```text
+HostBinding {
+  semantic_id
+  host_type          # autocad / revit / tekla / ...
+  document_id
+  native_id
+  native_kind
+}
+```
+
+示例：
+
+```text
+S-WALL-001
+├── autocad / drawing-1 / A31
+└── revit   / model-2   / 38912
+```
+
+执行期另行解析运行实例：
+
+```text
+HostRuntimeRef {
+  host_type
+  host_instance_id
+  document_id
+}
+```
+
+关系：
+
+```text
+SemanticIdentity
+  ↓ persistent HostBinding
+Host document/native entity
+  ↓ runtime resolution
+HostRuntimeRef
+  ↓
+ExecutionSlice
+  ↓
+ProviderBinding
+```
+
+- `host_instance_id` MAY 随应用会话变化，因此不作为长期 SemanticIdentity 的必要组成；
+- `provider_id/provider_tool` 属于 ProviderBinding，不属于 HostBinding 的身份语义；
+- 执行前若无法把持久 HostBinding 解析到当前有效 HostRuntimeRef，MUST fail closed。'''
+          )
+
+          # 3b) SnapshotSet has one pinned semantic environment.
+          s = replace_section(
+              s,
+              '## 20.6 SnapshotSet',
+              '## 20.7 Snapshot invariant',
+              '''## 20.6 SnapshotSet
+
+所有 ChangeSet Core 统一引用 Planning `SnapshotSet`，即使 MVP 只有一个 Host。
+
+**一个 SnapshotSet MUST 绑定唯一的 `semantic_environment_ref`。其所有 PlanningSnapshot member MUST 使用同一 pinned SemanticEnvironment。** 这样 ChangeSet 的单一 `semantic_environment_ref` 与 SnapshotSet 不产生歧义。
+
+```text
+SnapshotSet {
+  snapshot_set_id
+  kind: PLANNING
+  semantic_environment_ref
+  members[] {
+    document_ref
+    snapshot_id
+    snapshot_hash
+    base_host_revision
+    semantic_projection_ref
+  }
+  hash
+}
+```
+
+若某个 document 必须在不同 SemanticEnvironment 下重建，则不得静默塞入同一 SnapshotSet；必须先统一环境，或在未来通过独立 ADR 引入 `SemanticEnvironmentSet`。
+
+跨 Host：
+
+```text
+PS-CAD-01 ─┐
+PS-RVT-01 ─┼→ SnapshotSet PSS-01 @ ENV-01 → ChangeSet
+PS-TKL-01 ─┘
+```
+
+任一 member revision / snapshot hash / projection hash 或 SnapshotSet pinned SemanticEnvironment 变化，都必须使 SnapshotSet hash 变化并触发 ChangeSet 重新验证。'''
+          )
+
+          # 4/5/6) Append normative DTOs, module interactions, vertical slices and numbered conformance.
+          if '# Appendix A. Normative Core DTOs' not in s:
+              appendix = r'''
+
+---
+
+# Appendix A. Normative Core DTOs
+
+本附录为 **normative contract shape**。正文负责解释职责；本附录负责冻结跨模块必须一致理解的数据结构。实现语言可不同，但字段语义、ownership 与 hashing/security invariants 不得漂移。
+
+## A.1 ResolvedOperation
+
+```text
+ResolvedOperation {
+  operation_id
+  canonical_operation
+  title
+  description
+  llm_input_schema
+  canonical_entity_constraints
+  context_freshness_requirements
+  operation_freshness_requirements
+  coverage_requirements
+  assurance_requirements
+  effects
+  policy_decision
+  risk
+  task_score
+  preview_supported
+  rollback_supported
+  verification_contract
+  candidate_provider_ids[]
+}
+```
+
+`candidate_provider_ids[]` 为内部 routing hint；LLM 不输出该字段。
+
+## A.2 HostBinding / HostRuntimeRef / ExternalIdentity
+
+```text
+HostBinding {
+  semantic_id
+  host_type
+  document_id
+  native_id
+  native_kind
+}
+
+HostRuntimeRef {
+  host_type
+  host_instance_id
+  document_id
+}
+
+ExternalIdentity {
+  semantic_id
+  scheme
+  value
+}
+```
+
+长期 identity 不依赖临时 provider implementation 或 Host process instance。
+
+## A.3 SemanticFreshnessContract
+
+```text
+SemanticFreshnessContract {
+  contract_id
+  project_id
+  contract_type: CONTEXT|OPERATION
+  root_entities[]
+  requirements[] {
+    aspect
+    required_state
+    minimum_coverage?
+    semantic_depth?
+    geometry_fidelity?
+    minimum_assurance?
+  }
+  neighborhood {
+    depth
+    relations[]
+  }
+}
+```
+
+Phase A / Phase B 均使用同一 contract family，但 requirement 来源与成本边界不同。
+
+## A.4 SemanticSnapshot / SnapshotSet
+
+```text
+SemanticSnapshot {
+  snapshot_id
+  kind: CONTEXT|PLANNING
+  project_id
+  document_ref
+  base_host_revision
+  freshness_contract_id
+  freshness_contract_hash
+  coverage
+  aspect_guarantees[] {
+    aspect
+    entity_scope | coverage_ref
+    required_state
+    geometry_fidelity?
+    semantic_depth?
+    minimum_assurance?
+  }
+  semantic_projection_ref
+  semantic_environment_ref
+  hash
+}
+
+SnapshotSet {
+  snapshot_set_id
+  kind: PLANNING
+  semantic_environment_ref
+  members[] {
+    document_ref
+    snapshot_id
+    snapshot_hash
+    base_host_revision
+    semantic_projection_ref
+  }
+  hash
+}
+```
+
+`SnapshotSet.members[]` MUST share the top-level pinned SemanticEnvironment。
+
+## A.5 ChangeSet
+
+```text
+ChangeSet {
+  changeset_id
+  task_id
+  project_id
+  base_snapshot_set_id
+  base_snapshot_set_hash
+  semantic_environment_ref
+  root_operations[]
+  derived_operations[]
+  preconditions[]
+  affected_entities[]
+  semantic_impacts[]
+  validation_tasks[]
+  approval_scope_boundary_ref
+  risk
+  approval
+  verification
+  rollback
+  hash
+  status
+}
+```
+
+Preview/Approval 后 canonical content SHOULD immutable。
+
+## A.6 ExecutionSlice / ExecutionUnit / ProviderBinding
+
+```text
+ExecutionSlice {
+  execution_slice_id
+  changeset_id
+  host_instance_id
+  document_id
+  approved_scope_ref
+  execution_units[]
+  status
+}
+
+ExecutionUnit {
+  execution_unit_id
+  execution_slice_id
+  canonical_operation
+  targets[]
+  arguments
+  preconditions[]
+  expected_effects[]
+}
+
+ProviderBinding {
+  binding_id
+  execution_unit_id
+  canonical_operation
+  provider_server
+  provider_tool
+  provider_version
+  host_instance_id
+  input_adapter_version
+  native_binding_metadata
+  verification_contract
+  rollback_contract
+  binding_expires_at
+}
+```
+
+`ExecutionUnit` MUST 保持 canonical/provider-neutral；native id/unit/tool 只进入 ProviderBinding/HostCommand。
+
+## A.7 ApprovalScopeBoundary
+
+```text
+ApprovalScopeBoundary {
+  scope_id
+  changeset_hash
+  existing_entity_rules[] {
+    entities[] | predicate
+    allowed_aspects[]
+  }
+  creation_rules[] {
+    canonical_operation
+    source_entities[] | source_predicate
+    entity_kinds[]
+    max_count?
+    required_derivation?
+  }
+  deletion_rules[] {
+    entities[] | predicate
+  }
+  propagation_bundle_ids[]
+  execution_slice_scopes[]
+  scope_hash
+}
+```
+
+CREATE/COPY/OFFSET/SPLIT/ROUTE 的 scope 不能退化为旧实体白名单。
+
+## A.8 ApprovalRecord / ExecutionGrant
+
+```text
+ApprovalRecord {
+  approval_id
+  changeset_hash
+  approved_scope_hash
+  semantic_environment_ref
+  semantic_environment_hash
+  approver
+  policy_snapshot_hash
+  approved_at
+  revoked_at?
+}
+
+ExecutionGrant {
+  grant_id
+  approval_id
+  changeset_hash
+  execution_slice_id
+  binding_set_hash
+  host_instance_id
+  allowed_operations[]
+  approved_scope_hash
+  issued_at
+  expires_at
+  state
+}
+```
+
+ProviderBinding set 变化 → `binding_set_hash` 变化 → old ExecutionGrant invalid；canonical ChangeSet/scope 未变时不要求重复 HITL。
+
+## A.9 InteractionSession
+
+```text
+InteractionSession {
+  interaction_id
+  task_id
+  host_instance_id
+  document_id
+  interaction_type
+  input_constraints
+  result_schema
+  state: PENDING|COMPLETED|CANCELLED|EXPIRED
+  result?
+  created_at
+  expires_at
+}
+```
+
+## A.10 RequestEnvelope / ResponseEnvelope / AsyncOperationRef / ErrorShape
+
+```text
+RequestEnvelope {
+  request_id
+  task_id
+  project_id
+  actor_context
+  correlation_ids
+  deadline_at
+  idempotency_key?
+  payload
+}
+
+AsyncOperationRef {
+  type: INTERACTION_SESSION|RECONSTRUCTION_JOB|EXECUTION_JOB|OTHER
+  id
+}
+
+ResponseEnvelope {
+  request_id
+  status: OK|PENDING|ERROR
+  correlation_ids
+  snapshot_ref?
+  operation_ref?: AsyncOperationRef
+  result?
+  error?: ErrorShape
+}
+
+ErrorShape {
+  error_code
+  category
+  message
+  correlation_ids
+  retryable
+  details[]
+}
+```
+
+同一逻辑副作用重试使用新 `request_id`、同 `idempotency_key`。`PENDING` MUST 带 typed AsyncOperationRef。
+
+---
+
+# Appendix B. Module Interaction Contracts
+
+## B.1 通用责任规则
+
+跨模块 contract SHALL 明确：
+
+```text
+Owner
+Caller
+Input
+Output
+Mode: sync | async/job | HITL
+Retry owner
+State owner
+```
+
+共同规则：
+
+1. 一个长期状态只有一个 authoritative owner；
+2. 跨请求恢复状态必须通过 typed id/ref 显式化；
+3. child `deadline_at <= parent deadline_at`；
+4. 只有理解幂等语义的直接调用方负责网络重试；
+5. LLM 不负责 protocol retry、authorization retry 或 provider failover；
+6. `PENDING` 必须返回 AsyncOperationRef；
+7. retry/replan/compensation 由稳定 error code 驱动，不由自然语言 message 驱动。
+
+## B.2 Interaction Matrix
+
+| Caller | Callee | Input → Output | Mode | Retry owner | State owner |
+|---|---|---|---|---|---|
+| LangGraph | Host Context | context request → document/selection/view | sync | LangGraph(read-only) | Host |
+| LangGraph | D5 Freshness Resolver | FreshnessContract → Snapshot | sync/job | freshness client | D5 |
+| LangGraph | D4 Operation Resolver | ContextSnapshot → ResolvedOperation[] | sync | LangGraph | D4/Registry |
+| D6/LangGraph | Interaction Coordinator | Interaction request → InteractionSession/AsyncOperationRef | async | stable idempotency owner | Interaction Coordinator |
+| LangGraph | Impact Analyzer | BoundOperationProposal+PlanningSnapshot → Impact/Scope | sync/job | LangGraph | task runtime |
+| LangGraph | ChangeSetBuilder | Proposal+SnapshotSet → immutable ChangeSet | sync | caller after deterministic correction | ChangeSet Store |
+| LangGraph | Gateway | approval admission → ApprovalRecord | sync/HITL | LangGraph after approval | Gateway |
+| LangGraph | Execution Planner | ChangeSet → Slice[]/Unit[] | sync | deterministic caller | Orchestrator/Execution Planner |
+| LangGraph | Provider Resolver | ExecutionUnit → ProviderBinding | sync | Resolver for availability | Registry/Resolver |
+| Gateway | Provider | Grant+Slice+Units+Bindings → execution result | sync/job | provider/gateway by idempotency | Provider execution |
+| Provider/Sidecar | Host Plugin | HostCommand → Result/ActualDelta | IPC sync/async | Sidecar by idempotency | Host |
+| LangGraph | Verify/Reconcile | ActualDelta → verified/scope result | sync/job | Orchestrator | D5/ChangeSet state |
+
+## B.3 Operation Resolution
+
+```text
+LangGraph
+  ↓ ContextSnapshot + task + policy
+D4 Operation Resolver
+  ↓ provider aggregation
+  ↓ Host availability
+  ↓ canonical semantic entity applicability
+  ↓ Policy
+  ↓ Task rank
+  ↑ ResolvedOperation[] + structured-output schema
+LLM
+  ↑ OperationProposal
+```
+
+Provider-specific tool/schema MUST NOT 成为 LLM 必填 action field。
+
+## B.4 Two-phase Freshness
+
+```text
+Phase A:
+Host Context
+  ↓
+ContextFreshnessContract
+  ↓
+ContextSnapshot
+  ↓
+D4 / LLM / D6
+
+Phase B:
+BoundOperationProposal
+  ↓ derive exact requirements
+OperationFreshnessContract
+  ↓
+D5 selective reconstruction
+  ↓
+PlanningSnapshot
+  ↓
+SnapshotSet
+  ↓
+Impact / ChangeSetBuilder
+```
+
+Phase B 不得早于 material target/argument binding。
+
+## B.5 Host Interaction
+
+```text
+D6 detects missing typed Host input
+  ↓
+interaction.start(idempotency_key)
+  ↓
+InteractionSession(PENDING) + AsyncOperationRef
+  ↓
+Host Canvas
+  ↓ user result/cancel
+Interaction Coordinator
+  ↓ COMPLETED|CANCELLED
+LangGraph resume
+  ↓
+D6 validates typed result
+```
+
+网络重试不得产生第二个 Host prompt。
+
+## B.6 ChangeSet / Preview / Approval
+
+```text
+BoundOperationProposal + Planning SnapshotSet
+  ↓
+Impact Analyzer
+  ↓ ChangeImpactGraph / propagation / ApprovalScopeBoundary
+ChangeSetBuilder
+  ↓ immutable ChangeSet + hash
+Preview
+  ↓
+User/Policy approval
+  ↓ ApprovalToken admission
+Gateway
+  ↓ persist ApprovalRecord
+```
+
+Preview 不得在渲染阶段偷偷新增 canonical operation/effect scope。
+
+## B.7 Execution / Verify / Scope
+
+```text
+ApprovalRecord + immutable ChangeSet
+  ↓
+Execution Planner
+  ↓ Slice[] → Unit[]
+RevisionBarrier
+  ↓
+Provider Resolver
+  ↓ ProviderBinding[] / binding_set_hash
+Gateway
+  ↓ ExecutionGrant
+Provider/Sidecar
+  ↓ HostCommand + stable idempotency_key
+Host
+  ↑ ActualDelta
+D5 / Verify / Scope Comparator
+```
+
+结果分支：
+
+| Condition | Required action |
+|---|---|
+| fail before commit | rollback native transaction; HOST_COMMAND_FAILED |
+| commit + verify pass + scope inside | reconcile; Slice SUCCEEDED |
+| commit + verify fail | VERIFY_FAILED → reconcile/compensating ChangeSet |
+| ActualDelta outside approved scope | SCOPE_BREACH → stop remaining slices → compensate/reapproval |
+
+---
+
+# Appendix C. Reference Vertical Slices
+
+## C.1 MOVE — Runtime / Execution / Governance Reference
+
+MOVE 用来证明 **不依赖丰富领域语义也能完成完整治理执行链**。
+
+```text
+User selects entity/entities in AutoCAD
+  ↓
+CURRENT_SELECTION
+  ↓
+Context Freshness → ContextSnapshot CS-001
+  ↓
+D4 → MOVE ResolvedOperation
+  ↓
+LLM OperationProposal: move.v1 + displacement
+  ↓
+D6 target/argument binding
+  ↓
+Operation Freshness → PlanningSnapshot PS-001
+  ↓ SnapshotSet PSS-001
+Impact + ApprovalScopeBoundary
+  ↓
+ChangeSet CS-001
+  ↓ Preview / ApprovalToken / ApprovalRecord
+Execution Planner
+  ↓ XS-CAD-01
+  ↓ EU-001 (canonical move.v1)
+RevisionBarrier
+  ↓
+Provider Resolver → PB-001
+  ↓ binding_set_hash
+Gateway → ExecutionGrant
+  ↓
+HostCommand → AutoCAD transaction
+  ↓
+ActualDelta
+  ↓
+Verify + Scope Check → D5 reconcile
+```
+
+验收目的：
+
+- LLM 只看到 canonical MOVE；
+- Phase A 不读 exact geometry；
+- D6 在 Phase B 之前完成 material binding；
+- ChangeSet/ExecutionUnit 不含 provider tool/native id；
+- approval/grant/idempotency/revision/scope/verify 链完整。
+
+## C.2 Wall Thickness — Semantic / Cross-host Reference
+
+正文第 26 章“墙体加厚到 300mm”为第二条 reference vertical slice，额外证明：
+
+```text
+Progressive semantic reconstruction
+Enterprise Mapping Provider
+IFC4.3 canonical classification
+Metro Semantic on demand
+SemanticEnvironment pinning
+SemanticIdentity cross-host binding
+same canonical operation / different ProviderBinding
+```
+
+MOVE 与 Wall Thickness MUST 并存：前者验证 execution/governance baseline，后者验证 semantic/cross-host baseline。
+
+---
+
+# Appendix D. Numbered Contract Conformance
+
+编号测试用于把 Spec 条款直接映射到 CI/Contract Test。实现 MAY 增加测试，但不得删除同义覆盖。
+
+## D.1 Runtime / Execution — RC
+
+| ID | Contract |
+|---|---|
+| RC-001 | Provider input/output schema 非法输入必须拒绝。 |
+| RC-002 | 过期 Host revision/precondition 必须返回 `REVISION_CONFLICT`。 |
+| RC-003 | 同逻辑副作用使用相同 idempotency_key、不同 request_id 重试不得产生重复副作用。 |
+| RC-004 | Host transaction abort/crash 后不得残留 half commit。 |
+| RC-005 | ActualDelta 必须包含 Host associativity 产生的隐式修改。 |
+| RC-006 | verification contract 必须独立证明成功；Host `success=true` 不足以标记 verified。 |
+| RC-007 | VIEW/CONTEXT capability 声明 model mutation effect 必须 conformance fail。 |
+| RC-008 | Provider implementation 切换不得改变 ChangeSet/ExecutionUnit canonical semantics。 |
+| RC-009 | binding_set_hash 变化必须使旧 ExecutionGrant 失效。 |
+| RC-010 | CREATE inside creation_rule 通过；超出 kind/count/derivation 返回 `SCOPE_BREACH`。 |
+| RC-011 | DELETE/implicit ActualDelta 超出 ApprovalScopeBoundary 返回 `SCOPE_BREACH` 并阻止后续 Slice。 |
+| RC-012 | ApprovalToken consume 必须持久化 ApprovalRecord；后续 grant 引用 approval_id。 |
+| RC-013 | `deadline_at` 为 absolute timestamp 且 child 不晚于 parent。 |
+| RC-014 | `PENDING` 无 typed AsyncOperationRef 属于 contract failure。 |
+| RC-015 | `interaction.start` 同 idempotency_key 重试不得创建第二 Host prompt。 |
+| RC-016 | Cross-host 第二 Slice 失败进入 Saga/PARTIALLY_COMMITTED，不得继续未启动 slices。 |
+
+## D.2 Progressive Semantic Runtime — SR
+
+| ID | Contract |
+|---|---|
+| SR-001 | Context Freshness 默认不得读取 EXACT/NATIVE geometry。 |
+| SR-002 | Operation Freshness 必须发生在 D6 material binding 之后。 |
+| SR-003 | `UNRESOLVED != STALE`，Coverage/Maturity 与 Freshness 必须正交。 |
+| SR-004 | 局部 reconstruction 不得声称整个 document fresh。 |
+| SR-005 | `CLASSIFICATION` 具有独立 freshness/coverage。 |
+| SR-006 | PlanningSnapshot 必须绑定 ProjectionRef + SemanticEnvironmentRef。 |
+| SR-007 | SnapshotSet members 必须共享同一 pinned SemanticEnvironment。 |
+| SR-008 | 任一 SnapshotSet member revision/snapshot/projection hash 或 environment 变化必须改变 set hash。 |
+| SR-009 | Assurance requirement 不足必须 fail closed。 |
+| SR-010 | Progressive reconstruction 只能升级 task-required aspect/depth/fidelity，不能无条件全量 IFC/Metro 重建。 |
+
+## D.3 Semantic Provider — SP
+
+| ID | Contract |
+|---|---|
+| SP-001 | Provider manifest 必须声明 id/type/version/content_hash/namespaces/capabilities/authority。 |
+| SP-002 | 权威 namespace 不得被非权威 Provider 静默覆盖。 |
+| SP-003 | term resolution / validation / mapping 在 pinned version 下必须 deterministic。 |
+| SP-004 | semantic content 变化必须改变 content/environment hash；presentation-only 变化不应自动改变 semantic hash。 |
+| SP-005 | Enterprise mapping provider 增删不得要求修改 D5 Core。 |
+| SP-006 | `A-WALL-* → ifc:IfcWall` reference mapping 必须可由 Provider/config 实现。 |
+| SP-007 | Semantic Provider unavailable 时按 pinned cache policy 降级或 fail closed，不得静默换语义版本。 |
+
+## D.4 Metro Semantic — MS
+
+| ID | Contract |
+|---|---|
+| MS-001 | Metro output 必须符合锁定的 IFC4X3_ADD2 Schema legality。 |
+| MS-002 | official IFC Pset/Qto 与 `PsetProj_/QtoProj_` 必须区分。 |
+| MS-003 | `IFC-M/IFC-O/P-M/P-C/P-R/PROHIBITED` 必须可映射为结构化 requirement。 |
+| MS-004 | IDS requirement/单位/字段类型/映射 provenance 必须可验证。 |
+| MS-005 | Metro Provider 不得重定义 `ifc:*` canonical meaning。 |
+
+## D.5 Cross-host — CH
+
+| ID | Contract |
+|---|---|
+| CH-001 | AutoCAD/Revit 同一对象可绑定同一 SemanticId、不同 HostBinding。 |
+| CH-002 | 同一 wall thickness canonical operation 可生成不同 ProviderBinding，但 ExecutionUnit 保持相同 canonical semantics。 |
+| CH-003 | 持久 HostBinding 必须在执行期解析为有效 HostRuntimeRef；失败则 fail closed。 |
+| CH-004 | 一个 ChangeSet 的 Planning SnapshotSet 使用一个统一 pinned SemanticEnvironment。 |
+| CH-005 | Cross-host Saga failure injection 必须保留可审计 partial/compensation state。 |
+'''
+              s = s.rstrip() + appendix + '\n'
+
+          # Add architecture invariants for the newly frozen ordering/runtime split if missing.
+          inv_anchor = '31. MODEL_OPERATION 在无有效 Gateway authorization/grant 的 degraded mode 下不得执行。'
+          if inv_anchor in s and '32. Phase B Operation Freshness MUST occur after D6 material target/argument binding.' not in s:
+              s = s.replace(
+                  inv_anchor,
+                  inv_anchor + '\n32. Phase B Operation Freshness MUST occur after D6 material target/argument binding.\n33. Persistent HostBinding 与 runtime HostRuntimeRef MUST 分离；provider implementation id 不得充当 Host identity。\n34. 一个 SnapshotSet MUST 使用单一 pinned SemanticEnvironment。',
+                  1,
+              )
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          # Self-review assertions before commit.
+          python <<'PY'
+          from pathlib import Path
+          s = Path('docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md').read_text(encoding='utf-8')
+          required = [
+              '## 9.2 D4 / D6 / Phase-B Freshness 顺序',
+              'BoundOperationProposal\n  ↓\nderive OperationFreshnessContract',
+              '## 9.4 ResolvedOperation Contract',
+              '## 19.3 HostBinding / HostRuntimeRef',
+              '一个 SnapshotSet MUST 绑定唯一的 `semantic_environment_ref`',
+              '# Appendix A. Normative Core DTOs',
+              '# Appendix B. Module Interaction Contracts',
+              '# Appendix C. Reference Vertical Slices',
+              '# Appendix D. Numbered Contract Conformance',
+              'RC-016', 'SR-010', 'SP-007', 'MS-005', 'CH-005',
+          ]
+          missing = [x for x in required if x not in s]
+          assert not missing, missing
+          assert 'D5 operation-specific freshness / assurance barrier\n  ↓\nD6' not in s
+          print('spec contract refinement assertions passed')
+          PY
+
+          # Remove this temporary workflow in the same commit.
+          rm -f .github/workflows/refine-spec-contract-freeze.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md .github/workflows/refine-spec-contract-freeze.yml
+          git diff --cached --check
+          git commit -m 'docs: refine v0.6 contract freeze candidate'
+          git push origin HEAD:feat/semantic-runtime
