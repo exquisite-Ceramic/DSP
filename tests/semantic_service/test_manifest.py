@@ -58,3 +58,9 @@ def test_self_dependency_is_rejected():
 def test_namespace_token_with_colon_is_rejected():
     with pytest.raises(ManifestValidationError, match="namespace"):
         _manifest(namespaces=("ifc:bad",))
+
+
+@pytest.mark.parametrize("field_name", ("provider_id", "version", "content_hash"))
+def test_non_string_required_manifest_fields_raise_typed_validation_error(field_name):
+    with pytest.raises(ManifestValidationError, match=field_name):
+        _manifest(**{field_name: None})
