@@ -28,6 +28,10 @@ class SemanticProviderRegistry:
             raise ProviderCapabilityError("provider does not expose a SemanticProvider manifest")
 
         manifest = provider.manifest
+        if not isinstance(manifest, SemanticProviderManifest):
+            raise ProviderCapabilityError(
+                "provider manifest must be a SemanticProviderManifest"
+            )
         checks = {
             SemanticCapability.VOCABULARY: SemanticVocabularyProvider,
             SemanticCapability.MAPPING: SemanticMappingProvider,
