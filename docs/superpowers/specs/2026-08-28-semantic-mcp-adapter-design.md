@@ -1,7 +1,7 @@
 # Semantic MCP Adapter Design
 
 **Date:** 2026-08-28  
-**Status:** Chat design approved; v0.6 alignment incorporated; pending final user review  
+**Status:** Approved for implementation; aligned with DSP v0.6  
 **Target branch:** `feat/semantic-mcp-adapter`  
 **Base:** `main` at `c40443cf83a9f2c56de0d854e3cce9960c3f128e`  
 **Primary architecture baseline:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
