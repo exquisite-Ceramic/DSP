@@ -23,6 +23,7 @@ public sealed class HostCommandHandlerRegistry
     {
         Register(new Context.CurrentDocumentHandler());
         Register(new Context.CurrentSelectionHandler());
+        Register(new Design.ExtractNativeSnapshotHandler());
         Register(new View.FitEntitiesHandler());
         Register(new Model.MoveHandler());
     }

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import uuid
 
+from design_fact_contracts import NormalizedDesignFactBatch
+from host_contracts.command import HostCommand
 from host_contracts.result import HostCommandResult
 
 from autocad_sidecar.adapter.context_adapter import ContextAdapter
+from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 from autocad_sidecar.adapter.host_adapter import HostAdapter
 from autocad_sidecar.adapter.model_adapter import ModelAdapter
 from autocad_sidecar.adapter.view_adapter import ViewAdapter
@@ -17,8 +20,8 @@ from autocad_sidecar.execution.retry import RetryPolicy
 class CommandDispatcher:
     """Public entry point for agents and the test client.
 
-    Handles: context.current_document | context.current_selection |
-    view.fit | model.move
+    Handles Host context/view/model calls plus the internal Step 19
+    native-snapshot-to-design-fact read path.
     """
 
     def __init__(
@@ -33,12 +36,33 @@ class CommandDispatcher:
         self._context = ContextAdapter(host)
         self._view = ViewAdapter(host)
         self._model = ModelAdapter(host)
+        self._design_facts = DesignFactAdapter()
 
     async def current_document(self) -> HostCommandResult:
         return await self._context.current_document()
 
     async def current_selection(self) -> HostCommandResult:
         return await self._context.current_selection()
+
+    async def extract_design_facts(
+        self,
+        handles: list[str],
+    ) -> NormalizedDesignFactBatch:
+        command = HostCommand(
+            command_id=str(uuid.uuid4()),
+            mode="READ",
+            operation="design.extract_native_snapshot",
+            arguments={"handles": handles},
+        )
+        result = await self._host.send_command(command)
+        if not result.ok:
+            message = (
+                result.error.message
+                if result.error is not None
+                else "native fact extraction failed"
+            )
+            raise RuntimeError(message)
+        return self._design_facts.normalize_snapshot(result.payload or {})
 
     async def fit(self, handles: list[str] | None = None) -> HostCommandResult:
         return await self._view.fit(handles)
