@@ -37,7 +37,7 @@ def test_real_d3_move_freshness_flows_through_d4_into_d5_contract() -> None:
         (profile,),
         ResolutionContext(
             host_provider_servers=frozenset({"autocad.local"}),
-            entity_kinds=frozenset({"LINE"}),
+            entity_kinds=frozenset(),
         ),
     )
     resolved = resolution.resolved_operations[0]

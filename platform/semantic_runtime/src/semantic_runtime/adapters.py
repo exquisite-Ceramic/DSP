@@ -5,7 +5,43 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from semantic_runtime.freshness import AspectRequirement, GeometryLevel, SemanticAspect
+from semantic_runtime.freshness import (
+    AspectRequirement,
+    AssuranceLevel,
+    CoverageState,
+    GeometryLevel,
+    SemanticAspect,
+    SemanticDepth,
+)
+
+
+def _parse_enum(
+    item: Mapping[str, Any],
+    key: str,
+    enum_type,
+    *,
+    default: str | None,
+):
+    raw_value = item.get(key, default)
+    if raw_value is None and default is not None:
+        raw_value = default
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, enum_type):
+        return raw_value
+    name = str(raw_value).strip().upper()
+    try:
+        return enum_type[name]
+    except KeyError as exc:
+        raise ValueError(f"unknown {key}: {name!r}") from exc
+
+
+def _max_optional(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
 
 
 def requirements_from_mappings(
@@ -15,11 +51,11 @@ def requirements_from_mappings(
 
     The adapter is intentionally provider-neutral: it understands only the
     canonical freshness metadata shape and never imports an MCP/Host package.
-    Unknown aspects, unsupported required states, and geometry levels fail
-    closed instead of silently weakening the freshness barrier.
+    Unknown aspects, unsupported required states, and progressive-axis values
+    fail closed instead of silently weakening the freshness barrier.
     """
 
-    strongest: dict[SemanticAspect, GeometryLevel] = {}
+    strongest: dict[SemanticAspect, AspectRequirement] = {}
     for index, item in enumerate(items):
         if not isinstance(item, Mapping):
             raise ValueError(f"freshness requirement {index} must be an object")
@@ -38,23 +74,62 @@ def requirements_from_mappings(
                 f"unsupported required_state for {aspect.value}: {required_state!r}"
             )
 
-        raw_level = item.get("geometry_level", "NONE")
-        if isinstance(raw_level, GeometryLevel):
-            geometry_level = raw_level
-        else:
-            level_name = str(raw_level or "NONE").strip().upper()
-            try:
-                geometry_level = GeometryLevel[level_name]
-            except KeyError as exc:
-                raise ValueError(f"unknown geometry_level: {level_name!r}") from exc
+        geometry_level = _parse_enum(
+            item,
+            "geometry_level",
+            GeometryLevel,
+            default="NONE",
+        )
+        minimum_coverage = _parse_enum(
+            item,
+            "minimum_coverage",
+            CoverageState,
+            default=None,
+        )
+        semantic_depth = _parse_enum(
+            item,
+            "semantic_depth",
+            SemanticDepth,
+            default=None,
+        )
+        minimum_assurance = _parse_enum(
+            item,
+            "minimum_assurance",
+            AssuranceLevel,
+            default="UNKNOWN",
+        )
+        if geometry_level is None or minimum_assurance is None:
+            raise AssertionError("required progressive enum default was not applied")
 
-        requirement = AspectRequirement(aspect, geometry_level)
-        strongest[aspect] = max(
-            strongest.get(aspect, GeometryLevel.NONE),
-            requirement.geometry_level,
+        requirement = AspectRequirement(
+            aspect,
+            geometry_level=geometry_level,
+            minimum_coverage=minimum_coverage,
+            semantic_depth=semantic_depth,
+            minimum_assurance=minimum_assurance,
+        )
+        current = strongest.get(aspect)
+        if current is None:
+            strongest[aspect] = requirement
+            continue
+        strongest[aspect] = AspectRequirement(
+            aspect,
+            geometry_level=max(current.geometry_level, requirement.geometry_level),
+            minimum_coverage=_max_optional(
+                current.minimum_coverage,
+                requirement.minimum_coverage,
+            ),
+            semantic_depth=_max_optional(
+                current.semantic_depth,
+                requirement.semantic_depth,
+            ),
+            minimum_assurance=max(
+                current.minimum_assurance,
+                requirement.minimum_assurance,
+            ),
         )
 
     return tuple(
-        AspectRequirement(aspect, strongest[aspect])
+        strongest[aspect]
         for aspect in sorted(strongest, key=lambda value: value.value)
     )

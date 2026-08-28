@@ -19,6 +19,7 @@ class SemanticAspect(str, Enum):
     CONNECTIVITY = "CONNECTIVITY"
     RELATIONSHIPS = "RELATIONSHIPS"
     CONSTRAINTS = "CONSTRAINTS"
+    CLASSIFICATION = "CLASSIFICATION"
 
 
 class FreshnessState(str, Enum):
@@ -29,12 +30,33 @@ class FreshnessState(str, Enum):
     RECONSTRUCTING = "RECONSTRUCTING"
 
 
+class CoverageState(IntEnum):
+    UNRESOLVED = 0
+    PARTIAL = 1
+    RESOLVED = 2
+
+
+class SemanticDepth(IntEnum):
+    NATIVE = 0
+    NORMALIZED = 1
+    CANONICAL = 2
+    DOMAIN = 3
+
+
 class GeometryLevel(IntEnum):
     NONE = 0
     BOUNDS = 1
     APPROXIMATE = 2
     EXACT = 3
     NATIVE = 4
+
+
+class AssuranceLevel(IntEnum):
+    UNKNOWN = 0
+    HEURISTIC = 1
+    RULE_DERIVED = 2
+    STANDARD_MAPPED = 3
+    NATIVE_ASSERTED = 4
 
 
 class ContractType(str, Enum):
@@ -71,6 +93,9 @@ class SnapshotSetError(ValueError):
 class AspectRequirement:
     aspect: SemanticAspect
     geometry_level: GeometryLevel = GeometryLevel.NONE
+    minimum_coverage: CoverageState | None = None
+    semantic_depth: SemanticDepth | None = None
+    minimum_assurance: AssuranceLevel = AssuranceLevel.UNKNOWN
 
     def __post_init__(self) -> None:
         if self.aspect is not SemanticAspect.GEOMETRY and self.geometry_level is not GeometryLevel.NONE:
@@ -86,6 +111,9 @@ class AspectGuarantee:
     aspect: SemanticAspect
     geometry_level: GeometryLevel = GeometryLevel.NONE
     coverage_ref: str | None = None
+    coverage_state: CoverageState | None = None
+    semantic_depth: SemanticDepth | None = None
+    assurance_level: AssuranceLevel = AssuranceLevel.UNKNOWN
 
     def __post_init__(self) -> None:
         if self.aspect is not SemanticAspect.GEOMETRY and self.geometry_level is not GeometryLevel.NONE:
@@ -132,18 +160,38 @@ class Coverage:
         }
 
 
+def _max_optional(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
+
+
 def _normalized_requirements(
     requirements: Iterable[AspectRequirement],
 ) -> tuple[AspectRequirement, ...]:
-    strongest: dict[SemanticAspect, GeometryLevel] = {}
+    strongest: dict[SemanticAspect, AspectRequirement] = {}
     for item in requirements:
-        current = strongest.get(item.aspect, GeometryLevel.NONE)
-        if item.geometry_level > current:
-            strongest[item.aspect] = item.geometry_level
-        elif item.aspect not in strongest:
-            strongest[item.aspect] = item.geometry_level
+        current = strongest.get(item.aspect)
+        if current is None:
+            strongest[item.aspect] = item
+            continue
+        strongest[item.aspect] = AspectRequirement(
+            item.aspect,
+            geometry_level=max(current.geometry_level, item.geometry_level),
+            minimum_coverage=_max_optional(
+                current.minimum_coverage,
+                item.minimum_coverage,
+            ),
+            semantic_depth=_max_optional(current.semantic_depth, item.semantic_depth),
+            minimum_assurance=max(
+                current.minimum_assurance,
+                item.minimum_assurance,
+            ),
+        )
     return tuple(
-        AspectRequirement(aspect, strongest[aspect])
+        strongest[aspect]
         for aspect in sorted(strongest, key=lambda value: value.value)
     )
 
@@ -158,12 +206,21 @@ def _hash_payload(payload: object) -> str:
     return sha256(encoded).hexdigest()
 
 
-def _requirement_payload(items: Iterable[AspectRequirement]) -> list[dict[str, str]]:
+def _requirement_payload(items: Iterable[AspectRequirement]) -> list[dict[str, str | None]]:
     return [
         {
             "aspect": item.aspect.value,
             "required_state": item.required_state.value,
             "geometry_level": item.geometry_level.name,
+            "minimum_coverage": (
+                item.minimum_coverage.name
+                if item.minimum_coverage is not None
+                else None
+            ),
+            "semantic_depth": (
+                item.semantic_depth.name if item.semantic_depth is not None else None
+            ),
+            "minimum_assurance": item.minimum_assurance.name,
         }
         for item in items
     ]
@@ -176,6 +233,13 @@ def _guarantee_payload(items: Iterable[AspectGuarantee]) -> list[dict[str, str |
             "coverage_ref": item.coverage_ref,
             "required_state": item.required_state.value,
             "geometry_level": item.geometry_level.name,
+            "coverage_state": (
+                item.coverage_state.name if item.coverage_state is not None else None
+            ),
+            "semantic_depth": (
+                item.semantic_depth.name if item.semantic_depth is not None else None
+            ),
+            "assurance_level": item.assurance_level.name,
         }
         for item in items
     ]
@@ -283,7 +347,13 @@ class ReconstructionResult:
                 (
                     item
                     if isinstance(item, AspectGuarantee)
-                    else AspectGuarantee(item.aspect, item.geometry_level)
+                    else AspectGuarantee(
+                        item.aspect,
+                        item.geometry_level,
+                        coverage_state=item.minimum_coverage,
+                        semantic_depth=item.semantic_depth,
+                        assurance_level=item.minimum_assurance,
+                    )
                     for item in self.guarantees
                 ),
                 key=lambda item: item.aspect.value,
@@ -321,6 +391,9 @@ class SemanticSnapshot:
                 guarantee.aspect,
                 guarantee.geometry_level,
                 guarantee.coverage_ref or expected_coverage_ref,
+                coverage_state=guarantee.coverage_state,
+                semantic_depth=guarantee.semantic_depth,
+                assurance_level=guarantee.assurance_level,
             )
             for guarantee in result.guarantees
         )
