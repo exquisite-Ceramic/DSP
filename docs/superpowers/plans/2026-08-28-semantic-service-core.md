@@ -799,3 +799,92 @@ Task 6  Mapping/validation aggregation           RED/GREEN
 Task 7  Public surface + architecture + CI       RED/GREEN
 Task 8  Fresh-head closeout                      verification only
 ```
+
+## Implementation Execution Record
+
+### Execution scope and commit range
+
+Tasks 1–7 were executed inline against `feat/semantic-service-core` after the approved plan head `733cad83968eee9b54864fd052cffb39732b6a1d` and through the code-verification head `9f906a4b3d9e54d3367aa8697267de588cbfebec`.
+
+Because this ChatGPT session wrote repository files through GitHub's Contents API, a logical Task could require multiple file-level commits instead of the plan's ideal one-Task/one-commit shape. This execution record therefore treats `733cad83968eee9b54864fd052cffb39732b6a1d..9f906a4b3d9e54d3367aa8697267de588cbfebec` as the authoritative implementation range rather than inventing synthetic per-Task commit boundaries.
+
+Design/plan anchor commits:
+
+- `d0b2e5472c61122a5ced746076bca5d8401c8b68` — initial Semantic Service Core design.
+- `4954fd85ad6e90b8ed6a9c253c3740391e9d10c2` — clarified Registry/EnvironmentStore ownership and pinned-record semantics.
+- `47e12955e3d37c13427369ff3d7842355c62498d` — initial implementation plan.
+- `733cad83968eee9b54864fd052cffb39732b6a1d` — reviewed/tightened implementation plan and execution baseline.
+
+### Executed gates
+
+| Task | Executed result |
+| --- | --- |
+| 1 | Package, typed errors, immutable provider manifest and deterministic manifest hash implemented with RED → GREEN verification. |
+| 2 | Provider-neutral DTOs, split capability Protocols and explicit test helpers implemented with RED → GREEN verification. |
+| 3 | Immutable exact-version Provider Registry and capability conformance implemented with RED → GREEN verification. |
+| 4 | Exact-version SemanticEnvironment pinning/store, dependency barrier, namespace authority and content addressing implemented with RED → GREEN verification. |
+| 5 | Explicit-environment, AUTHORITATIVE-only vocabulary routing implemented with RED → GREEN verification. |
+| 6 | Selected-only deterministic mapping/validation fan-out with provenance preservation and fail-closed provider exceptions implemented with RED → GREEN verification. |
+| 7 | Curated public surface, architecture guards, D5 ref compatibility proof and dedicated Semantic Service CI implemented and verified. |
+| 8 | Architecture/spec review performed; execution record committed; final document-head CI is intentionally recorded in PR metadata after this commit to avoid a self-referential head change. |
+
+### Closeout findings and fixes
+
+CI and closeout review found four issues before the code-verification head was accepted:
+
+1. The dedicated workflow did not initially put the repository root on the test import path. `PYTHONPATH=.` was added to make `tests.semantic_service.helpers` portable in CI.
+2. A YAML/shell continuation made the full-regression path resolve incorrectly. Verification commands were made shell-safe.
+3. `tests/semantic_runtime/test_public_surface.py` and the new Semantic Service test initially had the same import basename under the full pytest run. The Semantic Service test was renamed to `test_semantic_service_public_surface.py` without changing its assertions.
+4. Closeout architecture review found a real immutable-registration gap: an in-process provider object could mutate `.manifest` after registration and silently drift the meaning of one `(provider_id, version)`. The Registry now stores a frozen registration manifest independently and fails closed if the live provider manifest drifts. A regression test was added before accepting the final code-verification head.
+
+No concrete IFC4.3, DSP Core, Metro or Enterprise semantic implementation was added while fixing these issues.
+
+### Architecture and spec coverage review
+
+Verified at the code-verification head:
+
+- no MCP/FastMCP import in `semantic_service` production code;
+- no production import from `semantic_service` to `semantic_runtime`;
+- no AutoCAD/Revit/Tekla native branch or enterprise Host mapping in Semantic Service Core;
+- no concrete IFC4.3/Metro/Enterprise Provider implementation;
+- no mutable `latest` planning API;
+- no `NormalizedDesignFactBatch` or `project_facts` payload contract;
+- immutable `(provider_id, version)` registration, including post-registration manifest-drift detection;
+- split VOCABULARY/MAPPING/VALIDATION/PROJECTION capability contracts;
+- fail-closed namespace authority conflicts and allowed EXTENSION coexistence;
+- exact provider dependency checks;
+- order-independent content-addressed SemanticEnvironment hashing over pinned machine-semantic records;
+- explicit `environment_id` vocabulary queries with AUTHORITATIVE-only routing and no EXTENSION fallback;
+- mapping/validation fan-out only to providers selected in the pinned environment;
+- deterministic candidate/finding ordering with provider provenance preserved;
+- no mapping winner selection and no validation majority vote;
+- existing D5 `SemanticEnvironmentRef(environment_id, content_hash)` compatibility at the test boundary;
+- public-surface and source-import architecture guards.
+
+### Code-verification evidence before the execution-record commit
+
+Code-verification head:
+
+`9f906a4b3d9e54d3367aa8697267de588cbfebec`
+
+PR merge ref checked by GitHub Actions:
+
+`9404373e7b8d1280df14e6c6b82f092679f6be0b`
+
+GitHub Actions evidence:
+
+- workflow: `Semantic service verification`;
+- PR run: `33151620198` (run #14);
+- job: `98784691279`;
+- focused command: `pytest -q tests/semantic_service` → **40 passed**;
+- full command: `pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator tests/semantic_runtime tests/semantic_service` → **223 passed, 4 skipped**;
+- skipped tests are the existing live-AutoCAD gates requiring `AGENT_HOST_TEST=1`: `test_current_selection.py`, `test_move.py`, `test_move_idempotency.py`, and `test_revision_conflict.py`;
+- new failures: **0**.
+
+The GitHub Actions Node 20 deprecation warning remains non-failing infrastructure noise and is outside Semantic Service Core scope.
+
+### Final-head recording rule
+
+This document commit necessarily creates a new branch head after the code-verification head above. To avoid an infinite self-reference loop, the exact execution-record commit SHA and its fresh successful `Semantic service verification` run are recorded in PR #6 metadata after this document commit, not by making another document commit.
+
+PR #6 remains Draft and stacked on `feat/semantic-runtime` while PR #5 is unmerged. After PR #5 merges, PR #6 must be retargeted to `main`, receive fresh CI on the resulting head/merge ref, and only then be marked Ready for review. It must not be merged automatically.
