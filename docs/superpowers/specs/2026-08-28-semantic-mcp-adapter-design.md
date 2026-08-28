@@ -1,7 +1,7 @@
 # Semantic MCP Adapter Design
 
 **Date:** 2026-08-28  
-**Status:** Approved design for PR #7  
+**Status:** Chat design approved; written spec pending user review  
 **Target branch:** `feat/semantic-mcp-adapter`  
 **Base:** `main` at `c40443cf83a9f2c56de0d854e3cce9960c3f128e`
 
@@ -156,6 +156,8 @@ object with string keys
 
 Unsupported Python/runtime-only values SHALL be rejected rather than coerced.
 
+For unordered Core collections that are serialized as arrays, the wire encoder MUST emit a deterministic order. The canonical ordering rule SHALL be based on canonical JSON representation (sorted keys, compact separators, stable scalar encoding) unless a stronger domain key is explicitly defined for that field. The encoder MUST NOT depend on Python hash/set iteration order.
+
 Successful tools SHALL return the business payload directly. The adapter SHALL NOT add a redundant custom `{ "result": ... }` envelope because MCP already defines the tool-call result envelope.
 
 ## 6. Tool contracts
@@ -234,7 +236,7 @@ provenance:
   content_hash: string
 ```
 
-Core `MappingProxyType`, tuple, and frozenset values SHALL be recursively converted to JSON object/array values without changing their semantic content.
+Core `MappingProxyType`, tuple, and frozenset values SHALL be recursively converted to JSON object/array values without changing their semantic content. Unordered collections SHALL follow the canonical wire ordering rule in Section 5.
 
 Delegation:
 
@@ -427,22 +429,24 @@ The text content MAY repeat the safe human-readable `message` for agent readabil
 
 Stable wire error codes SHALL be:
 
-| Core error | Wire code | Category |
-| --- | --- | --- |
-| `ManifestValidationError` | `SEMANTIC_MANIFEST_INVALID` | `MANIFEST` |
-| `ProviderRegistrationConflictError` | `SEMANTIC_PROVIDER_REGISTRATION_CONFLICT` | `PROVIDER` |
-| `ProviderNotFoundError` | `SEMANTIC_PROVIDER_NOT_FOUND` | `PROVIDER` |
-| `ProviderCapabilityError` | `SEMANTIC_PROVIDER_CAPABILITY` | `PROVIDER` |
-| `ProviderDependencyError` | `SEMANTIC_PROVIDER_DEPENDENCY` | `PROVIDER` |
-| `NamespaceAuthorityError` | `SEMANTIC_NAMESPACE_AUTHORITY` | `AUTHORITY` |
-| `EnvironmentIntegrityError` | `SEMANTIC_ENVIRONMENT_INTEGRITY` | `ENVIRONMENT` |
-| `EnvironmentNotFoundError` | `SEMANTIC_ENVIRONMENT_NOT_FOUND` | `ENVIRONMENT` |
-| `TermResolutionError` | `SEMANTIC_TERM_RESOLUTION` | `TERM` |
-| other `SemanticServiceError` | `SEMANTIC_SERVICE_ERROR` | `SEMANTIC` |
+| Core error | Wire code | Category | Safe message |
+| --- | --- | --- | --- |
+| `ManifestValidationError` | `SEMANTIC_MANIFEST_INVALID` | `MANIFEST` | `Semantic provider manifest is invalid.` |
+| `ProviderRegistrationConflictError` | `SEMANTIC_PROVIDER_REGISTRATION_CONFLICT` | `PROVIDER` | `Semantic provider registration conflicts with an existing immutable version.` |
+| `ProviderNotFoundError` | `SEMANTIC_PROVIDER_NOT_FOUND` | `PROVIDER` | `Semantic provider was not found.` |
+| `ProviderCapabilityError` | `SEMANTIC_PROVIDER_CAPABILITY` | `PROVIDER` | `Semantic provider capability requirements were not satisfied.` |
+| `ProviderDependencyError` | `SEMANTIC_PROVIDER_DEPENDENCY` | `PROVIDER` | `Semantic provider dependency requirements were not satisfied.` |
+| `NamespaceAuthorityError` | `SEMANTIC_NAMESPACE_AUTHORITY` | `AUTHORITY` | `Semantic namespace authority requirements were not satisfied.` |
+| `EnvironmentIntegrityError` | `SEMANTIC_ENVIRONMENT_INTEGRITY` | `ENVIRONMENT` | `Semantic environment integrity check failed.` |
+| `EnvironmentNotFoundError` | `SEMANTIC_ENVIRONMENT_NOT_FOUND` | `ENVIRONMENT` | `Semantic environment was not found.` |
+| `TermResolutionError` | `SEMANTIC_TERM_RESOLUTION` | `TERM` | `Semantic term resolution failed.` |
+| other `SemanticServiceError` | `SEMANTIC_SERVICE_ERROR` | `SEMANTIC` | `Semantic service request failed.` |
+
+The Adapter MUST use these stable safe messages for remote results and MUST NOT forward `str(exc)` wholesale. Internal exception text MAY be logged server-side according to deployment logging policy.
 
 PR #7 SHALL set `retryable = false` for all semantic wire errors. The Adapter MUST NOT guess transient/retry semantics that the Core does not model.
 
-Wire error codes are part of the remote contract and SHOULD remain stable even if internal Python exception class organization changes later.
+Wire error codes and safe messages are part of the remote contract and SHOULD remain stable even if internal Python exception class organization changes later.
 
 ### 7.3 Unexpected internal errors
 
@@ -589,12 +593,12 @@ Coverage SHALL include:
 dataclass → object
 Enum → string
 tuple → array
-frozenset → deterministic array
+frozenset → canonical deterministic array
 MappingProxyType → object
 nested schema values → recursive JSON-safe values
 ```
 
-Unsupported runtime objects MUST fail rather than stringify.
+Unsupported runtime objects MUST fail rather than stringify. Tests for unordered collections MUST prove repeatable output independent of insertion/hash iteration order.
 
 ### 10.2 Tool catalog contract tests
 
@@ -625,7 +629,9 @@ The Adapter MUST NOT:
 
 ### 10.4 Error-boundary tests
 
-Each known Core domain error SHALL map to the stable wire code, `isError = true`, and safe message.
+Each known Core domain error SHALL map to the stable wire code, category, safe message, `retryable = false`, and `isError = true`.
+
+Tests MUST prove raw `str(exc)` content is not forwarded for known errors.
 
 At least one deliberately sensitive unexpected exception SHALL prove traceback and exception text are not exposed remotely.
 
@@ -714,13 +720,14 @@ PR #7 is complete only when all of the following are true:
 2. Each tool delegates to the corresponding existing Semantic Service method.
 3. Version-sensitive tools require explicit `environment_id`.
 4. Successful results are stable JSON-safe payloads with no Python container leakage.
-5. Inbound claim values reject non-JSON-safe runtime values rather than coercing them.
-6. Known Core domain errors map to stable `isError=true` semantic error payloads.
-7. Unexpected exceptions are sanitized and do not leak internal details.
-8. No mapping winner selection, validation voting, environment fallback, or Provider selection logic exists in the Adapter.
-9. Streamable HTTP runs stateless with JSON responses and loopback-only built-in binding.
-10. Provider construction/lifecycle remains external to the Adapter.
-11. Real MCP client/server integration tests cover initialize, list, call, success, and tool execution error.
-12. Semantic Service Core remains free of MCP dependencies.
-13. No Provider loader, concrete Provider, projection API, or `project_facts` scope is introduced.
-14. The package uses the official MCP SDK only; independent FastMCP framework adoption remains deferred.
+5. Unordered Core collections use deterministic wire ordering independent of Python set/hash iteration order.
+6. Inbound claim values reject non-JSON-safe runtime values rather than coercing them.
+7. Known Core domain errors map to stable `isError=true` semantic error payloads with stable safe messages; raw exception strings are not forwarded.
+8. Unexpected exceptions are sanitized and do not leak internal details.
+9. No mapping winner selection, validation voting, environment fallback, or Provider selection logic exists in the Adapter.
+10. Streamable HTTP runs stateless with JSON responses and loopback-only built-in binding.
+11. Provider construction/lifecycle remains external to the Adapter.
+12. Real MCP client/server integration tests cover initialize, list, call, success, and tool execution error.
+13. Semantic Service Core remains free of MCP dependencies.
+14. No Provider loader, concrete Provider, projection API, or `project_facts` scope is introduced.
+15. The package uses the official MCP SDK only; independent FastMCP framework adoption remains deferred.
