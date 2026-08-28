@@ -34,13 +34,18 @@ public sealed class NormalizedDesignFactBatch
         {
             throw new JsonException("NormalizedDesignFactBatch must contain only the facts field");
         }
-        if (root.GetProperty("facts").ValueKind != JsonValueKind.Array)
+
+        var factsElement = root.GetProperty("facts");
+        if (factsElement.ValueKind != JsonValueKind.Array)
         {
             throw new JsonException("facts must be a JSON array");
         }
 
-        return JsonSerializer.Deserialize<NormalizedDesignFactBatch>(json, SerializerOptions)
-            ?? throw new JsonException("NormalizedDesignFactBatch payload deserialized to null");
+        var facts = factsElement
+            .EnumerateArray()
+            .Select(item => NormalizedDesignFact.FromJson(item.GetRawText()))
+            .ToArray();
+        return new NormalizedDesignFactBatch(facts);
     }
 
     public string ToJson() => JsonSerializer.Serialize(this, SerializerOptions);
