@@ -31,3 +31,23 @@ jobs:
                     tests/semantic_providers/ifc43/test_pset_qto.py \
                     tests/semantic_providers/ifc43/test_catalog.py \
                     tests/semantic_providers/ifc43/test_term_identity.py
+      - name: Inspect IFC4.3 normalized catalog before golden freeze
+        run: |
+          python - <<'PY'
+          from ifc43_semantic_provider.catalog import build_ifc43_catalog
+          from ifc43_semantic_provider.source import load_ifc43_source
+
+          catalog = build_ifc43_catalog(load_ifc43_source())
+          print("term_count=", len(catalog.term_ids))
+          print("content_hash=", catalog.content_hash)
+          for term_id in (
+              "ifc:IfcWall",
+              "ifc:IfcWall.PredefinedType",
+              "ifc:IfcWallTypeEnum.SOLIDWALL",
+              "ifc:Pset_WallCommon",
+              "ifc:Pset_WallCommon.FireRating",
+              "ifc:Qto_WallBaseQuantities.Width",
+          ):
+              record = catalog.get(term_id)
+              print(term_id, record.kind, dict(record.machine_schema))
+          PY
