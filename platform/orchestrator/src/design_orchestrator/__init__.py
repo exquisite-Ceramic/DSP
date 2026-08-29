@@ -6,6 +6,13 @@ from design_orchestrator.canonical_operations import (
     MVP_CANONICAL_OPERATIONS,
     SlotBindingClass,
 )
+from design_orchestrator.interactive_binding import (
+    InteractionBindingContext,
+    InteractionRequired,
+    InteractiveParameterResolver,
+    OperationInteractionRecipe,
+    SlotInteractionRecipe,
+)
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
     OperationPolicy,
@@ -40,11 +47,15 @@ __all__ = [
     "CanonicalOperationRef",
     "CapabilityConflictError",
     "ContextSnapshotRef",
+    "InteractionBindingContext",
+    "InteractionRequired",
+    "InteractiveParameterResolver",
     "MOVE_V1",
     "MOVE_V1_BINDING_RECIPE",
     "MVP_BINDING_RECIPES",
     "MVP_CANONICAL_OPERATIONS",
     "OperationBindingRecipe",
+    "OperationInteractionRecipe",
     "OperationPolicy",
     "OperationProposal",
     "OperationResolver",
@@ -57,5 +68,6 @@ __all__ = [
     "SlotBindingClass",
     "SlotBindingEvidence",
     "SlotBindingRecipe",
+    "SlotInteractionRecipe",
     "TaskConstraints",
 ]
