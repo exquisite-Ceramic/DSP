@@ -1,9 +1,8 @@
 import pytest
-
 from design_approval_scope import (
     ApprovalScopeError,
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalEffectEvidence,
     CreationRule,
