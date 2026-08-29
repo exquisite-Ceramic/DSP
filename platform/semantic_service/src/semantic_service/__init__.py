@@ -26,6 +26,7 @@ from semantic_service.manifest import (
     SemanticProviderManifest,
 )
 from semantic_service.providers import (
+    FACT_PROJECTION_COMPATIBILITY,
     MappingCandidate,
     ProviderProvenance,
     ResolvedTerm,
@@ -47,6 +48,7 @@ __all__ = [
     "AuthorityMode",
     "EnvironmentIntegrityError",
     "EnvironmentNotFoundError",
+    "FACT_PROJECTION_COMPATIBILITY",
     "ManifestValidationError",
     "MappingCandidate",
     "NamespaceAuthority",
