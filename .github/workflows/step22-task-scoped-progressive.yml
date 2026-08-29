@@ -1,0 +1,31 @@
+name: Step22 task-scoped progressive semantics
+
+on:
+  push:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
+      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
+      - "tests/orchestrator/test_operation_resolver.py"
+      - ".github/workflows/step22-task-scoped-progressive.yml"
+  pull_request:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
+      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
+      - "tests/orchestrator/test_operation_resolver.py"
+      - ".github/workflows/step22-task-scoped-progressive.yml"
+  workflow_dispatch:
+
+jobs:
+  step22-task-scoped-progressive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install D4 test stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install -e contracts/python -e hosts/autocad/sidecar
+      - name: Run D4 resolver baseline
+        run: pytest -q tests/orchestrator/test_operation_resolver.py
