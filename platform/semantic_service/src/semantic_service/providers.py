@@ -13,6 +13,9 @@ from design_fact_contracts import NormalizedDesignFactBatch
 from semantic_service.manifest import SemanticProviderManifest
 
 
+FACT_PROJECTION_COMPATIBILITY = "dsp.semantic.projection-facts.v1"
+
+
 def _required_text(value: str, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
