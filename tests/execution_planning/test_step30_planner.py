@@ -6,6 +6,7 @@ from design_execution_planning import (
     HostRuntimeRef,
     RuntimeEntityRoute,
     RuntimeRoutingEvidence,
+    compute_execution_plan_hash,
     compute_routing_snapshot_hash,
 )
 
@@ -97,3 +98,26 @@ def test_route_input_order_does_not_change_plan_identity(step30_transaction) -> 
     assert tuple(slice_.execution_slice_hash for slice_ in forward.execution_slices) == tuple(
         slice_.execution_slice_hash for slice_ in reversed_plan.execution_slices
     )
+
+
+def test_plan_hash_binds_full_execution_unit_hashes(step30_transaction) -> None:
+    changeset, boundary = step30_transaction
+    request = _request(step30_transaction)
+    plan = ExecutionPlanner().plan(request)
+    unit_by_id = {unit.execution_unit_id: unit for unit in _units(plan)}
+    dependency_semantics = tuple(
+        (
+            unit_by_id[dependency.predecessor_execution_unit_id].execution_unit_hash,
+            unit_by_id[dependency.successor_execution_unit_id].execution_unit_hash,
+            dependency.reason_ref,
+        )
+        for dependency in plan.execution_dependencies
+    )
+    expected_hash = compute_execution_plan_hash(
+        changeset_hash=changeset.changeset_hash,
+        scope_hash=boundary.scope_hash,
+        routing_snapshot_hash=request.runtime_routing_evidence.routing_snapshot_hash,
+        execution_slice_hashes=(slice_.execution_slice_hash for slice_ in plan.execution_slices),
+        execution_dependencies=dependency_semantics,
+    )
+    assert plan.execution_plan_hash == expected_hash
