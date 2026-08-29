@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .analyzer import ImpactAnalysisRequest, ImpactAnalyzer as _ImpactAnalyzer, _canonical_hash
+from .analyzer import ImpactAnalysisRequest, _canonical_hash
+from .analyzer import ImpactAnalyzer as _ImpactAnalyzer
 from .contracts import ImpactAnalysis as _ImpactAnalysis
 
 
