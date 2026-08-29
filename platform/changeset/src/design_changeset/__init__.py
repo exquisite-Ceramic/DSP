@@ -1,5 +1,6 @@
 """Public API for the provider-neutral immutable Step29 ChangeSet."""
 
+from .builder import ChangeSetBuilder
 from .contracts import (
     ApprovalScopeDefinitionRef,
     BoundOperationEvidence,
@@ -40,6 +41,7 @@ __all__ = [
     "ChangeDependency",
     "ChangePrecondition",
     "ChangeSetBuildRequest",
+    "ChangeSetBuilder",
     "ChangeSetError",
     "DerivedOperationMaterialization",
     "OperationOrigin",
