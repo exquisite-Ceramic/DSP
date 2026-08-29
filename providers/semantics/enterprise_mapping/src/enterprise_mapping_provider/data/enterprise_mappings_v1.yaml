@@ -1,0 +1,25 @@
+metadata:
+  provider_id: dsp.enterprise.mapping
+  provider_version: 1.0.0
+  target_ifc_provider_id: buildingSMART.ifc43
+  target_ifc_provider_version: 4.3.2.0
+  target_ifc_schema: IFC4X3_ADD2
+
+rules:
+  - mapping_id: enterprise.autocad.layer.a-wall.exact.v1
+    source_scheme: autocad.layer
+    match:
+      type: EXACT
+      pattern: A-WALL
+      case_sensitive: false
+    target_term_id: ifc:IfcWall
+    assurance: RULE_DERIVED
+
+  - mapping_id: enterprise.autocad.layer.a-wall-prefix.v1
+    source_scheme: autocad.layer
+    match:
+      type: PREFIX
+      pattern: A-WALL-
+      case_sensitive: false
+    target_term_id: ifc:IfcWall
+    assurance: RULE_DERIVED
