@@ -19,6 +19,7 @@ from design_changeset import (
 from .contracts import (
     ApprovalScopeRef,
     ApprovedExecutionScopeRef,
+    ExecutionDependency,
     ExecutionPlan,
     ExecutionPlanningError,
     ExecutionPlanningRequest,
@@ -238,32 +239,97 @@ def _build_unit(
     )
 
 
-def _single_unit_slice(
-    changeset: CanonicalChangeSet,
-    boundary: ApprovalScopeBoundary,
+def _slice_key(
     runtime_ref: HostRuntimeRef,
     scope_rule: ExecutionSliceScopeRule,
-    unit: ExecutionUnit,
-) -> ExecutionSlice:
-    slice_hash = compute_execution_slice_hash(
-        changeset_hash=changeset.changeset_hash,
-        scope_hash=boundary.scope_hash,
-        execution_slice_scope_rule_id=scope_rule.slice_scope_rule_id,
-        host_runtime_ref=runtime_ref,
-        execution_unit_hashes=(unit.execution_unit_hash,),
+) -> tuple[str, str, str, str]:
+    return (
+        runtime_ref.host_type,
+        runtime_ref.host_instance_id,
+        runtime_ref.document_ref,
+        scope_rule.slice_scope_rule_id,
     )
-    return ExecutionSlice(
-        execution_slice_id=f"XS-{slice_hash[:12]}",
-        changeset_id=changeset.changeset_id,
-        changeset_hash=changeset.changeset_hash,
-        host_runtime_ref=runtime_ref,
-        approved_scope_ref=ApprovedExecutionScopeRef(
-            boundary.scope_id,
-            boundary.scope_hash,
-            scope_rule.slice_scope_rule_id,
-        ),
-        execution_units=(unit,),
-        execution_slice_hash=slice_hash,
+
+
+def _build_slices(
+    changeset: CanonicalChangeSet,
+    boundary: ApprovalScopeBoundary,
+    planned_units: tuple[tuple[HostRuntimeRef, ExecutionSliceScopeRule, ExecutionUnit], ...],
+) -> tuple[ExecutionSlice, ...]:
+    grouped: dict[
+        tuple[str, str, str, str],
+        tuple[HostRuntimeRef, ExecutionSliceScopeRule, list[ExecutionUnit]],
+    ] = {}
+    for runtime_ref, scope_rule, unit in planned_units:
+        key = _slice_key(runtime_ref, scope_rule)
+        if key not in grouped:
+            grouped[key] = (runtime_ref, scope_rule, [])
+        grouped[key][2].append(unit)
+
+    slices: list[ExecutionSlice] = []
+    for key in sorted(grouped):
+        runtime_ref, scope_rule, units = grouped[key]
+        ordered_units = tuple(sorted(units, key=lambda item: item.execution_unit_hash))
+        unit_ids = [unit.execution_unit_id for unit in ordered_units]
+        if len(set(unit_ids)) != len(unit_ids):
+            _error(
+                "EXECUTION_OPERATION_MISMATCH",
+                "execution unit construction identity is ambiguous",
+            )
+        slice_hash = compute_execution_slice_hash(
+            changeset_hash=changeset.changeset_hash,
+            scope_hash=boundary.scope_hash,
+            execution_slice_scope_rule_id=scope_rule.slice_scope_rule_id,
+            host_runtime_ref=runtime_ref,
+            execution_unit_hashes=(unit.execution_unit_hash for unit in ordered_units),
+        )
+        slices.append(
+            ExecutionSlice(
+                execution_slice_id=f"XS-{slice_hash[:12]}",
+                changeset_id=changeset.changeset_id,
+                changeset_hash=changeset.changeset_hash,
+                host_runtime_ref=runtime_ref,
+                approved_scope_ref=ApprovedExecutionScopeRef(
+                    boundary.scope_id,
+                    boundary.scope_hash,
+                    scope_rule.slice_scope_rule_id,
+                ),
+                execution_units=ordered_units,
+                execution_slice_hash=slice_hash,
+            )
+        )
+    return tuple(sorted(slices, key=lambda item: item.execution_slice_hash))
+
+
+def _project_dependencies(
+    changeset: CanonicalChangeSet,
+    unit_by_operation_id: Mapping[str, ExecutionUnit],
+) -> tuple[ExecutionDependency, ...]:
+    projected: list[ExecutionDependency] = []
+    for dependency in changeset.change_dependencies:
+        predecessor = unit_by_operation_id.get(dependency.predecessor_operation_id)
+        successor = unit_by_operation_id.get(dependency.successor_operation_id)
+        if predecessor is None or successor is None:
+            _error(
+                "EXECUTION_DEPENDENCY_INVALID",
+                "Step29 dependency references an operation absent from the execution plan",
+            )
+        projected.append(
+            ExecutionDependency(
+                predecessor_execution_unit_id=predecessor.execution_unit_id,
+                successor_execution_unit_id=successor.execution_unit_id,
+                reason_ref=dependency.reason_ref,
+            )
+        )
+    return tuple(
+        sorted(
+            projected,
+            key=lambda item: (
+                item.predecessor_execution_unit_id,
+                item.successor_execution_unit_id,
+                item.reason_ref,
+            ),
+        )
     )
 
 
@@ -282,23 +348,34 @@ class ExecutionPlanner:
             operation.operation_id: _source_operation_hash(operation, rules)
             for operation in operations
         }
+        if len(source_hashes) != len(operations):
+            _error("EXECUTION_OPERATION_MISMATCH", "Step29 operation ids must be unique")
+
         required_targets = {target for operation in operations for target in operation.targets}
         route_index = _normalize_routes(request.runtime_routing_evidence, required_targets)
 
-        slices: list[ExecutionSlice] = []
+        planned: list[tuple[HostRuntimeRef, ExecutionSliceScopeRule, ExecutionUnit]] = []
+        unit_by_operation_id: dict[str, ExecutionUnit] = {}
         for operation in operations:
             runtime_ref = _operation_runtime_ref(operation, route_index)
             scope_rule = _select_slice_scope(operation, runtime_ref.document_ref, boundary)
             unit = _build_unit(changeset, operation, source_hashes[operation.operation_id])
-            slices.append(_single_unit_slice(changeset, boundary, runtime_ref, scope_rule, unit))
+            if operation.operation_id in unit_by_operation_id:
+                _error("EXECUTION_OPERATION_MISMATCH", "one canonical operation cannot project twice")
+            unit_by_operation_id[operation.operation_id] = unit
+            planned.append((runtime_ref, scope_rule, unit))
 
-        ordered_slices = tuple(sorted(slices, key=lambda item: item.execution_slice_hash))
+        if len(unit_by_operation_id) != len(operations):
+            _error("EXECUTION_OPERATION_MISMATCH", "every canonical operation must project exactly once")
+
+        ordered_slices = _build_slices(changeset, boundary, tuple(planned))
+        dependencies = _project_dependencies(changeset, unit_by_operation_id)
         plan_hash = compute_execution_plan_hash(
             changeset_hash=changeset.changeset_hash,
             scope_hash=boundary.scope_hash,
             routing_snapshot_hash=request.runtime_routing_evidence.routing_snapshot_hash,
             execution_slice_hashes=(item.execution_slice_hash for item in ordered_slices),
-            execution_dependencies=(),
+            execution_dependencies=dependencies,
         )
         return ExecutionPlan(
             execution_plan_id=f"XP-{plan_hash[:12]}",
@@ -308,16 +385,18 @@ class ExecutionPlanner:
             routing_snapshot_id=request.runtime_routing_evidence.routing_snapshot_id,
             routing_snapshot_hash=request.runtime_routing_evidence.routing_snapshot_hash,
             execution_slices=ordered_slices,
-            execution_dependencies=(),
+            execution_dependencies=dependencies,
             execution_plan_hash=plan_hash,
         )
 
 
 __all__ = [
     "ExecutionPlanner",
+    "_build_slices",
     "_build_unit",
     "_normalize_routes",
     "_operation_runtime_ref",
+    "_project_dependencies",
     "_select_slice_scope",
     "_source_operation_hash",
     "_validate_scope_binding",
