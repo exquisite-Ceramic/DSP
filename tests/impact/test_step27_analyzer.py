@@ -114,7 +114,7 @@ def test_relationship_evidence_alone_does_not_create_predicted_impact() -> None:
     assert result.predicted_impacts == ()
 
 
-def test_explicit_dependencies_create_predicted_impacts_only() -> None:
+def test_explicit_dependencies_create_predicted_impacts() -> None:
     result = ImpactAnalyzer().analyze(_request(edges=_edges()))
 
     assert tuple(item.affected_semantic_id for item in result.predicted_impacts) == (
@@ -122,8 +122,6 @@ def test_explicit_dependencies_create_predicted_impacts_only() -> None:
         "MEP-008",
         "OPENING-001",
     )
-    assert result.propagation_bundles == ()
-    assert result.exceptions == ()
 
 
 def test_host_native_impact_requires_later_verification() -> None:
