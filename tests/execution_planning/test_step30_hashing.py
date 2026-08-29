@@ -37,16 +37,16 @@ def test_execution_unit_hash_changes_with_semantic_material() -> None:
         "move.v1@1.0.0",
         "d" * 64,
     )
-    common = dict(
-        changeset_hash="a" * 64,
-        source_operation_hash="b" * 64,
-        canonical_operation="move.v1",
-        canonical_operation_version="1.0.0",
-        canonical_definition_fingerprint="c" * 64,
-        targets=("WALL-001",),
-        preconditions=(precondition,),
-        expected_effects=("PLACEMENT", "GEOMETRY"),
-    )
+    common = {
+        "changeset_hash": "a" * 64,
+        "source_operation_hash": "b" * 64,
+        "canonical_operation": "move.v1",
+        "canonical_operation_version": "1.0.0",
+        "canonical_definition_fingerprint": "c" * 64,
+        "targets": ("WALL-001",),
+        "preconditions": (precondition,),
+        "expected_effects": ("PLACEMENT", "GEOMETRY"),
+    }
     first = hashing.compute_execution_unit_hash(
         arguments={"targets": ["WALL-001"], "displacement": [100.0, 0.0, 0.0]},
         **common,
@@ -60,11 +60,11 @@ def test_execution_unit_hash_changes_with_semantic_material() -> None:
 
 def test_slice_hash_is_unit_order_independent_and_host_sensitive() -> None:
     hashing = _hashing()
-    common = dict(
-        changeset_hash="a" * 64,
-        scope_hash="b" * 64,
-        execution_slice_scope_rule_id="SSR-1",
-    )
+    common = {
+        "changeset_hash": "a" * 64,
+        "scope_hash": "b" * 64,
+        "execution_slice_scope_rule_id": "SSR-1",
+    }
     first = hashing.compute_execution_slice_hash(
         host_runtime_ref=HostRuntimeRef("REVIT", "RVT-1", "DOC"),
         execution_unit_hashes=("c" * 64, "d" * 64),
@@ -86,12 +86,12 @@ def test_slice_hash_is_unit_order_independent_and_host_sensitive() -> None:
 
 def test_plan_hash_binds_routing_slices_and_dependency_semantics() -> None:
     hashing = _hashing()
-    common = dict(
-        changeset_hash="a" * 64,
-        scope_hash="b" * 64,
-        routing_snapshot_hash="c" * 64,
-        execution_slice_hashes=("d" * 64,),
-    )
+    common = {
+        "changeset_hash": "a" * 64,
+        "scope_hash": "b" * 64,
+        "routing_snapshot_hash": "c" * 64,
+        "execution_slice_hashes": ("d" * 64,),
+    }
     first = hashing.compute_execution_plan_hash(
         execution_dependencies=(("EU-A", "EU-B", "reason-1"),),
         **common,
