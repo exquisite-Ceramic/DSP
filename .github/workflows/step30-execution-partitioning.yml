@@ -41,7 +41,7 @@ jobs:
         run: pytest -q tests/execution_planning/test_step30_scope_selection.py
       - name: Run Step30 routing tests
         run: pytest -q tests/execution_planning/test_step30_routing.py
-      - name: Run Step30 planner tests
-        run: pytest -q tests/execution_planning/test_step30_planner.py
       - name: Run Step30 dependency tests
         run: pytest -q tests/execution_planning/test_step30_dependencies.py
+      - name: Run Step30 planner tests
+        run: pytest -q tests/execution_planning/test_step30_planner.py
