@@ -333,6 +333,22 @@ def _project_dependencies(
     )
 
 
+def _dependency_hash_semantics(
+    changeset: CanonicalChangeSet,
+    unit_by_operation_id: Mapping[str, ExecutionUnit],
+) -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        sorted(
+            (
+                unit_by_operation_id[dependency.predecessor_operation_id].execution_unit_hash,
+                unit_by_operation_id[dependency.successor_operation_id].execution_unit_hash,
+                dependency.reason_ref,
+            )
+            for dependency in changeset.change_dependencies
+        )
+    )
+
+
 class ExecutionPlanner:
     """Project the exact Step29 transaction onto approved runtime Host routes."""
 
@@ -370,12 +386,13 @@ class ExecutionPlanner:
 
         ordered_slices = _build_slices(changeset, boundary, tuple(planned))
         dependencies = _project_dependencies(changeset, unit_by_operation_id)
+        dependency_semantics = _dependency_hash_semantics(changeset, unit_by_operation_id)
         plan_hash = compute_execution_plan_hash(
             changeset_hash=changeset.changeset_hash,
             scope_hash=boundary.scope_hash,
             routing_snapshot_hash=request.runtime_routing_evidence.routing_snapshot_hash,
             execution_slice_hashes=(item.execution_slice_hash for item in ordered_slices),
-            execution_dependencies=dependencies,
+            execution_dependencies=dependency_semantics,
         )
         return ExecutionPlan(
             execution_plan_id=f"XP-{plan_hash[:12]}",
@@ -394,6 +411,7 @@ __all__ = [
     "ExecutionPlanner",
     "_build_slices",
     "_build_unit",
+    "_dependency_hash_semantics",
     "_normalize_routes",
     "_operation_runtime_ref",
     "_project_dependencies",
