@@ -13,6 +13,12 @@ from .contracts import (
     RuntimeEntityRoute,
     RuntimeRoutingEvidence,
 )
+from .hashing import (
+    compute_execution_plan_hash,
+    compute_execution_slice_hash,
+    compute_execution_unit_hash,
+    compute_routing_snapshot_hash,
+)
 
 __all__ = [
     "ApprovalScopeRef",
@@ -26,4 +32,8 @@ __all__ = [
     "HostRuntimeRef",
     "RuntimeEntityRoute",
     "RuntimeRoutingEvidence",
+    "compute_execution_plan_hash",
+    "compute_execution_slice_hash",
+    "compute_execution_unit_hash",
+    "compute_routing_snapshot_hash",
 ]
