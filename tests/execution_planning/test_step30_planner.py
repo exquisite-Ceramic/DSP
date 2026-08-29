@@ -10,15 +10,24 @@ from design_execution_planning import (
 )
 
 
-def _request(transaction):
+def _request(transaction, *, root_ref=None, derived_ref=None, reverse_routes=False):
     changeset, boundary = transaction
-    ref = HostRuntimeRef("REVIT", "RVT-01", "DOC-1")
-    routes = tuple(
-        RuntimeEntityRoute(target, ref)
-        for operation in (changeset.root_operation, *changeset.derived_operations)
-        for target in operation.targets
+    root_ref = root_ref or HostRuntimeRef("REVIT", "RVT-01", "DOC-1")
+    derived_ref = derived_ref or root_ref
+    routes = [
+        RuntimeEntityRoute(target, root_ref)
+        for target in changeset.root_operation.targets
+    ]
+    for operation in changeset.derived_operations:
+        routes.extend(RuntimeEntityRoute(target, derived_ref) for target in operation.targets)
+    if reverse_routes:
+        routes.reverse()
+    route_tuple = tuple(routes)
+    evidence = RuntimeRoutingEvidence(
+        "RRS-PLAN",
+        route_tuple,
+        compute_routing_snapshot_hash(route_tuple),
     )
-    evidence = RuntimeRoutingEvidence("RRS-PLAN", routes, compute_routing_snapshot_hash(routes))
     return ExecutionPlanningRequest(changeset, boundary, evidence)
 
 
@@ -52,3 +61,39 @@ def test_unit_is_lossless_projection_and_carries_all_preconditions(step30_transa
         assert unit.expected_effects == operation.expected_effects
         assert unit.preconditions == changeset.preconditions
         assert unit.execution_unit_id == f"EU-{unit.execution_unit_hash[:12]}"
+
+
+def test_same_runtime_and_scope_key_groups_units_into_one_slice(step30_transaction) -> None:
+    plan = ExecutionPlanner().plan(_request(step30_transaction))
+    assert len(plan.execution_slices) == 1
+    assert len(plan.execution_slices[0].execution_units) == 2
+    assert plan.execution_slices[0].execution_slice_id == (
+        f"XS-{plan.execution_slices[0].execution_slice_hash[:12]}"
+    )
+
+
+def test_different_host_instances_create_different_slices(step30_transaction) -> None:
+    plan = ExecutionPlanner().plan(
+        _request(
+            step30_transaction,
+            root_ref=HostRuntimeRef("REVIT", "RVT-01", "DOC-1"),
+            derived_ref=HostRuntimeRef("REVIT", "RVT-02", "DOC-1"),
+        )
+    )
+    assert len(plan.execution_slices) == 2
+    assert {slice_.host_runtime_ref.host_instance_id for slice_ in plan.execution_slices} == {
+        "RVT-01",
+        "RVT-02",
+    }
+
+
+def test_route_input_order_does_not_change_plan_identity(step30_transaction) -> None:
+    forward = ExecutionPlanner().plan(_request(step30_transaction))
+    reversed_plan = ExecutionPlanner().plan(
+        _request(step30_transaction, reverse_routes=True)
+    )
+    assert forward.execution_plan_hash == reversed_plan.execution_plan_hash
+    assert forward.execution_plan_id == reversed_plan.execution_plan_id
+    assert tuple(slice_.execution_slice_hash for slice_ in forward.execution_slices) == tuple(
+        slice_.execution_slice_hash for slice_ in reversed_plan.execution_slices
+    )
