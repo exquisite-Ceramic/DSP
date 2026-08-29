@@ -52,7 +52,7 @@ from design_orchestrator.parameter_binder import (
 )
 
 
-def build_step30_transaction():
+def build_step30_transaction(selection: tuple[str, ...] = ("WALL-001",)):
     binder = ParameterBinder(MVP_CANONICAL_OPERATIONS, MVP_BINDING_RECIPES)
     bound = binder.bind(
         OperationProposal("move.v1", {"displacement": [100.0, 0.0, 0.0]}),
@@ -61,7 +61,7 @@ def build_step30_transaction():
             context_snapshot_hash="context-hash-step30",
             document_ref="DOC-1",
             semantic_environment_ref="ENV-1",
-            selection=("WALL-001",),
+            selection=selection,
             context_values={},
         ),
     )
@@ -77,7 +77,7 @@ def build_step30_transaction():
             dependency_edges=(
                 DependencyEdge(
                     dependency_id="DEP-ANN",
-                    source_semantic_id="WALL-001",
+                    source_semantic_id=selection[0],
                     target_semantic_id="ANNOTATION-002",
                     strength=DependencyStrength.SOFT,
                     propagation_owner=PropagationOwner.SEMANTIC_RUNTIME,
@@ -86,7 +86,7 @@ def build_step30_transaction():
                 ),
             ),
             intent_boundary=IntentBoundary(
-                direct_targets=("WALL-001",),
+                direct_targets=selection,
                 allowed_canonical_effects=("PLACEMENT", "GEOMETRY"),
                 allowed_derived_rule_refs=("RULE-ANN",),
             ),
@@ -100,7 +100,7 @@ def build_step30_transaction():
         rule_ref="RULE-ANN",
         propagation_bundle_id=bundle.bundle_id,
     )
-    direct_rule_id = direct_existing_rule_id("WALL-001")
+    direct_rule_ids = tuple(direct_existing_rule_id(target) for target in selection)
     derived_rule_id = recipe_existing_rule_id(recipe, "ANNOTATION-002")
     scope = ApprovalScopePlanner().plan(
         ApprovalScopePlanRequest(
@@ -111,22 +111,23 @@ def build_step30_transaction():
             ),
             impact_analysis=impact,
             intent_boundary=IntentBoundary(
-                direct_targets=("WALL-001",),
+                direct_targets=selection,
                 allowed_canonical_effects=("PLACEMENT", "GEOMETRY"),
                 allowed_derived_rule_refs=("RULE-ANN",),
             ),
-            direct_entity_effects=(
+            direct_entity_effects=tuple(
                 DirectEntityEffect(
-                    "WALL-001",
+                    target,
                     (CanonicalAspect.PLACEMENT, CanonicalAspect.GEOMETRY),
-                ),
+                )
+                for target in selection
             ),
             scope_effect_recipes=(recipe,),
             execution_slice_scope_rules=(
                 ExecutionSliceScopeRule(
                     "SLICE-SCOPE-1",
                     "DOC-1",
-                    (direct_rule_id, derived_rule_id),
+                    tuple(sorted((*direct_rule_ids, derived_rule_id))),
                 ),
             ),
         )
@@ -219,6 +220,11 @@ def step30_transaction():
     return build_step30_transaction()
 
 
+@pytest.fixture
+def step30_multitarget_transaction():
+    return build_step30_transaction(("WALL-001", "WALL-002"))
+
+
 def routing_for_transaction(
     transaction,
     *,
@@ -228,10 +234,7 @@ def routing_for_transaction(
     changeset, _ = transaction
     root_ref = root_ref or HostRuntimeRef("REVIT", "RVT-01", "DOC-1")
     derived_ref = derived_ref or root_ref
-    routes = [
-        RuntimeEntityRoute(target, root_ref)
-        for target in changeset.root_operation.targets
-    ]
+    routes = [RuntimeEntityRoute(target, root_ref) for target in changeset.root_operation.targets]
     for operation in changeset.derived_operations:
         routes.extend(RuntimeEntityRoute(target, derived_ref) for target in operation.targets)
     route_tuple = tuple(routes)
