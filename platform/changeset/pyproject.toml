@@ -1,9 +1,9 @@
 [project]
-name = "changeset"
+name = "design-changeset"
 version = "0.1.0"
-description = "Change-set modeling and execution slicing for the design agent. Phase 2."
+description = "Provider-neutral immutable canonical ChangeSet contracts for DSP."
 requires-python = ">=3.11"
-dependencies = ["host-contracts>=0.1.0"]
+dependencies = ["jsonschema>=4.20"]
 
 [build-system]
 requires = ["setuptools>=68"]
