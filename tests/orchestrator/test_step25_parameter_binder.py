@@ -194,7 +194,12 @@ def test_canonical_default_recipe_binds_literal_and_records_evidence() -> None:
         canonical_operation="offset.v1",
         properties={
             "distance": {"type": "number"},
-            "unit": {"type": "string"},
+            "unit": {
+                "type": "object",
+                "properties": {"symbol": {"type": "string"}},
+                "required": ["symbol"],
+                "additionalProperties": False,
+            },
         },
         required=["distance", "unit"],
         slot_binding_policy={
