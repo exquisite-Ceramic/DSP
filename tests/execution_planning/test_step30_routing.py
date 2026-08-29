@@ -35,7 +35,7 @@ def test_wrong_routing_hash_fails(step30_transaction) -> None:
     changeset, _ = step30_transaction
     with pytest.raises(ExecutionPlanningError) as exc:
         ExecutionPlanner().plan(_request(step30_transaction, _routes(changeset), supplied_hash="0" * 64))
-    assert exc.value.code == "EXECUTION_ROUTE_HASH_MISMATCH"
+    assert exc.value.code == "EXECUTION_ROUTING_HASH_MISMATCH"
 
 
 def test_missing_route_fails_closed(step30_transaction) -> None:
