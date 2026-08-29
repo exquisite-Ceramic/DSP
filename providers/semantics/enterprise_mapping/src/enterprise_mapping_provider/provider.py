@@ -16,6 +16,7 @@ from .catalog import build_catalog
 from .errors import EnterpriseCatalogBuildError
 from .golden import ENTERPRISE_MAPPING_V1_GOLDEN_CONTENT_HASH
 from .model import EnterpriseMappingCatalog
+from .projection import project_facts_for_catalog
 from .source import load_raw_machine_source
 
 
@@ -49,8 +50,12 @@ class EnterpriseMappingProvider:
         self,
         facts: NormalizedDesignFactBatch,
     ) -> tuple[SemanticClaim, ...]:
-        # Task 2 freezes catalog/manifest identity. Task 3 adds fact projection behavior.
-        return ()
+        return project_facts_for_catalog(
+            self._catalog,
+            facts,
+            provider_id=self._manifest.provider_id,
+            provider_version=self._manifest.version,
+        )
 
 
 ENTERPRISE_MAPPING_PROVIDER = EnterpriseMappingProvider()
