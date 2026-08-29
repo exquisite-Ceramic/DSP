@@ -12,6 +12,7 @@ from autocad_sidecar.mcp_server import build_tool_definitions
 from design_orchestrator.canonical_operations import (
     CanonicalOperationDefinition,
     MOVE_V1,
+    SlotBindingClass,
 )
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
@@ -106,8 +107,12 @@ def definition_for(canonical_operation: str) -> CanonicalOperationDefinition:
         return MOVE_V1
     return CanonicalOperationDefinition(
         canonical_operation=canonical_operation,
+        version="1.0.0",
+        title=canonical_operation,
+        description=f"Canonical test operation {canonical_operation}",
         category="MODEL_OPERATION",
         input_schema=json.loads(json.dumps(GENERIC_CANONICAL_SCHEMA)),
+        slot_binding_policy={"targets": SlotBindingClass.INTENT},
         verification_contract={"type": "HOST_READ_BACK"},
     )
 
@@ -298,8 +303,12 @@ def test_different_provider_input_schemas_share_one_canonical_schema() -> None:
 def test_duplicate_canonical_definitions_fail_closed() -> None:
     duplicate = CanonicalOperationDefinition(
         canonical_operation="move.v1",
+        version="1.0.0",
+        title="Duplicate move",
+        description="Duplicate canonical move definition for conflict testing.",
         category="MODEL_OPERATION",
         input_schema={"type": "object", "properties": {}},
+        slot_binding_policy={},
         verification_contract={"type": "NONE"},
     )
 
