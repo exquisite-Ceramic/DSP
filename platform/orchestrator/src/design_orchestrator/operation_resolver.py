@@ -2,8 +2,9 @@
 
 The resolver consumes provider profiles structurally so this platform component
 stays independent from concrete Host sidecars and provider-specific MCP tools.
-Provider execution schemas remain internal; LLM-facing schemas come only from
-platform-owned canonical operation definitions.
+Provider execution schemas and native entity constraints remain internal;
+LLM-facing schemas and applicability come only from platform-owned canonical
+operation definitions plus a ContextSnapshot-bound semantic read model.
 """
 
 from __future__ import annotations
@@ -22,6 +23,41 @@ from design_orchestrator.canonical_operations import CanonicalOperationDefinitio
 
 
 _POLICY_DECISIONS = frozenset({"ALLOW", "APPROVAL_REQUIRED", "DENY"})
+_CANONICAL_TERM_PUNCTUATION = frozenset("._-")
+
+
+def _required_text(value: str, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
+
+
+def _canonical_term(value: str) -> str:
+    term = _required_text(value, field_name="canonical classification")
+    prefix, separator, local_name = term.partition(":")
+    if (
+        not separator
+        or not prefix
+        or not local_name
+        or not prefix[0].isalpha()
+        or not local_name[0].isalpha()
+        or not all(
+            character.isalnum() or character in _CANONICAL_TERM_PUNCTUATION
+            for character in prefix
+        )
+        or not all(
+            character.isalnum() or character in _CANONICAL_TERM_PUNCTUATION
+            for character in local_name
+        )
+    ):
+        raise ValueError(
+            "canonical classification must be a namespace-qualified term "
+            "such as 'ifc:IfcWall'"
+        )
+    return term
 
 
 class CapabilityConflictError(ValueError):
@@ -42,6 +78,71 @@ class CapabilityProfile(Protocol):
     verification_contract: dict[str, Any]
     input_schema: dict[str, Any]
     output_schema: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationGuarantee:
+    """Provider-neutral statement that classification is safe for machine use."""
+
+    machine_decision_supported: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.machine_decision_supported, bool):
+            raise ValueError("machine_decision_supported must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticEligibilityEntity:
+    """Canonical classifications for one semantic entity in a bound snapshot."""
+
+    semantic_id: str
+    canonical_classifications: tuple[str, ...] = ()
+    classification_guarantee: ClassificationGuarantee | None = None
+
+    def __post_init__(self) -> None:
+        semantic_id = _required_text(self.semantic_id, field_name="semantic_id")
+        classifications = tuple(
+            sorted({_canonical_term(item) for item in self.canonical_classifications})
+        )
+        guarantee = self.classification_guarantee
+        if guarantee is not None and not isinstance(guarantee, ClassificationGuarantee):
+            raise TypeError(
+                "classification_guarantee must be a ClassificationGuarantee or None"
+            )
+        object.__setattr__(self, "semantic_id", semantic_id)
+        object.__setattr__(self, "canonical_classifications", classifications)
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticEligibilityContext:
+    """Small provider-neutral eligibility view bound to one ContextSnapshot."""
+
+    context_snapshot_id: str
+    context_snapshot_hash: str
+    document_ref: str
+    semantic_environment_ref: str
+    entities: tuple[SemanticEligibilityEntity, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "context_snapshot_id",
+            "context_snapshot_hash",
+            "document_ref",
+            "semantic_environment_ref",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _required_text(getattr(self, field_name), field_name=field_name),
+            )
+
+        entities = tuple(self.entities)
+        if any(not isinstance(item, SemanticEligibilityEntity) for item in entities):
+            raise TypeError("entities must contain SemanticEligibilityEntity values")
+        semantic_ids = [item.semantic_id for item in entities]
+        if len(set(semantic_ids)) != len(semantic_ids):
+            raise ValueError("semantic eligibility context requires unique semantic_id values")
+        object.__setattr__(self, "entities", entities)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,12 +206,16 @@ class TaskConstraints:
 
 @dataclass(frozen=True, slots=True)
 class ResolutionContext:
-    """Host, entity, policy, and task facts for one resolution step."""
+    """Host, semantic snapshot, policy, and task facts for one resolution step."""
 
     host_provider_servers: frozenset[str]
-    entity_kinds: frozenset[str]
+    semantic_context: SemanticEligibilityContext
     policy: OperationPolicy = field(default_factory=OperationPolicy)
     task: TaskConstraints = field(default_factory=TaskConstraints)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.semantic_context, SemanticEligibilityContext):
+            raise TypeError("semantic_context must be a SemanticEligibilityContext")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +225,7 @@ class ResolvedOperation:
     operation_id: str
     canonical_operation: str
     input_schema: dict[str, Any]
-    entity_constraints: tuple[str, ...]
+    canonical_entity_constraints: tuple[str, ...]
     context_freshness_requirements: tuple[dict[str, Any], ...]
     operation_freshness_requirements: tuple[dict[str, Any], ...]
     effects: tuple[Any, ...]
@@ -148,7 +253,9 @@ class ResolutionResult:
                 "operation_id": operation.operation_id,
                 "canonical_operation": operation.canonical_operation,
                 "input_schema": deepcopy(operation.input_schema),
-                "entity_constraints": list(operation.entity_constraints),
+                "canonical_entity_constraints": list(
+                    operation.canonical_entity_constraints
+                ),
                 "context_freshness_requirements": deepcopy(
                     list(operation.context_freshness_requirements)
                 ),
@@ -215,10 +322,11 @@ class _EligibleGroup:
 
 
 class OperationResolver:
-    """Aggregate first, then filter Host → Entity → Policy → Task.
+    """Aggregate first, then filter Host → Canonical Entity → Policy → Task.
 
-    Canonical definitions are platform-owned. Provider MCP schemas are retained
-    only in ``provider_candidates`` for later execution-time binding/adaptation.
+    Canonical definitions are platform-owned. Provider MCP schemas and native
+    entity constraints are retained only in ``provider_candidates`` for later
+    execution-time ProviderBinding/adaptation.
     """
 
     _RISK_ORDER = {
@@ -273,12 +381,10 @@ class OperationResolver:
             if not host_filtered:
                 continue
 
-            entity_filtered = tuple(
-                profile
-                for profile in host_filtered
-                if self._supports_entities(profile, context.entity_kinds)
-            )
-            if not entity_filtered:
+            if not self._supports_canonical_entities(
+                definition,
+                context.semantic_context,
+            ):
                 continue
 
             policy_decision = context.policy.decision_for(canonical_operation)
@@ -291,7 +397,7 @@ class OperationResolver:
             task_candidates.append(
                 _EligibleGroup(
                     definition=definition,
-                    profiles=entity_filtered,
+                    profiles=host_filtered,
                     policy_decision=policy_decision,
                     task_score=context.task.score_for(canonical_operation),
                 )
@@ -355,13 +461,28 @@ class OperationResolver:
         )
 
     @staticmethod
-    def _supports_entities(
-        profile: CapabilityProfile,
-        entity_kinds: frozenset[str],
+    def _supports_canonical_entities(
+        definition: CanonicalOperationDefinition,
+        semantic_context: SemanticEligibilityContext,
     ) -> bool:
-        if not profile.entity_constraints or not entity_kinds:
+        constraints = frozenset(definition.canonical_entity_constraints)
+        if not constraints:
+            # Progressive invariant: unconstrained actions must not force
+            # CLASSIFICATION reconstruction or evidence.
             return True
-        return entity_kinds.issubset(profile.entity_constraints)
+        if not semantic_context.entities:
+            return False
+
+        for entity in semantic_context.entities:
+            guarantee = entity.classification_guarantee
+            if (
+                not entity.canonical_classifications
+                or guarantee is None
+                or not guarantee.machine_decision_supported
+                or constraints.isdisjoint(entity.canonical_classifications)
+            ):
+                return False
+        return True
 
     def _build_resolved_operation(
         self,
@@ -383,7 +504,9 @@ class OperationResolver:
                 operation_id=self._operation_id(definition.canonical_operation),
                 canonical_operation=definition.canonical_operation,
                 input_schema=deepcopy(definition.input_schema),
-                entity_constraints=self._aggregate_entity_constraints(profiles),
+                canonical_entity_constraints=tuple(
+                    definition.canonical_entity_constraints
+                ),
                 context_freshness_requirements=deepcopy(
                     definition.context_freshness_requirements
                 ),
@@ -400,22 +523,6 @@ class OperationResolver:
                 candidate_provider_ids=tuple(candidate_ids),
             ),
             candidate_map,
-        )
-
-    @staticmethod
-    def _aggregate_entity_constraints(
-        profiles: tuple[CapabilityProfile, ...],
-    ) -> tuple[str, ...]:
-        if any(not profile.entity_constraints for profile in profiles):
-            return ()
-        return tuple(
-            sorted(
-                {
-                    entity_kind
-                    for profile in profiles
-                    for entity_kind in profile.entity_constraints
-                }
-            )
         )
 
     @classmethod
