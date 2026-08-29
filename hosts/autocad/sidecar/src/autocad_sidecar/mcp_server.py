@@ -76,6 +76,24 @@ def build_tool_definitions() -> list[dict[str, Any]]:
             ),
         },
         {
+            "name": "interaction.pick_point",
+            "description": "Ask the designer to pick one point on the AutoCAD canvas.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "idempotency_key": {"type": "string", "minLength": 1},
+                    "prompt": {"type": ["string", "null"]},
+                },
+                "required": ["idempotency_key"],
+                "additionalProperties": False,
+            },
+            "_meta": _design_meta(
+                operation="interaction.pick_point.v1",
+                category="INTERACTION",
+                idempotent=True,
+            ),
+        },
+        {
             "name": "cad.move",
             "description": "Move entities in the active AutoCAD document.",
             "inputSchema": {
@@ -145,6 +163,22 @@ def build_mcp_server(
     )
     async def fit(handles: list[str] | None = None) -> dict[str, Any]:
         return (await dispatcher.fit(handles)).to_dict()
+
+    @server.tool(
+        name="interaction.pick_point",
+        description=definitions["interaction.pick_point"]["description"],
+        meta=definitions["interaction.pick_point"]["_meta"],
+    )
+    async def pick_point(
+        idempotency_key: str,
+        prompt: str | None = None,
+    ) -> dict[str, Any]:
+        return (
+            await dispatcher.pick_point(
+                idempotency_key=idempotency_key,
+                prompt=prompt,
+            )
+        ).to_dict()
 
     @server.tool(
         name="cad.move",
