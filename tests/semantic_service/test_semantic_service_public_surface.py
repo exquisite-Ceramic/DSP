@@ -17,6 +17,8 @@ def test_public_surface_contains_phase_c_contracts_only():
         "SemanticProjectionProvider",
     )
     assert [name for name in required if not hasattr(s, name)] == []
+    # Phase E allows the service implementation to consume the stable NDF contract,
+    # but it remains owned/exported by host-contracts rather than semantic_service.
     assert not hasattr(s, "NormalizedDesignFactBatch")
     assert not hasattr(s, "McpSemanticProviderAdapter")
     assert not hasattr(s, "_hash_payload")
@@ -31,6 +33,7 @@ def test_semantic_service_has_no_d5_mcp_or_host_imports():
         "autodesk",
         "revit",
         "tekla",
+        "autocad_sidecar",
     }
     found = []
     for path in sorted(package.glob("*.py")):
@@ -55,9 +58,11 @@ def test_semantic_service_source_has_no_concrete_provider_or_host_mapping_leakag
         "Ifc43Provider",
         "MetroProvider",
         "McpSemanticProviderAdapter",
-        "NormalizedDesignFactBatch",
         "BuiltInCategory",
         "A-WALL",
+        "A-WALL-",
+        "autocad.layer",
+        "ifc:IfcWall",
         "Autodesk",
     )
     assert [token for token in forbidden if token in source] == []
