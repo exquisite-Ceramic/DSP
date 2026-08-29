@@ -18,6 +18,7 @@
 - Canonical task semantic requirements are owned by `CanonicalOperationDefinition`.
 - Provider `DesignCapabilityProfile.execution_freshness` remains provider-owned metadata and must remain available in `ResolutionResult.provider_candidates`.
 - Candidate-provider `execution_freshness` must not be unioned into `ResolvedOperation.operation_freshness_requirements` before ProviderBinding.
+- LLM-facing `operation_freshness_requirements` must be the same canonical requirements and must not expose provider-specific preconditions.
 - `MOVE_V1.operation_freshness_requirements` is exactly `PLACEMENT / FRESH`.
 - `MOVE_V1` may still aggregate provider effects including `PLACEMENT` and `GEOMETRY`; effects must not implicitly become freshness requirements.
 - No new semantic requirement DTO.
@@ -118,9 +119,12 @@ def test_canonical_operation_owns_task_freshness_not_provider_union() -> None:
     )
     resolved = result.resolved_operations[0]
 
-    assert resolved.operation_freshness_requirements == (
+    expected = (
         {"aspect": "PLACEMENT", "required_state": "FRESH"},
     )
+    assert resolved.operation_freshness_requirements == expected
+    assert result.llm_action_space()[0]["operation_freshness_requirements"] == list(expected)
+
     vendor = next(
         profile
         for profile in result.provider_candidates.values()
@@ -135,6 +139,8 @@ def test_canonical_operation_owns_task_freshness_not_provider_union() -> None:
         },
     )
 ```
+
+This test must prove both the internal `ResolvedOperation` and LLM-facing action-space projection use the canonical requirement while the stronger provider requirement remains only on the provider candidate.
 
 Also add the effect/non-requirement separation regression:
 
@@ -580,7 +586,7 @@ on:
       - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
       - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
       - "tests/orchestrator/test_operation_resolver.py"
-      - "tests/integration/test_step22_task-scoped-progressive.py"
+      - "tests/integration/test_step22_task_scoped_progressive.py"
       - ".github/workflows/step22-task-scoped-progressive.yml"
   workflow_dispatch:
 
@@ -774,6 +780,7 @@ Confirm all statements are true:
 CanonicalOperationDefinition owns operation_freshness_requirements.
 MOVE_V1 canonical requirement is PLACEMENT/FRESH only.
 ResolvedOperation copies canonical requirements.
+LLM action space exposes canonical operation freshness only.
 Provider execution_freshness remains on provider candidates.
 No candidate-provider freshness union feeds D5 before binding.
 Effects do not implicitly become task semantic requirements.
@@ -817,7 +824,7 @@ Preserved boundaries:
 - no Step23 ProviderBinding implementation.
 
 Proofs:
-- multi-provider stronger provider precondition does not inflate D5 task requirement;
+- multi-provider stronger provider precondition does not inflate D5 task requirement or LLM-facing freshness;
 - MOVE upgrades only PLACEMENT;
 - classification-only task leaves geometry untouched;
 - exact geometry only required when explicit and fails closed otherwise;
