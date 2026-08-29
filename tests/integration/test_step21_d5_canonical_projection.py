@@ -7,8 +7,6 @@ import pytest
 
 from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 from design_fact_contracts import FactKind, NormalizedDesignFactBatch
-from enterprise_mapping_provider import ENTERPRISE_MAPPING_PROVIDER
-from ifc43_semantic_provider import IFC43_PROVIDER
 from semantic_runtime import (
     AspectGuarantee,
     AspectRequirement,
@@ -36,6 +34,11 @@ from semantic_service import (
     SemanticProviderRegistry,
     SemanticService,
 )
+
+enterprise_mapping_provider = pytest.importorskip("enterprise_mapping_provider")
+ifc43_semantic_provider = pytest.importorskip("ifc43_semantic_provider")
+ENTERPRISE_MAPPING_PROVIDER = enterprise_mapping_provider.ENTERPRISE_MAPPING_PROVIDER
+IFC43_PROVIDER = ifc43_semantic_provider.IFC43_PROVIDER
 
 DOCUMENT_ID = "C:/models/station.dwg"
 TARGET_SUBJECT = "native://autocad/autocad-session-1/C%3A%2Fmodels%2Fstation.dwg/A31"
