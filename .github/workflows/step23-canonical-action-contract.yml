@@ -26,6 +26,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install focused test dependencies
-        run: python -m pip install pytest jsonschema
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install -e contracts/python -e hosts/autocad/sidecar -e platform/semantic_runtime
       - name: Run Step23 canonical action tests
         run: pytest -q tests/orchestrator/test_canonical_operations.py
+      - name: Run existing D4 operation resolver regression
+        run: pytest -q tests/orchestrator/test_operation_resolver.py
