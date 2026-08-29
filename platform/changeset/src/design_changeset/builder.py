@@ -15,9 +15,11 @@ from .contracts import (
     CanonicalChangeOperation,
     CanonicalChangeSet,
     CanonicalOperationContractEvidence,
+    ChangeDependency,
     ChangePrecondition,
     ChangeSetBuildRequest,
     ChangeSetError,
+    DerivedOperationMaterialization,
     OperationOrigin,
     OperationSourceEvidence,
     OperationSourceKind,
@@ -33,6 +35,7 @@ from .hashing import (
     compute_changeset_hash,
     compute_contract_definition_fingerprint,
     compute_operation_semantic_hash,
+    compute_proposed_change_hash,
     compute_scope_rule_fingerprint,
 )
 
@@ -42,14 +45,14 @@ def _error(code: str, message: str) -> None:
 
 
 def _aspect_values(values) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            {
-                value.value if isinstance(value, CanonicalAspect) else CanonicalAspect(str(value)).value
-                for value in values
-            }
-        )
-    )
+    result: set[str] = set()
+    for value in values:
+        raw = value.value if isinstance(value, CanonicalAspect) else str(value)
+        try:
+            result.add(CanonicalAspect(raw).value)
+        except ValueError:
+            _error("CHANGESET_INPUT_INVALID", f"unknown canonical aspect {raw!r}")
+    return tuple(sorted(result))
 
 
 def _targets(arguments: Mapping[str, object]) -> tuple[str, ...]:
@@ -76,24 +79,32 @@ def _contract_index(
     }
 
 
-def _resolve_contract(
-    request: ChangeSetBuildRequest,
+def _resolve_contract_key(
+    contracts: tuple[CanonicalOperationContractEvidence, ...],
+    canonical_operation: str,
+    canonical_operation_version: str,
 ) -> CanonicalOperationContractEvidence:
-    bound = request.bound_operation_evidence
-    contracts = _contract_index(request.canonical_operation_contracts)
-    key = (bound.canonical_operation, bound.canonical_operation_version)
-    contract = contracts.get(key)
+    contract = _contract_index(contracts).get((canonical_operation, canonical_operation_version))
     if contract is not None:
         return contract
-    names = {item.canonical_operation for item in request.canonical_operation_contracts}
-    if bound.canonical_operation not in names:
+    names = {item.canonical_operation for item in contracts}
+    if canonical_operation not in names:
         _error(
             "CHANGESET_CANONICAL_OPERATION_UNKNOWN",
-            f"no canonical contract evidence for {bound.canonical_operation}",
+            f"no canonical contract evidence for {canonical_operation}",
         )
     _error(
         "CHANGESET_CANONICAL_OPERATION_VERSION_MISMATCH",
-        f"no canonical contract evidence for {bound.canonical_operation}@{bound.canonical_operation_version}",
+        f"no canonical contract evidence for {canonical_operation}@{canonical_operation_version}",
+    )
+
+
+def _resolve_root_contract(request: ChangeSetBuildRequest) -> CanonicalOperationContractEvidence:
+    bound = request.bound_operation_evidence
+    return _resolve_contract_key(
+        request.canonical_operation_contracts,
+        bound.canonical_operation,
+        bound.canonical_operation_version,
     )
 
 
@@ -141,19 +152,7 @@ def _verify_bound_evidence(bound: BoundOperationEvidence) -> None:
         )
 
 
-def _validate_upstream_join(
-    bound: BoundOperationEvidence,
-    impact: ImpactAnalysis,
-    scope: ApprovalScopeDefinition,
-    contract: CanonicalOperationContractEvidence,
-) -> tuple[str, ...]:
-    if bound.canonical_operation != impact.canonical_operation:
-        _error("CHANGESET_IMPACT_MISMATCH", "bound operation does not match impact analysis")
-    if bound.bound_operation_fingerprint != impact.bound_operation_fingerprint:
-        _error(
-            "CHANGESET_IMPACT_MISMATCH",
-            "bound operation material is not the material analyzed by Step27",
-        )
+def _validate_planning_state(impact: ImpactAnalysis, scope: ApprovalScopeDefinition) -> None:
     if impact.analysis_fingerprint != scope.impact_analysis_fingerprint:
         _error("CHANGESET_SCOPE_MISMATCH", "approval scope does not bind this impact analysis")
     if (
@@ -165,6 +164,32 @@ def _validate_upstream_join(
         _error(
             "CHANGESET_SEMANTIC_ENVIRONMENT_MISMATCH",
             "impact and approval scope semantic environments differ",
+        )
+    planning = impact.planning_snapshot_ref
+    snapshot_set = impact.snapshot_set_ref
+    environment = impact.semantic_environment_ref
+    if planning.snapshot_id not in snapshot_set.member_snapshot_ids:
+        _error("CHANGESET_SNAPSHOT_MISMATCH", "planning snapshot is not a SnapshotSet member")
+    if planning.semantic_environment != environment or snapshot_set.semantic_environment != environment:
+        _error(
+            "CHANGESET_SEMANTIC_ENVIRONMENT_MISMATCH",
+            "planning state does not share one semantic environment",
+        )
+
+
+def _validate_upstream_join(
+    bound: BoundOperationEvidence,
+    impact: ImpactAnalysis,
+    scope: ApprovalScopeDefinition,
+    contract: CanonicalOperationContractEvidence,
+) -> tuple[str, ...]:
+    _validate_planning_state(impact, scope)
+    if bound.canonical_operation != impact.canonical_operation:
+        _error("CHANGESET_IMPACT_MISMATCH", "bound operation does not match impact analysis")
+    if bound.bound_operation_fingerprint != impact.bound_operation_fingerprint:
+        _error(
+            "CHANGESET_IMPACT_MISMATCH",
+            "bound operation material is not the material analyzed by Step27",
         )
     if bound.semantic_environment_id != impact.semantic_environment_ref.environment_id:
         _error(
@@ -209,7 +234,10 @@ def _validate_arguments(
     try:
         validate(instance=dict(arguments), schema=dict(contract.argument_schema))
     except (ValidationError, SchemaError) as exc:
-        _error("CHANGESET_ARGUMENTS_INVALID", f"canonical arguments do not satisfy contract: {exc.message}")
+        _error(
+            "CHANGESET_ARGUMENTS_INVALID",
+            f"canonical arguments do not satisfy contract: {exc.message}",
+        )
 
 
 def _cover_scope(
@@ -217,15 +245,26 @@ def _cover_scope(
     targets: tuple[str, ...],
     expected_effects: tuple[CanonicalAspect, ...],
     scope: ApprovalScopeDefinition,
+    requested_rule_ids: tuple[str, ...] | None = None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    selected_rule_ids: set[str] = set()
-    selected_rule_fingerprints: set[str] = set()
-    required = {aspect.value for aspect in expected_effects}
+    known = {rule.rule_id: rule for rule in scope.existing_entity_rules}
+    if requested_rule_ids is None:
+        candidates = tuple(known.values())
+    else:
+        unknown = set(requested_rule_ids) - set(known)
+        if unknown:
+            _error(
+                "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+                f"scope rules are not present in Step28 definition: {sorted(unknown)}",
+            )
+        candidates = tuple(known[rule_id] for rule_id in requested_rule_ids)
 
+    selected: dict[str, object] = {}
+    required = {aspect.value for aspect in expected_effects}
     for target in targets:
         explicit = [
             rule
-            for rule in scope.existing_entity_rules
+            for rule in candidates
             if rule.selector.entities and target in rule.selector.entities
         ]
         if not explicit:
@@ -236,15 +275,23 @@ def _cover_scope(
         covered: set[str] = set()
         for rule in explicit:
             covered.update(aspect.value for aspect in rule.allowed_aspects)
-            selected_rule_ids.add(rule.rule_id)
-            selected_rule_fingerprints.add(compute_scope_rule_fingerprint(rule))
+            selected[rule.rule_id] = rule
         if not required.issubset(covered):
             _error(
                 "CHANGESET_SCOPE_EFFECT_EXCEEDED",
                 f"canonical effects exceed Step28 scope for {target}",
             )
 
-    return tuple(sorted(selected_rule_ids)), tuple(sorted(selected_rule_fingerprints))
+    if requested_rule_ids is not None and set(requested_rule_ids) != set(selected):
+        _error(
+            "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+            "derived operation scope_rule_ids include rules unrelated to its targets",
+        )
+    rule_ids = tuple(sorted(selected))
+    fingerprints = tuple(
+        sorted(compute_scope_rule_fingerprint(selected[rule_id]) for rule_id in rule_ids)
+    )
+    return rule_ids, fingerprints
 
 
 def _preconditions(bound: BoundOperationEvidence) -> tuple[ChangePrecondition, ...]:
@@ -369,6 +416,199 @@ def _validation_semantic_payload(tasks: tuple[ValidationTask, ...]) -> list[dict
     ]
 
 
+def _bundle_source_fingerprint(bundle, proposed_change_hash: str) -> str:
+    return canonical_hash(
+        {
+            "bundle": {
+                "rule_ref": bundle.rule_ref,
+                "strength": bundle.strength.value,
+                "propagation_owner": bundle.propagation_owner.value,
+                "propagation_action": bundle.propagation_action.value,
+                "source_entities": list(bundle.source_entities),
+                "affected_entities": list(bundle.affected_entities),
+                "deterministic": bundle.deterministic,
+            },
+            "proposed_change_hash": proposed_change_hash,
+        }
+    )
+
+
+def _proposal_index(impact: ImpactAnalysis):
+    bundles = {bundle.bundle_id: bundle for bundle in impact.propagation_bundles}
+    proposal_by_key: dict[tuple[str, str], Mapping[str, object]] = {}
+    global_hashes: set[str] = set()
+    for bundle in impact.propagation_bundles:
+        for proposal in bundle.proposed_changes:
+            proposal_hash = compute_proposed_change_hash(proposal)
+            key = (bundle.bundle_id, proposal_hash)
+            if key in proposal_by_key or proposal_hash in global_hashes:
+                _error(
+                    "CHANGESET_DERIVED_PROPOSAL_DUPLICATE",
+                    "Step27 proposed-change identity is ambiguous within one analysis",
+                )
+            proposal_by_key[key] = proposal
+            global_hashes.add(proposal_hash)
+    return bundles, proposal_by_key
+
+
+def _materialize_derived(
+    *,
+    request: ChangeSetBuildRequest,
+    root_operation: CanonicalChangeOperation,
+    root_hash: str,
+) -> tuple[
+    tuple[CanonicalChangeOperation, ...],
+    tuple[ChangeDependency, ...],
+    tuple[str, ...],
+]:
+    impact = request.impact_analysis
+    scope = request.approval_scope_definition
+    bundles, proposals = _proposal_index(impact)
+    admitted = set(scope.propagation_bundle_ids)
+    missing_bundles = admitted - set(bundles)
+    if missing_bundles:
+        _error(
+            "CHANGESET_SCOPE_MISMATCH",
+            f"Step28 admits propagation bundles absent from Step27: {sorted(missing_bundles)}",
+        )
+
+    required = {
+        key
+        for key in proposals
+        if key[0] in admitted and bundles[key[0]].deterministic
+    }
+    seen: set[tuple[str, str]] = set()
+    built: list[tuple[str, CanonicalChangeOperation]] = []
+    dependencies: list[tuple[str, ChangeDependency]] = []
+
+    for materialization in request.derived_materializations:
+        if not isinstance(materialization, DerivedOperationMaterialization):
+            _error(
+                "CHANGESET_DERIVED_OPERATION_INVALID",
+                "derived materialization has an invalid contract type",
+            )
+        bundle = bundles.get(materialization.propagation_bundle_id)
+        if bundle is None or bundle.bundle_id not in admitted:
+            _error(
+                "CHANGESET_DERIVED_BUNDLE_UNKNOWN",
+                "derived materialization references an unknown or non-admitted bundle",
+            )
+        key = (bundle.bundle_id, materialization.proposed_change_hash)
+        proposal = proposals.get(key)
+        if proposal is None:
+            _error(
+                "CHANGESET_DERIVED_PROPOSAL_UNKNOWN",
+                "derived materialization references an unknown Step27 proposal",
+            )
+        if key in seen:
+            _error(
+                "CHANGESET_DERIVED_PROPOSAL_DUPLICATE",
+                "one Step27 proposal cannot be materialized twice",
+            )
+        seen.add(key)
+
+        proposal_target = proposal.get("affected_semantic_id")
+        if not isinstance(proposal_target, str) or not proposal_target.strip():
+            _error(
+                "CHANGESET_DERIVED_OPERATION_INVALID",
+                "Step27 proposal lacks a canonical affected semantic id",
+            )
+        proposal_targets = (proposal_target.strip(),)
+        if materialization.targets != proposal_targets:
+            _error(
+                "CHANGESET_TARGET_MISMATCH",
+                "derived targets do not match the exact Step27 proposal",
+            )
+        if _targets(materialization.arguments) != materialization.targets:
+            _error(
+                "CHANGESET_TARGET_MISMATCH",
+                "derived canonical arguments do not match declared targets",
+            )
+
+        contract = _resolve_contract_key(
+            request.canonical_operation_contracts,
+            materialization.canonical_operation,
+            materialization.canonical_operation_version,
+        )
+        _verify_contract_fingerprint(contract)
+        _validate_arguments(materialization.arguments, contract)
+        expected_effects = tuple(contract.effects)
+        scope_rule_ids, scope_rule_fingerprints = _cover_scope(
+            targets=materialization.targets,
+            expected_effects=expected_effects,
+            scope=scope,
+            requested_rule_ids=materialization.scope_rule_ids,
+        )
+        source = OperationSourceEvidence(
+            source_kind=OperationSourceKind.DERIVED_PROPAGATION,
+            source_fingerprint=_bundle_source_fingerprint(
+                bundle,
+                materialization.proposed_change_hash,
+            ),
+            propagation_bundle_id=bundle.bundle_id,
+            proposed_change_hash=materialization.proposed_change_hash,
+        )
+        operation_hash = compute_operation_semantic_hash(
+            origin=OperationOrigin.DERIVED,
+            canonical_operation=contract.canonical_operation,
+            canonical_operation_version=contract.canonical_operation_version,
+            canonical_definition_fingerprint=contract.definition_fingerprint,
+            targets=materialization.targets,
+            arguments=materialization.arguments,
+            expected_effects=expected_effects,
+            scope_rule_fingerprints=scope_rule_fingerprints,
+            source_evidence=source,
+        )
+        operation = CanonicalChangeOperation(
+            operation_id=f"COP-{operation_hash[:12]}",
+            origin=OperationOrigin.DERIVED,
+            canonical_operation=contract.canonical_operation,
+            canonical_operation_version=contract.canonical_operation_version,
+            canonical_definition_fingerprint=contract.definition_fingerprint,
+            targets=materialization.targets,
+            arguments=materialization.arguments,
+            expected_effects=expected_effects,
+            scope_rule_ids=scope_rule_ids,
+            source_evidence=source,
+        )
+        reason_ref = canonical_hash(
+            {
+                "root_operation_hash": root_hash,
+                "derived_operation_hash": operation_hash,
+                "propagation_bundle_id": bundle.bundle_id,
+                "proposed_change_hash": materialization.proposed_change_hash,
+            }
+        )
+        dependency = ChangeDependency(
+            predecessor_operation_id=root_operation.operation_id,
+            successor_operation_id=operation.operation_id,
+            reason_ref=reason_ref,
+        )
+        built.append((operation_hash, operation))
+        dependencies.append((operation_hash, dependency))
+
+    missing = required - seen
+    if missing:
+        _error(
+            "CHANGESET_DERIVED_MATERIALIZATION_MISSING",
+            "every admitted deterministic Step27 proposal must be materialized exactly once",
+        )
+    extra = seen - required
+    if extra:
+        _error(
+            "CHANGESET_DERIVED_BUNDLE_UNKNOWN",
+            "derived materialization exceeds the admitted Step28 propagation scope",
+        )
+
+    built.sort(key=lambda pair: pair[0])
+    dependencies.sort(key=lambda pair: pair[0])
+    return (
+        tuple(operation for _, operation in built),
+        tuple(dependency for _, dependency in dependencies),
+        tuple(operation_hash for operation_hash, _ in built),
+    )
+
+
 class ChangeSetBuilder:
     """Materialize one exact provider-neutral canonical transaction."""
 
@@ -387,7 +627,7 @@ class ChangeSetBuilder:
         impact = request.impact_analysis
         scope = request.approval_scope_definition
         _verify_bound_evidence(bound)
-        contract = _resolve_contract(request)
+        contract = _resolve_root_contract(request)
         _verify_contract_fingerprint(contract)
         targets = _validate_upstream_join(bound, impact, scope, contract)
         _validate_arguments(bound.arguments, contract)
@@ -402,7 +642,7 @@ class ChangeSetBuilder:
             source_kind=OperationSourceKind.ROOT_BOUND_OPERATION,
             source_fingerprint=bound.bound_operation_evidence_fingerprint,
         )
-        operation_hash = compute_operation_semantic_hash(
+        root_hash = compute_operation_semantic_hash(
             origin=OperationOrigin.ROOT,
             canonical_operation=bound.canonical_operation,
             canonical_operation_version=bound.canonical_operation_version,
@@ -414,7 +654,7 @@ class ChangeSetBuilder:
             source_evidence=source,
         )
         root = CanonicalChangeOperation(
-            operation_id=f"COP-{operation_hash[:12]}",
+            operation_id=f"COP-{root_hash[:12]}",
             origin=OperationOrigin.ROOT,
             canonical_operation=bound.canonical_operation,
             canonical_operation_version=bound.canonical_operation_version,
@@ -426,33 +666,29 @@ class ChangeSetBuilder:
             source_evidence=source,
         )
 
-        # Task 5 opens derived materialization. Until then, fail closed if callers
-        # attempt to supply derived mutation material.
-        if request.derived_materializations:
-            _error(
-                "CHANGESET_DERIVED_OPERATION_INVALID",
-                "derived operation materialization is not enabled by this builder stage",
-            )
-        if scope.propagation_bundle_ids:
-            _error(
-                "CHANGESET_DERIVED_MATERIALIZATION_MISSING",
-                "admitted deterministic propagation has not been materialized",
-            )
-
+        derived, dependencies, derived_hashes = _materialize_derived(
+            request=request,
+            root_operation=root,
+            root_hash=root_hash,
+        )
         preconditions = _preconditions(bound)
         semantic_impacts = _semantic_impacts(impact)
         affected_entities = tuple(
-            sorted(
-                set(targets)
-                | {item.affected_semantic_id for item in impact.predicted_impacts}
-            )
+            sorted(set(targets) | {item.affected_semantic_id for item in impact.predicted_impacts})
         )
         validation_tasks = _validation_tasks(contract=contract, targets=targets, impact=impact)
         scope_ref = ApprovalScopeDefinitionRef(
             scope_definition_id=scope.scope_definition_id,
             scope_body_hash=scope.scope_body_hash,
         )
-
+        dependency_payloads = [
+            {
+                "predecessor_operation_hash": root_hash,
+                "successor_operation_hash": operation_hash,
+                "reason_ref": dependency.reason_ref,
+            }
+            for operation_hash, dependency in zip(derived_hashes, dependencies, strict=True)
+        ]
         semantic_body = {
             "task_id": request.task_id,
             "project_id": request.project_id,
@@ -462,9 +698,9 @@ class ChangeSetBuilder:
             "impact_analysis_fingerprint": impact.analysis_fingerprint,
             "bound_operation_fingerprint": impact.bound_operation_fingerprint,
             "scope_body_hash": scope.scope_body_hash,
-            "root_operation": operation_hash,
-            "derived_operations": [],
-            "change_dependencies": [],
+            "root_operation": root_hash,
+            "derived_operations": list(derived_hashes),
+            "change_dependencies": dependency_payloads,
             "preconditions": preconditions,
             "affected_entities": list(affected_entities),
             "semantic_impacts": semantic_impacts,
@@ -482,8 +718,8 @@ class ChangeSetBuilder:
             bound_operation_fingerprint=impact.bound_operation_fingerprint,
             approval_scope_definition_ref=scope_ref,
             root_operation=root,
-            derived_operations=(),
-            change_dependencies=(),
+            derived_operations=derived,
+            change_dependencies=dependencies,
             preconditions=preconditions,
             affected_entities=affected_entities,
             semantic_impacts=semantic_impacts,
