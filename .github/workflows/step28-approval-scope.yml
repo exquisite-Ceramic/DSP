@@ -1,0 +1,80 @@
+name: Step28 approval scope boundary
+
+on:
+  push:
+    paths:
+      - "platform/approval_scope/**"
+      - "tests/approval_scope/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step28-approval-scope-boundary-design.md"
+      - "docs/superpowers/plans/2026-08-29-step28-approval-scope-boundary.md"
+      - ".github/workflows/step28-approval-scope.yml"
+  pull_request:
+    paths:
+      - "platform/approval_scope/**"
+      - "tests/approval_scope/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step28-approval-scope-boundary-design.md"
+      - "docs/superpowers/plans/2026-08-29-step28-approval-scope-boundary.md"
+      - ".github/workflows/step28-approval-scope.yml"
+  workflow_dispatch:
+
+jobs:
+  step28-approval-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step28 verification stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step28 PR diff boundary
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step28-approval-scope-boundary'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step28-approval-scope\.yml|docs/superpowers/(specs/2026-08-29-step28-approval-scope-boundary-design|plans/2026-08-29-step28-approval-scope-boundary)\.md|platform/approval_scope/src/design_approval_scope/(__init__|contracts|hashing|planner)\.py|pyproject\.toml|tests/approval_scope/test_step28_(contracts|hashing|planner|architecture)\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step28 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step28 contract tests
+        run: pytest -q tests/approval_scope/test_step28_contracts.py
+      - name: Run Step28 hashing tests
+        run: pytest -q tests/approval_scope/test_step28_hashing.py
+      - name: Run Step28 planner tests
+        run: pytest -q tests/approval_scope/test_step28_planner.py
+      - name: Run Step28 architecture guards
+        run: pytest -q tests/approval_scope/test_step28_architecture.py
+      - name: Run Step27 regressions
+        run: pytest -q tests/impact
+      - name: Run Step25 parameter binder regression
+        run: pytest -q tests/orchestrator/test_step25_parameter_binder.py tests/orchestrator/test_step25_architecture.py
+      - name: Run Step26 interaction regressions
+        run: pytest -q tests/orchestrator/test_step26_interactive_binding.py tests/interaction/test_step26_interaction_coordinator.py tests/interaction/test_step26_architecture.py
+      - name: Run Step24 resolver regressions
+        run: pytest -q tests/orchestrator/test_step24_semantic_eligibility.py tests/orchestrator/test_operation_resolver.py
+      - name: Run D4 to D5 freshness bridge regression
+        run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
+      - name: Run Ruff on Step28 Python changes
+        run: ruff check platform/approval_scope/src/design_approval_scope tests/approval_scope
+      - name: Run full repository Python test suite
+        run: pytest -q --import-mode=importlib
