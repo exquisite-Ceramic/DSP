@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import design_orchestrator.canonical_operations as canonical_operations
 from design_orchestrator.canonical_operations import MOVE_V1
 
 
@@ -17,3 +18,10 @@ def test_move_v1_exposes_complete_step23_contract() -> None:
     )
     assert MOVE_V1.effects == ("PLACEMENT", "GEOMETRY")
     assert MOVE_V1.verification_contract == {"type": "HOST_READ_BACK"}
+
+
+def test_move_v1_declares_typed_slot_ownership() -> None:
+    slot_binding_class = getattr(canonical_operations, "SlotBindingClass", None)
+    assert slot_binding_class is not None
+    assert MOVE_V1.slot_binding_policy["targets"] is slot_binding_class.CONTEXT
+    assert MOVE_V1.slot_binding_policy["displacement"] is slot_binding_class.INTENT
