@@ -16,12 +16,28 @@ EXPECTED_METADATA = {
     "target_ifc_provider_version": "4.3.2.0",
     "target_ifc_schema": "IFC4X3_ADD2",
 }
+ROOT_FIELDS = {"metadata", "rules"}
+METADATA_PRESENTATION_FIELDS = {"description"}
 
 
 def validate_root_metadata(payload: Mapping[str, object]) -> None:
+    unknown_root = set(payload) - ROOT_FIELDS
+    if unknown_root:
+        raise EnterpriseSourceError(
+            f"unknown root fields: {sorted(unknown_root)}"
+        )
+
     metadata = payload.get("metadata")
     if not isinstance(metadata, Mapping):
         raise EnterpriseSourceError("metadata must be a mapping")
+
+    allowed_metadata = set(EXPECTED_METADATA) | METADATA_PRESENTATION_FIELDS
+    unknown_metadata = set(metadata) - allowed_metadata
+    if unknown_metadata:
+        raise EnterpriseSourceError(
+            f"unknown metadata fields: {sorted(unknown_metadata)}"
+        )
+
     for key, expected in EXPECTED_METADATA.items():
         if metadata.get(key) != expected:
             raise EnterpriseSourceError(f"{key} mismatch")
