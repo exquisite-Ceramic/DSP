@@ -248,3 +248,63 @@ def test_a_wall_reaches_existing_d5_as_canonical_ifc_wall() -> None:
     assert dirty.state(
         DOCUMENT_ID, TARGET_SUBJECT, SemanticAspect.GEOMETRY
     ) is FreshnessState.UNKNOWN
+
+
+@pytest.mark.parametrize("layer", ["A-WALLISH", "X-A-WALL"])
+def test_near_match_layer_does_not_satisfy_d5_classification(layer: str) -> None:
+    facts = DesignFactAdapter().normalize_snapshot(_snapshot(layer))
+    service, environment = _semantic_stack()
+    claims = service.project_facts(facts, environment.environment_id)
+    assert claims == ()
+
+    dirty = DirtyMap()
+    dirty.mark_dirty(DOCUMENT_ID, TARGET_SUBJECT, (SemanticAspect.CLASSIFICATION,))
+    contract = _contract()
+    with pytest.raises(
+        FreshnessUnsatisfiedError,
+        match=r"CLASSIFICATION\.freshness",
+    ):
+        FreshnessResolver(dirty).resolve(
+            contract,
+            expected_host_revision="42",
+            reconstruct=lambda current, revision: _reconstruction_from_claims(
+                current,
+                revision,
+                facts=facts,
+                claims=claims,
+                environment=environment,
+            ),
+        )
+    assert dirty.state(
+        DOCUMENT_ID, TARGET_SUBJECT, SemanticAspect.CLASSIFICATION
+    ) is FreshnessState.DIRTY
+
+
+def test_rule_derived_claim_cannot_satisfy_standard_mapped_requirement() -> None:
+    facts = DesignFactAdapter().normalize_snapshot(_snapshot("A-WALL"))
+    service, environment = _semantic_stack()
+    claims = service.project_facts(facts, environment.environment_id)
+    assert len(claims) == 1
+    assert claims[0].assurance == "RULE_DERIVED"
+
+    dirty = DirtyMap()
+    dirty.mark_dirty(DOCUMENT_ID, TARGET_SUBJECT, (SemanticAspect.CLASSIFICATION,))
+    contract = _contract(AssuranceLevel.STANDARD_MAPPED)
+    with pytest.raises(
+        FreshnessUnsatisfiedError,
+        match=r"CLASSIFICATION\.assurance",
+    ):
+        FreshnessResolver(dirty).resolve(
+            contract,
+            expected_host_revision="42",
+            reconstruct=lambda current, revision: _reconstruction_from_claims(
+                current,
+                revision,
+                facts=facts,
+                claims=claims,
+                environment=environment,
+            ),
+        )
+    assert dirty.state(
+        DOCUMENT_ID, TARGET_SUBJECT, SemanticAspect.CLASSIFICATION
+    ) is FreshnessState.DIRTY
