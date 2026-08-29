@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove the real Step 19 AutoCAD normalized facts and Step 20 Enterprise Mapping projection reach the existing D5 freshness barrier as canonical `ifc:IfcWall` classification evidence, with zero D5/Orchestrator/semantic production changes.
+**Goal:** Prove the real Step 19 AutoCAD normalized facts and Step 20 Enterprise Mapping projection reach the existing D5 freshness barrier as canonical `ifc:IfcWall` classification evidence, while D5, Orchestrator, Host, Semantic Service, and semantic-provider production code remain unchanged.
 
-**Architecture:** Add only test composition, architecture guards, and a dedicated CI workflow. The E2E test uses the real `DesignFactAdapter`, real pinned `SemanticService` environment, and real Enterprise Mapping provider, then wraps provider-neutral canonical claims in the existing D5 `ReconstructionResult` callback contract. D5 production remains unchanged and only evaluates canonical classification coverage/depth/assurance through `FreshnessResolver`.
+**Architecture:** Add only test composition, architecture guards, and one dedicated CI workflow. The E2E proof uses the real `DesignFactAdapter`, the real pinned `SemanticService`, IFC4.3 plus Enterprise Mapping providers, and the existing D5 `FreshnessResolver` reconstruction callback. A private test helper maps provider-neutral canonical claim structure to existing D5 aspect evidence; it never interprets AutoCAD layers or enterprise mapping rules.
 
-**Tech Stack:** Python 3.11, pytest, existing `design_fact_contracts`, `autocad_sidecar`, `semantic_service`, `semantic_runtime`, IFC4.3 provider, Enterprise Mapping provider, GitHub Actions.
+**Tech Stack:** Python 3.11, pytest, existing `design_fact_contracts`, `autocad_sidecar`, `semantic_service`, `semantic_runtime`, IFC4.3 semantic provider, Enterprise Mapping provider, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md`
 
@@ -15,39 +15,47 @@
 - Base is `main@0ce330abb10a33ae85025f516554d95386480fb5`.
 - Work only on `feat/step21-d5-canonical-projection-proof`; never write directly to `main`.
 - Production diff must remain zero under `contracts/`, `hosts/autocad/`, `platform/orchestrator/`, `platform/semantic_mcp/`, `platform/semantic_runtime/`, `platform/semantic_service/`, `providers/semantics/dsp_core/`, `providers/semantics/enterprise_mapping/`, `providers/semantics/ifc43/`, `providers/semantics/metro_v32/`, and `platform/changeset/`.
-- Allowed implementation paths are limited to `tests/`, `.github/workflows/`, `docs/superpowers/specs/`, and `docs/superpowers/plans/`.
+- Allowed implementation paths are exactly the Step 21 files named in this plan under `tests/`, `.github/workflows/`, `docs/superpowers/specs/`, and `docs/superpowers/plans/`.
 - Use the real Step 19 Python sidecar `DesignFactAdapter`; do not import or exercise AutoCAD .NET/plugin implementation in Step 21 tests.
-- Use the exact pinned providers `buildingSMART.ifc43@4.3.2.0` and `dsp.enterprise.mapping@1.0.0`.
-- D5 must never inspect `A-WALL`, `autocad.layer`, or enterprise provider identity to choose `IfcWall`.
-- A canonical classification guarantee must be `coverage=RESOLVED`, `semantic_depth=CANONICAL`, `assurance=RULE_DERIVED`, `geometry=NONE`.
+- Use exact pinned providers `buildingSMART.ifc43@4.3.2.0` and `dsp.enterprise.mapping@1.0.0`.
+- D5 must never inspect `A-WALL`, `autocad.layer`, `dsp.enterprise.mapping`, or Host product identity to choose `IfcWall`.
+- The accepted D5 classification guarantee is exactly `coverage=RESOLVED`, `semantic_depth=CANONICAL`, `assurance=RULE_DERIVED`, `geometry=NONE`.
 - Never inflate `RULE_DERIVED` to `STANDARD_MAPPED` or `NATIVE_ASSERTED`.
-- Near matches `A-WALLISH` and `X-A-WALL` must not satisfy D5 classification freshness.
-- A task requiring `STANDARD_MAPPED` assurance must fail closed against the Step 20 `RULE_DERIVED` claim.
-- Step 21 may create deterministic test-only `SemanticProjectionRef` values but must not define or add a production projection hashing/building contract.
-- Do not add Semantic MCP endpoints, SemanticId, geometry reconstruction, ChangeSet behavior, Host mutation, Metro mapping, IFC vocabulary, or Step 22 task-fidelity logic.
-- Use `pytest --import-mode=importlib` for multi-suite regressions that include semantic provider test trees.
+- `A-WALLISH` and `X-A-WALL` must not satisfy D5 classification freshness.
+- A contract requiring `STANDARD_MAPPED` assurance must fail closed against the Step 20 `RULE_DERIVED` claim.
+- Step 21 may construct deterministic test-only `SemanticProjectionRef` values, but must not create a production projection-reference builder or hashing standard.
+- Do not add a Semantic MCP endpoint, SemanticId, geometry reconstruction, ChangeSet behavior, Host mutation, Metro mapping, IFC vocabulary, or Step 22 task-fidelity logic.
+- Use `pytest --import-mode=importlib` for multi-suite semantic-provider regressions.
+- Do not merge the resulting PR without explicit user merge authorization.
 
 ---
 
 ## File Structure
 
-Create exactly these implementation files unless execution discovers a repository-level blocker that requires revising the approved design:
+Create exactly these implementation files:
 
 ```text
 tests/integration/test_step21_d5_canonical_projection.py
     Real Step19 -> Step20 -> existing D5 positive/negative proof.
-    Contains only test-local composition helpers and deterministic test lineage builders.
+    Owns only private test-composition and deterministic test-lineage helpers.
 
 tests/semantic_runtime/test_step21_architecture.py
-    Repository architecture guards proving D5/Orchestrator have no enterprise rule knowledge
-    and the A-WALL production rule has one production owner.
+    Repository guards for zero D5/Orchestrator enterprise-rule knowledge,
+    dependency direction, and single production ownership of the A-WALL rule.
 
 .github/workflows/step21-d5-canonical-projection.yml
-    Step21 path trigger, changed-file boundary gate, targeted proof, architecture guards,
-    and relevant regression suites.
+    Exact-file diff gate, Step21 targeted tests, upstream regressions,
+    and relevant full Python regression.
 ```
 
-Do not modify any existing production source file. Prefer adding the dedicated Step 21 workflow rather than modifying existing Step 19/20 workflows.
+The already-approved documentation files remain:
+
+```text
+docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md
+docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md
+```
+
+No production source file is modified in Step 21.
 
 ---
 
@@ -64,12 +72,12 @@ Do not modify any existing production source file. Prefer adding the dedicated S
 - Consumes: `DesignFactAdapter.normalize_snapshot(payload) -> NormalizedDesignFactBatch`.
 - Consumes: `SemanticService.project_facts(facts, environment_id) -> tuple[SemanticClaim, ...]`.
 - Consumes: `FreshnessResolver.resolve(contract, expected_host_revision=..., reconstruct=...) -> SemanticSnapshot`.
-- Produces: a test-local `_reconstruction_from_claims(...) -> ReconstructionResult` that understands only canonical claim structure and D5 enums.
-- Produces: deterministic test-local `_projection_ref(...) -> SemanticProjectionRef`; this is explicitly not a production hashing contract.
+- Produces: private test helper `_reconstruction_from_claims(contract: FreshnessContract, revision: str, *, facts: NormalizedDesignFactBatch, claims: tuple[SemanticClaim, ...], environment: SemanticEnvironment) -> ReconstructionResult`.
+- Produces: private test helper `_projection_ref(facts: NormalizedDesignFactBatch, claims: tuple[SemanticClaim, ...], environment: SemanticEnvironment) -> SemanticProjectionRef`.
 
-- [ ] **Step 1: Create the test module with fixtures/imports and a deliberately unresolved reconstruction helper**
+- [ ] **Step 1: Write the positive failing proof**
 
-Create the file with these imports and constants first:
+Create `tests/integration/test_step21_d5_canonical_projection.py` with the imports, stable fixture, pinned semantic stack, requirement builder, and positive test below. Deliberately reference `_reconstruction_from_claims` before defining it so this first test cycle is RED only at the D5 composition seam.
 
 ```python
 from __future__ import annotations
@@ -89,6 +97,7 @@ from semantic_runtime import (
     AssuranceLevel,
     CoverageState,
     DirtyMap,
+    FreshnessContract,
     FreshnessResolver,
     FreshnessState,
     FreshnessUnsatisfiedError,
@@ -157,7 +166,10 @@ def _classification_requirement(
     )
 
 
-def _contract(*, assurance: AssuranceLevel = AssuranceLevel.RULE_DERIVED):
+def _contract(
+    *,
+    assurance: AssuranceLevel = AssuranceLevel.RULE_DERIVED,
+) -> FreshnessContract:
     return build_operation_contract(
         project_id="project-step21",
         document_ref=DOCUMENT_ID,
@@ -166,11 +178,8 @@ def _contract(*, assurance: AssuranceLevel = AssuranceLevel.RULE_DERIVED):
         arguments={},
         requirements=(_classification_requirement(assurance),),
     )
-```
 
-Then add the positive test below, referencing `_reconstruction_from_claims` before that helper exists:
 
-```python
 def test_a_wall_reaches_existing_d5_as_canonical_ifc_wall() -> None:
     facts = DesignFactAdapter().normalize_snapshot(_snapshot("A-WALL"))
     classification = next(
@@ -233,7 +242,7 @@ def test_a_wall_reaches_existing_d5_as_canonical_ifc_wall() -> None:
     ) is FreshnessState.UNKNOWN
 ```
 
-- [ ] **Step 2: Run the positive proof and confirm RED is only the missing test-composition helper**
+- [ ] **Step 2: Run the positive proof and verify RED occurs at the missing D5 composition helper**
 
 Run:
 
@@ -241,11 +250,11 @@ Run:
 pytest -q tests/integration/test_step21_d5_canonical_projection.py::test_a_wall_reaches_existing_d5_as_canonical_ifc_wall
 ```
 
-Expected: `FAIL` with `NameError: name '_reconstruction_from_claims' is not defined` after the real Step 19 and Step 20 assertions have executed successfully. If failure occurs earlier in the real adapter/provider chain, stop and diagnose rather than weakening the test.
+Expected: `FAIL` with `NameError: name '_reconstruction_from_claims' is not defined`. The Step 19 normalization and Step 20 projection assertions occur before that call; if they fail, diagnose the upstream contract instead of weakening this test.
 
-- [ ] **Step 3: Add deterministic test-lineage helpers and provider-neutral claim -> D5 reconstruction composition**
+- [ ] **Step 3: Implement the minimal provider-neutral test composition helper**
 
-Add these helpers above the tests:
+Insert these helpers before the tests:
 
 ```python
 def _digest(payload: object) -> str:
@@ -307,7 +316,7 @@ def _projection_ref(
 
 
 def _reconstruction_from_claims(
-    contract,
+    contract: FreshnessContract,
     revision: str,
     *,
     facts: NormalizedDesignFactBatch,
@@ -327,7 +336,9 @@ def _reconstruction_from_claims(
         try:
             assurance = AssuranceLevel[claim.assurance]
         except KeyError as exc:
-            raise ValueError(f"unknown canonical claim assurance: {claim.assurance!r}") from exc
+            raise ValueError(
+                f"unknown canonical claim assurance: {claim.assurance!r}"
+            ) from exc
         strongest_by_subject[claim.subject] = max(
             assurance,
             strongest_by_subject.get(claim.subject, AssuranceLevel.UNKNOWN),
@@ -360,9 +371,9 @@ def _reconstruction_from_claims(
     )
 ```
 
-Important review rule: `_reconstruction_from_claims` must contain none of `A-WALL`, `autocad.layer`, `IfcWall`, `dsp.enterprise.mapping`, or Host-product branches. It maps only canonical claim structure to existing D5 aspect evidence.
+Review invariant: `_reconstruction_from_claims` contains none of `A-WALL`, `autocad.layer`, `IfcWall`, `dsp.enterprise.mapping`, or Host-product branches. It maps only canonical claim structure to D5 classification evidence.
 
-- [ ] **Step 4: Run the positive proof and confirm GREEN**
+- [ ] **Step 4: Run the positive proof and verify GREEN**
 
 Run:
 
@@ -372,7 +383,7 @@ pytest -q tests/integration/test_step21_d5_canonical_projection.py::test_a_wall_
 
 Expected: `1 passed`.
 
-- [ ] **Step 5: Add near-match fail-closed tests**
+- [ ] **Step 5: Write near-match fail-closed tests**
 
 Append:
 
@@ -417,7 +428,7 @@ def test_near_match_layer_does_not_satisfy_d5_classification(layer: str) -> None
     ) is FreshnessState.DIRTY
 ```
 
-- [ ] **Step 6: Run the near-match tests and confirm GREEN**
+- [ ] **Step 6: Run the near-match tests**
 
 Run:
 
@@ -427,7 +438,7 @@ pytest -q tests/integration/test_step21_d5_canonical_projection.py -k near_match
 
 Expected: `2 passed`.
 
-- [ ] **Step 7: Add the stronger-assurance fail-closed test**
+- [ ] **Step 7: Write stronger-assurance fail-closed test**
 
 Append:
 
@@ -474,9 +485,9 @@ Run:
 pytest -q tests/integration/test_step21_d5_canonical_projection.py
 ```
 
-Expected: `4 passed` (positive + two parameterized near matches + stronger assurance).
+Expected: `4 passed` — one positive case, two parameterized near-match cases, and one stronger-assurance case.
 
-- [ ] **Step 9: Inspect the diff and prove Task 1 touched test code only**
+- [ ] **Step 9: Verify Task 1 changed no production path**
 
 Run:
 
@@ -484,7 +495,7 @@ Run:
 git diff --name-only main...HEAD
 ```
 
-Expected at this point: the approved Step 21 design/plan documents plus `tests/integration/test_step21_d5_canonical_projection.py`; no production path.
+Expected at this checkpoint: approved Step 21 docs plus `tests/integration/test_step21_d5_canonical_projection.py`; no production path.
 
 - [ ] **Step 10: Commit Task 1**
 
@@ -495,7 +506,7 @@ git commit -m "test(step21): prove canonical wall projection reaches D5"
 
 ---
 
-### Task 2: Add architecture guards for zero enterprise-rule knowledge in D5/Orchestrator
+### Task 2: Add architecture guards for zero D5/Orchestrator enterprise-rule knowledge
 
 **Files:**
 - Create: `tests/semantic_runtime/test_step21_architecture.py`
@@ -504,10 +515,10 @@ git commit -m "test(step21): prove canonical wall projection reaches D5"
 - Reference only: `providers/semantics/enterprise_mapping/src/enterprise_mapping_provider/data/enterprise_mappings_v1.yaml`
 
 **Interfaces:**
-- Consumes: repository source tree only.
-- Produces: fail-fast tests that prevent Step 21 or future changes from copying enterprise `A-WALL` knowledge into D5/Orchestrator or adding forbidden package dependencies.
+- Consumes: repository source tree.
+- Produces: regression guards that fail if D5/Orchestrator acquire Host/enterprise rule knowledge or if the production `A-WALL` rule is duplicated.
 
-- [ ] **Step 1: Create repository scanning helpers**
+- [ ] **Step 1: Create source-tree scanning helpers**
 
 Create:
 
@@ -579,7 +590,7 @@ def test_orchestrator_has_no_enterprise_mapping_knowledge_or_dependency() -> Non
         assert forbidden not in text
 ```
 
-- [ ] **Step 3: Add the production rule single-owner guard**
+- [ ] **Step 3: Add single production rule-owner guard**
 
 Append:
 
@@ -600,7 +611,7 @@ def test_a_wall_rule_has_one_production_source_owner() -> None:
     assert hits == [ENTERPRISE_RULE.relative_to(ROOT)]
 ```
 
-If this test reveals an existing non-rule production occurrence that predates Step 21, inspect it. Do not broaden the allowlist mechanically. The approved design requires the machine-readable Enterprise Mapping YAML to remain the only production owner of the A-WALL rule.
+The scan intentionally excludes docs and tests and ignores README/Markdown presentation text. The machine-readable Enterprise Mapping YAML is the sole production owner of this rule.
 
 - [ ] **Step 4: Run architecture guards**
 
@@ -610,9 +621,7 @@ Run:
 pytest -q tests/semantic_runtime/test_step21_architecture.py
 ```
 
-Expected: `4 passed`.
-
-If a guard fails against the unchanged base, compare the failing occurrence to `main@0ce330abb10a33ae85025f516554d95386480fb5`. Only revise the test if the occurrence is demonstrably existing, non-rule metadata and the revised guard still proves the approved ownership boundary; otherwise treat it as an architecture defect rather than weakening the test.
+Expected: `4 passed`. A failure is an architecture-boundary failure; do not add a broad allowlist to make the test green.
 
 - [ ] **Step 5: Run Step 21 targeted tests together**
 
@@ -635,18 +644,20 @@ git commit -m "test(step21): guard D5 semantic boundaries"
 
 ---
 
-### Task 3: Add Step 21 CI with a strict changed-file boundary and regressions
+### Task 3: Add Step 21 CI with exact changed-file boundary and upstream regressions
 
 **Files:**
 - Create: `.github/workflows/step21-d5-canonical-projection.yml`
+- Reference only: `tests/contracts/test_autocad_design_fact_adapter.py`
+- Reference only: `.github/workflows/enterprise-semantic-provider.yml`
 
 **Interfaces:**
-- Consumes: Step 21 test modules from Tasks 1–2.
-- Produces: PR/push verification that blocks production-path drift and runs the exact real semantic stack used by Step 21.
+- Consumes: Step 21 tests from Tasks 1–2 and existing Step 19/20 regression suites.
+- Produces: PR verification that blocks production-path drift and exercises the real semantic stack.
 
-- [ ] **Step 1: Create the workflow trigger and environment installation**
+- [ ] **Step 1: Create workflow trigger and install the exact Step 21 stack**
 
-Create the workflow with this exact skeleton:
+Create:
 
 ```yaml
 name: Step21 D5 canonical projection proof
@@ -690,11 +701,11 @@ jobs:
             -e providers/semantics/enterprise_mapping
 ```
 
-Do not install Orchestrator, Semantic MCP, Metro, or DSP Core merely to make the targeted proof run. Those modules are not participants in the Step 21 proof path. The relevant full regression step below may still execute repository tests whose dependency set is satisfied by the established semantic stack; if a suite needs an additional existing package, add only that existing dependency and document why in the commit.
+Do not install Orchestrator, Semantic MCP, Metro, or DSP Core for the targeted proof; they are not Step 21 runtime participants.
 
-- [ ] **Step 2: Add the changed-file boundary gate**
+- [ ] **Step 2: Add exact changed-file boundary gate**
 
-Append before tests:
+Append before test execution:
 
 ```yaml
       - name: Verify Step21 PR diff boundary
@@ -713,32 +724,29 @@ Append before tests:
           fi
 ```
 
-The allowlist is intentionally exact-file, not broad `tests/**`, so future scope drift cannot hide in unrelated test files.
+The allowlist is exact-file, not `tests/**`, so unrelated test changes cannot mask scope drift.
 
-- [ ] **Step 3: Add targeted proof and architecture guard steps**
+- [ ] **Step 3: Add targeted Step 21 proof and architecture guards**
 
 Append:
 
 ```yaml
       - name: Run Step21 canonical projection proof
-        run: |
-          pytest -q tests/integration/test_step21_d5_canonical_projection.py
+        run: pytest -q tests/integration/test_step21_d5_canonical_projection.py
 
       - name: Run Step21 architecture guards
-        run: |
-          pytest -q tests/semantic_runtime/test_step21_architecture.py
+        run: pytest -q tests/semantic_runtime/test_step21_architecture.py
 ```
 
-Expected locally: Step 21 targeted total remains `8 passed`.
+Expected local total for these two modules: `8 passed`.
 
-- [ ] **Step 4: Add upstream regression steps**
+- [ ] **Step 4: Add upstream regressions using current repository paths**
 
 Append:
 
 ```yaml
       - name: Run semantic-runtime progressive regression
-        run: |
-          pytest -q tests/semantic_runtime
+        run: pytest -q tests/semantic_runtime
 
       - name: Run Semantic Service projection regression
         run: |
@@ -749,17 +757,15 @@ Append:
             tests/semantic_service/test_d5_environment_ref_compatibility.py
 
       - name: Run Enterprise Mapping regression
-        run: |
-          pytest -q tests/semantic_providers/enterprise_mapping
+        run: pytest -q tests/semantic_providers/enterprise_mapping
 
       - name: Run Step19 AutoCAD design-fact adapter regression
-        run: |
-          pytest -q tests/integration/test_autocad_design_fact_adapter.py
+        run: pytest -q tests/contracts/test_autocad_design_fact_adapter.py
 ```
 
-Before committing, verify the exact Step 19 adapter regression filename exists. If the current repository uses a different existing filename, substitute the exact current file discovered from `tests/integration/`; do not create a duplicate regression file just to match this plan.
+`tests/contracts/test_autocad_design_fact_adapter.py` is the current Step 19 adapter regression path and is frozen in this plan; do not substitute an integration filename.
 
-- [ ] **Step 5: Add the relevant full Python regression using importlib mode**
+- [ ] **Step 5: Add relevant full Python regression with importlib mode**
 
 Append:
 
@@ -777,11 +783,11 @@ Append:
             tests/semantic_providers/enterprise_mapping
 ```
 
-This intentionally does not add Metro or Semantic MCP to the Step 21 workflow because Step 21 changes none of their production/test surfaces. Existing independent workflows continue protecting them. If execution-time repository policy requires the same broader set as Step 20, widen only the regression command, not the Step 21 production boundary.
+This workflow is intentionally narrower than the final review suite because Step 21 changes no Metro, DSP Core, or Semantic MCP surface. Their existing workflows remain independent guards.
 
-- [ ] **Step 6: Verify workflow syntax and targeted commands locally**
+- [ ] **Step 6: Run the workflow commands locally before committing**
 
-Run the exact test commands from the workflow in sequence:
+Run in this exact order:
 
 ```bash
 pytest -q tests/integration/test_step21_d5_canonical_projection.py
@@ -793,6 +799,7 @@ pytest -q \
   tests/semantic_service/test_service_projection.py \
   tests/semantic_service/test_d5_environment_ref_compatibility.py
 pytest -q tests/semantic_providers/enterprise_mapping
+pytest -q tests/contracts/test_autocad_design_fact_adapter.py
 pytest -q --import-mode=importlib \
   contracts/python/tests \
   tests/contracts \
@@ -804,9 +811,9 @@ pytest -q --import-mode=importlib \
   tests/semantic_providers/enterprise_mapping
 ```
 
-Expected: all pass; existing environment-dependent live AutoCAD tests may remain skipped according to their existing guards. Record exact pass/skip counts for the PR description.
+Expected: all pass. Existing live AutoCAD tests guarded by `AGENT_HOST_TEST=1` may remain skipped under their existing conditions; record exact pass/skip/warning counts for the PR body.
 
-- [ ] **Step 7: Verify the changed-file boundary manually against `main`**
+- [ ] **Step 7: Run the exact-file diff gate locally**
 
 Run:
 
@@ -817,7 +824,7 @@ bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step21-d5-canon
 test -z "$bad"
 ```
 
-Expected: exit code `0` and exactly the four approved Step 21 files plus the already-approved design/plan pair as applicable; no production path.
+Expected: exit code `0`.
 
 - [ ] **Step 8: Commit Task 3**
 
@@ -828,18 +835,18 @@ git commit -m "ci(step21): verify zero-diff D5 projection proof"
 
 ---
 
-### Task 4: Final verification, design alignment review, and PR preparation
+### Task 4: Final verification, design alignment, and draft PR preparation
 
 **Files:**
-- Modify only if review finds documentation inconsistency: `docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md`
-- Modify only if execution details changed: `docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md`
+- Review: `docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md`
+- Review: `docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md`
 - No production files.
 
 **Interfaces:**
-- Consumes: all artifacts from Tasks 1–3.
-- Produces: review evidence and a PR-ready branch; does not merge.
+- Consumes: Tasks 1–3.
+- Produces: verified PR-ready branch and a draft PR; does not merge.
 
-- [ ] **Step 1: Run the focused Step 21 acceptance suite from a clean working tree**
+- [ ] **Step 1: Run focused Step 21 acceptance suite from a clean working tree**
 
 Run:
 
@@ -851,9 +858,17 @@ pytest -q \
 
 Expected: `8 passed`.
 
-- [ ] **Step 2: Run the relevant full regression one final time**
+- [ ] **Step 2: Run broad semantic regression used for final confidence**
 
-Run:
+Install existing provider packages needed by the broader suite if not already installed:
+
+```bash
+python -m pip install \
+  -e providers/semantics/dsp_core \
+  -e providers/semantics/metro_v32
+```
+
+Then run:
 
 ```bash
 pytest -q --import-mode=importlib \
@@ -869,9 +884,9 @@ pytest -q --import-mode=importlib \
   tests/semantic_providers/enterprise_mapping
 ```
 
-Expected: all pass, with only existing documented skips/warnings. This final local verification is intentionally as broad as Step 20 even though the dedicated Step 21 workflow may remain narrower.
+Expected: all pass with only existing documented skips/warnings. Capture exact counts rather than copying historical Step 20 counts.
 
-- [ ] **Step 3: Re-run the zero-production diff gate**
+- [ ] **Step 3: Prove the final branch has exactly the approved five changed files**
 
 Run:
 
@@ -879,87 +894,96 @@ Run:
 git diff --name-only main...HEAD
 ```
 
-Then verify every path is exactly one of:
+Expected paths only:
 
 ```text
-docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md
+.github/workflows/step21-d5-canonical-projection.yml
 docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md
+docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md
 tests/integration/test_step21_d5_canonical_projection.py
 tests/semantic_runtime/test_step21_architecture.py
-.github/workflows/step21-d5-canonical-projection.yml
 ```
 
-Any other changed path is a Step 21 scope violation and must be removed or separately designed before PR creation.
+Any additional changed path is a Step 21 scope violation and must be removed before PR creation.
 
-- [ ] **Step 4: Review the E2E helper for forbidden semantic ownership**
+- [ ] **Step 4: Prove the reconstruction helper contains no enterprise/Host mapping rule**
 
 Run:
 
 ```bash
-grep -nE 'A-WALL|autocad\.layer|IfcWall|dsp\.enterprise\.mapping' \
-  tests/integration/test_step21_d5_canonical_projection.py
+python - <<'PY'
+from pathlib import Path
+
+path = Path("tests/integration/test_step21_d5_canonical_projection.py")
+text = path.read_text(encoding="utf-8")
+start = text.index("def _reconstruction_from_claims(")
+end = text.index("\ndef test_", start)
+helper = text[start:end]
+for forbidden in ("A-WALL", "autocad.layer", "IfcWall", "dsp.enterprise.mapping"):
+    assert forbidden not in helper, forbidden
+print("provider-neutral reconstruction helper: OK")
+PY
 ```
 
-Expected: matches appear only in test fixture/assertion sections (`_snapshot`, source fact assertions, expected canonical result, pinned provider setup), never inside `_reconstruction_from_claims` or `_projection_ref`.
+Expected: `provider-neutral reconstruction helper: OK`.
 
-Manually inspect `_reconstruction_from_claims` and confirm it branches only on:
+- [ ] **Step 5: Review progressive evidence against the approved design**
+
+Confirm the positive PlanningSnapshot has exactly:
 
 ```text
-requested claim subject
-predicate == classification
-canonical_term_id is present
-claim assurance
+aspect            = CLASSIFICATION
+coverage_state    = RESOLVED
+semantic_depth    = CANONICAL
+assurance_level   = RULE_DERIVED
+geometry_level    = NONE
 ```
 
-- [ ] **Step 5: Review assurance/fidelity against the approved design**
+Confirm the `STANDARD_MAPPED` requirement test fails through existing `FreshnessResolver` assurance comparison and that no geometry requirement/guarantee appears.
 
-Confirm the positive D5 guarantee is exactly:
+- [ ] **Step 6: Confirm no production contract was accidentally created**
 
-```text
-CLASSIFICATION
-coverage_state = RESOLVED
-semantic_depth = CANONICAL
-assurance_level = RULE_DERIVED
-geometry_level = NONE
-```
-
-Confirm `STANDARD_MAPPED` requirement fails and geometry is never requested/reconstructed.
-
-- [ ] **Step 6: Confirm no new production contract was accidentally frozen**
-
-Verify there is no new public helper/API under production packages for:
-
-```text
-SemanticClaim ingestion
-SemanticProjectionRef construction
-projection hashing
-A-WALL matching
-AutoCAD -> IFC conversion
-```
-
-The test-only `step21-proof-v1` lineage identifier must occur only in the Step 21 integration test and documentation.
-
-- [ ] **Step 7: Commit any review-only documentation correction if necessary**
-
-Only if Tasks 1–6 uncovered a genuine mismatch between the approved design and executable proof:
+Run:
 
 ```bash
-git add docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md \
-        docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md
+git diff --name-only main...HEAD | grep -E '^(contracts/|hosts/|platform/|providers/)' && exit 1 || true
+```
+
+Expected: no output.
+
+Also verify `step21-proof-v1` occurs only in Step 21 test/docs:
+
+```bash
+grep -R -n "step21-proof-v1" \
+  tests/integration/test_step21_d5_canonical_projection.py \
+  docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md \
+  docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md
+```
+
+Expected: matches only in those Step 21 artifacts.
+
+- [ ] **Step 7: Review design/spec coverage and commit documentation correction only if verification exposes a factual mismatch**
+
+Compare the executed proof against design sections 9–17. If a factual mismatch exists, correct only the Step 21 design/plan documents and commit:
+
+```bash
+git add \
+  docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md \
+  docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md
 git commit -m "docs(step21): align proof with verified implementation"
 ```
 
-Do not create a cosmetic review commit when no correction is required.
+If no factual mismatch exists, do not create a documentation-only churn commit.
 
-- [ ] **Step 8: Prepare a draft PR; do not merge**
+- [ ] **Step 8: Create a draft PR without merging**
 
-PR title:
+Use title:
 
 ```text
 test(step21): prove A-WALL canonical projection reaches D5
 ```
 
-PR body must include:
+Use body:
 
 ```markdown
 ## Goal
@@ -968,7 +992,7 @@ Prove Step19 AutoCAD facts -> Step20 Enterprise Mapping -> canonical ifc:IfcWall
 ## Frozen boundaries
 - D5 production diff: 0
 - Orchestrator production diff: 0
-- Enterprise mapping production diff: 0
+- Enterprise Mapping production diff: 0
 - Semantic Service production diff: 0
 - No Semantic MCP endpoint
 - No geometry reconstruction
@@ -980,34 +1004,45 @@ Prove Step19 AutoCAD facts -> Step20 Enterprise Mapping -> canonical ifc:IfcWall
 - X-A-WALL rejected
 - RULE_DERIVED cannot satisfy STANDARD_MAPPED
 - Exact SemanticEnvironmentRef bound into PlanningSnapshot
-- normalized_fact_batch_hash populated in test projection lineage
+- normalized_fact_batch_hash populated in test-only projection lineage
 
 ## Verification
-Paste exact focused and broad pytest pass/skip counts and the changed-file boundary output from the final run.
+- Focused Step21: <replace with exact verified count before PR creation>
+- Broad Python regression: <replace with exact verified pass/skip/warning counts before PR creation>
+- Changed-file boundary: exactly the five approved Step21 files
 ```
 
-Create the PR as draft unless the established project flow for Step 21 explicitly directs otherwise. Do not merge without a separate explicit user merge authorization.
+The angle-bracket fields above are PR-body data populated from the immediately preceding verification commands, not implementation placeholders: do not create the PR until they contain the exact current counts.
+
+Create the PR as **draft**. Do not merge without separate explicit user authorization.
 
 ---
 
 ## Self-Review Checklist
 
-Before execution handoff, verify this plan against the approved design:
+Before execution handoff, confirm all items below:
 
-- [ ] Every positive acceptance item in design section 9 maps to Task 1 assertions.
-- [ ] `A-WALLISH` and `X-A-WALL` fail through missing canonical evidence, not hardcoded D5 rejection logic.
-- [ ] `STANDARD_MAPPED` requirement fails through existing `FreshnessResolver` assurance comparison.
-- [ ] `_reconstruction_from_claims` contains no Host/enterprise mapping constants.
-- [ ] `SemanticProjectionRef` construction exists only in test code and is labeled test-only.
-- [ ] Exact pinned environment identity is copied into `SemanticEnvironmentRef`.
-- [ ] Architecture guards cover D5, Orchestrator, dependency direction, and A-WALL production ownership.
-- [ ] CI boundary allows only the two Step 21 test files, design, plan, and dedicated workflow.
-- [ ] No existing production file is modified.
-- [ ] Final regression includes the broad semantic provider suite used for Step 20 confidence.
-- [ ] No placeholder (`TBD`, `TODO`, “implement later”) remains.
+- [x] Positive design acceptance maps to Task 1 assertions.
+- [x] `A-WALLISH` and `X-A-WALL` fail because Step 20 emits no canonical classification claim, not because D5 hardcodes rejection logic.
+- [x] `STANDARD_MAPPED` fails through existing D5 assurance comparison.
+- [x] `_reconstruction_from_claims` is provider-neutral and Host-neutral.
+- [x] `SemanticProjectionRef` construction is test-only and explicitly non-normative.
+- [x] Exact pinned `SemanticEnvironmentRef` is copied into `ReconstructionResult` and PlanningSnapshot.
+- [x] Architecture guards cover D5, Orchestrator, dependency direction, and single production A-WALL rule ownership.
+- [x] Current Step 19 adapter regression path is `tests/contracts/test_autocad_design_fact_adapter.py`.
+- [x] CI changed-file gate allows only the five approved Step 21 artifacts.
+- [x] No production source file is part of the implementation plan.
+- [x] Type names and public imports used in Task 1 match the current public surfaces of `semantic_runtime` and `semantic_service`.
+- [x] Final regression covers DSP Core, IFC4.3, Metro v3.2, Enterprise Mapping, Semantic Service, D5, Orchestrator, integration, and contracts.
+- [x] No `TBD`, `TODO`, “implement later”, unresolved filename, or unresolved interface remains in this plan.
 
 ## Execution Handoff
 
-Plan execution should use **Inline Execution** in the current session, because that is the established project execution mode. At execution start, read and follow `superpowers:executing-plans`; before each implementation change, follow `superpowers:test-driven-development`; before completion claims, follow `superpowers:verification-before-completion`.
+Execution mode is **Inline Execution**, matching the established project workflow. At implementation start:
 
-Do not merge the resulting PR without explicit merge authorization.
+1. Read and follow `superpowers:executing-plans`.
+2. Read and follow `superpowers:test-driven-development` before implementation changes.
+3. Execute Tasks 1–4 in order, preserving the RED/GREEN checkpoints and commit boundaries above.
+4. Read and follow `superpowers:verification-before-completion` before claiming Step 21 complete or PR-ready.
+5. Create the draft PR after fresh verification.
+6. Do not merge without explicit user merge authorization.
