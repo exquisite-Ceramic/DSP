@@ -288,10 +288,12 @@ bind_changeset(
 
 Requirements:
 
-- `changeset_hash` MUST be non-empty and real; placeholder/TBD values are invalid;
+- `changeset_hash` MUST be a lowercase 64-hex SHA-256 digest produced by the Step 29 immutable ChangeSet canonical hash contract; placeholder/TBD values are invalid;
 - every rule body MUST be copied exactly from the frozen definition;
 - bind MUST NOT accept replacement or extra rule lists;
 - bind MUST NOT depend on ProviderBinding, HostCommand, approval state, or policy state.
+
+If Step 29 later changes the repository-wide canonical digest algorithm, that change requires an explicit contract revision rather than silent acceptance of arbitrary hash strings.
 
 ---
 
@@ -460,6 +462,7 @@ Rules:
 
 - `semantic_id` MUST belong to `ImpactAnalysis.direct_targets`;
 - `allowed_aspects[]` MUST be non-empty;
+- every direct-effect aspect MUST be present in the exact Step 27 `IntentBoundary.allowed_canonical_effects` supplied with this planning request;
 - duplicate direct effects for the same semantic id normalize to one exact rule only when their aspect sets are identical; conflicting duplicates are invalid;
 - a direct effect cannot introduce a non-direct target.
 
@@ -507,6 +510,8 @@ ScopeEffectRecipe {
 
 `propagation_bundle_id`, when present, MUST identify a bundle in the exact `ImpactAnalysis` and MUST be consistent with the affected entity/rule relationship represented by the recipe.
 
+Every recipe aspect MUST also be present in the exact Step 27 `IntentBoundary.allowed_canonical_effects`. A recipe cannot use Step 28 to reintroduce an effect that Step 27 intent did not admit.
+
 ### 10.2 No action-name inference
 
 The planner MUST NOT contain logic such as:
@@ -517,6 +522,21 @@ RECOMPUTE  => allow PROPERTIES
 ```
 
 Propagation action names classify behavior; they do not define authorized aspects.
+
+For Step 28 v1, a `PredictedImpact` is **effect-bearing** exactly when at least one of the following structured Step 27 facts is true:
+
+```text
+PredictedImpact.requires_verification == true
+```
+
+or:
+
+```text
+PredictedImpact.affected_semantic_id
+  appears in a deterministic ImpactAnalysis.propagation_bundles[].affected_entities
+```
+
+This classification MUST NOT inspect `propagation_action` names. A non-blocking advisory-only predicted impact that is neither verification-bearing nor represented by a deterministic propagation bundle does not create permission and does not require a recipe.
 
 If an effect-bearing predicted impact has no explicit recipe:
 
@@ -545,7 +565,10 @@ A bundle may be admitted only when:
 - it belongs to the exact impact result;
 - its affected entities are covered by explicit effect recipes;
 - those recipes define exact allowed canonical aspects;
+- every admitted recipe aspect is within the exact Step 27 intent boundary;
 - no blocking exception prevents scope planning.
+
+When a recipe supplies both `propagation_bundle_id` and `rule_ref`, `rule_ref` MUST equal the referenced bundle's `rule_ref`. That rule ref MUST also be present in `IntentBoundary.allowed_derived_rule_refs`. For a Host-native verification impact that has no propagation bundle, `rule_ref` remains optional because the current public `PredictedImpact` contract does not expose it; Step 27's blocking intent-expansion classification remains authoritative for whether that dependency was admitted.
 
 A provider or semantic package cannot enlarge scope merely by emitting a relationship/rule name. The platform-owned recipe/admission step remains authoritative.
 
@@ -691,7 +714,17 @@ ApprovalScopePlanRequest {
 }
 ```
 
-`intent_boundary` is supplied explicitly because Step 27 uses it to classify intent expansion, while Step 28 needs the same machine-readable boundary when validating that explicit scope evidence has not reintroduced an out-of-intent effect.
+`intent_boundary` MUST be the exact immutable value used by the Step 27 `ImpactAnalysisRequest` that produced `impact_analysis`; it is carried forward by the same workflow/checkpoint and MUST NOT be reconstructed from prose or widened locally by Step 28.
+
+The current Step 27 `analysis_fingerprint` already binds the normalized `IntentBoundary`, but the public `ImpactAnalysis` DTO does not expose a standalone `intent_boundary_hash`. Step 28 v1 therefore freezes these rules:
+
+- `intent_boundary.direct_targets` MUST exactly equal `ImpactAnalysis.direct_targets`;
+- all direct-effect and recipe aspects MUST be subsets of `intent_boundary.allowed_canonical_effects`;
+- a recipe bound to a deterministic propagation bundle MUST use that bundle's exact `rule_ref`, which MUST be in `intent_boundary.allowed_derived_rule_refs`;
+- any Step 27 blocking intent-expansion exception remains authoritative and stops planning before scope rules are materialized;
+- the normalized `intent_boundary` body is included in `scope_body_hash`, so any changed boundary produces a different scope body and requires a fresh approval chain.
+
+If the workflow cannot provide the exact Step 27 intent boundary, Step 28 fails closed with `SCOPE_INPUT_INVALID`. A future cross-process contract MAY expose a dedicated Step 27 `intent_boundary_hash`; Step 28 v1 does not silently invent one.
 
 The request MUST NOT contain:
 
@@ -714,18 +747,20 @@ Step 28 is deterministic-first and SHALL NOT call a free-form LLM.
 ```text
 1. Validate immutable ImpactAnalysis shape/bindings
 2. Reject immediately if any blocking ImpactException exists
-3. Validate IntentBoundary/direct-target consistency
-4. Validate direct canonical effect evidence
+3. Validate exact carried-forward IntentBoundary/direct-target consistency
+4. Validate direct canonical effect evidence against IntentBoundary
 5. Materialize direct ExistingEntityRule values
 6. Match predicted impacts to explicit ScopeEffectRecipe values
-7. Fail closed for undefined effect-bearing impact scope
-8. Materialize admitted predicted-side-effect ExistingEntityRule values
-9. Validate explicit CreationRule / DeletionRule values
-10. Admit only propagation bundles backed by explicit recipes
-11. Validate declarative ExecutionSliceScopeRule coverage
-12. Normalize all rule ordering/set-valued fields
-13. Compute scope_body_hash
-14. Return immutable ApprovalScopeDefinition
+7. Classify effect-bearing impacts only from requires_verification / deterministic bundles
+8. Fail closed for undefined effect-bearing impact scope
+9. Validate recipes against IntentBoundary and referenced bundles
+10. Materialize admitted predicted-side-effect ExistingEntityRule values
+11. Validate explicit CreationRule / DeletionRule values
+12. Admit only propagation bundles backed by explicit recipes
+13. Validate declarative ExecutionSliceScopeRule coverage
+14. Normalize all rule ordering/set-valued fields
+15. Compute scope_body_hash
+16. Return immutable ApprovalScopeDefinition
 ```
 
 No step may query Host APIs or provider execution schemas.
@@ -742,6 +777,7 @@ Hashing follows the repository's deterministic canonical-JSON + SHA-256 pattern.
 
 ```text
 impact_analysis_fingerprint
+normalized intent_boundary
 planning_snapshot id/hash/document
 snapshot_set id/hash/member ids
 semantic_environment id/hash
@@ -752,11 +788,11 @@ normalized propagation_bundle_ids
 normalized execution_slice_scope_rules
 ```
 
-Opaque generated ids MUST NOT make semantically identical scope bodies hash differently unless the id is itself a semantic reference used by another rule. Hash payloads therefore use normalized rule content and stable cross-references rather than object construction order.
+Opaque generated ids MUST NOT make semantically identical scope bodies hash differently. Hash payloads therefore replace `rule_id` / `slice_scope_rule_id` construction identities with deterministic rule-content fingerprints and normalize slice-scope cross-references by those fingerprints rather than random ids.
 
 Equivalent input ordering MUST produce the same hash.
 
-Changing any material permission or upstream snapshot/environment/impact binding MUST change `scope_body_hash`.
+Changing any material permission, intent boundary, or upstream snapshot/environment/impact binding MUST change `scope_body_hash`.
 
 ### 18.2 Final `scope_hash`
 
@@ -801,9 +837,11 @@ CHANGESET_HASH_INVALID
 Rules:
 
 - malformed/unknown aspect, selector, predicate, or rule -> fail closed;
+- missing or inconsistent carried-forward Step 27 `IntentBoundary` -> `SCOPE_INPUT_INVALID`;
 - blocking impact exception -> `SCOPE_NOT_APPROVABLE`;
 - required predicted side effect without explicit recipe -> `SCOPE_EFFECT_UNDEFINED`;
-- future/placeholder ChangeSet hash -> `CHANGESET_HASH_INVALID`;
+- recipe/direct effect outside the carried-forward intent boundary -> `SCOPE_RULE_INVALID`;
+- future/placeholder/non-SHA-256 ChangeSet hash -> `CHANGESET_HASH_INVALID`;
 - natural-language text MUST NOT drive retry or scope expansion.
 
 ---
@@ -821,19 +859,27 @@ ImpactAnalysis:
   direct:
     WALL-001
 
-  predicted:
-    OPENING-001
-      dependency_ref = DEP-OPENING
-      owner = HOST_NATIVE
-      action = REVALIDATE
+IntentBoundary:
+  direct_targets = [WALL-001]
+  allowed_canonical_effects = [PLACEMENT, GEOMETRY, PROPERTIES]
+  allowed_derived_rule_refs = [RULE-OPENING, RULE-ANNOTATION]
 
-    ANNOTATION-002
-      dependency_ref = DEP-ANNOTATION
-      owner = SEMANTIC_RUNTIME
-      action = RECOMPUTE
+ImpactAnalysis predicted:
+  OPENING-001
+    dependency_ref = DEP-OPENING
+    owner = HOST_NATIVE
+    action = REVALIDATE
+    requires_verification = true
 
-  bundle:
-    PB-ANNOTATION
+  ANNOTATION-002
+    dependency_ref = DEP-ANNOTATION
+    owner = SEMANTIC_RUNTIME
+    action = RECOMPUTE
+
+bundle:
+  PB-ANNOTATION
+  rule_ref = RULE-ANNOTATION
+  deterministic = true
 ```
 
 Explicit Step 28 evidence:
@@ -847,6 +893,7 @@ ScopeEffectRecipe:
 
 ScopeEffectRecipe:
   DEP-ANNOTATION -> [PLACEMENT, PROPERTIES]
+  rule_ref = RULE-ANNOTATION
   propagation_bundle_id = PB-ANNOTATION
 ```
 
@@ -900,11 +947,13 @@ Architecture tests SHALL enforce:
 5. Provider/native ids and tool schemas do not appear in public Step 28 contracts.
 6. Relationship evidence alone cannot create scope permission.
 7. Propagation action names cannot determine allowed canonical aspects.
-8. Blocking `ImpactException` values cannot be converted into larger scope.
-9. Creation and deletion are deny-by-default.
-10. `execution_slice_scopes` never contains future concrete slice ids.
-11. Step 29 binding can add only `changeset_hash`, final `scope_id`, and derived `scope_hash`; it cannot widen the frozen body.
-12. Policy/risk/approver/grant records remain outside Step 28.
+8. Effect-bearing classification may use only `requires_verification` and deterministic bundle membership.
+9. Blocking `ImpactException` values cannot be converted into larger scope.
+10. Creation and deletion are deny-by-default.
+11. `execution_slice_scopes` never contains future concrete slice ids.
+12. Step 29 binding can add only `changeset_hash`, final `scope_id`, and derived `scope_hash`; it cannot widen the frozen body.
+13. Policy/risk/approver/grant records remain outside Step 28.
+14. A locally widened/reconstructed IntentBoundary cannot be used to preserve the same `scope_body_hash`.
 
 ---
 
@@ -921,26 +970,31 @@ The implementation plan MUST include RED -> GREEN coverage for at least:
 7. Relationship evidence alone cannot enlarge scope.
 8. Direct entity effects cannot target an entity outside `ImpactAnalysis.direct_targets`.
 9. Direct effect aspects are never inferred from the canonical operation name.
-10. A predicted Host-native effect with no explicit recipe fails `SCOPE_EFFECT_UNDEFINED`.
-11. A deterministic propagation bundle with no explicit recipe is not admitted.
-12. A recipe keyed by an unknown `dependency_ref` fails closed.
-13. `rule_ref` is optional provenance, not the authoritative machine key.
-14. A blocking ImpactException returns `SCOPE_NOT_APPROVABLE` and no definition.
-15. A non-blocking advisory exception does not enlarge effect scope.
-16. Creation requires an explicit `CreationRule`.
-17. Creation `max_count` and canonical kind constraints are preserved.
-18. Deletion requires an explicit `DeletionRule`.
-19. Execution-slice scope rules may reference only rules in the same definition.
-20. No future `execution_slice_id` can appear in Step 28 contracts.
-21. Input list/set ordering does not change `scope_body_hash`.
-22. Changing an allowed aspect changes `scope_body_hash`.
-23. Changing impact fingerprint changes `scope_body_hash`.
-24. Changing PlanningSnapshot/SnapshotSet/SemanticEnvironment binding changes `scope_body_hash`.
-25. Step 28 cannot create a final boundary without a real ChangeSet hash.
-26. Binding the same scope body to different ChangeSet hashes yields different `scope_hash` values.
-27. Binding MUST preserve the frozen rule body byte-for-byte after normalization.
-28. Provider/native metadata leakage is rejected by architecture tests.
-29. Step 27 / Step 26 / Step 25 regression suites remain green.
+10. Direct effect aspects outside `IntentBoundary.allowed_canonical_effects` fail closed.
+11. A predicted Host-native verification effect with no explicit recipe fails `SCOPE_EFFECT_UNDEFINED`.
+12. A deterministic propagation-bundle effect with no explicit recipe fails `SCOPE_EFFECT_UNDEFINED`.
+13. Advisory-only predicted impact without verification/bundle membership creates no permission and needs no recipe.
+14. A recipe keyed by an unknown `dependency_ref` fails closed.
+15. `rule_ref` is optional provenance for Host-native verification, not the authoritative machine key.
+16. Bundle-bound recipe `rule_ref` must equal the bundle rule and be allowed by the carried-forward intent boundary.
+17. A blocking ImpactException returns `SCOPE_NOT_APPROVABLE` and no definition.
+18. A non-blocking advisory exception does not enlarge effect scope.
+19. Creation requires an explicit `CreationRule`.
+20. Creation `max_count` and canonical kind constraints are preserved.
+21. Deletion requires an explicit `DeletionRule`.
+22. Execution-slice scope rules may reference only rules in the same definition.
+23. No future `execution_slice_id` can appear in Step 28 contracts.
+24. Input list/set ordering does not change `scope_body_hash`.
+25. Changing an allowed aspect changes `scope_body_hash`.
+26. Changing the carried-forward intent boundary changes `scope_body_hash`.
+27. Changing impact fingerprint changes `scope_body_hash`.
+28. Changing PlanningSnapshot/SnapshotSet/SemanticEnvironment binding changes `scope_body_hash`.
+29. Opaque rule construction ids do not perturb the semantic hash.
+30. Step 28 cannot create a final boundary without a lowercase 64-hex real ChangeSet hash.
+31. Binding the same scope body to different ChangeSet hashes yields different `scope_hash` values.
+32. Binding MUST preserve the frozen rule body byte-for-byte after normalization.
+33. Provider/native metadata leakage is rejected by architecture tests.
+34. Step 27 / Step 26 / Step 25 regression suites remain green.
 
 ---
 
@@ -956,7 +1010,8 @@ Step 28 does not implement:
 - a general-purpose policy language;
 - arbitrary predicate code execution;
 - IFC inheritance or semantic-provider reasoning;
-- Host-specific mutation schemas.
+- Host-specific mutation schemas;
+- a new cross-process Step 27 intent-boundary proof field in v1.
 
 ---
 
@@ -966,6 +1021,7 @@ Step 28 is complete when the repository has a provider-neutral package whose pub
 
 ```text
 ImpactAnalysis
+  + exact carried-forward IntentBoundary
   + explicit canonical direct effects
   + explicit effect recipes
   + explicit create/delete rules
