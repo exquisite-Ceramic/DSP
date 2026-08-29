@@ -25,6 +25,16 @@ def _text_files(root: Path):
             yield path
 
 
+def _production_text_files(root: Path):
+    for path in _text_files(root):
+        lowered_parts = tuple(part.lower() for part in path.relative_to(ROOT).parts)
+        if "tests" in lowered_parts or "test_vectors" in lowered_parts:
+            continue
+        if any(part.endswith(".tests") for part in lowered_parts):
+            continue
+        yield path
+
+
 def _tree_text(root: Path) -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in _text_files(root))
 
@@ -61,7 +71,7 @@ def test_a_wall_rule_has_one_production_source_owner() -> None:
     )
     hits = []
     for root in roots:
-        for path in _text_files(root):
+        for path in _production_text_files(root):
             if "A-WALL" in path.read_text(encoding="utf-8"):
                 hits.append(path.relative_to(ROOT))
     assert hits == [ENTERPRISE_RULE.relative_to(ROOT)]
