@@ -1,0 +1,89 @@
+name: Step26 InteractionSession and Host interaction
+
+on:
+  push:
+    paths:
+      - "platform/interaction/**"
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "hosts/autocad/sidecar/src/autocad_sidecar/**"
+      - "hosts/autocad/plugin/AutoCAD.AgentHost/**"
+      - "tests/interaction/**"
+      - "tests/orchestrator/**"
+      - "tests/integration/test_step26_autocad_pick_point.py"
+      - "pyproject.toml"
+      - "docs/superpowers/plans/2026-08-29-step26-interaction-session.md"
+      - ".github/workflows/step26-interaction-session.yml"
+  pull_request:
+    paths:
+      - "platform/interaction/**"
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "hosts/autocad/sidecar/src/autocad_sidecar/**"
+      - "hosts/autocad/plugin/AutoCAD.AgentHost/**"
+      - "tests/interaction/**"
+      - "tests/orchestrator/**"
+      - "tests/integration/test_step26_autocad_pick_point.py"
+      - "pyproject.toml"
+      - "docs/superpowers/plans/2026-08-29-step26-interaction-session.md"
+      - ".github/workflows/step26-interaction-session.yml"
+  workflow_dispatch:
+
+jobs:
+  step26-interaction-session:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step26 verification stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step26 PR diff boundary
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step26-interaction-session'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step26-interaction-session\.yml|docs/superpowers/plans/2026-08-29-step26-interaction-session\.md|platform/interaction/src/design_interaction/(__init__|contracts|coordinator)\.py|platform/orchestrator/src/design_orchestrator/(__init__|interactive_binding)\.py|hosts/autocad/sidecar/src/autocad_sidecar/(mcp_server\.py|adapter/interaction_adapter\.py|execution/command_dispatcher\.py)|hosts/autocad/plugin/AutoCAD\.AgentHost/(Commands/HostCommandHandler\.cs|Commands/Interaction/PickPointHandler\.cs|Native/AutoCADInteractionApi\.cs)|pyproject\.toml|tests/interaction/test_step26_(interaction_coordinator|architecture)\.py|tests/orchestrator/test_step26_interactive_binding\.py|tests/integration/test_step26_autocad_pick_point\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step26 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step26 interaction coordinator tests
+        run: pytest -q tests/interaction/test_step26_interaction_coordinator.py
+      - name: Run Step26 architecture guards
+        run: pytest -q tests/interaction/test_step26_architecture.py
+      - name: Run Step26 D6 interactive binding tests
+        run: pytest -q tests/orchestrator/test_step26_interactive_binding.py
+      - name: Run Step26 AutoCAD PICK_POINT tests
+        run: pytest -q tests/integration/test_step26_autocad_pick_point.py
+      - name: Run Step25 parameter binder regression
+        run: pytest -q tests/orchestrator/test_step25_parameter_binder.py tests/orchestrator/test_step25_architecture.py
+      - name: Run Step24 resolver regressions
+        run: pytest -q tests/orchestrator/test_step24_semantic_eligibility.py tests/orchestrator/test_operation_resolver.py
+      - name: Run D4 to D5 freshness bridge regression
+        run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
+      - name: Run relevant full Python regression
+        run: |
+          pytest -q --import-mode=importlib \
+            contracts/python/tests \
+            tests/contracts \
+            tests/integration \
+            tests/orchestrator \
+            tests/interaction \
+            tests/semantic_runtime
