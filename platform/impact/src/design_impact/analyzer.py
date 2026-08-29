@@ -204,6 +204,11 @@ class ImpactAnalyzer:
     @staticmethod
     def _validate_bindings(request: ImpactAnalysisRequest) -> None:
         environment = request.semantic_environment_ref
+        if request.bound_operation.semantic_environment_ref != environment.environment_id:
+            raise ImpactError(
+                "SEMANTIC_ENVIRONMENT_MISMATCH",
+                "bound operation and impact request do not share one semantic environment",
+            )
         if (
             request.planning_snapshot_ref.semantic_environment != environment
             or request.snapshot_set_ref.semantic_environment != environment
