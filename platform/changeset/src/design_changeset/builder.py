@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from jsonschema import SchemaError, ValidationError, validate
-
 from design_approval_scope import ApprovalScopeDefinition, CanonicalAspect
 from design_impact import ImpactAnalysis
+from jsonschema import SchemaError, ValidationError, validate
 
 from .contracts import (
     ApprovalScopeDefinitionRef,
@@ -304,7 +303,7 @@ def _preconditions(bound: BoundOperationEvidence) -> tuple[ChangePrecondition, .
     subject = f"{bound.canonical_operation}@{bound.canonical_operation_version}"
     for key, kind in mapping:
         raw = bound.planning_requirements.get(key, ())
-        if isinstance(raw, Mapping) or isinstance(raw, (str, bytes)):
+        if isinstance(raw, (Mapping, str, bytes)):
             _error("CHANGESET_INPUT_INVALID", f"{key} must be a sequence of mappings")
         try:
             values = tuple(raw)
