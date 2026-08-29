@@ -3,7 +3,11 @@ from __future__ import annotations
 from autocad_sidecar.capability.profile import parse_design_capability
 from autocad_sidecar.mcp_server import build_tool_definitions
 from design_orchestrator.canonical_operations import MOVE_V1
-from design_orchestrator.operation_resolver import OperationResolver, ResolutionContext
+from design_orchestrator.operation_resolver import (
+    OperationResolver,
+    ResolutionContext,
+    SemanticEligibilityContext,
+)
 from semantic_runtime import (
     AspectRequirement,
     GeometryLevel,
@@ -37,7 +41,13 @@ def test_real_d3_move_freshness_flows_through_d4_into_d5_contract() -> None:
         (profile,),
         ResolutionContext(
             host_provider_servers=frozenset({"autocad.local"}),
-            entity_kinds=frozenset(),
+            semantic_context=SemanticEligibilityContext(
+                context_snapshot_id="CS-d4-d5-test",
+                context_snapshot_hash="snapshot-hash-d4-d5-test",
+                document_ref="drawing-001",
+                semantic_environment_ref="semantic-env@d4-d5-test",
+                entities=(),
+            ),
         ),
     )
     resolved = resolution.resolved_operations[0]
