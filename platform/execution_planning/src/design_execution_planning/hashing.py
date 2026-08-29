@@ -100,9 +100,9 @@ def _dependency_payload(value: object) -> tuple[str, str, str]:
     if isinstance(value, tuple) and len(value) == 3:
         return (str(value[0]), str(value[1]), str(value[2]))
     return (
-        str(getattr(value, "predecessor_execution_unit_id")),
-        str(getattr(value, "successor_execution_unit_id")),
-        str(getattr(value, "reason_ref")),
+        str(value.predecessor_execution_unit_id),
+        str(value.successor_execution_unit_id),
+        str(value.reason_ref),
     )
 
 
