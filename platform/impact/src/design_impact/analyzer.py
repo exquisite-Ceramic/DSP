@@ -185,7 +185,6 @@ class ImpactAnalyzer:
         fingerprint = self._analysis_fingerprint(
             request=request,
             direct_targets=direct_targets,
-            reachable_edges=reachable_edges,
         )
 
         return ImpactAnalysis(
@@ -544,7 +543,6 @@ class ImpactAnalyzer:
         *,
         request: ImpactAnalysisRequest,
         direct_targets: tuple[str, ...],
-        reachable_edges: tuple[DependencyEdge, ...],
     ) -> str:
         dependency_payload = [
             {
@@ -557,7 +555,14 @@ class ImpactAnalyzer:
                 "rule_ref": edge.rule_ref,
                 "evidence_refs": sorted(edge.evidence_refs),
             }
-            for edge in reachable_edges
+            for edge in sorted(
+                request.dependency_edges,
+                key=lambda item: (
+                    item.source_semantic_id,
+                    item.target_semantic_id,
+                    item.dependency_id,
+                ),
+            )
         ]
         constraint_payload = [
             {
