@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
 from design_approval_scope import (
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalEffectEvidence,
     DirectEntityEffect,
@@ -18,8 +17,8 @@ from design_approval_scope import (
 from design_changeset import (
     BoundOperationEvidence,
     CanonicalOperationContractEvidence,
-    ChangeSetBuildRequest,
     ChangeSetBuilder,
+    ChangeSetBuildRequest,
     ChangeSetError,
     DerivedOperationMaterialization,
     OperationOrigin,
