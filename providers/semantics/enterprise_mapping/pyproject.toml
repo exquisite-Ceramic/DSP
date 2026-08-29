@@ -1,0 +1,20 @@
+[project]
+name = "enterprise-mapping-provider"
+version = "1.0.0"
+description = "DSP enterprise native-evidence semantic mapping provider."
+requires-python = ">=3.11"
+dependencies = [
+    "semantic-service>=0.1.0",
+    "host-contracts>=0.1.0",
+    "PyYAML==6.0.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+enterprise_mapping_provider = ["data/*.yaml"]
