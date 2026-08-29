@@ -1,28 +1,23 @@
-name: Step22 task-scoped progressive semantics
+name: Step23 canonical action contract
 
 on:
-  pull_request:
-    paths:
-      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
-      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
-      - "tests/orchestrator/test_operation_resolver.py"
-      - "tests/integration/test_step22_task_scoped_progressive.py"
-      - "docs/superpowers/specs/2026-08-29-step22-task-scoped-progressive-semantics-design.md"
-      - "docs/superpowers/plans/2026-08-29-step22-task-scoped-progressive-semantics.md"
-      - ".github/workflows/step22-task-scoped-progressive.yml"
-      - ".github/workflows/operation-resolver.yml"
   push:
     paths:
-      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
-      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
-      - "tests/orchestrator/test_operation_resolver.py"
-      - "tests/integration/test_step22_task_scoped_progressive.py"
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - ".github/workflows/step23-canonical-action-contract.yml"
+  pull_request:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - "docs/superpowers/specs/2026-08-29-step23-canonical-action-contract-design.md"
+      - "docs/superpowers/plans/2026-08-29-step23-canonical-action-contract.md"
+      - ".github/workflows/step23-canonical-action-contract.yml"
       - ".github/workflows/step22-task-scoped-progressive.yml"
-      - ".github/workflows/operation-resolver.yml"
   workflow_dispatch:
 
 jobs:
-  step22-task-scoped-progressive:
+  step23-canonical-action-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Step22 stack
+      - name: Install Step23 verification stack
         run: |
           python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
           python -m pip install \
@@ -44,23 +39,32 @@ jobs:
             -e providers/semantics/ifc43 \
             -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping
-      - name: Verify Step22 PR diff boundary
-        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step22-task-scoped-progressive-semantics'
+      - name: Verify Step23 PR diff boundary
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
           printf '%s\n' "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/(step22-task-scoped-progressive|operation-resolver)\.yml|docs/superpowers/(specs/2026-08-29-step22-task-scoped-progressive-semantics-design\.md|plans/2026-08-29-step22-task-scoped-progressive-semantics\.md)|platform/orchestrator/src/design_orchestrator/(canonical_operations|operation_resolver)\.py|tests/orchestrator/test_operation_resolver\.py|tests/integration/test_step22_task_scoped_progressive\.py)$' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/(step22-task-scoped-progressive|step23-canonical-action-contract)\.yml|docs/superpowers/(specs/2026-08-29-step23-canonical-action-contract-design\.md|plans/2026-08-29-step23-canonical-action-contract\.md)|platform/orchestrator/src/design_orchestrator/(__init__|canonical_operations)\.py|tests/orchestrator/(test_canonical_operations|test_operation_resolver|test_step23_architecture)\.py)$' || true)"
           if [ -n "$bad" ]; then
-            echo "Step22 changed files outside approved boundary:"
+            echo "Step23 changed files outside approved boundary:"
             printf '%s\n' "$bad"
             exit 1
           fi
-      - name: Run Step22 D4 ownership tests
+          count="$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l)"
+          if [ "$count" -ne 9 ]; then
+            echo "Step23 expected exactly 9 changed files, got $count"
+            exit 1
+          fi
+      - name: Run Step23 canonical action tests
+        run: pytest -q tests/orchestrator/test_canonical_operations.py
+      - name: Run Step23 architecture guards
+        run: pytest -q tests/orchestrator/test_step23_architecture.py
+      - name: Run existing D4 operation resolver regression
         run: pytest -q tests/orchestrator/test_operation_resolver.py
-      - name: Run Step22 progressive D5 proof
+      - name: Run Step22 progressive regression
         run: pytest -q tests/integration/test_step22_task_scoped_progressive.py
       - name: Run existing D4 to D5 freshness bridge
         run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
