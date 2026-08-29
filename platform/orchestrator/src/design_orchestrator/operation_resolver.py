@@ -387,8 +387,8 @@ class OperationResolver:
                 context_freshness_requirements=deepcopy(
                     definition.context_freshness_requirements
                 ),
-                operation_freshness_requirements=self._aggregate_mapping_items(
-                    profile.execution_freshness for profile in profiles
+                operation_freshness_requirements=deepcopy(
+                    definition.operation_freshness_requirements
                 ),
                 effects=self._aggregate_effects(profiles),
                 policy_decision=policy_decision,
@@ -417,18 +417,6 @@ class OperationResolver:
                 }
             )
         )
-
-    @classmethod
-    def _aggregate_mapping_items(
-        cls,
-        groups: Iterable[Iterable[Mapping[str, Any]]],
-    ) -> tuple[dict[str, Any], ...]:
-        by_key: dict[str, dict[str, Any]] = {}
-        for group in groups:
-            for item in group:
-                copied = deepcopy(dict(item))
-                by_key[cls._stable_json(copied)] = copied
-        return tuple(by_key[key] for key in sorted(by_key))
 
     @classmethod
     def _aggregate_effects(

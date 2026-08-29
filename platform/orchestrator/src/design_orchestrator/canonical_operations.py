@@ -25,6 +25,7 @@ class CanonicalOperationDefinition:
     input_schema: dict[str, Any]
     verification_contract: dict[str, Any]
     context_freshness_requirements: tuple[dict[str, Any], ...] = ()
+    operation_freshness_requirements: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         canonical_operation = self.canonical_operation.strip()
@@ -48,6 +49,11 @@ class CanonicalOperationDefinition:
             self,
             "context_freshness_requirements",
             tuple(deepcopy(item) for item in self.context_freshness_requirements),
+        )
+        object.__setattr__(
+            self,
+            "operation_freshness_requirements",
+            tuple(deepcopy(item) for item in self.operation_freshness_requirements),
         )
 
 
@@ -73,6 +79,9 @@ MOVE_V1 = CanonicalOperationDefinition(
         "additionalProperties": False,
     },
     verification_contract={"type": "HOST_READ_BACK"},
+    operation_freshness_requirements=(
+        {"aspect": "PLACEMENT", "required_state": "FRESH"},
+    ),
 )
 
 
