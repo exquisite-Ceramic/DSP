@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from design_fact_contracts import NormalizedDesignFactBatch
+
 from semantic_service.environment import (
     PinnedProvider,
     SemanticEnvironment,
@@ -15,11 +17,13 @@ from semantic_service.errors import (
 )
 from semantic_service.manifest import AuthorityMode, SemanticCapability, SemanticProviderManifest
 from semantic_service.providers import (
+    FACT_PROJECTION_COMPATIBILITY,
     MappingCandidate,
     ProviderProvenance,
     ResolvedTerm,
     SemanticClaim,
     SemanticMappingProvider,
+    SemanticProjectionProvider,
     SemanticValidationProvider,
     SemanticVocabularyProvider,
     TermDescription,
@@ -175,6 +179,53 @@ class SemanticService:
                 key=lambda item: (item.mapping_id, item.provider_id, item.provider_version),
             )
         )
+
+    def project_facts(
+        self,
+        facts: NormalizedDesignFactBatch,
+        environment_id: str,
+    ) -> tuple[SemanticClaim, ...]:
+        environment = self._environments.get(environment_id)
+        results: list[SemanticClaim] = []
+        for pinned in environment.providers:
+            if SemanticCapability.PROJECTION not in pinned.capabilities:
+                continue
+            if FACT_PROJECTION_COMPATIBILITY not in pinned.compatibility:
+                continue
+            provider = self._registry.get(pinned.provider_id, pinned.version)
+            if not isinstance(provider, SemanticProjectionProvider):
+                raise ProviderCapabilityError(
+                    f"provider {pinned.provider_id}@{pinned.version} does not implement "
+                    "PROJECTION facts-v1"
+                )
+            try:
+                provider_results = provider.project_facts(facts)
+            except Exception as exc:
+                raise SemanticServiceError(
+                    f"project_facts failed via {pinned.provider_id}@{pinned.version}: "
+                    f"{type(exc).__name__}"
+                ) from exc
+            if not isinstance(provider_results, tuple):
+                raise SemanticServiceError(
+                    f"project_facts provider {pinned.provider_id}@{pinned.version} "
+                    "must return a tuple"
+                )
+            for item in provider_results:
+                if not isinstance(item, SemanticClaim):
+                    raise SemanticServiceError(
+                        f"project_facts provider {pinned.provider_id}@{pinned.version} "
+                        "returned a non-SemanticClaim"
+                    )
+                if (
+                    item.provider_id != pinned.provider_id
+                    or item.provider_version != pinned.version
+                ):
+                    raise SemanticServiceError(
+                        "project_facts provider identity mismatch for "
+                        f"{pinned.provider_id}@{pinned.version}"
+                    )
+            results.extend(provider_results)
+        return tuple(results)
 
     def validate_claim(
         self,
