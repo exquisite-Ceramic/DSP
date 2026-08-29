@@ -19,6 +19,7 @@ from design_orchestrator.operation_resolver import (
     OperationPolicy,
     OperationResolver,
     ResolutionContext,
+    SemanticEligibilityContext,
     TaskConstraints,
 )
 
@@ -73,15 +74,24 @@ class Profile:
     output_schema: dict[str, Any] | None = None
 
 
+def semantic_context() -> SemanticEligibilityContext:
+    return SemanticEligibilityContext(
+        context_snapshot_id="CS-test",
+        context_snapshot_hash="snapshot-hash-test",
+        document_ref="document-test",
+        semantic_environment_ref="semantic-env@test",
+        entities=(),
+    )
+
+
 def context(
     *providers: str,
-    entity_kinds: tuple[str, ...] = ("LINE",),
     policy: OperationPolicy | None = None,
     task: TaskConstraints | None = None,
 ) -> ResolutionContext:
     return ResolutionContext(
         host_provider_servers=frozenset(providers),
-        entity_kinds=frozenset(entity_kinds),
+        semantic_context=semantic_context(),
         policy=policy or OperationPolicy(),
         task=task or TaskConstraints(),
     )
@@ -158,7 +168,7 @@ def test_host_filter_removes_unavailable_implementation_not_canonical_operation(
     }
 
 
-def test_entity_filter_keeps_provider_that_supports_all_current_entity_kinds() -> None:
+def test_provider_native_constraints_do_not_filter_unconstrained_canonical_operation() -> None:
     profiles = (
         Profile("autocad.local", "cad.move", entity_constraints=("LINE",)),
         Profile("vendor.optimized", "vendor.move", entity_constraints=("ARC",)),
@@ -166,16 +176,17 @@ def test_entity_filter_keeps_provider_that_supports_all_current_entity_kinds() -
 
     result = resolver_for(profiles).resolve(
         profiles,
-        context("autocad.local", "vendor.optimized", entity_kinds=("ARC",)),
+        context("autocad.local", "vendor.optimized"),
     )
 
     assert [item.canonical_operation for item in result.resolved_operations] == ["move.v1"]
     assert {item.provider_server for item in result.provider_candidates.values()} == {
-        "vendor.optimized"
+        "autocad.local",
+        "vendor.optimized",
     }
 
 
-def test_entity_filter_removes_operation_when_no_provider_supports_selection() -> None:
+def test_provider_native_constraints_remain_internal_for_later_binding() -> None:
     profiles = (
         Profile("autocad.local", "cad.move", entity_constraints=("LINE",)),
         Profile("vendor.optimized", "vendor.move", entity_constraints=("ARC",)),
@@ -183,11 +194,16 @@ def test_entity_filter_removes_operation_when_no_provider_supports_selection() -
 
     result = resolver_for(profiles).resolve(
         profiles,
-        context("autocad.local", "vendor.optimized", entity_kinds=("LWPOLYLINE",)),
+        context("autocad.local", "vendor.optimized"),
     )
 
-    assert result.resolved_operations == ()
-    assert result.provider_candidates == {}
+    assert {
+        profile.entity_constraints for profile in result.provider_candidates.values()
+    } == {("LINE",), ("ARC",)}
+    serialized = json.dumps(result.llm_action_space(), sort_keys=True)
+    assert "canonical_entity_constraints" in serialized
+    assert "LINE" not in serialized
+    assert "ARC" not in serialized
 
 
 def test_policy_deny_removes_canonical_operation_and_provider_candidates() -> None:
