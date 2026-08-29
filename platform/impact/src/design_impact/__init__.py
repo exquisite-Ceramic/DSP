@@ -22,6 +22,7 @@ from .contracts import (
     SemanticEnvironmentBinding,
     SnapshotSetBinding,
 )
+from .rules import evaluate_constraint
 
 __all__ = [
     "ConstraintEvaluationSpec",
@@ -45,4 +46,5 @@ __all__ = [
     "RelationshipEvidence",
     "SemanticEnvironmentBinding",
     "SnapshotSetBinding",
+    "evaluate_constraint",
 ]
