@@ -33,7 +33,9 @@ jobs:
           python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
           python -m pip install \
             -e contracts/python \
+            -e hosts/autocad/sidecar \
             -e platform/semantic_service \
+            -e providers/semantics/ifc43 \
             -e providers/semantics/enterprise_mapping
       - name: Run Step20 targeted tests
         run: |
