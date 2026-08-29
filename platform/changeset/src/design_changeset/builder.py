@@ -347,32 +347,54 @@ def _semantic_impacts(impact: ImpactAnalysis) -> tuple[SemanticImpactEvidence, .
     )
 
 
-def _validation_tasks(
-    *,
+def _canonical_validation_task(
     contract: CanonicalOperationContractEvidence,
     targets: tuple[str, ...],
+) -> ValidationTask | None:
+    if not contract.verification_contract:
+        return None
+    operation_ref = f"{contract.canonical_operation}@{contract.canonical_operation_version}"
+    contract_ref = canonical_hash(contract.verification_contract)
+    semantic = {
+        "kind": ValidationTaskKind.CANONICAL_OPERATION.value,
+        "subject_semantic_ids": list(targets),
+        "canonical_operation_ref": operation_ref,
+        "contract_ref": contract_ref,
+    }
+    task_hash = canonical_hash(semantic)
+    return ValidationTask(
+        validation_task_id=f"VT-{task_hash[:12]}",
+        kind=ValidationTaskKind.CANONICAL_OPERATION,
+        subject_semantic_ids=targets,
+        canonical_operation_ref=operation_ref,
+        contract_ref=contract_ref,
+    )
+
+
+def _validation_tasks(
+    *,
+    request: ChangeSetBuildRequest,
+    root: CanonicalChangeOperation,
+    derived: tuple[CanonicalChangeOperation, ...],
     impact: ImpactAnalysis,
 ) -> tuple[ValidationTask, ...]:
     tasks: list[ValidationTask] = []
-    operation_ref = f"{contract.canonical_operation}@{contract.canonical_operation_version}"
-    if contract.verification_contract:
-        contract_ref = canonical_hash(contract.verification_contract)
-        semantic = {
-            "kind": ValidationTaskKind.CANONICAL_OPERATION.value,
-            "subject_semantic_ids": list(targets),
-            "canonical_operation_ref": operation_ref,
-            "contract_ref": contract_ref,
-        }
-        task_hash = canonical_hash(semantic)
-        tasks.append(
-            ValidationTask(
-                validation_task_id=f"VT-{task_hash[:12]}",
-                kind=ValidationTaskKind.CANONICAL_OPERATION,
-                subject_semantic_ids=targets,
-                canonical_operation_ref=operation_ref,
-                contract_ref=contract_ref,
-            )
+    for operation in (root, *derived):
+        contract = _resolve_contract_key(
+            request.canonical_operation_contracts,
+            operation.canonical_operation,
+            operation.canonical_operation_version,
         )
+        _verify_contract_fingerprint(contract)
+        if contract.definition_fingerprint != operation.canonical_definition_fingerprint:
+            _error(
+                "CHANGESET_INPUT_INVALID",
+                "materialized operation no longer matches its exact canonical contract evidence",
+            )
+        task = _canonical_validation_task(contract, operation.targets)
+        if task is not None:
+            tasks.append(task)
+
     for item in impact.predicted_impacts:
         if not item.requires_verification:
             continue
@@ -400,6 +422,9 @@ def _validation_tasks(
                 contract_ref=contract_ref,
             )
         )
+    ids = [task.validation_task_id for task in tasks]
+    if len(set(ids)) != len(ids):
+        _error("CHANGESET_INPUT_INVALID", "validation task semantic identity must be unique")
     return tuple(sorted(tasks, key=lambda item: item.validation_task_id))
 
 
@@ -676,7 +701,12 @@ class ChangeSetBuilder:
         affected_entities = tuple(
             sorted(set(targets) | {item.affected_semantic_id for item in impact.predicted_impacts})
         )
-        validation_tasks = _validation_tasks(contract=contract, targets=targets, impact=impact)
+        validation_tasks = _validation_tasks(
+            request=request,
+            root=root,
+            derived=derived,
+            impact=impact,
+        )
         scope_ref = ApprovalScopeDefinitionRef(
             scope_definition_id=scope.scope_definition_id,
             scope_body_hash=scope.scope_body_hash,
