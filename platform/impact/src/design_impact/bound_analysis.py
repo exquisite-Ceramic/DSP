@@ -26,7 +26,7 @@ class ImpactAnalysis(_ImpactAnalysis):
     bound_operation_fingerprint: str = ""
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        _ImpactAnalysis.__post_init__(self)
         if self.bound_operation_fingerprint:
             normalized = str(self.bound_operation_fingerprint).strip()
             if not normalized:
