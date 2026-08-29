@@ -5,7 +5,9 @@ description = "Enterprise collaborative design agent: host contracts, AutoCAD pl
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
-dependencies = []
+dependencies = [
+    "jsonschema>=4.20",
+]
 
 [project.optional-dependencies]
 dev = [

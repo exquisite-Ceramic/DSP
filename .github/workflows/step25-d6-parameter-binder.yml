@@ -1,0 +1,80 @@
+name: Step25 D6 parameter binder
+
+on:
+  push:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - "tests/semantic_runtime/test_d4_freshness_integration.py"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step25-d6-parameter-binder-design.md"
+      - "docs/superpowers/plans/2026-08-29-step25-d6-parameter-binder.md"
+      - ".github/workflows/step25-d6-parameter-binder.yml"
+  pull_request:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - "tests/semantic_runtime/test_d4_freshness_integration.py"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step25-d6-parameter-binder-design.md"
+      - "docs/superpowers/plans/2026-08-29-step25-d6-parameter-binder.md"
+      - ".github/workflows/step25-d6-parameter-binder.yml"
+  workflow_dispatch:
+
+jobs:
+  step25-d6-parameter-binder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step25 verification stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step25 PR diff boundary
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step25-d6-parameter-binder'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step25-d6-parameter-binder\.yml|docs/superpowers/(specs/2026-08-29-step25-d6-parameter-binder-design\.md|plans/2026-08-29-step25-d6-parameter-binder\.md)|platform/orchestrator/src/design_orchestrator/(__init__|parameter_binder)\.py|pyproject\.toml|tests/orchestrator/test_step25_(parameter_binder|architecture)\.py|tests/semantic_runtime/test_d4_freshness_integration\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step25 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step25 parameter binder tests
+        run: pytest -q tests/orchestrator/test_step25_parameter_binder.py
+      - name: Run Step25 architecture guards
+        run: pytest -q tests/orchestrator/test_step25_architecture.py
+      - name: Run Step23 canonical action regression
+        run: pytest -q tests/orchestrator/test_canonical_operations.py
+      - name: Run existing D4 resolver regression
+        run: pytest -q tests/orchestrator/test_operation_resolver.py
+      - name: Run Step24 semantic eligibility regression
+        run: pytest -q tests/orchestrator/test_step24_semantic_eligibility.py
+      - name: Run D4 to D5 freshness bridge
+        run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
+      - name: Run relevant full Python regression
+        run: |
+          pytest -q --import-mode=importlib \
+            contracts/python/tests \
+            tests/contracts \
+            tests/integration \
+            tests/orchestrator \
+            tests/semantic_runtime
