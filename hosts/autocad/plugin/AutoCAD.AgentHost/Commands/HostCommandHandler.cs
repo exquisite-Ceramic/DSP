@@ -25,6 +25,7 @@ public sealed class HostCommandHandlerRegistry
         Register(new Context.CurrentSelectionHandler());
         Register(new Design.ExtractNativeSnapshotHandler());
         Register(new View.FitEntitiesHandler());
+        Register(new Interaction.PickPointHandler());
         Register(new Model.MoveHandler());
     }
 
