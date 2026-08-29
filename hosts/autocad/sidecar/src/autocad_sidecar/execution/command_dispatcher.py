@@ -11,6 +11,7 @@ from host_contracts.result import HostCommandResult
 from autocad_sidecar.adapter.context_adapter import ContextAdapter
 from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 from autocad_sidecar.adapter.host_adapter import HostAdapter
+from autocad_sidecar.adapter.interaction_adapter import InteractionAdapter
 from autocad_sidecar.adapter.model_adapter import ModelAdapter
 from autocad_sidecar.adapter.view_adapter import ViewAdapter
 from autocad_sidecar.execution.idempotency import IdempotencyStore
@@ -20,7 +21,7 @@ from autocad_sidecar.execution.retry import RetryPolicy
 class CommandDispatcher:
     """Public entry point for agents and the test client.
 
-    Handles Host context/view/model calls plus the internal Step 19
+    Handles Host context/view/model/interaction calls plus the internal Step 19
     native-snapshot-to-design-fact read path.
     """
 
@@ -36,6 +37,7 @@ class CommandDispatcher:
         self._context = ContextAdapter(host)
         self._view = ViewAdapter(host)
         self._model = ModelAdapter(host)
+        self._interaction = InteractionAdapter(host)
         self._design_facts = DesignFactAdapter()
 
     async def current_document(self) -> HostCommandResult:
@@ -66,6 +68,38 @@ class CommandDispatcher:
 
     async def fit(self, handles: list[str] | None = None) -> HostCommandResult:
         return await self._view.fit(handles)
+
+    async def pick_point(
+        self,
+        *,
+        idempotency_key: str,
+        prompt: str | None = None,
+    ) -> HostCommandResult:
+        """Run one Host Canvas point prompt without automatic prompt retry."""
+        key = str(idempotency_key).strip()
+        if not key:
+            raise ValueError("pick_point requires a stable idempotency_key")
+        if await self._idempotency.is_completed(key):
+            return await self._idempotency.recall(key)
+
+        document = await self._context.current_document()
+        if not document.ok:
+            return document
+        document_id = str((document.payload or {}).get("documentId") or "")
+        if not document_id:
+            raise RuntimeError("current_document response is missing documentId")
+
+        # Unlike model mutation retry, an interactive prompt is not automatically
+        # retried after an ambiguous transport failure: repeating GetPoint can show
+        # duplicate modal UI. Successful logical retries are replayed from the cache.
+        result = await self._interaction.pick_point(
+            document_id=document_id,
+            idempotency_key=key,
+            prompt=prompt,
+        )
+        if result.ok:
+            await self._idempotency.complete(key, result)
+        return result
 
     async def move(
         self,
