@@ -31,7 +31,7 @@ jobs:
           python-version: "3.11"
       - name: Install Step28 verification stack
         run: |
-          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
           python -m pip install \
             -e contracts/python \
             -e hosts/autocad/sidecar \
@@ -74,14 +74,7 @@ jobs:
         run: pytest -q tests/orchestrator/test_step24_semantic_eligibility.py tests/orchestrator/test_operation_resolver.py
       - name: Run D4 to D5 freshness bridge regression
         run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
-      - name: Run relevant full Python regression
-        run: |
-          pytest -q --import-mode=importlib \
-            contracts/python/tests \
-            tests/contracts \
-            tests/integration \
-            tests/orchestrator \
-            tests/interaction \
-            tests/impact \
-            tests/approval_scope \
-            tests/semantic_runtime
+      - name: Run Ruff on Step28 Python changes
+        run: ruff check platform/approval_scope/src/design_approval_scope tests/approval_scope
+      - name: Run full repository Python test suite
+        run: pytest -q --import-mode=importlib
