@@ -40,7 +40,7 @@ jobs:
             -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping
       - name: Verify Step23 PR diff boundary
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step23-canonical-action-contract'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
