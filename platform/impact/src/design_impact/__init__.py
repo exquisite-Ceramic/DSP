@@ -1,6 +1,7 @@
 """Public API for deterministic Step27 impact analysis."""
 
-from .analyzer import ImpactAnalysisRequest, ImpactAnalyzer
+from .analyzer import ImpactAnalysisRequest
+from .bound_analysis import ImpactAnalysis, ImpactAnalyzer
 from .contracts import (
     ConstraintEvaluationSpec,
     ConstraintOperator,
@@ -9,7 +10,6 @@ from .contracts import (
     ConstraintStrength,
     DependencyEdge,
     DependencyStrength,
-    ImpactAnalysis,
     ImpactError,
     ImpactException,
     IntentBoundary,
