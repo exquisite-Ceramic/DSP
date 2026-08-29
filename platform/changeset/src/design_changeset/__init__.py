@@ -19,6 +19,17 @@ from .contracts import (
     ValidationTask,
     ValidationTaskKind,
 )
+from .hashing import (
+    canonical_hash,
+    canonical_json,
+    compute_bound_operation_evidence_fingerprint,
+    compute_bound_operation_fingerprint,
+    compute_changeset_hash,
+    compute_contract_definition_fingerprint,
+    compute_operation_semantic_hash,
+    compute_proposed_change_hash,
+    compute_scope_rule_fingerprint,
+)
 
 __all__ = [
     "ApprovalScopeDefinitionRef",
@@ -38,4 +49,13 @@ __all__ = [
     "SemanticImpactEvidence",
     "ValidationTask",
     "ValidationTaskKind",
+    "canonical_hash",
+    "canonical_json",
+    "compute_bound_operation_evidence_fingerprint",
+    "compute_bound_operation_fingerprint",
+    "compute_changeset_hash",
+    "compute_contract_definition_fingerprint",
+    "compute_operation_semantic_hash",
+    "compute_proposed_change_hash",
+    "compute_scope_rule_fingerprint",
 ]
