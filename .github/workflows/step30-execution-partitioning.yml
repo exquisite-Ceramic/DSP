@@ -32,6 +32,6 @@ jobs:
       - name: Install Step30 verification stack
         run: |
           python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
-          python -m pip install -e contracts/python -e platform/changeset
+          python -m pip install -e contracts/python -e platform/changeset -e platform/execution_planning
       - name: Run Step30 contract tests
         run: pytest -q tests/execution_planning/test_step30_contracts.py
