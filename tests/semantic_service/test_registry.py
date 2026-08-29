@@ -3,19 +3,67 @@ from dataclasses import replace
 import pytest
 
 from semantic_service import (
+    AuthorityMode,
     ProviderCapabilityError,
     ProviderNotFoundError,
     ProviderRegistrationConflictError,
     SemanticCapability,
     SemanticProviderRegistry,
 )
-from tests.semantic_service.helpers import VocabularyProvider
+from tests.semantic_service.helpers import VocabularyProvider, make_manifest
+
+
+FACTS_V1 = "dsp.semantic.projection-facts.v1"
 
 
 class InvalidManifestProvider:
     @property
     def manifest(self):
         return object()
+
+
+class FactsCompatibilityWithoutProjection:
+    def __init__(self) -> None:
+        self._manifest = make_manifest(
+            provider_id="acme.bad.compatibility",
+            version="1",
+            namespace="ifc",
+            authority=AuthorityMode.EXTENSION,
+            capabilities=frozenset(),
+            compatibility=(FACTS_V1,),
+        )
+
+    @property
+    def manifest(self):
+        return self._manifest
+
+
+class FactsV1WithoutMethod:
+    def __init__(self) -> None:
+        self._manifest = make_manifest(
+            provider_id="acme.bad.projection",
+            version="1",
+            namespace="ifc",
+            authority=AuthorityMode.EXTENSION,
+            capabilities=frozenset({SemanticCapability.PROJECTION}),
+            compatibility=(FACTS_V1,),
+        )
+
+    @property
+    def manifest(self):
+        return self._manifest
+
+
+class FactsV1ProjectionProvider(FactsV1WithoutMethod):
+    def __init__(self) -> None:
+        super().__init__()
+        self._manifest = replace(
+            self._manifest,
+            provider_id="acme.good.projection",
+        )
+
+    def project_facts(self, facts):
+        return ()
 
 
 def test_identical_registration_is_idempotent():
@@ -39,6 +87,30 @@ def test_claimed_mapping_without_mapping_protocol_is_rejected():
     bad = VocabularyProvider(extra_capabilities={SemanticCapability.MAPPING})
     with pytest.raises(ProviderCapabilityError, match="MAPPING"):
         registry.register(bad)
+
+
+def test_projection_marker_without_facts_v1_remains_registerable():
+    registry = SemanticProviderRegistry()
+    provider = VocabularyProvider(claim_projection=True)
+    assert registry.register(provider) == provider.manifest
+
+
+def test_facts_v1_compatibility_requires_projection_capability():
+    registry = SemanticProviderRegistry()
+    with pytest.raises(ProviderCapabilityError, match="PROJECTION"):
+        registry.register(FactsCompatibilityWithoutProjection())
+
+
+def test_facts_v1_projection_requires_callable_protocol():
+    registry = SemanticProviderRegistry()
+    with pytest.raises(ProviderCapabilityError, match="PROJECTION"):
+        registry.register(FactsV1WithoutMethod())
+
+
+def test_facts_v1_projection_provider_registers():
+    registry = SemanticProviderRegistry()
+    provider = FactsV1ProjectionProvider()
+    assert registry.register(provider) == provider.manifest
 
 
 def test_invalid_manifest_object_is_rejected_with_typed_error():

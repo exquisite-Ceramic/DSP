@@ -8,7 +8,12 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
+from design_fact_contracts import NormalizedDesignFactBatch
+
 from semantic_service.manifest import SemanticProviderManifest
+
+
+FACT_PROJECTION_COMPATIBILITY = "dsp.semantic.projection-facts.v1"
 
 
 def _required_text(value: str, field_name: str) -> str:
@@ -193,5 +198,9 @@ class SemanticValidationProvider(SemanticProvider, Protocol):
     def validate_claim(self, claim: SemanticClaim) -> tuple[ValidationFinding, ...]: ...
 
 
+@runtime_checkable
 class SemanticProjectionProvider(SemanticProvider, Protocol):
-    pass
+    def project_facts(
+        self,
+        facts: NormalizedDesignFactBatch,
+    ) -> tuple[SemanticClaim, ...]: ...

@@ -9,7 +9,9 @@ from semantic_service.errors import (
 )
 from semantic_service.manifest import SemanticCapability, SemanticProviderManifest
 from semantic_service.providers import (
+    FACT_PROJECTION_COMPATIBILITY,
     SemanticMappingProvider,
+    SemanticProjectionProvider,
     SemanticProvider,
     SemanticValidationProvider,
     SemanticVocabularyProvider,
@@ -42,6 +44,18 @@ class SemanticProviderRegistry:
                 raise ProviderCapabilityError(
                     f"provider {manifest.provider_id}@{manifest.version} claims "
                     f"{capability.value} without implementing its protocol"
+                )
+
+        if FACT_PROJECTION_COMPATIBILITY in manifest.compatibility:
+            if SemanticCapability.PROJECTION not in manifest.capabilities:
+                raise ProviderCapabilityError(
+                    f"provider {manifest.provider_id}@{manifest.version} declares "
+                    f"{FACT_PROJECTION_COMPATIBILITY} without PROJECTION capability"
+                )
+            if not isinstance(provider, SemanticProjectionProvider):
+                raise ProviderCapabilityError(
+                    f"provider {manifest.provider_id}@{manifest.version} claims "
+                    "PROJECTION facts-v1 without implementing its protocol"
                 )
 
         key = (manifest.provider_id, manifest.version)

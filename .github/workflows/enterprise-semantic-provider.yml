@@ -1,0 +1,89 @@
+name: Enterprise semantic provider verification
+
+on:
+  pull_request:
+    paths:
+      - "providers/semantics/enterprise_mapping/**"
+      - "tests/semantic_providers/enterprise_mapping/**"
+      - "platform/semantic_service/**"
+      - "tests/semantic_service/**"
+      - "docs/superpowers/specs/2026-08-29-enterprise-a-wall-mapping-provider-design.md"
+      - "docs/superpowers/plans/2026-08-29-enterprise-a-wall-mapping-provider.md"
+      - ".github/workflows/enterprise-semantic-provider.yml"
+  push:
+    paths:
+      - "providers/semantics/enterprise_mapping/**"
+      - "tests/semantic_providers/enterprise_mapping/**"
+      - "platform/semantic_service/**"
+      - "tests/semantic_service/**"
+      - ".github/workflows/enterprise-semantic-provider.yml"
+
+jobs:
+  enterprise-semantic-provider:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step20 semantic stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step20 PR diff boundary
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/enterprise-semantic-provider\.yml|docs/superpowers/(specs/2026-08-29-enterprise-a-wall-mapping-provider-design\.md|plans/2026-08-29-enterprise-a-wall-mapping-provider\.md)|tests/semantic_service/|tests/semantic_providers/enterprise_mapping/|platform/semantic_service/|providers/semantics/enterprise_mapping/)' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step20 changed files outside the approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step20 targeted tests
+        run: |
+          pytest -q \
+            tests/semantic_service/test_provider_contracts.py \
+            tests/semantic_service/test_registry.py \
+            tests/semantic_service/test_service_projection.py \
+            tests/semantic_service/test_semantic_service_public_surface.py \
+            tests/semantic_providers/enterprise_mapping
+      - name: Run semantic-provider regression tests
+        run: |
+          pytest -q --import-mode=importlib \
+            tests/semantic_service \
+            tests/semantic_providers/dsp_core \
+            tests/semantic_providers/ifc43 \
+            tests/semantic_providers/metro_v32 \
+            tests/semantic_providers/enterprise_mapping
+      - name: Run relevant full Python regression tests
+        run: |
+          pytest -q --import-mode=importlib \
+            contracts/python/tests \
+            tests/contracts \
+            tests/integration \
+            tests/orchestrator \
+            tests/semantic_runtime \
+            tests/semantic_service \
+            tests/semantic_mcp \
+            tests/semantic_providers/dsp_core \
+            tests/semantic_providers/ifc43 \
+            tests/semantic_providers/metro_v32 \
+            tests/semantic_providers/enterprise_mapping
