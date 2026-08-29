@@ -121,6 +121,23 @@ def test_dependency_input_order_does_not_change_analysis_fingerprint() -> None:
     assert forward.analysis_fingerprint == reverse.analysis_fingerprint
 
 
+def test_unreachable_dependency_evidence_changes_analysis_fingerprint() -> None:
+    baseline = ImpactAnalyzer().analyze(_request(edges=_edges()))
+    unreachable = DependencyEdge(
+        dependency_id="DEP-UNREACHABLE",
+        source_semantic_id="UNRELATED-001",
+        target_semantic_id="UNRELATED-002",
+        strength=DependencyStrength.ADVISORY,
+        propagation_owner=PropagationOwner.SEMANTIC_RUNTIME,
+        propagation_action=PropagationAction.MARK_DIRTY,
+        rule_ref="RULE-UNREACHABLE",
+    )
+    changed = ImpactAnalyzer().analyze(_request(edges=(*_edges(), unreachable)))
+
+    assert changed.predicted_impacts == baseline.predicted_impacts
+    assert changed.analysis_fingerprint != baseline.analysis_fingerprint
+
+
 def test_material_displacement_changes_analysis_fingerprint() -> None:
     baseline = ImpactAnalyzer().analyze(_request(bound=_bound_move()))
     changed = ImpactAnalyzer().analyze(
