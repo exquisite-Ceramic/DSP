@@ -5,7 +5,11 @@ import pytest
 from autocad_sidecar.capability.profile import parse_design_capability
 from autocad_sidecar.mcp_server import build_tool_definitions
 from design_orchestrator.canonical_operations import MOVE_V1
-from design_orchestrator.operation_resolver import OperationResolver, ResolutionContext
+from design_orchestrator.operation_resolver import (
+    OperationResolver,
+    ResolutionContext,
+    SemanticEligibilityContext,
+)
 from semantic_runtime import (
     AspectGuarantee,
     AspectRequirement,
@@ -64,7 +68,15 @@ def test_real_move_upgrades_only_placement() -> None:
         (profile,),
         ResolutionContext(
             host_provider_servers=frozenset({"autocad.local"}),
-            entity_kinds=frozenset(),
+            semantic_context=SemanticEligibilityContext(
+                context_snapshot_id="CS-step22-move",
+                context_snapshot_hash="step22-context-snapshot-hash",
+                document_ref="drawing-001",
+                semantic_environment_ref=(
+                    f"{ENVIRONMENT_REF.environment_id}@{ENVIRONMENT_REF.content_hash}"
+                ),
+                entities=(),
+            ),
         ),
     )
     resolved = resolution.resolved_operations[0]
