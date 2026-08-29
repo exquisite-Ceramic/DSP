@@ -1,9 +1,9 @@
 """Immutable provider-neutral contracts for Step28 approval scope."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
-import re
 from typing import Any
 
 
