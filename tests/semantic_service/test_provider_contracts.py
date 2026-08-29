@@ -42,11 +42,12 @@ def test_capability_protocols_are_separate():
     assert not isinstance(provider, SemanticValidationProvider)
 
 
-def test_projection_marker_without_facts_v1_does_not_require_batch_api():
+def test_projection_marker_without_facts_v1_is_not_callable_projection_provider():
     provider = VocabularyProvider(claim_projection=True)
     assert SemanticCapability.PROJECTION in provider.manifest.capabilities
     assert FACTS_V1 not in provider.manifest.compatibility
     assert not hasattr(provider, "project_facts")
+    assert not isinstance(provider, SemanticProjectionProvider)
 
 
 def test_facts_v1_projection_provider_is_runtime_callable_protocol():
