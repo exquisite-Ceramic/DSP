@@ -102,4 +102,4 @@ def test_pick_point_plugin_handler_is_registered_and_respects_native_boundary() 
     assert "Autodesk." not in handler
     assert "using Autodesk.AutoCAD" in native
     assert "GetPoint" in native
-    assert '"point"' in handler
+    assert "point = new[]" in handler
