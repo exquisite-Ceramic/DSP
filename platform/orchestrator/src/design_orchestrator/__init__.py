@@ -4,6 +4,7 @@ from design_orchestrator.canonical_operations import (
     CanonicalOperationDefinition,
     MOVE_V1,
     MVP_CANONICAL_OPERATIONS,
+    SlotBindingClass,
 )
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
@@ -25,5 +26,6 @@ __all__ = [
     "ResolutionContext",
     "ResolutionResult",
     "ResolvedOperation",
+    "SlotBindingClass",
     "TaskConstraints",
 ]
