@@ -108,7 +108,7 @@ platform/execution_planning/
     planner.py
 ```
 
-The distribution name SHOULD be:
+The distribution name SHALL be:
 
 ```text
 design-execution-planning
@@ -345,9 +345,17 @@ CanonicalChangeSet.approval_scope_definition_ref.scope_body_hash
   == ApprovalScopeBoundary.scope_body_hash
 ```
 
-Step30 SHALL also validate that the relevant Step29 scope references used by every operation exist inside the supplied Step28 boundary before selecting execution-slice scope.
+Step29 v1 materializes canonical mutation authority only from explicit Step28 `existing_entity_rules`; its `CanonicalChangeOperation.scope_rule_ids` therefore reference existing-entity rule IDs only.
 
-Any mismatch fails:
+For every Step29 operation, Step30 SHALL require every `scope_rule_id` to resolve to exactly one rule in:
+
+```text
+ApprovalScopeBoundary.existing_entity_rules
+```
+
+The exact boundary rule bodies are also required to recompute the Step29 operation semantic hash described in §11.1.
+
+Any binding or rule-resolution mismatch fails:
 
 ```text
 EXECUTION_SCOPE_MISMATCH
@@ -413,7 +421,7 @@ For one operation routed to one `document_ref`, Step30 derives candidates from:
 ApprovalScopeBoundary.execution_slice_scopes[]
 ```
 
-A candidate is eligible only if:
+Because Step29 v1 operation scope authority comes from existing-entity rules, a candidate is eligible only if:
 
 ```text
 candidate.document_ref == operation runtime document_ref
@@ -422,28 +430,45 @@ candidate.document_ref == operation runtime document_ref
 and:
 
 ```text
-operation.scope_rule_ids
-  ⊆ union(
-       candidate.existing_rule_ids,
-       candidate.creation_rule_ids,
-       candidate.deletion_rule_ids
-     )
+operation.scope_rule_ids ⊆ candidate.existing_rule_ids
+```
+
+For least-authority comparison, candidate authority is the normalized set:
+
+```text
+candidate_authority = union(
+  candidate.existing_rule_ids,
+  candidate.creation_rule_ids,
+  candidate.deletion_rule_ids
+)
+```
+
+and candidate surplus is:
+
+```text
+surplus = candidate_authority - set(operation.scope_rule_ids)
 ```
 
 Step30 then applies deterministic least-authority selection:
 
-1. retain only candidates with complete coverage;
-2. compute candidate surplus as the count of referenced rule IDs not needed by the operation;
-3. choose the unique candidate with minimum surplus;
-4. if no candidate exists, fail closed;
-5. if more than one semantically distinct candidate remains tied at minimum surplus, fail closed rather than guessing.
-
-Failures:
+1. retain only candidates with complete existing-rule coverage;
+2. choose candidates having minimum `len(surplus)`;
+3. normalize each tied candidate body as:
 
 ```text
-EXECUTION_SLICE_SCOPE_UNCOVERED
-EXECUTION_SLICE_SCOPE_AMBIGUOUS
+(
+  document_ref,
+  sorted(existing_rule_ids),
+  sorted(creation_rule_ids),
+  sorted(deletion_rule_ids)
+)
 ```
+
+4. if tied candidates have different normalized bodies, fail `EXECUTION_SLICE_SCOPE_AMBIGUOUS`;
+5. if tied candidates have the same normalized body and differ only by `slice_scope_rule_id`, choose the lexicographically smallest `slice_scope_rule_id` as a deterministic construction reference;
+6. if no candidate exists, fail `EXECUTION_SLICE_SCOPE_UNCOVERED`.
+
+This means semantic ambiguity fails closed, while duplicate semantically equivalent Step28 slice-scope entries do not introduce nondeterminism.
 
 Step30 does not expand scope to make a partition possible.
 
@@ -471,11 +496,44 @@ ExecutionUnit {
 }
 ```
 
-### 11.1 Source binding
+### 11.1 Source binding and exact Step29 operation re-verification
 
 `source_operation_id` references the exact Step29 `CanonicalChangeOperation.operation_id`.
 
-`source_operation_hash` SHALL be recomputed using the Step29 canonical operation semantic hashing algorithm. Step30 must verify the source operation before projection rather than trusting only a construction ID.
+Step30 SHALL independently recompute the exact Step29 semantic operation hash by:
+
+1. resolving every `CanonicalChangeOperation.scope_rule_id` against the supplied `ApprovalScopeBoundary.existing_entity_rules`;
+2. computing each exact Step29 `compute_scope_rule_fingerprint(rule)` value;
+3. invoking the frozen Step29 `compute_operation_semantic_hash(...)` algorithm over:
+
+```text
+origin
+canonical_operation
+canonical_operation_version
+canonical_definition_fingerprint
+targets
+arguments
+expected_effects
+resolved scope_rule_fingerprints
+source_evidence
+```
+
+4. requiring:
+
+```text
+CanonicalChangeOperation.operation_id
+  == "COP-" + recomputed_operation_hash[:12]
+```
+
+Any mismatch fails:
+
+```text
+EXECUTION_OPERATION_MISMATCH
+```
+
+The recomputed full digest becomes `source_operation_hash`.
+
+This validation proves that Step30 is projecting the exact Step29 semantic operation rather than trusting an opaque construction ID.
 
 ### 11.2 Canonical projection
 
@@ -537,7 +595,7 @@ ApprovedExecutionScopeRef {
 }
 ```
 
-The referenced slice-scope rule MUST come from the exact supplied ApprovalScopeBoundary.
+The referenced slice-scope rule MUST come from the exact supplied ApprovalScopeBoundary and MUST be the result of §10 deterministic selection.
 
 ### 12.2 ExecutionSlice
 
@@ -693,7 +751,7 @@ Step30 SHALL recompute and verify the supplied routing hash.
 
 ### 15.2 source_operation_hash
 
-`source_operation_hash` uses the Step29 canonical operation semantic hashing algorithm over the exact source operation material.
+`source_operation_hash` is the full recomputed Step29 canonical operation semantic hash from §11.1.
 
 ### 15.3 execution_unit_hash
 
@@ -751,7 +809,17 @@ sorted execution_slice_hashes
 normalized execution dependency semantic payloads
 ```
 
-For plan hashing, dependency semantic payloads SHOULD resolve unit IDs back to their deterministic unit hashes plus `reason_ref`, so opaque construction identifiers add no independent entropy.
+For plan hashing, each dependency semantic payload SHALL be:
+
+```text
+{
+  predecessor_execution_unit_hash,
+  successor_execution_unit_hash,
+  reason_ref
+}
+```
+
+resolved from the deterministic Unit map. Raw Unit construction IDs do not add independent hash entropy.
 
 Construction ID:
 
@@ -781,28 +849,29 @@ Therefore a provider switch may change Step31 `binding_set_hash` and invalidate/
 
 ## 16. Deterministic planning algorithm
 
-Step30 SHALL conceptually execute the following pure planning pipeline:
+Step30 SHALL execute the following pure planning pipeline:
 
 ```text
 1. validate request/public types
 2. verify ChangeSet ↔ ApprovalScopeBoundary exact binding
-3. recompute and verify RuntimeRoutingEvidence hash
-4. enforce exact closed-world target-route coverage
-5. enumerate Step29 operations in deterministic semantic order
-6. for each operation:
-     a. recompute Step29 source operation hash
-     b. verify canonical source integrity
+3. resolve every Step29 operation scope rule against exact boundary existing rules
+4. recompute and verify RuntimeRoutingEvidence hash
+5. enforce exact closed-world target-route coverage
+6. enumerate Step29 operations in deterministic semantic order
+7. for each operation:
+     a. recompute exact Step29 source operation hash from boundary rule fingerprints
+     b. require operation_id == COP-<hash-prefix>
      c. resolve all targets from RuntimeRoutingEvidence
      d. require one HostRuntimeRef across all targets
-     e. derive the unique least-authority slice scope
+     e. derive the unique deterministic least-authority slice scope
      f. materialize exactly one ExecutionUnit
-7. verify every Step29 operation produced exactly one Unit
-8. group Units by HostRuntimeRef + selected slice scope
-9. materialize deterministic ExecutionSlices
-10. project every Step29 ChangeDependency exactly once
-11. verify no dependency was added, omitted, reversed, or duplicated
-12. compute ExecutionPlan hash and construction ID
-13. return immutable ExecutionPlan
+8. verify every Step29 operation produced exactly one Unit
+9. group Units by HostRuntimeRef + selected slice scope
+10. materialize deterministic ExecutionSlices
+11. project every Step29 ChangeDependency exactly once
+12. verify no dependency was added, omitted, reversed, duplicated, or unresolved
+13. compute ExecutionPlan hash and construction ID
+14. return immutable ExecutionPlan
 ```
 
 The algorithm performs no I/O after the request has been assembled.
@@ -829,7 +898,7 @@ EXECUTION_SLICE_SCOPE_AMBIGUOUS
 EXECUTION_DEPENDENCY_INVALID
 ```
 
-`EXECUTION_OPERATION_MISMATCH` covers any attempt or detected inconsistency that would change the exact Step29 canonical operation projection, including target/argument/effect/version/definition-fingerprint mismatch.
+`EXECUTION_OPERATION_MISMATCH` covers a Step29 operation whose recomputed semantic hash does not match its `COP-<hash-prefix>` identity or whose projected canonical fields do not remain exact.
 
 Step30 SHALL fail closed rather than infer or repair authority-sensitive data.
 
@@ -979,11 +1048,13 @@ The package MAY refer to Step31/32/33 concepts in documentation/tests that verif
 - caller collection order does not change semantically order-insensitive hashes;
 - opaque construction ordering does not change Plan identity.
 
-### 23.2 Scope binding
+### 23.2 Scope and source-operation binding
 
 - different `changeset_hash` is rejected;
 - different `scope_body_hash` is rejected;
-- operation scope reference absent from supplied boundary is rejected;
+- operation `scope_rule_id` absent from boundary existing rules is rejected;
+- recomputed Step29 operation hash must match `COP-<hash-prefix>`;
+- changing exact boundary rule semantics causes the old Step29 operation identity to fail verification;
 - Step30 never expands scope to make routing succeed.
 
 ### 23.3 Routing
@@ -1010,7 +1081,9 @@ Different Step29 operations may route to different Host/document slices.
 
 - unique minimum-authority candidate succeeds;
 - no candidate fails `EXECUTION_SLICE_SCOPE_UNCOVERED`;
-- tied semantically distinct minimum candidates fail `EXECUTION_SLICE_SCOPE_AMBIGUOUS`;
+- tied minimum candidates with different normalized authority bodies fail `EXECUTION_SLICE_SCOPE_AMBIGUOUS`;
+- semantically duplicate tied candidates choose the lexicographically smallest rule ID deterministically;
+- extra creation/deletion rule authority counts toward candidate surplus;
 - caller cannot provide/override chosen slice scope.
 
 ### 23.6 Canonical projection
@@ -1056,7 +1129,7 @@ and the full repository test suite before merge.
 
 ## 24. CI boundary
 
-Step30 SHALL add a dedicated workflow, expected to cover:
+Step30 SHALL add a dedicated workflow covering:
 
 ```text
 exact PR diff boundary
@@ -1107,16 +1180,17 @@ Step30 is complete when all of the following are true:
 
 1. A deterministic immutable ExecutionPlan can be built from exact Step29 ChangeSet, exact Step28 ApprovalScopeBoundary, and exact task-scoped RuntimeRoutingEvidence.
 2. Runtime routing is closed-world and its hash is independently recomputed.
-3. Every Step29 CanonicalChangeOperation maps to exactly one canonical ExecutionUnit.
-4. A single operation crossing Host instance or document boundaries fails closed rather than being split.
-5. Step30 deterministically selects a unique least-authority execution-slice scope from the frozen Step28 boundary.
-6. ExecutionSlices group Units only by HostRuntimeRef + approved slice scope.
-7. Every Step29 ChangeDependency is projected exactly once, including cross-slice dependencies.
-8. Unit/Slice/Plan hashes are deterministic, acyclic, provider-independent, and bound to the exact upstream artifacts they consume.
-9. Step30 artifacts contain no provider/native/governance/runtime-state leakage.
-10. RevisionBarrier remains a runtime gate after planning and before ProviderBinding, outside the Plan hash.
-11. Step31 can consume immutable ExecutionSlice/ExecutionUnit values without Step30 choosing provider/native behavior.
-12. Focused Step30 tests, Step28/29 regressions, Ruff, and full repository pytest are green.
+3. Every Step29 `scope_rule_id` resolves to the exact supplied boundary existing rule, and Step30 can recompute the exact Step29 operation semantic hash.
+4. Every Step29 CanonicalChangeOperation maps to exactly one canonical ExecutionUnit.
+5. A single operation crossing Host instance or document boundaries fails closed rather than being split.
+6. Step30 deterministically selects a unique least-authority execution-slice scope from the frozen Step28 boundary, with machine-defined tie handling.
+7. ExecutionSlices group Units only by HostRuntimeRef + approved slice scope.
+8. Every Step29 ChangeDependency is projected exactly once, including cross-slice dependencies.
+9. Unit/Slice/Plan hashes are deterministic, acyclic, provider-independent, and bound to the exact upstream artifacts they consume.
+10. Step30 artifacts contain no provider/native/governance/runtime-state leakage.
+11. RevisionBarrier remains a runtime gate after planning and before ProviderBinding, outside the Plan hash.
+12. Step31 can consume immutable ExecutionSlice/ExecutionUnit values without Step30 choosing provider/native behavior.
+13. Focused Step30 tests, Step28/29 regressions, Ruff, and full repository pytest are green.
 
 ---
 
