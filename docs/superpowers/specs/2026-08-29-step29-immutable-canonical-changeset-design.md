@@ -61,7 +61,7 @@ The central invariant is:
 
 The v0.6 master spec describes ChangeSet as a **canonical logical transaction**, not a Host command collection. Its broader DTO sketches also mention future/runtime concepts such as approval, risk, verification, rollback, and status.
 
-Step 29 resolves that breadth by separating:
+Step 29 separates:
 
 ```text
 immutable canonical execution intent
@@ -73,11 +73,11 @@ from:
 workflow / governance / provider / runtime state
 ```
 
-This is necessary because approval and verification states are expected to change over time while the transaction identity must remain stable.
+This is required because approval and verification state can change over time while the transaction identity must remain stable.
 
-A ChangeSet hash that changed when an approval moved from `PENDING` to `APPROVED`, or when a verification report arrived, could not serve as a stable approval/execution binding.
+A ChangeSet hash that changed when an approval moved from `PENDING` to `APPROVED`, or when a verification report arrived, could not be a stable approval/execution binding.
 
-Therefore Step 29 SHALL implement the immutable canonical transaction body only. Step 30–33 own the later execution/governance/runtime artifacts.
+Therefore Step 29 SHALL implement only the immutable canonical transaction body. Step 30–33 own later execution/governance/runtime artifacts.
 
 ---
 
@@ -91,7 +91,7 @@ Step 29 SHALL formally replace the existing Phase-2 HostDelta-centric placeholde
 platform/changeset/
 ```
 
-with the canonical v0.6 package:
+with:
 
 ```text
 platform/changeset/
@@ -117,17 +117,17 @@ SHALL be removed.
 
 No compatibility shim or alias SHALL expose the old mutable HostDelta ChangeSet as the new canonical ChangeSet.
 
-### 3.2 Why replacement is safe and preferred
+### 3.2 Why replacement is preferred
 
-The current package is a Phase-2 placeholder whose model is materially different from the v0.6 canonical contract:
+The current package is materially different from the v0.6 canonical contract:
 
 - it collects `HostDelta` values;
 - it supports mutable builder behavior;
 - it imports Host-facing contracts;
-- its execution placeholders expose native execution concerns before ProviderBinding;
+- its execution placeholders expose native concerns before ProviderBinding;
 - it is not currently included in the root pytest pythonpath.
 
-The old model is therefore not a prior version of the same semantic contract. Keeping both would create two incompatible meanings of “ChangeSet”.
+The old model is not a prior version of the same semantic contract. Keeping both would create two incompatible meanings of “ChangeSet”.
 
 ### 3.3 Rejected alternatives
 
@@ -169,13 +169,13 @@ Step 29 MUST NOT infer effects from operation names, provider capability, natura
 
 The root mutation instance originates from the exact bound operation produced by D6 / interaction binding.
 
-Step 29 SHALL freeze the material canonical arguments and upstream planning evidence associated with that proposal.
+Step 29 SHALL freeze the material canonical arguments and exact D6 evidence projection associated with that proposal.
 
 ### 4.3 Step 27 owns impact and propagation evidence
 
 Step 29 consumes the exact `ImpactAnalysis` and SHALL NOT recompute dependency traversal, propagation classification, or constraints.
 
-Step 27 `PropagationBundle.proposed_changes[]` remains planning evidence. It is **not** itself a canonical operation.
+Step27 `PropagationBundle.proposed_changes[]` is planning evidence. It is **not** itself a canonical operation.
 
 ### 4.4 Step 28 owns the maximum effect scope
 
@@ -203,7 +203,7 @@ Step 29 owns:
 - deterministic semantic-impact projection;
 - deterministic validation-task obligations;
 - immutable transaction hashing;
-- stable `changeset_id` derivation.
+- stable construction-id derivation.
 
 ### 4.6 Later steps retain later-step authority
 
@@ -217,11 +217,15 @@ Step 33 owns actual deltas, verification results, reconciliation, scope comparis
 
 ---
 
-## 5. Canonical operation contract evidence
+## 5. Provider-neutral upstream evidence projections
 
-Step 29 must validate operation instances against the exact Step 23 canonical contract without coupling `design_changeset` to the entire orchestrator implementation package.
+Step29 needs exact Step23 and D6 evidence, but the canonical ChangeSet package should not depend on provider/native code or query the orchestrator Catalog at runtime.
 
-The workflow boundary SHALL therefore provide immutable provider-neutral evidence projected from the exact Step 23 definition:
+The workflow boundary SHALL assemble small immutable provider-neutral evidence values from the exact already-selected upstream objects.
+
+### 5.1 `CanonicalOperationContractEvidence`
+
+Projected from the exact Step23 `CanonicalOperationDefinition`:
 
 ```text
 CanonicalOperationContractEvidence {
@@ -236,22 +240,139 @@ CanonicalOperationContractEvidence {
 
 Requirements:
 
-- the evidence MUST be assembled from the exact Step 23 `CanonicalOperationDefinition` selected by the workflow;
-- `effects[]` MUST exactly equal the normalized Step 23 effects;
-- `argument_schema` MUST be the exact canonical input schema required to validate the material arguments;
-- `verification_contract` MUST be the exact Step 23 verification contract;
-- `definition_fingerprint` MUST be deterministic over the semantic definition body;
-- Step 29 SHALL include the relevant definition fingerprint in the semantic operation body so a contract-version semantic change changes transaction identity.
+- `effects[]` exactly equals the normalized Step23 effects;
+- `argument_schema` is the exact Step23 canonical input schema;
+- `verification_contract` is the exact Step23 verification contract;
+- `definition_fingerprint` is deterministic over the semantic definition body;
+- Step29 includes the definition fingerprint in the operation semantic body;
+- no provider schema or capability profile may manufacture this evidence.
 
-`design_changeset` MUST NOT query provider registries or Host capabilities to manufacture this evidence.
+### 5.2 `BoundOperationEvidence`
+
+Projected from the exact D6 `BoundOperationProposal`:
+
+```text
+BoundOperationEvidence {
+  canonical_operation
+  canonical_operation_version
+  arguments
+
+  context_snapshot_id
+  context_snapshot_hash
+  document_ref
+  semantic_environment_id
+
+  binding_evidence
+  bound_operation_fingerprint
+  bound_operation_evidence_fingerprint
+}
+```
+
+`bound_operation_fingerprint` is the Step27/Step29 shared **material-operation** fingerprint defined in §6.
+
+`bound_operation_evidence_fingerprint` is a Step29 semantic/audit fingerprint over the complete provider-neutral D6 projection, including binding evidence and context-snapshot evidence.
+
+Step29 does not treat the D6 ContextSnapshot as the same object as Step27 `PlanningSnapshotBinding`; only the required cross-links in §9 are compared.
 
 ---
 
-## 6. Core public contracts
+## 6. Review-discovered prerequisite: verifiable D6 → Step27 binding
 
-Step 29 SHALL expose frozen/value-oriented contracts. The exact Python naming MAY be refined during implementation, but the semantic fields below are normative.
+### 6.1 The existing gap
 
-### 6.1 `ApprovalScopeDefinitionRef`
+The current Step27 `analysis_fingerprint` correctly commits to:
+
+```text
+canonical operation
+operation version
+material canonical arguments
+PlanningSnapshot
+SnapshotSet
+SemanticEnvironment
+impact inputs
+IntentBoundary
+```
+
+However the current public `ImpactAnalysis` output exposes only:
+
+```text
+canonical_operation
+direct_targets
+planning_snapshot_ref
+snapshot_set_ref
+semantic_environment_ref
+...
+analysis_fingerprint
+```
+
+It does **not** expose a separately verifiable fingerprint for the exact bound operation material that produced the analysis.
+
+Therefore a later Step29 caller could present:
+
+```text
+same canonical operation
+same targets
+different displacement/other material argument
+old ImpactAnalysis
+```
+
+and Step29 could not prove the mismatch without recomputing Step27 from its full original request.
+
+Step29 MUST NOT recompute Step27.
+
+### 6.2 Required Step27 hardening
+
+Step29 implementation SHALL make the minimal upstream contract hardening:
+
+```text
+ImpactAnalysis {
+  ...
+  bound_operation_fingerprint
+  analysis_fingerprint
+}
+```
+
+The shared material-operation fingerprint is:
+
+```text
+bound_operation_fingerprint = SHA-256(
+  canonical_json({
+    canonical_operation,
+    canonical_operation_version,
+    arguments
+  })
+)
+```
+
+where `arguments` are the fully bound provider-neutral canonical arguments from D6.
+
+Step27 SHALL compute this value from the exact `BoundOperationProposal` it analyzes.
+
+Step29 SHALL recompute the same value from `BoundOperationEvidence` and require exact equality.
+
+Failure:
+
+```text
+CHANGESET_IMPACT_MISMATCH
+```
+
+### 6.3 Existing Step27 `analysis_fingerprint` remains stable
+
+This hardening SHALL NOT change the semantic payload/algorithm of the existing Step27 `analysis_fingerprint` for equivalent input.
+
+The new field simply exposes a verifiable sub-binding that Step27 already semantically commits to.
+
+This prevents unnecessary Step27/Step28 fingerprint churn while making Step29's authority-sensitive join provable.
+
+The Step27 written design SHALL be amended during Step29 implementation to record this binding field.
+
+---
+
+## 7. Core public contracts
+
+All public Step29 value contracts SHALL be frozen/immutable and defensively normalize mutable caller containers.
+
+### 7.1 `ApprovalScopeDefinitionRef`
 
 ```text
 ApprovalScopeDefinitionRef {
@@ -264,7 +385,23 @@ ApprovalScopeDefinitionRef {
 
 `scope_definition_id` is a construction/reference id and does not independently authorize anything.
 
-### 6.2 `CanonicalChangeOperation`
+### 7.2 `OperationSourceEvidence`
+
+```text
+OperationSourceEvidence {
+  source_kind              ROOT_BOUND_OPERATION | DERIVED_PROPAGATION
+  source_fingerprint
+
+  propagation_bundle_id?
+  proposed_change_hash?
+}
+```
+
+For ROOT, `source_fingerprint` is the complete `bound_operation_evidence_fingerprint`.
+
+For DERIVED, the source binds the exact Step27 bundle/proposal fingerprint.
+
+### 7.3 `CanonicalChangeOperation`
 
 ```text
 CanonicalChangeOperation {
@@ -280,30 +417,22 @@ CanonicalChangeOperation {
   expected_effects[]
 
   scope_rule_ids[]
-  source
+  source_evidence
 }
 ```
 
 Normative rules:
 
-- `expected_effects[]` MUST be generated by Step29 from the matched `CanonicalOperationContractEvidence.effects[]`;
-- callers MUST NOT be able to override `expected_effects[]`;
+- `expected_effects[]` is generated from matched `CanonicalOperationContractEvidence.effects[]`;
+- callers cannot override `expected_effects[]`;
 - `targets[]` are canonical semantic ids only;
 - `arguments` are canonical arguments only;
 - provider/native metadata is forbidden;
-- `scope_rule_ids[]` identify Step28 rules used to prove coverage, but rule ids themselves are construction references and are normalized to semantic scope coverage in hashing.
+- raw scope-rule construction ids do not add independent semantic entropy to hashing.
 
-### 6.3 Operation origin
+### 7.4 `DerivedOperationMaterialization`
 
-```text
-OperationOrigin = ROOT | DERIVED
-```
-
-Step29 v1 contains exactly one root operation.
-
-### 6.4 `DerivedOperationMaterialization`
-
-This is an input contract, not direct authority:
+Input contract only; not authority:
 
 ```text
 DerivedOperationMaterialization {
@@ -321,7 +450,7 @@ DerivedOperationMaterialization {
 
 It explicitly connects Step27 planning evidence to a Step23 canonical operation contract.
 
-### 6.5 `ChangeDependency`
+### 7.5 `ChangeDependency`
 
 ```text
 ChangeDependency {
@@ -331,15 +460,15 @@ ChangeDependency {
 }
 ```
 
-In v1 the only admissible mutation causality is evidence-backed:
+Step29 v1 admits only evidence-backed:
 
 ```text
 ROOT → DERIVED
 ```
 
-Arbitrary caller-declared `DERIVED → DERIVED` causality is unsupported until an upstream dependency layer emits stable multi-level derived causality.
+Arbitrary caller-authored `DERIVED → DERIVED` causality is unsupported.
 
-### 6.6 `ChangePrecondition`
+### 7.6 `ChangePrecondition`
 
 ```text
 ChangePrecondition {
@@ -349,7 +478,7 @@ ChangePrecondition {
 }
 ```
 
-Kinds SHALL be an explicit closed vocabulary derived from upstream machine requirements, for example:
+Kinds use an explicit closed vocabulary projected from machine requirements, initially including:
 
 ```text
 OPERATION_FRESHNESS
@@ -357,13 +486,11 @@ COVERAGE
 ASSURANCE
 ```
 
-Free-form precondition policy text is not authoritative.
-
-### 6.7 `SemanticImpactEvidence`
+### 7.7 `SemanticImpactEvidence`
 
 ```text
 SemanticImpactEvidence {
-  source
+  source_semantic_id
   affected_semantic_id
   dependency_ref
   propagation_owner
@@ -372,11 +499,9 @@ SemanticImpactEvidence {
 }
 ```
 
-This is a deterministic projection of Step27 predicted impact evidence.
+This is a deterministic projection of Step27 `PredictedImpact` and does not grant mutation authority.
 
-It does **not** grant mutation authority.
-
-### 6.8 `ValidationTask`
+### 7.8 `ValidationTask`
 
 ```text
 ValidationTask {
@@ -389,9 +514,9 @@ ValidationTask {
 }
 ```
 
-Validation tasks are obligations describing what later verification must prove. They are not verification results.
+Validation tasks are future verification obligations, not results.
 
-### 6.9 `CanonicalChangeSet`
+### 7.9 `CanonicalChangeSet`
 
 ```text
 CanonicalChangeSet {
@@ -400,10 +525,11 @@ CanonicalChangeSet {
   project_id?
 
   planning_snapshot_ref
-  base_snapshot_set_ref
+  snapshot_set_ref
   semantic_environment_ref
 
   impact_analysis_fingerprint
+  bound_operation_fingerprint
 
   approval_scope_definition_ref
 
@@ -420,11 +546,11 @@ CanonicalChangeSet {
 }
 ```
 
-Every nested semantic collection SHALL be immutable and deterministically normalized.
+Every nested semantic collection is immutable and deterministically normalized.
 
 ---
 
-## 7. Exactly one root operation in v1
+## 8. Exactly one root operation in v1
 
 The master spec sketches plural root operations, but the current Step25 → Step27 → Step28 pipeline is constructed around one bound operation and one impact analysis.
 
@@ -435,69 +561,102 @@ multiple ImpactAnalysis composition
 scope union/intersection semantics
 cross-root causality
 multi-root validation obligations
-batch-level argument/snapshot compatibility
+batch-level snapshot compatibility
 ```
 
-These are not Step29 v1 concerns.
-
-Therefore:
-
-```text
-len(root_operations) == 1
-```
-
-is represented directly as one `root_operation` field.
+Therefore Step29 v1 has exactly one `root_operation`.
 
 Future batching may introduce a higher-level transaction composer without changing the meaning of one canonical operation node.
 
 ---
 
-## 8. Root operation materialization
+## 9. Root operation materialization and cross-input validation
 
-The root operation SHALL be deterministically materialized from:
+The root operation is deterministically materialized from:
 
 ```text
-BoundOperationProposal
-+ matching ImpactAnalysis
-+ exact CanonicalOperationContractEvidence
+BoundOperationEvidence
++ ImpactAnalysis
++ CanonicalOperationContractEvidence
 + ApprovalScopeDefinition
 ```
 
 Step29 SHALL verify at minimum:
 
 ```text
-bound operation name/version
-    == ImpactAnalysis canonical operation identity
+BoundOperationEvidence.canonical_operation
+  == ImpactAnalysis.canonical_operation
 
-bound planning snapshot
-    == ImpactAnalysis planning snapshot
+BoundOperationEvidence.bound_operation_fingerprint
+  == ImpactAnalysis.bound_operation_fingerprint
 
-bound semantic environment
-    == ImpactAnalysis semantic environment
+BoundOperationEvidence.semantic_environment_id
+  == ImpactAnalysis.semantic_environment_ref.environment_id
 
-root targets
-    == ImpactAnalysis direct targets
+BoundOperationEvidence.document_ref
+  == ImpactAnalysis.planning_snapshot_ref.document_ref
 
-canonical definition name/version
-    == bound operation name/version
+normalized BoundOperationEvidence.arguments["targets"]
+  == ImpactAnalysis.direct_targets
 
-arguments
-    satisfy exact canonical argument schema
+BoundOperationEvidence.canonical_operation
+  == ApprovalScopeDefinition.canonical_effect_evidence.canonical_operation
+
+BoundOperationEvidence.canonical_operation_version
+  == ApprovalScopeDefinition.canonical_effect_evidence.canonical_operation_version
+
+CanonicalOperationContractEvidence operation/version
+  == BoundOperationEvidence operation/version
+
+normalized CanonicalOperationContractEvidence.effects
+  == ApprovalScopeDefinition.canonical_effect_evidence.allowed_aspects
+
+BoundOperationEvidence.arguments
+  satisfy exact canonical argument schema
 ```
 
-A deterministic `bound_operation_hash` SHALL be computed from the material canonical proposal body and its planning/environment evidence.
+Important distinction:
 
-The root operation source evidence SHALL include that fingerprint.
+```text
+D6 ContextSnapshot id/hash
+!= Step27 PlanningSnapshot id/hash by definition
+```
 
-Changing canonical arguments while keeping the same ImpactAnalysis MUST change the final ChangeSet hash.
+Step29 SHALL NOT compare those ids/hashes for equality. Their document/environment cross-links and their own fingerprints are bound separately.
+
+Changing material canonical arguments changes `bound_operation_fingerprint` and therefore cannot reuse the prior ImpactAnalysis.
 
 ---
 
-## 9. Derived operation materialization is explicit
+## 10. Step27 / Step28 planning-state consistency
 
-### 9.1 PropagationBundle is not a canonical action
+Step29 SHALL revalidate the exact fields already frozen in Step28:
 
-Step27 `PropagationBundle.proposed_changes[]` contains structured planning descriptions but does not provide a canonical operation name/version/argument contract.
+```text
+ImpactAnalysis.planning_snapshot_ref
+  == ApprovalScopeDefinition.planning_snapshot_ref
+
+ImpactAnalysis.snapshot_set_ref
+  == ApprovalScopeDefinition.snapshot_set_ref
+
+ImpactAnalysis.semantic_environment_ref
+  == ApprovalScopeDefinition.semantic_environment_ref
+
+ImpactAnalysis.analysis_fingerprint
+  == ApprovalScopeDefinition.impact_analysis_fingerprint
+```
+
+It SHALL also require the planning snapshot to remain a member of the supplied `SnapshotSetBinding` and all planning/snapshot environment bindings to refer to the same semantic environment.
+
+Any mismatch fails closed.
+
+---
+
+## 11. Derived operation materialization is explicit
+
+### 11.1 PropagationBundle is not a canonical action
+
+Step27 `PropagationBundle.proposed_changes[]` currently contains structured planning descriptions such as affected semantic id, action, and rule ref. It does not contain a full canonical operation name/version/argument contract.
 
 Step29 MUST NOT infer a canonical operation from:
 
@@ -511,9 +670,9 @@ arbitrary proposed_changes keys
 natural language
 ```
 
-### 9.2 Dual binding
+### 11.2 Dual binding
 
-Every derived operation SHALL be bound to both:
+Every derived operation binds to both:
 
 1. exact Step27 propagation proposal evidence; and
 2. exact Step23 canonical operation contract evidence.
@@ -537,9 +696,9 @@ targets + contract effects
   are fully covered by ApprovalScopeDefinition
 ```
 
-### 9.3 Proposed-change fingerprinting
+### 11.3 Proposed-change fingerprinting
 
-Each Step27 proposed change mapping SHALL be canonical-JSON normalized and hashed independently:
+Each Step27 proposed-change mapping is canonical-JSON normalized and independently hashed:
 
 ```text
 proposed_change_hash = SHA-256(canonical_json(proposed_change_body))
@@ -549,37 +708,48 @@ A `proposed_change_hash` may be materialized at most once.
 
 Unknown or duplicate proposal references fail closed.
 
-### 9.4 Required completeness
+### 11.4 Required completeness
 
-For every Step28-admitted deterministic platform mutation proposal:
+For every propagation bundle whose `bundle_id` is admitted in:
 
 ```text
-exactly one derived materialization is required
+ApprovalScopeDefinition.propagation_bundle_ids
 ```
 
-Step29 MUST reject a transaction that silently drops an admitted deterministic mutation or materializes the same proposal twice.
+Step29 SHALL require **every** `PropagationBundle.proposed_changes[]` entry to be materialized exactly once.
+
+This is intentionally stronger than caller-selected partial materialization because the current Step27 deterministic bundle shape has one proposed mutation description per affected semantic entity.
+
+Step29 MUST reject:
+
+```text
+missing admitted proposal
+duplicate admitted proposal
+unknown proposal
+proposal from a non-admitted bundle
+```
 
 Advisory-only impacts and Host-native verification-only impacts do not become derived mutation nodes merely because they appear in `affected_entities`.
 
 ---
 
-## 10. Step28 scope coverage
+## 12. Step28 scope coverage
 
-### 10.1 Explicit-entity authority only in v1
+### 12.1 Explicit-entity authority only in v1
 
-Step28 supports both explicit entity selectors and a restricted predicate selector. Step29 v1 does not own a snapshot-bound predicate evaluator.
+Step28 supports explicit entity selectors and a restricted predicate selector. Step29 v1 does not own a snapshot-bound predicate evaluator.
 
-Therefore mutation materialization SHALL only use Step28 rules whose selector explicitly enumerates the target semantic id.
+Mutation materialization SHALL therefore use only `ExistingEntityRule` values whose selector explicitly enumerates the target semantic id.
 
 Predicate-only membership cannot be accepted based on caller assertion.
 
-Failure code:
+Failure:
 
 ```text
 CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED
 ```
 
-### 10.2 Full effect coverage
+### 12.2 Full effect coverage
 
 For every materialized operation and every target:
 
@@ -588,7 +758,7 @@ expected_effects
   ⊆ union(allowed_aspects of explicit Step28 rules covering that target)
 ```
 
-Coverage may be provided by more than one explicit rule, but it must be complete.
+Coverage may be provided by multiple explicit rules, but must be complete.
 
 Example:
 
@@ -597,91 +767,70 @@ MOVE WALL-001
 expected_effects = {PLACEMENT, GEOMETRY}
 ```
 
-If Step28 authorizes only:
+If scope authorizes only:
 
 ```text
 WALL-001 -> {PLACEMENT}
 ```
 
-Step29 MUST fail with:
+Step29 fails with:
 
 ```text
 CHANGESET_SCOPE_EFFECT_EXCEEDED
 ```
 
-### 10.3 Scope cannot be widened
+### 12.3 Scope cannot be widened
 
 Step29 MUST NOT:
 
 - add entities to a selector;
-- add aspects to any existing rule;
+- add aspects to an existing rule;
 - convert predicate scope into explicit permission by assertion;
 - activate Step28 creation/deletion rules unsupported in v1;
 - add propagation bundles not already admitted.
 
 ---
 
-## 11. Creation and deletion remain unsupported in v1
+## 13. Creation and deletion remain unsupported in v1
 
-Step28 v1 already rejects non-empty creation/deletion authority because the current Step23 contract does not expose typed canonical existence-effect authority.
+Step28 v1 rejects non-empty creation/deletion authority because the current Step23 contract does not expose typed canonical existence-effect authority.
 
 Step29 SHALL preserve that restriction.
 
-No Step29 caller may materialize a CREATE/DELETE mutation by encoding it as a generic derived operation while bypassing Step28's existence-effect restriction.
+No caller may encode CREATE/DELETE as a generic derived operation to bypass Step28's existence-effect restriction.
 
-If a future Step23 contract introduces typed create/delete authority, Step28 must first activate matching scope rules before Step29 may consume them.
+Future create/delete support requires Step23 typed authority first, then Step28 scope activation, then Step29 consumption.
 
 ---
 
-## 12. Change DAG
+## 14. Change DAG
 
-### 12.1 Impact graph and Change DAG are distinct
+Step27 predicts impact/propagation. Step29 freezes actual canonical mutation causality.
 
-Step27 predicts impact and propagation.
+Only materialized canonical operations are mutation DAG nodes. A predicted impact requiring verification is not automatically a mutation node.
 
-Step29 freezes actual canonical mutation causality.
-
-Only materialized canonical operations are mutation DAG nodes.
-
-Predicted impacts requiring verification are not automatically mutation nodes.
-
-### 12.2 v1 admissible edges
-
-Step29 v1 SHALL allow only evidence-backed:
+Step29 v1 admits only evidence-backed:
 
 ```text
 ROOT → DERIVED
 ```
 
-where the derived operation is explicitly tied to a propagation bundle/proposal caused by the root planning result.
-
-Caller-declared arbitrary:
-
-```text
-DERIVED → DERIVED
-```
-
-edges SHALL fail closed in v1.
-
-### 12.3 Structural validity
-
-The builder SHALL reject:
+The builder rejects:
 
 - unknown operation ids in edges;
 - self edges;
 - duplicate semantic edges;
 - cycles;
-- edges not supported by v1 causality rules.
-
-Even though v1 restrictions make cycles difficult to construct, cycle validation remains an explicit invariant.
+- arbitrary `DERIVED → DERIVED` edges;
+- edges not justified by the derived operation's exact propagation source evidence.
 
 ---
 
-## 13. Preconditions
+## 15. Preconditions
 
-Step29 preconditions are deterministic projections of upstream machine requirements, not policy text.
+Step29 preconditions are deterministic projections of D6 planning requirements, not policy prose.
 
-Examples include:
+Initial closed kinds:
 
 ```text
 OPERATION_FRESHNESS
@@ -691,37 +840,34 @@ ASSURANCE
 
 SnapshotSet and SemanticEnvironment identity are top-level transaction bindings and SHALL NOT be weakened into optional precondition text.
 
-Precondition normalization SHALL be deterministic and included in `changeset_hash`.
+Preconditions are normalized and included in `changeset_hash`.
 
 ---
 
-## 14. Affected entities and semantic impacts
+## 16. Affected entities and semantic impacts
 
-### 14.1 `affected_entities[]`
+### 16.1 `affected_entities[]`
 
-The affected entity set SHALL be the deterministic union of:
+The affected entity set is the deterministic union of:
 
 ```text
 ImpactAnalysis.direct_targets
 +
-all predicted affected semantic ids
+all PredictedImpact.affected_semantic_id
 ```
 
-This list is evidence/reporting scope, not mutation authority.
+This is evidence/reporting scope, not mutation authority.
 
-An entity may be affected or require verification without being a mutation target.
+### 16.2 `semantic_impacts[]`
 
-### 14.2 `semantic_impacts[]`
-
-`semantic_impacts[]` SHALL be a normalized immutable projection of the Step27 predicted impacts used by this transaction.
-
-It SHALL preserve machine fields such as:
+`semantic_impacts[]` is a normalized immutable projection of Step27 predicted impacts preserving:
 
 ```text
-source
-affected entity
+source_semantic_id
+affected_semantic_id
 dependency_ref
-propagation owner/action
+propagation_owner
+propagation_action
 requires_verification
 ```
 
@@ -729,9 +875,9 @@ It MUST NOT convert impact evidence into permission.
 
 ---
 
-## 15. Validation tasks
+## 17. Validation tasks
 
-Validation tasks SHALL be generated deterministically from machine contracts, including:
+Validation tasks are generated deterministically from:
 
 ```text
 root CanonicalOperationContractEvidence.verification_contract
@@ -739,91 +885,39 @@ derived CanonicalOperationContractEvidence.verification_contract
 PredictedImpact.requires_verification
 ```
 
-A Step23 MOVE verification contract may therefore create a root read-back obligation.
+For example, a canonical MOVE verification contract may create a root Host read-back obligation, while a Host-native predicted impact with `requires_verification=true` may create a dependency revalidation/read-back obligation without creating a derived mutation node.
 
-A Host-native predicted impact with `requires_verification=true` may create a dependency revalidation/read-back obligation without creating a derived mutation operation.
+Step29 defines only the obligation. Actual verification execution/results belong to Step33.
 
-Step29 SHALL only define the obligation.
-
-Actual verification execution/results belong to Step33.
-
-Construction ids such as `validation_task_id` SHALL be deterministically derived from semantic task fingerprints and excluded as independent entropy from the ChangeSet semantic hash.
-
----
-
-## 16. Snapshot and environment binding
-
-The ChangeSet SHALL carry exact:
-
-```text
-planning_snapshot_ref
-base_snapshot_set_ref
-semantic_environment_ref
-```
-
-The builder SHALL revalidate upstream consistency instead of trusting that previous steps already did so.
-
-At minimum:
-
-```text
-BoundOperationProposal planning/environment
-  == ImpactAnalysis planning/environment
-
-ImpactAnalysis planning/snapshot/environment
-  == ApprovalScopeDefinition planning/snapshot/environment
-```
-
-Any mismatch fails closed.
-
-This prevents mixing a valid bound operation, impact result, and scope body from different semantic worlds.
-
----
-
-## 17. Impact and scope binding
-
-Step29 SHALL require:
-
-```text
-ImpactAnalysis.analysis_fingerprint
-  == ApprovalScopeDefinition.impact_analysis_fingerprint
-```
-
-The ChangeSet semantic body SHALL include:
-
-```text
-impact_analysis_fingerprint
-scope_body_hash
-```
-
-`scope_definition_id` may be carried as a human/reference id but MUST NOT substitute for the semantic `scope_body_hash`.
+`validation_task_id` is deterministically derived from task semantic content and excluded as independent entropy from the ChangeSet hash.
 
 ---
 
 ## 18. ChangeSet hashing
 
-### 18.1 Canonical hash function
-
-Step29 SHALL use deterministic canonical JSON and SHA-256:
+### 18.1 Canonical function
 
 ```text
 changeset_hash = SHA-256(canonical_json(semantic_changeset_body))
 ```
 
-Canonical JSON SHALL use stable key ordering, compact separators, UTF-8, normalized enums/tuples/mappings, and deterministic collection ordering where semantic order is not meaningful.
+Canonical JSON uses stable key ordering, compact separators, UTF-8, normalized enums/mappings, and deterministic collection ordering where semantic order is not meaningful.
 
 ### 18.2 Semantic hash body
 
-The semantic body SHALL include at least:
+The semantic body includes at least:
 
 ```text
 task_id
 project_id?
 
 planning_snapshot_ref
-base_snapshot_set_ref
+snapshot_set_ref
 semantic_environment_ref
 
 impact_analysis_fingerprint
+bound_operation_fingerprint
+
 scope_body_hash
 
 root operation semantic body
@@ -836,7 +930,7 @@ semantic_impacts
 validation_tasks
 ```
 
-Each operation semantic body SHALL include:
+Each operation semantic body includes:
 
 ```text
 origin
@@ -849,9 +943,11 @@ semantic source evidence
 semantic scope coverage
 ```
 
+For the root operation, source evidence includes the complete `bound_operation_evidence_fingerprint`, so D6 binding/context evidence is also frozen into transaction identity.
+
 ### 18.3 Construction ids excluded
 
-The following SHALL NOT add independent entropy to `changeset_hash`:
+The following do not add independent entropy:
 
 ```text
 changeset_id
@@ -860,18 +956,19 @@ scope_definition_id
 validation_task_id
 ```
 
-When such ids are referenced by another semantic object, hashing SHALL resolve them to the corresponding semantic fingerprint/meaning rather than raw opaque id text.
+When another semantic object references one of these ids, hashing resolves it to the referenced semantic fingerprint/meaning rather than raw opaque id text.
 
-### 18.4 Changes that must change the hash
+### 18.4 Material changes that must change hash
 
-Any material change to the following MUST change `changeset_hash`:
+Any material change to the following changes `changeset_hash`:
 
 ```text
 canonical operation/version
 canonical contract semantic definition
 canonical arguments
 targets
-derived materialization
+D6 bound-operation evidence
+Step27 derived materialization
 Change DAG causality
 PlanningSnapshot
 SnapshotSet
@@ -882,9 +979,9 @@ preconditions
 validation obligations
 ```
 
-### 18.5 Stable construction ids
+### 18.5 Stable ids
 
-Recommended deterministic ids:
+Recommended construction ids:
 
 ```text
 changeset_id = "CS-" + changeset_hash[:12]
@@ -892,28 +989,24 @@ operation_id = "COP-" + operation_hash[:12]
 validation_task_id = "VT-" + validation_task_hash[:12]
 ```
 
-UUID/random identity SHALL NOT determine semantic transaction identity.
+Random UUID identity SHALL NOT determine semantic transaction identity.
 
 ---
 
-## 19. No final ApprovalScopeBoundary inside the ChangeSet
+## 19. No final ApprovalScopeBoundary inside ChangeSet hash
 
-The ChangeSet SHALL carry only the frozen Step28 definition reference:
-
-```text
-scope_definition_id
-scope_body_hash
-```
-
-It MUST NOT contain final:
+The ChangeSet carries only:
 
 ```text
-ApprovalScopeBoundary.scope_hash
+ApprovalScopeDefinitionRef {
+  scope_definition_id
+  scope_body_hash
+}
 ```
 
-as part of its own hash body.
+It MUST NOT contain final `ApprovalScopeBoundary.scope_hash` as part of its own semantic hash.
 
-The correct order remains:
+Correct order:
 
 ```text
 ApprovalScopeDefinition
@@ -927,7 +1020,7 @@ ApprovalScopeBoundary
 + scope_hash
 ```
 
-Including final `scope_hash` in the ChangeSet semantic body would create a circular dependency because Step28 final `scope_hash` itself binds `changeset_hash`.
+Including final `scope_hash` in ChangeSet would create a cycle because Step28 final `scope_hash` itself binds `changeset_hash`.
 
 ---
 
@@ -945,9 +1038,10 @@ bind_changeset(
 
 Step29 tests SHALL prove that binding:
 
-- succeeds for a valid lowercase SHA-256 hash;
+- accepts the generated lowercase SHA-256 hash;
 - leaves the frozen Step28 semantic body unchanged;
-- only adds the final ChangeSet binding and derived final scope hash.
+- binds exactly the generated ChangeSet hash;
+- derives the final Step28 scope hash only through the existing binder.
 
 Step29 MUST NOT add a second scope-binding implementation.
 
@@ -963,7 +1057,7 @@ CanonicalChangeSet
 ApprovalScopeBoundary
 ```
 
-and SHALL first validate:
+and first validate:
 
 ```text
 ApprovalScopeBoundary.changeset_hash
@@ -975,11 +1069,11 @@ ApprovalScopeBoundary.scope_body_hash
 
 Step30 SHALL NOT rebuild the transaction from D6, Step27, or Step28 planner requests.
 
-The responsibility split is:
+Responsibility split:
 
 ```text
 Step29: what canonical mutation exists
-Step30: how that immutable mutation is partitioned for execution
+Step30: how the immutable mutation is partitioned for execution
 Step31: which provider binds each canonical execution unit
 ```
 
@@ -987,7 +1081,7 @@ Step31: which provider binds each canonical execution unit
 
 ## 22. Fields explicitly excluded from Step29
 
-The Step29 production contract MUST NOT contain or import runtime authority for:
+The Step29 production contract MUST NOT contain runtime authority for:
 
 ```text
 provider_tool
@@ -1019,7 +1113,7 @@ saga runtime state
 mutable workflow status
 ```
 
-Workflow/runtime status SHALL be stored separately and associated by stable transaction identity, for example:
+Workflow/runtime status is associated externally by stable transaction identity, e.g.:
 
 ```text
 changeset_hash -> workflow/checkpoint state
@@ -1031,14 +1125,14 @@ rather than mutating the ChangeSet.
 
 ## 23. Builder request
 
-The Step29 builder input SHALL be semantically equivalent to:
+The Step29 builder input is semantically equivalent to:
 
 ```text
 ChangeSetBuildRequest {
   task_id
   project_id?
 
-  bound_operation
+  bound_operation_evidence
   impact_analysis
   approval_scope_definition
 
@@ -1047,9 +1141,9 @@ ChangeSetBuildRequest {
 }
 ```
 
-For package-boundary purposes, `canonical_operation_definitions[]` SHALL be supplied as the immutable `CanonicalOperationContractEvidence` projection defined in §5, assembled from exact Step23 definitions outside the package.
+`canonical_operation_definitions[]` are the immutable `CanonicalOperationContractEvidence` projections from §5.1.
 
-The builder SHALL not accept caller-provided:
+The builder does not accept caller-provided:
 
 ```text
 expected_effects
@@ -1062,59 +1156,15 @@ runtime verification results
 
 ---
 
-## 24. Required cross-input validation
+## 24. Error contract
 
-Before producing a ChangeSet, the builder SHALL revalidate all authority-bearing joins.
-
-At minimum:
-
-```text
-bound_operation operation/version
-  == impact_analysis operation/version
-
-bound_operation planning/environment
-  == impact_analysis planning/environment
-
-impact_analysis planning/snapshot/environment
-  == approval_scope_definition planning/snapshot/environment
-
-impact_analysis.analysis_fingerprint
-  == approval_scope_definition.impact_analysis_fingerprint
-
-root targets
-  == impact_analysis.direct_targets
-
-root canonical contract
-  == exact operation/version selected by bound operation
-
-root expected effects
-  == canonical contract effects
-
-all mutation targets/effects
-  ⊆ explicit Step28 entity/effect authority
-
-all derived bundle/proposal refs
-  ∈ exact ImpactAnalysis
-
-all Step28-admitted deterministic mutation proposals
-  are materialized exactly once
-```
-
-A builder SHALL fail closed on ambiguity rather than silently repairing mismatched inputs.
-
----
-
-## 25. Error contract
-
-Step29 SHALL expose one stable domain exception:
+Step29 exposes one stable domain exception:
 
 ```text
 ChangeSetError(code, message)
 ```
 
-The machine `code` is workflow-significant.
-
-The initial required code vocabulary is:
+Initial machine-code vocabulary:
 
 ```text
 CHANGESET_INPUT_INVALID
@@ -1141,15 +1191,15 @@ CHANGESET_DAG_INVALID
 CHANGESET_HASH_INVALID
 ```
 
-Raw `ValueError`, jsonschema exceptions, or implementation-specific exceptions SHALL NOT be the public workflow decision contract.
+Raw `ValueError`, jsonschema exceptions, or implementation-specific exceptions are not the public workflow-decision contract.
 
 ---
 
-## 26. Architecture constraints
+## 25. Architecture constraints
 
-The `design_changeset` production package MUST remain provider-neutral.
+`design_changeset` remains provider-neutral.
 
-Architecture tests SHALL prove that it does not depend on:
+Architecture tests SHALL prove no dependency on:
 
 ```text
 host_contracts
@@ -1164,17 +1214,19 @@ ActualDelta
 Host-native identifiers
 ```
 
-It MUST NOT define production Step30 `ExecutionSlice` / `ExecutionUnit` implementations or Step33 verifier/saga implementations.
+The package MUST NOT define production Step30 `ExecutionSlice` / `ExecutionUnit` implementations or Step33 verifier/saga implementations.
 
-The package SHALL expose an explicit public `__all__`.
+It SHALL expose an explicit public `__all__`.
 
-All public transaction/value DTOs SHALL be immutable/frozen and shall normalize mutable caller containers into immutable value structures.
+All public transaction/value DTOs are immutable/frozen and normalize mutable caller containers into immutable value structures.
+
+The package MAY consume public provider-neutral Step27/Step28 contracts. Upstream D6/Step23 objects are supplied through the evidence projections in §5 rather than by querying implementation registries inside Step29.
 
 ---
 
-## 27. Legacy placeholder removal guard
+## 26. Legacy placeholder removal guard
 
-Step29 SHALL include a repository-level migration test proving that the old Phase-2 placeholder files no longer exist:
+Step29 SHALL include a repository-level migration test proving these Phase-2 placeholder files no longer exist:
 
 ```text
 platform/changeset/src/changeset/model.py
@@ -1200,117 +1252,122 @@ to pytest's active pythonpath.
 
 ---
 
-## 28. TDD acceptance criteria
+## 27. TDD acceptance criteria
 
-Implementation SHALL use RED → GREEN cycles covering at least the following behavior.
+Implementation SHALL use RED → GREEN cycles covering at least:
 
-### 28.1 Contracts and immutability
+### 27.1 Contracts / upstream binding
 
 1. missing new package/API is RED before implementation;
 2. public DTOs are frozen/value-oriented;
-3. mutable input containers are normalized into immutable internal values;
-4. public `__all__` is explicit.
+3. mutable containers normalize to immutable values;
+4. Step27 exposes `bound_operation_fingerprint`;
+5. existing Step27 `analysis_fingerprint` remains unchanged for equivalent inputs after the hardening;
+6. Step29 rejects same-target/different-material-argument D6 evidence paired with an old ImpactAnalysis;
+7. public `__all__` is explicit.
 
-### 28.2 Hashing
+### 27.2 Hashing
 
-5. equivalent semantic inputs with different non-semantic ordering produce the same `changeset_hash`;
-6. canonical argument change changes hash;
-7. snapshot/environment change changes hash;
-8. `scope_body_hash` change changes hash;
-9. opaque construction ids do not independently change hash.
+8. equivalent semantic inputs with different non-semantic ordering produce the same `changeset_hash`;
+9. canonical argument change changes hash;
+10. D6 binding/context evidence change changes hash where material to `bound_operation_evidence_fingerprint`;
+11. PlanningSnapshot/SnapshotSet/SemanticEnvironment change changes hash;
+12. `scope_body_hash` change changes hash;
+13. opaque construction ids do not independently change hash.
 
-### 28.3 Root canonical contract
+### 27.3 Root canonical contract
 
-10. operation/version mismatch is rejected;
-11. canonical arguments are validated against the exact Step23-derived schema evidence;
-12. expected effects come from canonical contract evidence, not caller input;
-13. root target mismatch with ImpactAnalysis is rejected.
+14. canonical operation mismatch is rejected;
+15. canonical operation version mismatch with Step28 effect evidence is rejected;
+16. canonical arguments validate against exact Step23-derived schema evidence;
+17. expected effects come from canonical contract evidence, not caller input;
+18. root target mismatch with ImpactAnalysis is rejected;
+19. Step23 contract effects must equal Step28 canonical effect evidence.
 
-### 28.4 Derived materialization
+### 27.4 Derived materialization
 
-14. unknown propagation bundle is rejected;
-15. unknown `proposed_change_hash` is rejected;
-16. duplicate proposal materialization is rejected;
-17. admitted deterministic proposal missing materialization is rejected;
-18. Host-native verification-only impact does not become a derived mutation;
-19. advisory-only impact does not create permission or a derived mutation.
+20. unknown propagation bundle is rejected;
+21. non-admitted propagation bundle is rejected;
+22. unknown `proposed_change_hash` is rejected;
+23. duplicate proposal materialization is rejected;
+24. every proposal in an admitted deterministic bundle must be materialized exactly once;
+25. Host-native verification-only impact does not become a derived mutation;
+26. advisory-only impact does not create permission or mutation.
 
-### 28.5 Scope
+### 27.5 Scope
 
-20. direct/derived target outside explicit entity authority is rejected;
-21. effect outside Step28 allowed aspects is rejected;
-22. predicate-only scope membership is rejected in v1;
-23. Step29 cannot activate creation/deletion authority.
+27. direct/derived target outside explicit entity authority is rejected;
+28. effect outside Step28 allowed aspects is rejected;
+29. predicate-only scope membership is rejected in v1;
+30. Step29 cannot activate creation/deletion authority.
 
-### 28.6 Change DAG
+### 27.6 Change DAG
 
-24. evidence-backed `ROOT → DERIVED` is valid;
-25. arbitrary `DERIVED → DERIVED` is rejected in v1;
-26. unknown/self/cyclic edge is rejected.
+31. evidence-backed `ROOT → DERIVED` is valid;
+32. arbitrary `DERIVED → DERIVED` is rejected in v1;
+33. unknown/self/cyclic edge is rejected.
 
-### 28.7 Evidence projections
+### 27.7 Evidence / validation
 
-27. `affected_entities` is the deterministic union of direct and predicted affected entities;
-28. semantic impacts remain evidence and do not authorize mutation;
-29. verification tasks are generated deterministically from canonical verification contracts and `requires_verification` evidence.
+34. `affected_entities` is deterministic union of direct and predicted affected entities;
+35. semantic impacts remain evidence, not mutation permission;
+36. validation tasks are generated deterministically from canonical verification contracts and `requires_verification` evidence.
 
-### 28.8 Step28 integration
+### 27.8 Step28 integration
 
-30. generated `changeset_hash` binds successfully through Step28 `bind_changeset()`;
-31. Step28 scope semantic body is unchanged after binding;
-32. final boundary binds exactly the produced ChangeSet hash.
+37. generated `changeset_hash` binds through Step28 `bind_changeset()`;
+38. Step28 scope semantic body is unchanged after binding;
+39. final boundary binds exactly the produced ChangeSet hash.
 
-### 28.9 Migration and architecture
+### 27.9 Migration / regression
 
-33. legacy HostDelta ChangeSet files are removed;
-34. `host-contracts` dependency is removed from `platform/changeset`;
-35. architecture guard proves no host/provider/native leakage;
-36. Step29 does not own Step30/31/32/33 runtime artifacts.
-
-### 28.10 Regression gates
-
-37. Step28 focused regression remains green;
-38. Step27 focused regression remains green;
-39. Step25/26 relevant regression remains green;
-40. Ruff remains green;
-41. full repository pytest remains green.
+40. legacy HostDelta ChangeSet files are removed;
+41. `host-contracts` dependency is removed from `platform/changeset`;
+42. architecture guard proves no host/provider/native leakage;
+43. Step29 does not own Step30/31/32/33 artifacts;
+44. Step28 focused regression remains green;
+45. Step27 focused regression remains green;
+46. Step25/26 relevant regressions remain green;
+47. Ruff remains green;
+48. full repository pytest remains green.
 
 ---
 
-## 29. CI boundary
+## 28. CI boundary
 
-Step29 SHALL add a focused GitHub Actions workflow, recommended name:
+Step29 SHALL add a focused GitHub Actions workflow, recommended:
 
 ```text
 .github/workflows/step29-immutable-changeset.yml
 ```
 
-The workflow SHALL trigger on Step29 package/tests/docs/root-pythonpath paths and run:
+It SHALL run:
 
 1. Step29 diff-boundary validation;
 2. Step29 contract tests;
 3. Step29 hashing tests;
 4. Step29 builder tests;
 5. Step29 architecture/migration tests;
-6. Step28 regressions;
-7. Step27 regressions;
-8. Step25/26 relevant regressions;
-9. existing D4→D5 freshness bridge where required by the repository regression baseline;
-10. Ruff;
-11. full repository pytest.
+6. Step27 binding-hardening tests;
+7. Step28 regressions;
+8. Step27 regressions;
+9. Step25/26 relevant regressions;
+10. existing D4→D5 freshness bridge where required by repository baseline;
+11. Ruff;
+12. full repository pytest.
 
-The focused CI SHALL not claim success if full repository regression or lint is skipped after a prior failure unless the failing root cause is fixed and a fresh head run completes all required gates.
+The workflow SHALL not claim final success if full regression or lint is skipped after a prior failure; a fresh final head must complete all required gates.
 
 ---
 
-## 30. Non-goals
+## 29. Non-goals
 
 Step29 v1 deliberately does not implement:
 
 - multiple root-operation batching;
 - predicate selector evaluation;
 - CREATE/DELETE canonical existence effects;
-- provider selection or capability negotiation;
+- provider selection/capability negotiation;
 - provider input adaptation;
 - host/document execution slicing;
 - approval policy evaluation;
@@ -1318,74 +1375,73 @@ Step29 v1 deliberately does not implement:
 - actual delta capture;
 - verification result evaluation;
 - rollback/compensation/saga execution;
-- mutable workflow status inside the ChangeSet;
+- mutable workflow status inside ChangeSet;
 - caller-authored semantic effects.
 
-These are intentionally deferred to the contract owner identified elsewhere in Phase G.
-
 ---
 
-## 31. Security and fail-closed posture
+## 30. Security and fail-closed posture
 
-Step29 SHALL treat all cross-step joins as authority-sensitive.
+Step29 treats all cross-step joins as authority-sensitive.
 
-It MUST fail closed if it cannot prove:
+It fails closed unless it can prove:
 
 ```text
-this bound operation
-belongs to this impact analysis
-which belongs to this frozen scope body
+this exact material bound operation
+belongs to this ImpactAnalysis
+which belongs to this frozen ApprovalScopeDefinition
 and every mutation node
-is an exact canonical contract instance
-fully covered by explicit approved effect authority
+is an exact Step23 canonical contract instance
+fully covered by explicit Step28 effect authority
 ```
 
-No fallback inference SHALL widen authority.
-
-Specifically forbidden fallbacks include:
+Forbidden fallbacks include:
 
 ```text
-infer an operation from propagation action text
-infer target membership from a predicate without evaluation
+infer operation from propagation action text
+infer target membership from predicate without evaluation
 trust caller-provided expected_effects
 trust caller-provided changeset_hash
-silently omit an admitted deterministic derived mutation
+silently omit an admitted deterministic derived proposal
 silently duplicate a propagation proposal
 silently accept mismatched snapshots/environments
+reuse ImpactAnalysis after changing material canonical arguments
 ```
 
 ---
 
-## 32. Final design invariants
+## 31. Final design invariants
 
-Step29 is complete only when all of the following are true:
+Step29 is complete only when all are true:
 
 1. there is exactly one canonical meaning of ChangeSet in `platform/changeset`;
 2. the ChangeSet is immutable from creation;
-3. one root operation is frozen from the bound D6 proposal;
-4. derived operations are explicitly tied to both Step27 proposal evidence and Step23 canonical contract evidence;
-5. expected effects are generated from canonical contract authority, never caller-authored;
-6. all mutation targets/effects are fully covered by Step28 explicit-entity rules;
-7. predicate-only membership is fail-closed in v1;
-8. admitted deterministic derived mutations are materialized exactly once;
-9. Change DAG v1 only admits evidence-backed `ROOT → DERIVED` causality;
-10. affected/impact/validation data remain evidence and obligations, not permission expansion;
-11. `changeset_hash` is deterministic over semantic transaction identity;
-12. construction ids do not alter semantic identity;
-13. final `ApprovalScopeBoundary.scope_hash` is not part of the ChangeSet hash, avoiding circular binding;
-14. the produced hash binds through Step28's existing pure binder without changing scope body;
-15. Step30 receives only `CanonicalChangeSet + ApprovalScopeBoundary` as the execution-planning boundary;
-16. no Host/provider/native/approval/runtime state leaks into the canonical ChangeSet;
-17. the old HostDelta-centric ChangeSet placeholder and dependency are removed;
-18. focused tests, architecture guards, lint, and full repository regression remain green.
+3. exactly one root canonical operation is frozen;
+4. Step27 exposes a verifiable `bound_operation_fingerprint` without changing existing `analysis_fingerprint` semantics;
+5. Step29 proves its D6 material operation is the one analyzed by Step27;
+6. derived operations are explicitly tied to both Step27 proposal evidence and Step23 contract evidence;
+7. expected effects are generated from Step23 authority, never caller-authored;
+8. all mutation targets/effects are covered by Step28 explicit-entity rules;
+9. predicate-only membership fails closed in v1;
+10. every proposal in an admitted deterministic propagation bundle is materialized exactly once;
+11. Change DAG v1 only admits evidence-backed `ROOT → DERIVED` causality;
+12. affected/impact/validation data remain evidence/obligations, not permission expansion;
+13. `changeset_hash` is deterministic over semantic transaction identity;
+14. construction ids do not alter semantic identity;
+15. final Step28 `scope_hash` is not part of the ChangeSet hash, avoiding circular binding;
+16. produced hash binds through Step28's existing pure binder without changing scope body;
+17. Step30 receives only `CanonicalChangeSet + ApprovalScopeBoundary` as execution-planning input;
+18. no Host/provider/native/approval/runtime state leaks into ChangeSet;
+19. old HostDelta-centric ChangeSet placeholder/dependency is removed;
+20. focused tests, upstream regressions, lint, and full repository regression remain green.
 
 ---
 
-## 33. Review gate
+## 32. Review gate
 
-This written spec was produced from three design sections explicitly approved in chat on 2026-08-29.
+This written spec incorporates the three design sections explicitly approved in chat on 2026-08-29 plus one self-review correction discovered by comparing the approved design against the current Step27 production contract: the explicit `bound_operation_fingerprint` prerequisite in §6.
 
-No production implementation plan or Step29 code should begin until this written spec has been reviewed for consistency with:
+No production implementation plan or Step29 code should begin until the written spec is reviewed for consistency with:
 
 ```text
 master spec v0.6
