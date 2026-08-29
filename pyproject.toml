@@ -34,6 +34,7 @@ pythonpath = [
     "platform/interaction/src",
     "platform/impact/src",
     "platform/approval_scope/src",
+    "platform/changeset/src",
 ]
 addopts = "-ra --strict-markers"
 markers = [
