@@ -8,12 +8,38 @@ logic, not to D4 Operation Resolution.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 
 _VALID_CATEGORIES = frozenset({"MODEL_OPERATION", "INTERACTION", "VIEW", "CONTEXT"})
+
+
+class SlotBindingClass(str, Enum):
+    """Owner/source class for one canonical action input slot."""
+
+    INTENT = "INTENT"
+    CONTEXT = "CONTEXT"
+    CANONICAL_DEFAULT = "CANONICAL_DEFAULT"
+    DERIVED = "DERIVED"
+    PROVIDER = "PROVIDER"
+
+
+def _copy_mapping_sequence(
+    value: tuple[dict[str, Any], ...],
+    *,
+    field_name: str,
+) -> tuple[dict[str, Any], ...]:
+    copied: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{field_name} entries must be objects")
+        copied.append(deepcopy(dict(item)))
+    return tuple(copied)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,11 +47,19 @@ class CanonicalOperationDefinition:
     """Platform-owned contract for one canonical semantic operation."""
 
     canonical_operation: str
+    version: str
+    title: str
+    description: str
     category: str
     input_schema: dict[str, Any]
+    slot_binding_policy: Mapping[str, SlotBindingClass | str]
     verification_contract: dict[str, Any]
+    canonical_entity_constraints: tuple[str, ...] = ()
     context_freshness_requirements: tuple[dict[str, Any], ...] = ()
     operation_freshness_requirements: tuple[dict[str, Any], ...] = ()
+    coverage_requirements: tuple[dict[str, Any], ...] = ()
+    assurance_requirements: tuple[dict[str, Any], ...] = ()
+    effects: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         canonical_operation = self.canonical_operation.strip()
@@ -38,8 +72,23 @@ class CanonicalOperationDefinition:
         if not isinstance(self.verification_contract, dict):
             raise ValueError("canonical verification_contract must be an object")
 
+        normalized_slot_policy = MappingProxyType(
+            {
+                str(slot): (
+                    value
+                    if isinstance(value, SlotBindingClass)
+                    else SlotBindingClass(str(value))
+                )
+                for slot, value in self.slot_binding_policy.items()
+            }
+        )
+
         object.__setattr__(self, "canonical_operation", canonical_operation)
+        object.__setattr__(self, "version", self.version.strip())
+        object.__setattr__(self, "title", self.title.strip())
+        object.__setattr__(self, "description", self.description.strip())
         object.__setattr__(self, "input_schema", deepcopy(self.input_schema))
+        object.__setattr__(self, "slot_binding_policy", normalized_slot_policy)
         object.__setattr__(
             self,
             "verification_contract",
@@ -47,18 +96,53 @@ class CanonicalOperationDefinition:
         )
         object.__setattr__(
             self,
+            "canonical_entity_constraints",
+            tuple(str(item) for item in self.canonical_entity_constraints),
+        )
+        object.__setattr__(
+            self,
             "context_freshness_requirements",
-            tuple(deepcopy(item) for item in self.context_freshness_requirements),
+            _copy_mapping_sequence(
+                self.context_freshness_requirements,
+                field_name="context_freshness_requirements",
+            ),
         )
         object.__setattr__(
             self,
             "operation_freshness_requirements",
-            tuple(deepcopy(item) for item in self.operation_freshness_requirements),
+            _copy_mapping_sequence(
+                self.operation_freshness_requirements,
+                field_name="operation_freshness_requirements",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "coverage_requirements",
+            _copy_mapping_sequence(
+                self.coverage_requirements,
+                field_name="coverage_requirements",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "assurance_requirements",
+            _copy_mapping_sequence(
+                self.assurance_requirements,
+                field_name="assurance_requirements",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "effects",
+            tuple(deepcopy(item) for item in self.effects),
         )
 
 
 MOVE_V1 = CanonicalOperationDefinition(
     canonical_operation="move.v1",
+    version="1.0.0",
+    title="Move entities",
+    description="Move the selected canonical design entities by a displacement vector.",
     category="MODEL_OPERATION",
     input_schema={
         "type": "object",
@@ -78,10 +162,18 @@ MOVE_V1 = CanonicalOperationDefinition(
         "required": ["targets", "displacement"],
         "additionalProperties": False,
     },
-    verification_contract={"type": "HOST_READ_BACK"},
+    slot_binding_policy={
+        "targets": SlotBindingClass.CONTEXT,
+        "displacement": SlotBindingClass.INTENT,
+    },
+    canonical_entity_constraints=(),
     operation_freshness_requirements=(
         {"aspect": "PLACEMENT", "required_state": "FRESH"},
     ),
+    coverage_requirements=(),
+    assurance_requirements=(),
+    effects=("PLACEMENT", "GEOMETRY"),
+    verification_contract={"type": "HOST_READ_BACK"},
 )
 
 
