@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
-import json
 from typing import Any
 
 
@@ -121,10 +121,10 @@ def compute_proposed_change_hash(change: Mapping[str, object]) -> str:
 
 
 def compute_scope_rule_fingerprint(rule: object) -> str:
-    selector = getattr(rule, "selector")
+    selector = rule.selector
     predicate = getattr(selector, "predicate", None)
     if predicate is None:
-        selector_payload: object = {"entities": list(getattr(selector, "entities"))}
+        selector_payload: object = {"entities": list(selector.entities)}
     else:
         selector_payload = {
             "predicate": [
@@ -141,7 +141,7 @@ def compute_scope_rule_fingerprint(rule: object) -> str:
             "selector": selector_payload,
             "allowed_aspects": sorted(
                 item.value if isinstance(item, Enum) else str(item)
-                for item in getattr(rule, "allowed_aspects")
+                for item in rule.allowed_aspects
             ),
         }
     )
