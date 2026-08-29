@@ -1,0 +1,44 @@
+name: Enterprise semantic provider verification
+
+on:
+  pull_request:
+    paths:
+      - "providers/semantics/enterprise_mapping/**"
+      - "tests/semantic_providers/enterprise_mapping/**"
+      - "platform/semantic_service/**"
+      - "tests/semantic_service/**"
+      - "docs/superpowers/specs/2026-08-29-enterprise-a-wall-mapping-provider-design.md"
+      - "docs/superpowers/plans/2026-08-29-enterprise-a-wall-mapping-provider.md"
+      - ".github/workflows/enterprise-semantic-provider.yml"
+  push:
+    paths:
+      - "providers/semantics/enterprise_mapping/**"
+      - "tests/semantic_providers/enterprise_mapping/**"
+      - "platform/semantic_service/**"
+      - "tests/semantic_service/**"
+      - ".github/workflows/enterprise-semantic-provider.yml"
+
+jobs:
+  enterprise-semantic-provider:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install base semantic packages
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e platform/semantic_service
+      - name: Run Step20 targeted tests
+        run: |
+          pytest -q \
+            tests/semantic_service/test_provider_contracts.py \
+            tests/semantic_service/test_registry.py \
+            tests/semantic_service/test_service_projection.py \
+            tests/semantic_service/test_semantic_service_public_surface.py \
+            tests/semantic_providers/enterprise_mapping
