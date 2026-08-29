@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-import re
 from types import MappingProxyType
 from typing import Any
 
 from design_approval_scope import CanonicalAspect
-
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -48,7 +47,7 @@ class ValidationTaskKind(str, Enum):
 
 def _text(value: object, field_name: str) -> str:
     if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be a string")
+        raise TypeError(f"{field_name} must be a string")
     normalized = value.strip()
     if not normalized:
         raise ValueError(f"{field_name} is required")
