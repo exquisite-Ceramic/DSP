@@ -6,7 +6,6 @@ from pathlib import Path
 import design_changeset
 from design_changeset import ChangeSetBuildRequest, DerivedOperationMaterialization
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CHANGESET_ROOT = ROOT / "platform" / "changeset" / "src"
 CANONICAL_ROOT = CHANGESET_ROOT / "design_changeset"
