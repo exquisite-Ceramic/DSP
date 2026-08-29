@@ -35,7 +35,10 @@ jobs:
             -e hosts/autocad/sidecar \
             -e platform/semantic_runtime \
             -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
             -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping
       - name: Verify Step21 PR diff boundary
         if: github.event_name == 'pull_request'
@@ -77,5 +80,8 @@ jobs:
             tests/orchestrator \
             tests/semantic_runtime \
             tests/semantic_service \
+            tests/semantic_mcp \
+            tests/semantic_providers/dsp_core \
             tests/semantic_providers/ifc43 \
+            tests/semantic_providers/metro_v32 \
             tests/semantic_providers/enterprise_mapping
