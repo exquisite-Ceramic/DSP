@@ -12,11 +12,13 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
+import re
 from types import MappingProxyType
 from typing import Any
 
 
 _VALID_CATEGORIES = frozenset({"MODEL_OPERATION", "INTERACTION", "VIEW", "CONTEXT"})
+_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
 class SlotBindingClass(str, Enum):
@@ -27,6 +29,15 @@ class SlotBindingClass(str, Enum):
     CANONICAL_DEFAULT = "CANONICAL_DEFAULT"
     DERIVED = "DERIVED"
     PROVIDER = "PROVIDER"
+
+
+def _required_text(value: str, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
 
 
 def _copy_mapping_sequence(
@@ -62,9 +73,16 @@ class CanonicalOperationDefinition:
     effects: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
-        canonical_operation = self.canonical_operation.strip()
-        if not canonical_operation:
-            raise ValueError("canonical_operation is required")
+        canonical_operation = _required_text(
+            self.canonical_operation,
+            field_name="canonical_operation",
+        )
+        version = _required_text(self.version, field_name="version")
+        if _VERSION_PATTERN.fullmatch(version) is None:
+            raise ValueError("version must use numeric MAJOR.MINOR.PATCH")
+        title = _required_text(self.title, field_name="title")
+        description = _required_text(self.description, field_name="description")
+
         if self.category not in _VALID_CATEGORIES:
             raise ValueError(f"invalid canonical operation category: {self.category!r}")
         if not isinstance(self.input_schema, dict):
@@ -72,6 +90,25 @@ class CanonicalOperationDefinition:
         if not isinstance(self.verification_contract, dict):
             raise ValueError("canonical verification_contract must be an object")
 
+        properties = self.input_schema.get("properties", {})
+        if not isinstance(properties, Mapping):
+            raise ValueError("canonical input_schema properties must be an object")
+        property_names = {str(name) for name in properties}
+
+        required = self.input_schema.get("required", [])
+        if not isinstance(required, list) or any(
+            not isinstance(name, str) for name in required
+        ):
+            raise ValueError("canonical input_schema required must be an array of strings")
+        unknown_required = sorted(set(required) - property_names)
+        if unknown_required:
+            raise ValueError(
+                "canonical input_schema required references unknown properties: "
+                f"{unknown_required}"
+            )
+
+        if not isinstance(self.slot_binding_policy, Mapping):
+            raise ValueError("slot_binding_policy must be an object")
         normalized_slot_policy = MappingProxyType(
             {
                 str(slot): (
@@ -82,11 +119,21 @@ class CanonicalOperationDefinition:
                 for slot, value in self.slot_binding_policy.items()
             }
         )
+        policy_names = set(normalized_slot_policy)
+        missing_policy = sorted(property_names - policy_names)
+        if missing_policy:
+            raise ValueError(f"missing slot binding policy: {missing_policy}")
+        unknown_policy = sorted(policy_names - property_names)
+        if unknown_policy:
+            raise ValueError(
+                "slot binding policy references unknown canonical slot: "
+                f"{unknown_policy}"
+            )
 
         object.__setattr__(self, "canonical_operation", canonical_operation)
-        object.__setattr__(self, "version", self.version.strip())
-        object.__setattr__(self, "title", self.title.strip())
-        object.__setattr__(self, "description", self.description.strip())
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "title", title)
+        object.__setattr__(self, "description", description)
         object.__setattr__(self, "input_schema", deepcopy(self.input_schema))
         object.__setattr__(self, "slot_binding_policy", normalized_slot_policy)
         object.__setattr__(
@@ -136,6 +183,26 @@ class CanonicalOperationDefinition:
             "effects",
             tuple(deepcopy(item) for item in self.effects),
         )
+
+    def intent_input_schema(self) -> dict[str, Any]:
+        """Project the canonical schema to only LLM/user intent-owned slots."""
+
+        schema = deepcopy(self.input_schema)
+        properties = schema.get("properties", {})
+        visible_names = [
+            name
+            for name in properties
+            if self.slot_binding_policy[name] is SlotBindingClass.INTENT
+        ]
+        schema["properties"] = {
+            name: deepcopy(properties[name]) for name in visible_names
+        }
+        if "required" in schema:
+            visible = set(visible_names)
+            schema["required"] = [
+                name for name in schema["required"] if name in visible
+            ]
+        return schema
 
 
 MOVE_V1 = CanonicalOperationDefinition(
