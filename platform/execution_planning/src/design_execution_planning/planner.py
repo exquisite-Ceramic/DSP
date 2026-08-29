@@ -172,7 +172,7 @@ def _normalize_routes(
     recomputed = compute_routing_snapshot_hash(tuple(normalized_routes))
     if recomputed != evidence.routing_snapshot_hash:
         _error(
-            "EXECUTION_ROUTE_HASH_MISMATCH",
+            "EXECUTION_ROUTING_HASH_MISMATCH",
             "runtime routing evidence hash does not match normalized route semantics",
         )
 
