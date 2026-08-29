@@ -67,7 +67,7 @@ jobs:
             tests/semantic_providers/enterprise_mapping
       - name: Run semantic-provider regression tests
         run: |
-          pytest -q \
+          pytest -q --import-mode=importlib \
             tests/semantic_service \
             tests/semantic_providers/dsp_core \
             tests/semantic_providers/ifc43 \
@@ -75,7 +75,7 @@ jobs:
             tests/semantic_providers/enterprise_mapping
       - name: Run relevant full Python regression tests
         run: |
-          pytest -q \
+          pytest -q --import-mode=importlib \
             contracts/python/tests \
             tests/contracts \
             tests/integration \
