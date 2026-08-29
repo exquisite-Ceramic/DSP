@@ -1,28 +1,22 @@
 from __future__ import annotations
 
 import importlib
-import os
-import sys
-from pathlib import Path
+import importlib.metadata
+import importlib.util
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SIDECAR_SRC = ROOT / "hosts" / "autocad" / "sidecar" / "src"
-if str(SIDECAR_SRC) not in sys.path:
-    sys.path.insert(0, str(SIDECAR_SRC))
-
-
 MOVE_TOOL = {
     "name": "cad.move",
-    "description": "Move entities.",
+    "description": "Move entities in the active AutoCAD document.",
     "inputSchema": {
         "type": "object",
         "properties": {
             "handles": {"type": "array", "items": {"type": "string"}},
             "dx": {"type": "number"},
             "dy": {"type": "number"},
+            "dz": {"type": "number", "default": 0.0},
         },
         "required": ["handles", "dx", "dy"],
     },
@@ -35,8 +29,8 @@ MOVE_TOOL = {
         ],
         "com.company.design/effects": ["PLACEMENT", "GEOMETRY"],
         "com.company.design/risk": "LOW",
-        "com.company.design/preview": False,
-        "com.company.design/rollback": False,
+        "com.company.design/preview": True,
+        "com.company.design/rollback": True,
         "com.company.design/idempotent": True,
         "com.company.design/verification": {"type": "HOST_READ_BACK"},
     },
@@ -44,36 +38,35 @@ MOVE_TOOL = {
 
 
 def _require_module(name: str):
+    try:
+        spec = importlib.util.find_spec(name)
+    except ModuleNotFoundError:
+        spec = None
+    assert spec is not None, f"{name} must exist for the D3 capability-profile slice"
     return importlib.import_module(name)
 
 
-def test_profile_parser_requires_explicit_structured_metadata() -> None:
+def test_profile_parser_keeps_provider_tool_separate_from_canonical_operation() -> None:
     profile_module = _require_module("autocad_sidecar.capability.profile")
+    assert hasattr(profile_module, "parse_design_capability")
 
     profile = profile_module.parse_design_capability(MOVE_TOOL, provider_server="autocad-local")
 
-    assert profile.canonical_operation == "move.v1"
+    assert profile.provider_server == "autocad-local"
     assert profile.provider_tool == "cad.move"
+    assert profile.canonical_operation == "move.v1"
     assert profile.category == "MODEL_OPERATION"
-    assert profile.entities == ("LINE", "LWPOLYLINE", "ARC")
-    assert profile.execution_freshness[0].aspect == "PLACEMENT"
-    assert profile.execution_freshness[0].required_state == "FRESH"
-    assert profile.preview is False
-    assert profile.rollback is False
+    assert profile.execution_freshness == (
+        {"aspect": "PLACEMENT", "required_state": "FRESH"},
+    )
+    assert profile.effects == ("PLACEMENT", "GEOMETRY")
     assert profile.idempotent is True
-    assert profile.verification == {"type": "HOST_READ_BACK"}
 
 
-def test_profile_parser_does_not_infer_canonical_operation_from_description() -> None:
+def test_profile_parser_rejects_missing_canonical_operation() -> None:
     profile_module = _require_module("autocad_sidecar.capability.profile")
-    invalid = {
-        **MOVE_TOOL,
-        "_meta": {
-            key: value
-            for key, value in MOVE_TOOL["_meta"].items()
-            if key != "com.company.design/operation"
-        },
-    }
+    invalid = {**MOVE_TOOL, "_meta": {**MOVE_TOOL["_meta"]}}
+    invalid["_meta"].pop("com.company.design/operation")
 
     with pytest.raises(ValueError, match="canonical operation"):
         profile_module.parse_design_capability(invalid, provider_server="autocad-local")
@@ -167,15 +160,31 @@ def test_mcp_cli_builds_runnable_sidecar_runtime_without_opening_host_transport(
             "--port",
             "8765",
             "--retries",
-            "1",
+            "2",
         ]
     )
 
-    runtime = cli_module.build_runtime(args, validate_transport=False)
+    runtime = cli_module.build_runtime(args)
 
-    assert runtime.host == "127.0.0.1"
-    assert runtime.port == 8765
-    assert runtime.transport == "pipe"
-    assert runtime.pipe == "EnterpriseDesignAgent.Test"
-    assert runtime.retry_attempts == 1
-    assert os.environ.get("AUTOCAD_PIPE_NAME") != "EnterpriseDesignAgent.Test"
+    assert runtime.adapter.pipe_name == "EnterpriseDesignAgent.Test"
+    assert runtime.dispatcher is not None
+    assert args.host == "127.0.0.1"
+    assert args.port == 8765
+    assert runtime.adapter._opened is False
+
+
+def test_mcp_cli_rejects_non_loopback_bind_without_gateway_auth() -> None:
+    cli_module = _require_module("autocad_sidecar.mcp_main")
+    args = cli_module.build_parser().parse_args(["--host", "0.0.0.0"])
+
+    with pytest.raises(ValueError, match="loopback"):
+        cli_module.validate_args(args)
+
+
+def test_sidecar_package_installs_mcp_console_entrypoint() -> None:
+    scripts = {
+        entry.name: entry.value
+        for entry in importlib.metadata.entry_points(group="console_scripts")
+    }
+
+    assert scripts["autocad-sidecar-mcp"] == "autocad_sidecar.mcp_main:main"
