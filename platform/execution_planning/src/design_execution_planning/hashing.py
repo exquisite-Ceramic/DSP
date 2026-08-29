@@ -96,14 +96,9 @@ def compute_execution_slice_hash(
     )
 
 
-def _dependency_payload(value: object) -> tuple[str, str, str]:
-    if isinstance(value, tuple) and len(value) == 3:
-        return (str(value[0]), str(value[1]), str(value[2]))
-    return (
-        str(value.predecessor_execution_unit_id),
-        str(value.successor_execution_unit_id),
-        str(value.reason_ref),
-    )
+def _dependency_payload(value: tuple[str, str, str]) -> tuple[str, str, str]:
+    predecessor_hash, successor_hash, reason_ref = value
+    return (str(predecessor_hash), str(successor_hash), str(reason_ref))
 
 
 def compute_execution_plan_hash(
@@ -112,7 +107,7 @@ def compute_execution_plan_hash(
     scope_hash: str,
     routing_snapshot_hash: str,
     execution_slice_hashes: Iterable[str],
-    execution_dependencies: Iterable[object],
+    execution_dependencies: Iterable[tuple[str, str, str]],
 ) -> str:
     dependencies = sorted({_dependency_payload(item) for item in execution_dependencies})
     return canonical_hash(
@@ -123,11 +118,11 @@ def compute_execution_plan_hash(
             "execution_slice_hashes": sorted(set(execution_slice_hashes)),
             "execution_dependencies": [
                 {
-                    "predecessor_execution_unit_id": predecessor,
-                    "successor_execution_unit_id": successor,
+                    "predecessor_execution_unit_hash": predecessor_hash,
+                    "successor_execution_unit_hash": successor_hash,
                     "reason_ref": reason_ref,
                 }
-                for predecessor, successor, reason_ref in dependencies
+                for predecessor_hash, successor_hash, reason_ref in dependencies
             ],
         }
     )
