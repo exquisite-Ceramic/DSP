@@ -1,17 +1,21 @@
 name: Step22 task-scoped progressive semantics
 
 on:
-  push:
-    paths:
-      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
-      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
-      - "tests/orchestrator/test_operation_resolver.py"
-      - ".github/workflows/step22-task-scoped-progressive.yml"
   pull_request:
     paths:
       - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
       - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
       - "tests/orchestrator/test_operation_resolver.py"
+      - "tests/integration/test_step22_task_scoped_progressive.py"
+      - "docs/superpowers/specs/2026-08-29-step22-task-scoped-progressive-semantics-design.md"
+      - "docs/superpowers/plans/2026-08-29-step22-task-scoped-progressive-semantics.md"
+      - ".github/workflows/step22-task-scoped-progressive.yml"
+  push:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/canonical_operations.py"
+      - "platform/orchestrator/src/design_orchestrator/operation_resolver.py"
+      - "tests/orchestrator/test_operation_resolver.py"
+      - "tests/integration/test_step22_task_scoped_progressive.py"
       - ".github/workflows/step22-task-scoped-progressive.yml"
   workflow_dispatch:
 
@@ -20,12 +24,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install D4 test stack
+      - name: Install Step22 stack
         run: |
-          python -m pip install pytest pytest-asyncio jsonschema
-          python -m pip install -e contracts/python -e hosts/autocad/sidecar
-      - name: Run D4 resolver baseline
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step22 PR diff boundary
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step22-task-scoped-progressive\.yml|docs/superpowers/(specs/2026-08-29-step22-task-scoped-progressive-semantics-design\.md|plans/2026-08-29-step22-task-scoped-progressive-semantics\.md)|platform/orchestrator/src/design_orchestrator/(canonical_operations|operation_resolver)\.py|tests/orchestrator/test_operation_resolver\.py|tests/integration/test_step22_task_scoped_progressive\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step22 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step22 D4 ownership tests
         run: pytest -q tests/orchestrator/test_operation_resolver.py
+      - name: Run Step22 progressive D5 proof
+        run: pytest -q tests/integration/test_step22_task_scoped_progressive.py
+      - name: Run existing D4 to D5 freshness bridge
+        run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
+      - name: Run progressive semantic runtime regression
+        run: pytest -q tests/semantic_runtime/test_progressive_requirements.py
+      - name: Run Step21 canonical projection regression
+        run: |
+          pytest -q \
+            tests/integration/test_step21_d5_canonical_projection.py \
+            tests/semantic_runtime/test_step21_architecture.py
+      - name: Run relevant full Python regression
+        run: |
+          pytest -q --import-mode=importlib \
+            contracts/python/tests \
+            tests/contracts \
+            tests/integration \
+            tests/orchestrator \
+            tests/semantic_runtime \
+            tests/semantic_service \
+            tests/semantic_mcp \
+            tests/semantic_providers/dsp_core \
+            tests/semantic_providers/ifc43 \
+            tests/semantic_providers/metro_v32 \
+            tests/semantic_providers/enterprise_mapping
