@@ -1,6 +1,6 @@
 # Step 30 — Execution Partitioning Design
 
-**Status:** Approved in-chat design; written-spec review pending  
+**Status:** Implemented; verification complete  
 **Date:** 2026-08-29  
 **Base:** `main@4c64286734a128c49e302e5685529502a5207086`  
 **Branch:** `feat/step30-execution-partitioning`  
