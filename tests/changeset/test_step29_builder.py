@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
-
 import design_changeset
+import pytest
 from design_approval_scope import (
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalEffectEvidence,
     DirectEntityEffect,
