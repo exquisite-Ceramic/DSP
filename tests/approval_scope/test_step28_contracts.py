@@ -1,5 +1,4 @@
 import pytest
-
 from design_approval_scope import (
     ApprovalScopeDefinition,
     CanonicalAspect,
