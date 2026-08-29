@@ -26,6 +26,8 @@ from semantic_runtime import (
     SnapshotKind,
     build_operation_contract,
 )
+
+pytest.importorskip("semantic_service")
 from semantic_service import (
     ProviderRef,
     SemanticClaim,
