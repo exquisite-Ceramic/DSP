@@ -13,6 +13,7 @@ on:
       - "tests/integration/test_design_capability_profile.py"
       - "pyproject.toml"
       - "docs/superpowers/plans/2026-08-29-step26-interaction-session.md"
+      - ".github/workflows/design-capability-profile.yml"
       - ".github/workflows/step26-interaction-session.yml"
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - "tests/integration/test_design_capability_profile.py"
       - "pyproject.toml"
       - "docs/superpowers/plans/2026-08-29-step26-interaction-session.md"
+      - ".github/workflows/design-capability-profile.yml"
       - ".github/workflows/step26-interaction-session.yml"
   workflow_dispatch:
 
@@ -60,7 +62,7 @@ jobs:
         run: |
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
           printf '%s\n' "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step26-interaction-session\.yml|docs/superpowers/plans/2026-08-29-step26-interaction-session\.md|platform/interaction/src/design_interaction/(__init__|contracts|coordinator)\.py|platform/orchestrator/src/design_orchestrator/(__init__|interactive_binding)\.py|hosts/autocad/sidecar/src/autocad_sidecar/(mcp_server\.py|adapter/interaction_adapter\.py|execution/command_dispatcher\.py)|hosts/autocad/plugin/AutoCAD\.AgentHost/(Commands/HostCommandHandler\.cs|Commands/Interaction/PickPointHandler\.cs|Native/AutoCADInteractionApi\.cs)|pyproject\.toml|tests/interaction/test_step26_(interaction_coordinator|architecture)\.py|tests/orchestrator/test_step26_interactive_binding\.py|tests/integration/(test_step26_autocad_pick_point|test_design_capability_profile)\.py)$' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/(design-capability-profile|step26-interaction-session)\.yml|docs/superpowers/plans/2026-08-29-step26-interaction-session\.md|platform/interaction/src/design_interaction/(__init__|contracts|coordinator)\.py|platform/orchestrator/src/design_orchestrator/(__init__|interactive_binding)\.py|hosts/autocad/sidecar/src/autocad_sidecar/(mcp_server\.py|adapter/interaction_adapter\.py|execution/command_dispatcher\.py)|hosts/autocad/plugin/AutoCAD\.AgentHost/(Commands/HostCommandHandler\.cs|Commands/Interaction/PickPointHandler\.cs|Native/AutoCADInteractionApi\.cs)|pyproject\.toml|tests/interaction/test_step26_(interaction_coordinator|architecture)\.py|tests/orchestrator/test_step26_interactive_binding\.py|tests/integration/(test_step26_autocad_pick_point|test_design_capability_profile)\.py)$' || true)"
           if [ -n "$bad" ]; then
             echo "Step26 changed files outside approved boundary:"
             printf '%s\n' "$bad"
