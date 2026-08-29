@@ -3,7 +3,6 @@ from pathlib import Path
 import design_approval_scope
 from design_approval_scope import ApprovalScopeBoundary, ExecutionSliceScopeRule
 
-
 ROOT = (
     Path(__file__).resolve().parents[2]
     / "platform"
