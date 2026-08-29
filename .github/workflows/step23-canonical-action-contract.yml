@@ -1,0 +1,31 @@
+name: Step23 canonical action contract
+
+on:
+  push:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - ".github/workflows/step23-canonical-action-contract.yml"
+  pull_request:
+    paths:
+      - "platform/orchestrator/src/design_orchestrator/**"
+      - "tests/orchestrator/**"
+      - "docs/superpowers/specs/2026-08-29-step23-canonical-action-contract-design.md"
+      - "docs/superpowers/plans/2026-08-29-step23-canonical-action-contract.md"
+      - ".github/workflows/step23-canonical-action-contract.yml"
+  workflow_dispatch:
+
+jobs:
+  step23-canonical-action-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install focused test dependencies
+        run: python -m pip install pytest jsonschema
+      - name: Run Step23 canonical action tests
+        run: pytest -q tests/orchestrator/test_canonical_operations.py
