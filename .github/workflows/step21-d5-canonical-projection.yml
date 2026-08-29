@@ -1,0 +1,87 @@
+name: Step21 D5 canonical projection proof
+
+on:
+  pull_request:
+    paths:
+      - "tests/integration/test_step21_d5_canonical_projection.py"
+      - "tests/semantic_runtime/test_step21_architecture.py"
+      - "docs/superpowers/specs/2026-08-29-step21-d5-canonical-projection-proof-design.md"
+      - "docs/superpowers/plans/2026-08-29-step21-d5-canonical-projection-proof.md"
+      - ".github/workflows/step21-d5-canonical-projection.yml"
+  push:
+    paths:
+      - "tests/integration/test_step21_d5_canonical_projection.py"
+      - "tests/semantic_runtime/test_step21_architecture.py"
+      - ".github/workflows/step21-d5-canonical-projection.yml"
+  workflow_dispatch:
+
+jobs:
+  step21-d5-canonical-projection:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step21 semantic stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step21 PR diff boundary
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step21-d5-canonical-projection\.yml|docs/superpowers/(specs/2026-08-29-step21-d5-canonical-projection-proof-design\.md|plans/2026-08-29-step21-d5-canonical-projection-proof\.md)|tests/integration/test_step21_d5_canonical_projection\.py|tests/semantic_runtime/test_step21_architecture\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step21 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step21 canonical projection proof
+        run: pytest -q tests/integration/test_step21_d5_canonical_projection.py
+      - name: Run Step21 architecture guards
+        run: pytest -q tests/semantic_runtime/test_step21_architecture.py
+      - name: Run semantic-runtime regression
+        run: pytest -q tests/semantic_runtime
+      - name: Run Semantic Service projection regression
+        run: |
+          pytest -q \
+            tests/semantic_service/test_provider_contracts.py \
+            tests/semantic_service/test_registry.py \
+            tests/semantic_service/test_service_projection.py \
+            tests/semantic_service/test_d5_environment_ref_compatibility.py
+      - name: Run Enterprise Mapping regression
+        run: pytest -q tests/semantic_providers/enterprise_mapping
+      - name: Run Step19 AutoCAD design-fact adapter regression
+        run: pytest -q tests/contracts/test_autocad_design_fact_adapter.py
+      - name: Run relevant full Python regression
+        run: |
+          pytest -q --import-mode=importlib \
+            contracts/python/tests \
+            tests/contracts \
+            tests/integration \
+            tests/orchestrator \
+            tests/semantic_runtime \
+            tests/semantic_service \
+            tests/semantic_mcp \
+            tests/semantic_providers/dsp_core \
+            tests/semantic_providers/ifc43 \
+            tests/semantic_providers/metro_v32 \
+            tests/semantic_providers/enterprise_mapping
