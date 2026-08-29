@@ -33,6 +33,7 @@ pythonpath = [
     "platform/orchestrator/src",
     "platform/interaction/src",
     "platform/impact/src",
+    "platform/approval_scope/src",
 ]
 addopts = "-ra --strict-markers"
 markers = [
