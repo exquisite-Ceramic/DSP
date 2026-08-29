@@ -50,6 +50,22 @@ def test_source_metadata_validation_fails_closed():
         validate_root_metadata(payload)
 
 
+def test_source_validation_allows_description_but_rejects_unknown_root_or_metadata_fields():
+    payload = mutable_source()
+    payload["metadata"] = dict(payload["metadata"])
+    payload["metadata"]["description"] = "human presentation only"
+    validate_root_metadata(payload)
+
+    payload["metadata"]["unexpected_semantic_field"] = "ignored-without-this-guard"
+    with pytest.raises(EnterpriseSourceError, match="unknown metadata"):
+        validate_root_metadata(payload)
+
+    payload = mutable_source()
+    payload["unexpected_root_field"] = {}
+    with pytest.raises(EnterpriseSourceError, match="unknown root"):
+        validate_root_metadata(payload)
+
+
 @pytest.mark.parametrize(
     ("mutate", "pattern"),
     [
