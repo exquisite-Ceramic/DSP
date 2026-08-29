@@ -10,7 +10,7 @@
 
 Step 27 introduces a standalone, provider-neutral **Impact Layer** between the completed D6 binding/interaction flow and the later D7 governance/execution flow.
 
-The Step 27 responsibility is narrowly defined as:
+Its responsibility is narrowly defined as:
 
 ```text
 Given a fully materialized canonical operation,
@@ -21,7 +21,7 @@ what must be propagated or revalidated,
 and what must be escalated as an exception.
 ```
 
-The resulting architecture is:
+The architecture is:
 
 ```text
 BoundOperationProposal
@@ -59,7 +59,7 @@ BoundOperationProposal
 → ChangeSetBuilder
 ```
 
-The master spec also explicitly separates five graph concepts:
+The master spec also separates five graph concepts:
 
 1. Relationship Graph — long-lived semantic relationships;
 2. Dependency Graph — long-lived change-dependency evidence;
@@ -75,7 +75,7 @@ In particular:
 RelationshipEdge != DependencyEdge
 ```
 
-An IFC or Metro relationship MAY be evidence used to derive or support a dependency, but it MUST NOT automatically become a dependency merely because two entities are semantically related.
+An IFC or Metro relationship MAY be evidence used to support a dependency, but it MUST NOT automatically become a dependency merely because two entities are semantically related.
 
 ---
 
@@ -94,17 +94,17 @@ platform/impact/
     analyzer.py
 ```
 
-The package owns task-scoped impact analysis contracts and deterministic analysis behavior.
+The package owns task-scoped impact contracts and deterministic analysis behavior.
 
 It SHALL NOT be implemented inside `platform/changeset`, because ChangeSet remains a later consumer of the analysis result.
 
-### 3.2 Rejected: implement impact inside `platform/changeset`
+### 3.2 Rejected: impact inside `platform/changeset`
 
-Rejected because the current `platform/changeset` package is an earlier execution placeholder and does not yet represent the final v0.6 D7 model. Coupling Step 27 to it would blur the boundary between prediction/propagation and immutable execution intent.
+Rejected because the current `platform/changeset` package is an earlier execution placeholder and does not yet represent the final v0.6 D7 model. Coupling Step 27 to it would blur prediction/propagation and immutable execution intent.
 
-### 3.3 Rejected: introduce a graph database now
+### 3.3 Rejected: graph database now
 
-Step 27 freezes graph semantics and consumes structured evidence, but it does not need a project-wide graph persistence engine, graph query service, Neo4j dependency, or full-model dependency rebuild.
+Step 27 freezes graph semantics and consumes structured evidence, but it does not introduce a project-wide graph persistence engine, graph query service, Neo4j dependency, or full-model dependency rebuild.
 
 Storage/index technology remains replaceable behind the evidence contracts.
 
@@ -123,7 +123,7 @@ D5 remains authoritative for:
 - SemanticEnvironment pinning;
 - semantic provenance and relationship evidence available to the task.
 
-Step 27 SHALL consume D5 refs/evidence; it SHALL NOT mutate D5 authoritative state.
+Step 27 consumes D5 refs/evidence; it does not mutate D5 authoritative state.
 
 ### 4.2 Semantic Providers contribute evidence, not propagation decisions
 
@@ -173,25 +173,19 @@ Step 27 output is evidence/input to those later phases only.
 
 ### 5.1 Dependency strength
 
-The master-spec values are frozen:
-
 ```text
 HARD
 SOFT
 ADVISORY
 ```
 
-Semantic meaning:
-
 - `HARD` — a system/engineering invariant must be preserved;
 - `SOFT` — a design choice exists and may require review/replan;
-- `ADVISORY` — the relationship affects checking or user guidance but does not itself mandate a model change.
+- `ADVISORY` — affects checking/guidance but does not itself mandate a model change.
 
-Unknown values MUST fail closed.
+Unknown values fail closed.
 
 ### 5.2 Propagation owner
-
-The master-spec values are frozen:
 
 ```text
 HOST_NATIVE
@@ -199,15 +193,11 @@ SEMANTIC_RUNTIME
 AGENT
 ```
 
-Meaning:
-
 - `HOST_NATIVE` — native Host associativity is expected to create the side effect; DSP predicts and later verifies it;
-- `SEMANTIC_RUNTIME` — the propagation can be derived deterministically by platform semantic rules;
-- `AGENT` — the propagation contains design freedom and requires replan / HITL rather than automatic mutation.
+- `SEMANTIC_RUNTIME` — propagation can be derived deterministically by platform semantic rules;
+- `AGENT` — propagation contains design freedom and requires replan / HITL rather than automatic mutation.
 
 ### 5.3 Propagation action
-
-The master-spec action vocabulary is frozen:
 
 ```text
 AUTO_MUTATE
@@ -218,17 +208,13 @@ REPLAN
 BLOCK
 ```
 
-In Step 27, `AUTO_MUTATE` is purely a planning classification. It means “eligible to become a deterministic derived modification in a later ChangeSet.” It MUST NOT cause model mutation in Step 27.
+In Step 27, `AUTO_MUTATE` is only a planning classification: “eligible to become a deterministic derived modification in a later ChangeSet.” It MUST NOT cause model mutation in Step 27.
 
 ---
 
 ## 6. Long-lived evidence contracts
 
-Step 27 SHALL distinguish long-lived relationship/dependency/constraint evidence from task-runtime impact output.
-
 ### 6.1 `RelationshipEvidence`
-
-Conceptual contract:
 
 ```text
 RelationshipEvidence {
@@ -243,8 +229,6 @@ RelationshipEvidence {
 A `RelationshipEvidence` object by itself MUST NOT authorize impact propagation.
 
 ### 6.2 `DependencyEdge`
-
-Conceptual contract:
 
 ```text
 DependencyEdge {
@@ -265,34 +249,30 @@ Requirements:
 
 - source and target use canonical `SemanticId` values;
 - the edge is directional for change-impact purposes;
-- `strength`, `propagation_owner`, and `propagation_action` use the frozen enums;
+- strength/owner/action use the frozen enums;
 - provider-native object ids/types are forbidden;
-- evidence refs are informational/provenance bindings, not free-form authority overrides.
+- evidence refs are provenance bindings, not authority overrides.
 
 ### 6.3 `ConstraintRule`
-
-Conceptual contract:
 
 ```text
 ConstraintRule {
   constraint_id
   applies_to[]
+  strength
   rule_kind
-  severity
   evaluation_spec
   evidence_refs[]
 }
 ```
 
-`evaluation_spec` MUST be structured and deterministically evaluable in the Step 27 MVP. Natural-language prose MAY accompany the rule for human explanation but MUST NOT be the machine decision mechanism.
+`evaluation_spec` MUST be structured and deterministically evaluable in the Step 27 MVP. Natural-language prose MAY accompany a rule for humans but MUST NOT be the machine decision mechanism.
 
-The MVP SHALL use a deliberately small structured constraint form sufficient to prove deterministic evaluation. Step 27 does not introduce a general-purpose DSL or arbitrary code execution engine.
+The MVP SHALL support only a small, explicit deterministic rule form sufficient for tests. It SHALL NOT introduce a general-purpose DSL or arbitrary provider-supplied code execution.
 
 ---
 
 ## 7. Task-runtime input contract
-
-The analyzer input conceptually contains:
 
 ```text
 ImpactAnalysisRequest {
@@ -317,7 +297,7 @@ Step 27 MUST NOT infer missing D6 slots and MUST NOT call Host interaction.
 
 Impact analysis MUST be bound to the exact Phase-B planning state that justified the operation.
 
-At minimum, the analysis input/output must preserve stable references/hashes for:
+At minimum, the input/output preserves stable references/hashes for:
 
 ```text
 PlanningSnapshot
@@ -325,21 +305,39 @@ SnapshotSet
 SemanticEnvironmentRef
 ```
 
-If the analyzer is given inconsistent snapshot/environment references, it MUST fail closed rather than silently analyze mixed state.
+Inconsistent snapshot/environment references fail closed.
 
-### 7.3 Intent boundary
+### 7.3 Structured `IntentBoundary`
 
-The request SHALL carry a structured intent boundary describing which direct entities/effects the user requested.
+Intent scope MUST be machine-readable, not inferred from prose.
 
-A derived impact outside that boundary is not automatically forbidden, but it MUST be identified so downstream review can distinguish intended change from derived scope expansion.
+The Step 27 conceptual boundary is:
+
+```text
+IntentBoundary {
+  direct_targets[]
+  allowed_canonical_effects[]
+  allowed_derived_rule_refs[]
+}
+```
+
+Meaning:
+
+- `direct_targets` are the entities explicitly targeted by the canonical operation;
+- `allowed_canonical_effects` are the canonical effects already declared for the user operation;
+- `allowed_derived_rule_refs` identifies deterministic dependency/constraint rules that upstream planning/policy has explicitly accepted as ordinary derived scope for this analysis.
+
+A dependency may predict an affected entity outside `direct_targets` without automatically becoming an exception. However, a **proposed derived change** is outside the intent boundary when it requires an effect not present in `allowed_canonical_effects`, or relies on a derived rule not present in `allowed_derived_rule_refs`.
+
+`HOST_NATIVE + REVALIDATE` prediction is not treated as a platform proposed mutation and therefore does not become scope expansion solely because the affected entity is outside `direct_targets`; it is still surfaced for later verification.
+
+Step 28 remains responsible for the authoritative approval scope decision. Step 27 only classifies deterministic scope expansion using this input boundary.
 
 ---
 
 ## 8. Core analysis algorithm
 
-Step 27 SHALL be deterministic-first and SHALL NOT call a free-form LLM.
-
-Conceptual sequence:
+Step 27 is deterministic-first and SHALL NOT call a free-form LLM.
 
 ```text
 1. Validate request/snapshot/environment consistency
@@ -360,8 +358,6 @@ Relationship evidence may support explanation/provenance, but relationship trave
 
 ## 9. `PredictedImpact`
 
-Conceptual contract:
-
 ```text
 PredictedImpact {
   source_semantic_id
@@ -379,17 +375,15 @@ PredictedImpact {
 
 Rules:
 
-- every predicted affected entity must be traceable to an explicit dependency/rule decision;
-- `HOST_NATIVE` impacts normally set `requires_verification = true` because the Host is expected to produce the associated side effect;
-- predicted impact does not itself contain a HostCommand or provider-native routing metadata.
+- every affected entity is traceable to an explicit dependency/rule decision;
+- `HOST_NATIVE` impacts normally set `requires_verification = true`;
+- predicted impact never contains HostCommand or provider-native routing metadata.
 
 ---
 
 ## 10. `PropagationBundle`
 
 Safe deterministic propagation SHOULD be grouped by rule/action rather than producing one approval line per entity.
-
-Conceptual contract:
 
 ```text
 PropagationBundle {
@@ -414,17 +408,15 @@ For Step 27:
 - no ChangeSet id exists yet;
 - no provider tool/native id exists;
 - no mutation occurs;
-- bundles MUST be stable for equivalent input ordering.
+- equivalent input ordering produces stable bundles.
 
-A bundle is appropriate only when the rule/action is deterministic and homogeneous enough to review as one propagation class.
+A bundle is appropriate only when the rule/action is deterministic, non-blocking, and homogeneous enough to review as one propagation class.
 
 ---
 
 ## 11. `ImpactException`
 
 The design follows the master spec's **exception-first review** principle.
-
-Conceptual contract:
 
 ```text
 ImpactException {
@@ -443,23 +435,22 @@ ImpactException {
 }
 ```
 
-Step 27 SHALL create an exception when at least one of the following applies:
+Step 27 creates an exception when at least one applies:
 
 - `propagation_owner == AGENT`;
 - `propagation_action == REPLAN`;
 - `propagation_action == BLOCK`;
-- a hard constraint fails;
-- the predicted propagation exceeds the declared intent boundary;
-- the analyzer cannot deterministically evaluate required structured evidence;
-- required evidence is internally inconsistent.
+- a valid HARD constraint evaluates to FAIL;
+- a proposed derived change exceeds `IntentBoundary`;
+- a valid rule explicitly classifies the situation as review-required.
 
 `AGENT` ownership MUST NOT be silently converted into `AUTO_MUTATE`.
+
+Invalid analysis definitions/inputs are **not** normal design exceptions; they fail closed as domain errors described in §16.
 
 ---
 
 ## 12. `ImpactAnalysis`
-
-The Step 27 output is frozen conceptually as:
 
 ```text
 ImpactAnalysis {
@@ -480,7 +471,7 @@ ImpactAnalysis {
 }
 ```
 
-The implementation SHALL be value-oriented and defensively copy mutable input structures.
+The implementation SHALL be value-oriented and defensively copy mutable inputs.
 
 The output MUST NOT contain:
 
@@ -503,7 +494,7 @@ provider_tool
 
 Equivalent semantic inputs MUST produce the same `analysis_fingerprint` independent of incidental dictionary/list ordering.
 
-The fingerprint SHALL bind at least:
+The fingerprint binds at least:
 
 ```text
 canonical operation
@@ -514,20 +505,18 @@ SnapshotSet ref/hash
 SemanticEnvironment ref/hash
 normalized dependency edges
 normalized constraint rules
-intent boundary
+IntentBoundary
 ```
 
-Changing any material item above MUST change the fingerprint.
+Changing any material item above changes the fingerprint.
 
-The fingerprint exists so Step 28+ can bind review/governance decisions to one exact impact analysis result.
+Step 28+ can therefore bind governance decisions to one exact impact result.
 
 ---
 
 ## 14. MOVE reference vertical
 
-Step 27 SHALL prove the architecture with a provider-neutral MOVE fixture rather than introducing a new wall-thickness canonical operation in the same step.
-
-Example input:
+Step 27 proves the architecture with a provider-neutral MOVE fixture rather than introducing a new wall-thickness canonical operation in the same step.
 
 ```text
 Bound operation:
@@ -568,13 +557,13 @@ exceptions:
   MEP-008 → REPLAN
 ```
 
-For `OPENING-001`, `HOST_NATIVE + REVALIDATE` means DSP predicts the Host-native associativity effect and requires later verification; Step 27 does not generate a duplicate platform mutation.
+For `OPENING-001`, `HOST_NATIVE + REVALIDATE` means DSP predicts Host-native associativity and requires later verification; Step 27 does not generate a duplicate platform mutation.
 
 ---
 
 ## 15. Constraint behavior in the MVP
 
-The MVP SHALL include at least one structured deterministic constraint fixture that can:
+The MVP includes at least one structured deterministic constraint fixture with outcomes:
 
 ```text
 PASS
@@ -582,17 +571,32 @@ FAIL
 NOT_APPLICABLE
 ```
 
-A failed `HARD` constraint SHALL generate a blocking exception.
+The failure semantics are frozen:
 
-An invalid or un-evaluable required constraint MUST fail closed or create a blocking exception according to whether the request itself is invalid versus the design state violates a valid rule. The distinction SHALL be encoded with structured reason codes, not natural-language parsing.
+```text
+invalid ConstraintRule definition
+or missing/invalid required evaluation input
+    → fail closed with CONSTRAINT_INVALID or IMPACT_INPUT_INVALID
 
-Step 27 SHALL NOT introduce arbitrary Python callbacks from providers as constraint rules.
+valid HARD ConstraintRule evaluates FAIL
+    → ImpactException(blocking=true)
+
+valid SOFT ConstraintRule evaluates FAIL
+    → non-blocking review/replan exception unless the rule explicitly maps to BLOCK
+
+valid rule evaluates PASS or NOT_APPLICABLE
+    → no violation exception
+```
+
+This prevents implementation from treating malformed rule definitions as ordinary design problems.
+
+Step 27 SHALL NOT execute arbitrary provider-supplied Python callbacks.
 
 ---
 
 ## 16. Error handling
 
-The package SHALL expose stable, machine-readable error categories/codes for invalid analysis input. At minimum the implementation must distinguish:
+The package exposes stable machine-readable domain errors at minimum:
 
 ```text
 SNAPSHOT_MISMATCH
@@ -602,7 +606,15 @@ CONSTRAINT_INVALID
 IMPACT_INPUT_INVALID
 ```
 
-These are Step 27 domain errors. Integration with the repository-wide `ErrorShape` envelope may be performed by callers; the core analyzer SHOULD remain usable as a deterministic library.
+Exact rules:
+
+- malformed enum/edge structure → `DEPENDENCY_INVALID`;
+- malformed constraint definition → `CONSTRAINT_INVALID`;
+- missing/invalid data required to deterministically evaluate the request → `IMPACT_INPUT_INVALID`;
+- inconsistent planning/snapshot refs → `SNAPSHOT_MISMATCH`;
+- inconsistent semantic environment refs/hashes → `SEMANTIC_ENVIRONMENT_MISMATCH`.
+
+Integration with repository-wide `ErrorShape` may be performed by callers; the core analyzer remains a deterministic library.
 
 Natural-language error text MUST NOT drive retry/replan behavior.
 
@@ -610,20 +622,20 @@ Natural-language error text MUST NOT drive retry/replan behavior.
 
 ## 17. Architecture constraints
 
-Step 27 architecture tests SHALL enforce:
+Architecture tests SHALL enforce:
 
 1. `design_impact` does not import AutoCAD, Revit, Tekla, or other Host product packages.
 2. `design_impact` does not import `HostCommand`.
 3. `design_impact` does not call ChangeSetBuilder or provider execution paths.
 4. provider-native ids/types cannot appear in public impact contracts.
 5. Relationship evidence cannot be implicitly promoted to DependencyEdge by the analyzer.
-6. Semantic provider packages may provide evidence fixtures/adapters but do not own propagation decisions.
+6. Semantic provider packages may contribute evidence but do not own propagation decisions.
 
 ---
 
 ## 18. TDD acceptance criteria
 
-The implementation plan SHALL cover at least the following RED→GREEN behavior:
+The implementation plan SHALL cover at least these RED→GREEN behaviors:
 
 1. Relationship evidence alone does not produce predicted impact.
 2. Dependency strength accepts only `HARD/SOFT/ADVISORY`.
@@ -634,18 +646,19 @@ The implementation plan SHALL cover at least the following RED→GREEN behavior:
 7. `AGENT` propagation enters the Exception Set.
 8. `BLOCK` creates a blocking exception.
 9. safe homogeneous propagation with the same rule/action groups deterministically.
-10. impact outside the intent boundary enters the Exception Set.
-11. invalid structured constraint evidence fails closed.
-12. failed HARD constraint creates a blocking exception.
-13. PlanningSnapshot/SnapshotSet mismatch fails closed.
-14. SemanticEnvironment mismatch fails closed.
-15. identical semantic inputs produce a stable fingerprint regardless of input ordering.
-16. changing a material dependency/rule/snapshot/argument changes the fingerprint.
-17. Metro/enterprise evidence does not directly construct a ChangeSet.
-18. `design_impact` has no Host product imports.
-19. `design_impact` has no HostCommand execution path.
-20. Step25/26 regression suites remain green.
-21. Step27 output is sufficient for Step28 to consume without provider-native data.
+10. a proposed derived change outside `IntentBoundary` enters the Exception Set.
+11. invalid structured dependency evidence fails closed.
+12. invalid structured constraint evidence fails closed.
+13. valid HARD constraint FAIL creates a blocking exception.
+14. PlanningSnapshot/SnapshotSet mismatch fails closed.
+15. SemanticEnvironment mismatch fails closed.
+16. identical semantic inputs produce a stable fingerprint regardless of input ordering.
+17. changing a material dependency/rule/snapshot/argument changes the fingerprint.
+18. Metro/enterprise evidence cannot directly construct a ChangeSet.
+19. `design_impact` has no Host product imports.
+20. `design_impact` has no HostCommand execution path.
+21. Step25/26 regressions remain green.
+22. Step27 output is sufficient for Step28 without provider-native data.
 
 ---
 
@@ -673,8 +686,6 @@ multi-Host distributed transaction
 ---
 
 ## 20. Roadmap boundary after Step 27
-
-The frozen sequence remains:
 
 ```text
 Step 23  Canonical Action Contract
