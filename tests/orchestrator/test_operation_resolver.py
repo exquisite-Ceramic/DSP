@@ -417,3 +417,54 @@ def test_zero_operation_schema_is_valid_and_accepts_only_empty_operation_list() 
     validator = Draft202012Validator(schema)
     validator.validate({"operations": []})
     assert list(validator.iter_errors({"operations": [{"canonical_operation": "move.v1"}]}))
+
+
+def test_canonical_operation_owns_task_freshness_not_provider_union() -> None:
+    placement = {"aspect": "PLACEMENT", "required_state": "FRESH"}
+    exact_geometry = {
+        "aspect": "GEOMETRY",
+        "required_state": "FRESH",
+        "geometry_level": "EXACT",
+    }
+    profiles = (
+        Profile(
+            "autocad.local",
+            "cad.move",
+            execution_freshness=(placement,),
+        ),
+        Profile(
+            "vendor.optimized",
+            "vendor.move",
+            execution_freshness=(placement, exact_geometry),
+        ),
+    )
+
+    result = OperationResolver((MOVE_V1,)).resolve(
+        profiles,
+        context("autocad.local", "vendor.optimized"),
+    )
+    resolved = result.resolved_operations[0]
+    expected = (placement,)
+
+    assert resolved.operation_freshness_requirements == expected
+    assert result.llm_action_space()[0]["operation_freshness_requirements"] == list(expected)
+
+    vendor = next(
+        profile
+        for profile in result.provider_candidates.values()
+        if profile.provider_server == "vendor.optimized"
+    )
+    assert vendor.execution_freshness == (placement, exact_geometry)
+
+
+def test_effects_do_not_implicitly_create_task_freshness_requirements() -> None:
+    result = OperationResolver((MOVE_V1,)).resolve(
+        (Profile("autocad.local", "cad.move"),),
+        context("autocad.local"),
+    )
+    resolved = result.resolved_operations[0]
+
+    assert resolved.operation_freshness_requirements == (
+        {"aspect": "PLACEMENT", "required_state": "FRESH"},
+    )
+    assert set(resolved.effects) == {"PLACEMENT", "GEOMETRY"}
