@@ -90,6 +90,112 @@ def _contract(
     )
 
 
+def _digest(payload: object) -> str:
+    return sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _claim_payload(claim: SemanticClaim) -> dict[str, object]:
+    return {
+        "subject": claim.subject,
+        "predicate": claim.predicate,
+        "canonical_term_id": claim.canonical_term_id,
+        "value": claim.value,
+        "unit": claim.unit,
+        "assurance": claim.assurance,
+        "provenance": list(claim.provenance),
+        "evidence": list(claim.evidence),
+        "provider_id": claim.provider_id,
+        "provider_version": claim.provider_version,
+    }
+
+
+def _projection_ref(
+    facts: NormalizedDesignFactBatch,
+    claims: tuple[SemanticClaim, ...],
+    environment: SemanticEnvironment,
+) -> SemanticProjectionRef:
+    providers = [
+        {
+            "provider_id": item.provider_id,
+            "version": item.version,
+            "content_hash": item.content_hash,
+        }
+        for item in environment.providers
+    ]
+    projection_hash = _digest({
+        "environment_id": environment.environment_id,
+        "environment_hash": environment.content_hash,
+        "claims": [_claim_payload(claim) for claim in claims],
+    })
+    return SemanticProjectionRef(
+        projection_id=f"step21:{projection_hash}",
+        projection_hash=projection_hash,
+        semantic_model_version="step21-proof-v1",
+        provider_set_hash=_digest(providers),
+        mapping_profile_set_hash=_digest({"providers": providers}),
+        normalized_fact_batch_hash=_digest(facts.to_dict()),
+    )
+
+
+def _reconstruction_from_claims(
+    contract: FreshnessContract,
+    revision: str,
+    *,
+    facts: NormalizedDesignFactBatch,
+    claims: tuple[SemanticClaim, ...],
+    environment: SemanticEnvironment,
+) -> ReconstructionResult:
+    requested = set(contract.coverage.root_entities)
+    strongest: dict[str, AssuranceLevel] = {}
+
+    for claim in claims:
+        if claim.subject not in requested:
+            continue
+        if claim.predicate != "classification" or claim.canonical_term_id is None:
+            continue
+        try:
+            assurance = AssuranceLevel[claim.assurance]
+        except KeyError as exc:
+            raise ValueError(
+                f"unknown canonical claim assurance: {claim.assurance!r}"
+            ) from exc
+        strongest[claim.subject] = max(
+            assurance,
+            strongest.get(claim.subject, AssuranceLevel.UNKNOWN),
+        )
+
+    guarantees: tuple[AspectGuarantee, ...] = ()
+    if requested and requested.issubset(strongest):
+        guarantees = (
+            AspectGuarantee(
+                SemanticAspect.CLASSIFICATION,
+                geometry_level=GeometryLevel.NONE,
+                coverage_state=CoverageState.RESOLVED,
+                semantic_depth=SemanticDepth.CANONICAL,
+                assurance_level=min(strongest[item] for item in requested),
+            ),
+        )
+
+    return ReconstructionResult(
+        document_ref=contract.coverage.document_ref,
+        host_revision=revision,
+        coverage=contract.coverage,
+        guarantees=guarantees,
+        projection_ref=_projection_ref(facts, claims, environment),
+        semantic_environment_ref=SemanticEnvironmentRef(
+            environment.environment_id,
+            environment.content_hash,
+        ),
+    )
+
+
 def test_a_wall_reaches_existing_d5_as_canonical_ifc_wall() -> None:
     facts = DesignFactAdapter().normalize_snapshot(_snapshot("A-WALL"))
     classification = next(
