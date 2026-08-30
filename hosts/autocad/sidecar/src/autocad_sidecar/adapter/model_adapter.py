@@ -53,3 +53,37 @@ class ModelAdapter:
             idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
         return await self._host.send_command(command)
+
+    async def set_wall_thickness(
+        self,
+        handles: list[str],
+        thickness_mm: float,
+        *,
+        document_id: str,
+        idempotency_key: str | None = None,
+        revision: int | None = None,
+    ) -> HostCommandResult:
+        preconditions = (
+            [{"type": "revision", "expected": revision}]
+            if revision is not None
+            else None
+        )
+        command = HostCommand(
+            command_id=str(uuid.uuid4()),
+            document_id=document_id,
+            mode="EXECUTE",
+            operation="set_wall_thickness.v1",
+            target_native_refs=[
+                HostEntityRef(document_id=document_id, native_id=handle)
+                for handle in handles
+            ],
+            arguments={
+                "thickness": {
+                    "value": thickness_mm,
+                    "unit": "mm",
+                }
+            },
+            preconditions=preconditions,
+            idempotency_key=idempotency_key or str(uuid.uuid4()),
+        )
+        return await self._host.send_command(command)
