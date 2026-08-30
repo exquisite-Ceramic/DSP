@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from design_changeset import canonical_hash
 
-from .contracts import ActualChange, ActualDelta, ReconciliationError
+from .contracts import (
+    ActualChange,
+    ActualDelta,
+    ReconciliationError,
+    ScopeComparisonResult,
+)
 
 
 def _instance_payload(change: ActualChange) -> dict[str, object] | None:
@@ -95,8 +100,48 @@ def validate_actual_delta_integrity(delta: ActualDelta) -> None:
         )
 
 
+def compute_scope_comparison_hash(result: ScopeComparisonResult) -> str:
+    """Hash one deterministic scope-comparison decision and its audit detail."""
+    if not isinstance(result, ScopeComparisonResult):
+        raise TypeError("result must be ScopeComparisonResult")
+    return canonical_hash(
+        {
+            "status": result.status.value,
+            "actual_delta_hash": result.actual_delta_hash,
+            "approved_scope_hash": result.approved_scope_hash,
+            "execution_slice_hash": result.execution_slice_hash,
+            "matched_changes": [
+                {
+                    "actual_change_hash": match.actual_change_hash,
+                    "rule_id": match.rule_id,
+                }
+                for match in sorted(
+                    result.matched_changes,
+                    key=lambda item: (item.actual_change_hash, item.rule_id),
+                )
+            ],
+            "violations": [
+                {
+                    "code": violation.code,
+                    "actual_change_hash": violation.actual_change_hash,
+                    "rule_id": violation.rule_id,
+                }
+                for violation in sorted(
+                    result.violations,
+                    key=lambda item: (
+                        item.actual_change_hash,
+                        item.code,
+                        item.rule_id or "",
+                    ),
+                )
+            ],
+        }
+    )
+
+
 __all__ = [
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
+    "compute_scope_comparison_hash",
     "validate_actual_delta_integrity",
 ]
