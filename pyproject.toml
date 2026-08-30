@@ -38,8 +38,10 @@ pythonpath = [
     "platform/execution_planning/src",
     "platform/provider_binding/src",
     "platform/gateway_authorization/src",
+    "platform/execution_reconciliation/src",
     "tests/provider_binding",
     "tests/gateway_authorization",
+    "tests/execution_reconciliation",
 ]
 addopts = "-ra --strict-markers"
 markers = [
