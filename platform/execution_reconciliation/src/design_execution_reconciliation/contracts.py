@@ -6,7 +6,9 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from design_approval_scope import CanonicalAspect
+from design_approval_scope import ApprovalScopeBoundary, CanonicalAspect
+from design_execution_planning import ExecutionSlice
+from design_gateway_authorization import AdmittedExecutionAuthority
 from host_contracts import HostEntityRef
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -37,6 +39,11 @@ class ActualChangeKind(str, Enum):
     CREATE = "CREATE"
     MODIFY = "MODIFY"
     DELETE = "DELETE"
+
+
+class ScopeComparisonStatus(str, Enum):
+    WITHIN_SCOPE = "WITHIN_SCOPE"
+    SCOPE_BREACH = "SCOPE_BREACH"
 
 
 def _text(value: object, field_name: str) -> str:
@@ -77,10 +84,7 @@ def _aspects(values) -> tuple[CanonicalAspect, ...]:
         raw = tuple(values)
     except TypeError as exc:
         raise TypeError("changed_aspects must be iterable") from exc
-    normalized = {
-        _enum(value, CanonicalAspect, "canonical aspect")
-        for value in raw
-    }
+    normalized = {_enum(value, CanonicalAspect, "canonical aspect") for value in raw}
     return tuple(sorted(normalized, key=lambda value: value.value))
 
 
@@ -111,6 +115,13 @@ def _revision(value: object, field_name: str) -> int:
             f"{field_name} must be non-negative",
         )
     return value
+
+
+def _typed_tuple(values, typ: type, field_name: str):
+    normalized = tuple(values)
+    if any(not isinstance(value, typ) for value in normalized):
+        raise TypeError(f"{field_name} contains invalid values")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,9 +248,118 @@ class ActualDelta:
         object.__setattr__(self, "changes", changes)
 
 
+@dataclass(frozen=True, slots=True)
+class ScopeMatch:
+    actual_change_hash: str
+    rule_id: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "actual_change_hash",
+            _digest(self.actual_change_hash, "actual_change_hash"),
+        )
+        object.__setattr__(self, "rule_id", _text(self.rule_id, "rule_id"))
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeViolation:
+    code: str
+    actual_change_hash: str
+    rule_id: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", _text(self.code, "code"))
+        object.__setattr__(
+            self,
+            "actual_change_hash",
+            _digest(self.actual_change_hash, "actual_change_hash"),
+        )
+        object.__setattr__(
+            self,
+            "rule_id",
+            _optional_text(self.rule_id, "rule_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeComparisonRequest:
+    admitted_execution_authority: AdmittedExecutionAuthority
+    actual_delta: ActualDelta
+    approval_scope_boundary: ApprovalScopeBoundary
+    execution_slice: ExecutionSlice
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.admitted_execution_authority, AdmittedExecutionAuthority):
+            raise TypeError(
+                "admitted_execution_authority must be AdmittedExecutionAuthority"
+            )
+        if not isinstance(self.actual_delta, ActualDelta):
+            raise TypeError("actual_delta must be ActualDelta")
+        if not isinstance(self.approval_scope_boundary, ApprovalScopeBoundary):
+            raise TypeError("approval_scope_boundary must be ApprovalScopeBoundary")
+        if not isinstance(self.execution_slice, ExecutionSlice):
+            raise TypeError("execution_slice must be ExecutionSlice")
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeComparisonResult:
+    status: ScopeComparisonStatus | str
+    actual_delta_hash: str
+    approved_scope_hash: str
+    execution_slice_hash: str
+    matched_changes: tuple[ScopeMatch, ...]
+    violations: tuple[ScopeViolation, ...]
+    comparison_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "status",
+            _enum(self.status, ScopeComparisonStatus, "scope comparison status"),
+        )
+        for field_name in (
+            "actual_delta_hash",
+            "approved_scope_hash",
+            "execution_slice_hash",
+            "comparison_hash",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _digest(getattr(self, field_name), field_name),
+            )
+        matches = _typed_tuple(self.matched_changes, ScopeMatch, "matched_changes")
+        violations = _typed_tuple(self.violations, ScopeViolation, "violations")
+        object.__setattr__(
+            self,
+            "matched_changes",
+            tuple(sorted(matches, key=lambda item: (item.actual_change_hash, item.rule_id))),
+        )
+        object.__setattr__(
+            self,
+            "violations",
+            tuple(
+                sorted(
+                    violations,
+                    key=lambda item: (
+                        item.actual_change_hash,
+                        item.code,
+                        item.rule_id or "",
+                    ),
+                )
+            ),
+        )
+
+
 __all__ = [
     "ActualChange",
     "ActualChangeKind",
     "ActualDelta",
     "ReconciliationError",
+    "ScopeComparisonRequest",
+    "ScopeComparisonResult",
+    "ScopeComparisonStatus",
+    "ScopeMatch",
+    "ScopeViolation",
 ]
