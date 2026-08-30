@@ -26,12 +26,15 @@ from design_provider_binding import (
 )
 
 from .contracts import (
+    AdmittedExecutionAuthority,
     ApprovalConsumptionRequest,
     ApprovalRecord,
     ApprovalState,
     ExecutionGrant,
     ExecutionGrantRequest,
     GatewayAuthorizationError,
+    StoredApproval,
+    StoredGrant,
 )
 from .hashing import (
     compute_admission_fingerprint,
@@ -123,6 +126,38 @@ class GatewayAuthorizationService:
         if not callable(issue_or_get_grant):
             raise TypeError("store must provide issue_or_get_grant")
         return issue_or_get_grant(grant)
+
+    def admit_execution_grant(
+        self,
+        grant_hash: str,
+        admitted_at: str,
+    ) -> AdmittedExecutionAuthority:
+        admit_grant = getattr(self._store, "admit_grant", None)
+        if not callable(admit_grant):
+            raise TypeError("store must provide admit_grant")
+        return admit_grant(grant_hash, admitted_at)
+
+    def revoke_approval(
+        self,
+        approval_id: str,
+        revoked_at: str,
+        reason: str,
+    ) -> StoredApproval:
+        revoke_approval = getattr(self._store, "revoke_approval", None)
+        if not callable(revoke_approval):
+            raise TypeError("store must provide revoke_approval")
+        return revoke_approval(approval_id, revoked_at, reason)
+
+    def revoke_execution_grant(
+        self,
+        grant_hash: str,
+        revoked_at: str,
+        reason: str,
+    ) -> StoredGrant:
+        revoke_grant = getattr(self._store, "revoke_grant", None)
+        if not callable(revoke_grant):
+            raise TypeError("store must provide revoke_grant")
+        return revoke_grant(grant_hash, revoked_at, reason)
 
     @staticmethod
     def _require_approval_request(request: ApprovalConsumptionRequest) -> None:
