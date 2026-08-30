@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import hashlib
 import json
+from dataclasses import replace
 
 import pytest
+
 import design_approval_scope as approval_scope
 from design_approval_scope import (
     ApprovalScopeDefinition,
