@@ -59,8 +59,8 @@ jobs:
             -e platform/execution_reconciliation
       - name: Run Step33 focused tests
         run: pytest -q tests/execution_reconciliation
-      - name: Run Step28 approval-scope integrity regressions
-        run: pytest -q tests/approval_scope/test_step28_integrity.py
+      - name: Run Step28 approval-scope regressions
+        run: pytest -q tests/approval_scope
       - name: Run Step30 execution-planning regressions
         run: pytest -q tests/execution_planning
       - name: Run Step33 focused Ruff
