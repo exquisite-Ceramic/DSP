@@ -1,3 +1,5 @@
+"""Step30 execution-slice integrity reconstruction tests."""
+
 from __future__ import annotations
 
 from dataclasses import replace
