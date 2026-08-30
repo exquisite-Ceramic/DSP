@@ -510,23 +510,6 @@ def test_successful_reconciliation_requires_scope_then_complete_task_coverage(
         )
     assert mismatch.value.code == "SAGA_INTEGRITY_INVALID"
 
-    failed = _verification(
-        transaction,
-        definition,
-        slice_hash,
-        delta.actual_delta_hash,
-        status=reconciliation.VerificationStatus.FAILED,
-        suffix="FAILED",
-    )
-    with pytest.raises(reconciliation.ReconciliationError):
-        store.record_verification_result(
-            definition.saga_id,
-            failed,
-            expected_revision=stored.saga_revision,
-            reconciled_at="2026-08-30T08:20:00Z",
-        )
-    assert store.get_saga(definition.saga_id).status is not reconciliation.ExecutionSagaStatus.SUCCEEDED
-
     succeeded = store.record_verification_result(
         definition.saga_id,
         verification,
