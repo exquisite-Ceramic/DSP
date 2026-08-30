@@ -18,7 +18,7 @@ from design_fact_contracts import (
 
 
 _BATCH_FIELDS = {"hostInstanceId", "documentId", "revision", "entities"}
-_ENTITY_FIELDS = {"nativeId", "nativeKind", "layer", "bounds"}
+_ENTITY_FIELDS = {"nativeId", "nativeKind", "layer", "bounds", "properties"}
 _BOUNDS_FIELDS = {"min", "max"}
 _POINT_FIELDS = {"x", "y", "z"}
 
@@ -88,6 +88,19 @@ def _validate_bounds(value: Any) -> dict[str, dict[str, int | float]]:
     }
 
 
+def _read_constant_width(value: Any) -> tuple[int | float, str]:
+    measurement = _require_mapping(value, "properties.constantWidth")
+    width = measurement.get("value")
+    if isinstance(width, bool) or not isinstance(width, (int, float)):
+        raise ValueError("properties.constantWidth.value must be numeric")
+    if isinstance(width, float) and not math.isfinite(width):
+        raise ValueError("properties.constantWidth.value must be finite")
+    unit = measurement.get("unit")
+    if not isinstance(unit, str) or not unit.strip():
+        raise ValueError("properties.constantWidth.unit must be a non-empty string")
+    return width, unit
+
+
 def deterministic_fact_id(
     document_id: str,
     source_revision: int,
@@ -145,6 +158,16 @@ class DesignFactAdapter:
             native_kind = _require_text(entity, "nativeKind")
             layer = _require_text(entity, "layer")
             bounds = _validate_bounds(entity["bounds"]) if "bounds" in entity else None
+            properties = (
+                _require_mapping(entity["properties"], "properties")
+                if "properties" in entity
+                else None
+            )
+            constant_width = (
+                _read_constant_width(properties["constantWidth"])
+                if properties is not None and "constantWidth" in properties
+                else None
+            )
 
             subject = NativeSubjectRef(
                 document_id=document_id,
@@ -194,6 +217,23 @@ class DesignFactAdapter:
                         provenance=provenance,
                     )
                 )
+            if constant_width is not None:
+                width, unit = constant_width
+                facts.append(
+                    self._fact(
+                        host_ref=host_ref,
+                        subject=subject,
+                        revision=revision,
+                        fact_kind=FactKind.PROPERTY,
+                        predicate="constant_width",
+                        value=width,
+                        value_type=ValueType.NUMBER,
+                        unit=unit,
+                        source_scheme="autocad.property",
+                        source_code="LWPOLYLINE.ConstantWidth",
+                        provenance=provenance,
+                    )
+                )
 
         return NormalizedDesignFactBatch(tuple(facts))
 
@@ -208,6 +248,7 @@ class DesignFactAdapter:
         value: Any,
         value_type: ValueType,
         provenance: tuple[str, ...],
+        unit: str | None = None,
         source_scheme: str | None = None,
         source_code: str | None = None,
     ) -> NormalizedDesignFact:
@@ -227,7 +268,7 @@ class DesignFactAdapter:
             predicate=predicate,
             value=value,
             value_type=value_type,
-            unit=None,
+            unit=unit,
             geometry_ref=None,
             source_scheme=source_scheme,
             source_code=source_code,
