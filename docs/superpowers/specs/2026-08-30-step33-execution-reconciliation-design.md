@@ -1,10 +1,10 @@
 # Step33 — Execution Reconciliation / ScopeComparator / Saga Design
 
-> Status: Design approved in chat; written-spec review pending  
-> Date: 2026-08-30  
-> Base: `main@cef76e111f74d10f063eedfebc7efc0d805caefa`  
-> Branch: `feat/step33-execution-reconciliation`  
-> Master spec: `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`  
+> Status: Design approved in chat; written-spec review pending
+> Date: 2026-08-30
+> Base: `main@cef76e111f74d10f063eedfebc7efc0d805caefa`
+> Branch: `feat/step33-execution-reconciliation`
+> Master spec: `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
 > Phase: G / Step33 — Verify / ScopeComparator / Saga
 
 ---
