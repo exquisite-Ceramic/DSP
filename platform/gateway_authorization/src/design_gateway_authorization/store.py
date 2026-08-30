@@ -120,7 +120,42 @@ class InMemoryGatewayAuthorizationStore:
         revoked_at: str,
         reason: str,
     ) -> StoredApproval:
-        raise NotImplementedError("approval revocation is implemented in Step32 Task 9")
+        requested_lifecycle = ApprovalLifecycle(
+            ApprovalState.REVOKED,
+            revoked_at=revoked_at,
+            revocation_reason=reason,
+        )
+        with self._lock:
+            stored = self._approvals.get(approval_id)
+            if stored is None:
+                raise GatewayAuthorizationError(
+                    "APPROVAL_RECORD_NOT_FOUND",
+                    "approval record not found",
+                )
+            if stored.lifecycle.state is ApprovalState.REVOKED:
+                return stored
+
+            revoked_approval = StoredApproval(stored.record, requested_lifecycle)
+            child_updates: dict[str, StoredGrant] = {}
+            for grant_hash, child in self._grants.items():
+                if child.grant.approval_id != approval_id:
+                    continue
+                if child.lifecycle.state not in (GrantState.ACTIVE, GrantState.ADMITTED):
+                    continue
+                child_updates[grant_hash] = StoredGrant(
+                    child.grant,
+                    GrantLifecycle(
+                        GrantState.REVOKED,
+                        admitted_at=child.lifecycle.admitted_at,
+                        revoked_at=requested_lifecycle.revoked_at,
+                        revocation_reason=requested_lifecycle.revocation_reason,
+                        superseded_by_grant_id=child.lifecycle.superseded_by_grant_id,
+                    ),
+                )
+
+            self._approvals[approval_id] = revoked_approval
+            self._grants.update(child_updates)
+            return revoked_approval
 
     @staticmethod
     def _lineage(grant: ExecutionGrant) -> tuple[str, str]:
@@ -227,12 +262,85 @@ class InMemoryGatewayAuthorizationStore:
         with self._lock:
             return self._grants.get(grant_hash)
 
+    @staticmethod
+    def _admitted_authority(stored: StoredGrant) -> AdmittedExecutionAuthority:
+        admitted_at = stored.lifecycle.admitted_at
+        if admitted_at is None:
+            raise GatewayAuthorizationError(
+                "EXECUTION_GRANT_CONFLICT",
+                "admitted grant is missing admission evidence",
+            )
+        grant = stored.grant
+        return AdmittedExecutionAuthority(
+            approval_hash=grant.approval_hash,
+            grant_hash=grant.grant_hash,
+            changeset_hash=grant.changeset_hash,
+            approved_scope_hash=grant.approved_scope_hash,
+            execution_slice_hash=grant.execution_slice_hash,
+            binding_set_hash=grant.binding_set_hash,
+            host_instance_id=grant.host_instance_id,
+            admitted_at=admitted_at,
+        )
+
     def admit_grant(
         self,
         grant_hash: str,
         admitted_at: str,
     ) -> AdmittedExecutionAuthority:
-        raise NotImplementedError("grant admission is implemented in Step32 Task 9")
+        requested = GrantLifecycle(GrantState.ADMITTED, admitted_at=admitted_at)
+        normalized_at = requested.admitted_at
+        if normalized_at is None:
+            raise GatewayAuthorizationError(
+                "EXECUTION_GRANT_CONFLICT",
+                "admitted_at is required",
+            )
+
+        with self._lock:
+            stored = self._grants.get(grant_hash)
+            if stored is None:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_CONFLICT",
+                    "execution grant not found",
+                )
+
+            parent = self._approvals.get(stored.grant.approval_id)
+            if parent is None:
+                raise GatewayAuthorizationError(
+                    "APPROVAL_RECORD_NOT_FOUND",
+                    "parent approval record not found",
+                )
+            if parent.lifecycle.state is ApprovalState.REVOKED:
+                raise GatewayAuthorizationError(
+                    "APPROVAL_REVOKED",
+                    "parent approval is revoked",
+                )
+
+            if stored.lifecycle.state is GrantState.ADMITTED:
+                return self._admitted_authority(stored)
+            if stored.lifecycle.state is GrantState.REVOKED:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_REVOKED",
+                    "execution grant has been revoked",
+                )
+            if stored.lifecycle.state is GrantState.EXPIRED:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_EXPIRED",
+                    "execution grant has expired",
+                )
+
+            stored = self._project_expiry(stored, normalized_at)
+            if stored.lifecycle.state is GrantState.EXPIRED:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_EXPIRED",
+                    "execution grant has expired",
+                )
+
+            admitted = StoredGrant(
+                stored.grant,
+                GrantLifecycle(GrantState.ADMITTED, admitted_at=normalized_at),
+            )
+            self._grants[grant_hash] = admitted
+            return self._admitted_authority(admitted)
 
     def revoke_grant(
         self,
@@ -240,7 +348,47 @@ class InMemoryGatewayAuthorizationStore:
         revoked_at: str,
         reason: str,
     ) -> StoredGrant:
-        raise NotImplementedError("grant revocation is implemented in Step32 Task 9")
+        requested = GrantLifecycle(
+            GrantState.REVOKED,
+            revoked_at=revoked_at,
+            revocation_reason=reason,
+        )
+        with self._lock:
+            stored = self._grants.get(grant_hash)
+            if stored is None:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_CONFLICT",
+                    "execution grant not found",
+                )
+
+            if stored.lifecycle.state is GrantState.REVOKED:
+                if (
+                    stored.lifecycle.revoked_at == requested.revoked_at
+                    and stored.lifecycle.revocation_reason == requested.revocation_reason
+                ):
+                    return stored
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_CONFLICT",
+                    "conflicting repeated grant revocation",
+                )
+            if stored.lifecycle.state is GrantState.EXPIRED:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_EXPIRED",
+                    "execution grant has expired",
+                )
+
+            revoked = StoredGrant(
+                stored.grant,
+                GrantLifecycle(
+                    GrantState.REVOKED,
+                    admitted_at=stored.lifecycle.admitted_at,
+                    revoked_at=requested.revoked_at,
+                    revocation_reason=requested.revocation_reason,
+                    superseded_by_grant_id=stored.lifecycle.superseded_by_grant_id,
+                ),
+            )
+            self._grants[grant_hash] = revoked
+            return revoked
 
 
 __all__ = [
