@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from design_approval_scope import CanonicalAspect
 from design_changeset import ChangePrecondition, PreconditionKind, canonical_hash
@@ -11,7 +13,30 @@ from design_execution_planning import (
     compute_execution_slice_hash,
     compute_execution_unit_hash,
 )
-from design_provider_binding import ProviderBindingMaterial
+from design_provider_binding import (
+    EligibilityState,
+    NativeConstraint,
+    NativeConstraintOperator,
+    NativeTargetBindingEvidence,
+    ProviderBindingMaterial,
+    ProviderBindingRequest,
+    ProviderExecutionCandidate,
+    ProviderExecutionSnapshot,
+    compute_candidate_fingerprint,
+    compute_host_binding_fingerprint,
+    compute_provider_snapshot_hash,
+)
+
+DEFAULT_PROVIDER_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "native_ids": {"type": "array", "items": {"type": "string"}},
+        "operation": {"type": "string"},
+        "canonical_arguments": {"type": "object"},
+    },
+    "required": ["native_ids", "operation", "canonical_arguments"],
+    "additionalProperties": False,
+}
 
 
 def digest(label: str) -> str:
@@ -147,3 +172,129 @@ class FakeBindingAdapter:
 @pytest.fixture
 def fake_adapter():
     return FakeBindingAdapter()
+
+
+def make_native_binding(
+    semantic_id: str,
+    *,
+    native_id: str,
+    native_kind: str = "Wall",
+    host_type: str = "REVIT",
+    document_ref: str = "DOC-1",
+) -> NativeTargetBindingEvidence:
+    provisional = NativeTargetBindingEvidence(
+        semantic_id,
+        host_type,
+        document_ref,
+        native_id,
+        native_kind,
+        digest("temporary-host-binding"),
+    )
+    return replace(
+        provisional,
+        host_binding_fingerprint=compute_host_binding_fingerprint(provisional),
+    )
+
+
+def make_candidate(
+    *,
+    provider_server: str = "provider.revit.a",
+    provider_tool: str = "move",
+    provider_version: str = "1.0.0",
+    canonical_operation: str = "move.v1",
+    compatible_operation_versions: tuple[str, ...] = ("1.0.0",),
+    priority: int = 10,
+    native_kinds: tuple[str, ...] = ("Wall", "Annotation"),
+    state: EligibilityState = EligibilityState.SATISFIED,
+    trust_state: EligibilityState | None = None,
+    compatibility_state: EligibilityState | None = None,
+    health_state: EligibilityState | None = None,
+    license_state: EligibilityState | None = None,
+    certification_state: EligibilityState | None = None,
+    input_adapter_version: str = "1.0.0",
+    provider_input_schema=None,
+) -> ProviderExecutionCandidate:
+    provisional = ProviderExecutionCandidate(
+        provider_server,
+        provider_tool,
+        provider_version,
+        canonical_operation,
+        compatible_operation_versions,
+        input_adapter_version,
+        (NativeConstraint("native_kind", NativeConstraintOperator.IN, native_kinds),),
+        provider_input_schema or DEFAULT_PROVIDER_INPUT_SCHEMA,
+        {"read_back": "required"},
+        {"mode": "compensating_changeset"},
+        trust_state or state,
+        compatibility_state or state,
+        health_state or state,
+        license_state or state,
+        certification_state or state,
+        priority,
+        digest("temporary-candidate"),
+    )
+    return replace(
+        provisional,
+        candidate_fingerprint=compute_candidate_fingerprint(provisional),
+    )
+
+
+def default_native_bindings(execution_slice: ExecutionSlice):
+    return (
+        make_native_binding("WALL-001", native_id="NATIVE-WALL", native_kind="Wall"),
+        make_native_binding(
+            "ANNOTATION-002",
+            native_id="NATIVE-ANNOTATION",
+            native_kind="Annotation",
+        ),
+    )
+
+
+def make_snapshot(
+    execution_slice: ExecutionSlice,
+    *,
+    native_target_bindings=None,
+    provider_candidates=None,
+    snapshot_id: str = "PES-31",
+    valid_until: str = "2026-08-30T10:30:00Z",
+    host_runtime_ref=None,
+    execution_slice_id: str | None = None,
+    execution_slice_hash: str | None = None,
+) -> ProviderExecutionSnapshot:
+    provisional = ProviderExecutionSnapshot(
+        snapshot_id,
+        execution_slice_id or execution_slice.execution_slice_id,
+        execution_slice_hash or execution_slice.execution_slice_hash,
+        host_runtime_ref or execution_slice.host_runtime_ref,
+        tuple(native_target_bindings or default_native_bindings(execution_slice)),
+        tuple(provider_candidates or (make_candidate(),)),
+        valid_until,
+        digest("temporary-snapshot"),
+    )
+    return replace(
+        provisional,
+        snapshot_hash=compute_provider_snapshot_hash(provisional),
+    )
+
+
+def make_request(
+    execution_slice: ExecutionSlice,
+    *,
+    snapshot: ProviderExecutionSnapshot | None = None,
+    admission_time: str = "2026-08-30T10:00:00Z",
+) -> ProviderBindingRequest:
+    return ProviderBindingRequest(
+        execution_slice,
+        snapshot or make_snapshot(execution_slice),
+        admission_time,
+    )
+
+
+@pytest.fixture
+def valid_snapshot(execution_slice):
+    return make_snapshot(execution_slice)
+
+
+@pytest.fixture
+def valid_request(execution_slice, valid_snapshot):
+    return make_request(execution_slice, snapshot=valid_snapshot)
