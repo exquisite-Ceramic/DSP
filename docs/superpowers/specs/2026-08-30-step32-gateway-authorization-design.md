@@ -1,10 +1,32 @@
 # Step 32 — Gateway Authorization Design
 
-**Status:** Design frozen; implementation not started  
+**Status:** Implemented and verified  
 **Date:** 2026-08-30  
 **Base:** `main@0e567cc786ad88e99337f062c06222190e4c22d2`  
-**Branch:** `feat/step32-gateway-authorization-design`  
+**Branch:** `feat/step32-gateway-authorization`  
+**Implementation commit:** `57562db00239f4a747f042609bb73755152da0b4`  
+**Verification:** GitHub Actions run `33302605334` — `success`  
 **Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
+
+Verification commands executed by the successful implementation run:
+
+```bash
+pytest -q tests/approval_scope/test_step28_integrity.py
+pytest -q tests/changeset/test_step29_integrity.py
+pytest -q tests/execution_planning/test_step30_integrity.py
+pytest -q tests/gateway_authorization
+pytest -q tests/approval_scope
+pytest -q tests/changeset
+pytest -q tests/execution_planning
+pytest -q tests/provider_binding
+ruff check \
+  platform/approval_scope/src/design_approval_scope \
+  platform/changeset/src/design_changeset \
+  platform/execution_planning/src/design_execution_planning \
+  platform/gateway_authorization/src/design_gateway_authorization \
+  tests/approval_scope tests/changeset tests/execution_planning tests/gateway_authorization
+pytest -q --import-mode=importlib
+```
 
 ## 1. Purpose
 
@@ -1562,4 +1584,4 @@ Step32 binds existing immutable truths; it does not reinterpret them.
 
 The only upstream changes required are integrity witness/API enhancements so each upstream owner can verify its own complete semantic object. Existing Step28–31 semantic hash definitions remain unchanged.
 
-After this written design is reviewed and approved, the next step is a separate implementation plan followed by TDD. No implementation should begin before that review gate.
+Implementation subsequently followed the approved implementation plan and strict TDD. The verified implementation commit and executed verification matrix are recorded in this document header.
