@@ -74,6 +74,8 @@ jobs:
         run: pytest -q tests/gateway_authorization/test_step32_store_approval.py
       - name: Run Step32 grant service tests
         run: pytest -q tests/gateway_authorization/test_step32_grant_service.py
+      - name: Run Step32 grant lineage tests
+        run: pytest -q tests/gateway_authorization/test_step32_grant_lineage.py
       - name: Run Step28 approval-scope regressions
         run: pytest -q tests/approval_scope
       - name: Run Step29 changeset regressions
