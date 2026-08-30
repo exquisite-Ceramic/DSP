@@ -1,4 +1,4 @@
-"""Public immutable Step31 provider-binding contracts."""
+"""Public immutable Step31 provider-binding API."""
 
 from .contracts import (
     EligibilityState,
@@ -14,6 +14,16 @@ from .contracts import (
     ProviderExecutionSnapshot,
     ProviderPreconditionBinding,
 )
+from .hashing import (
+    compute_binding_hash,
+    compute_binding_set_hash,
+    compute_candidate_fingerprint,
+    compute_host_binding_fingerprint,
+    compute_precondition_fingerprint,
+    compute_provider_snapshot_hash,
+    validate_provider_binding,
+    validate_provider_binding_set_hash,
+)
 
 __all__ = [
     "EligibilityState",
@@ -28,4 +38,12 @@ __all__ = [
     "ProviderExecutionCandidate",
     "ProviderExecutionSnapshot",
     "ProviderPreconditionBinding",
+    "compute_binding_hash",
+    "compute_binding_set_hash",
+    "compute_candidate_fingerprint",
+    "compute_host_binding_fingerprint",
+    "compute_precondition_fingerprint",
+    "compute_provider_snapshot_hash",
+    "validate_provider_binding",
+    "validate_provider_binding_set_hash",
 ]
