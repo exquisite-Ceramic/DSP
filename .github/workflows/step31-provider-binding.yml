@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Step31 RED prerequisites
+      - name: Install Step31 verification stack
         run: |
           python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
           python -m pip install \
@@ -37,6 +37,7 @@ jobs:
             -e hosts/autocad/sidecar \
             -e platform/changeset \
             -e platform/execution_planning \
+            -e platform/provider_binding \
             -e platform/semantic_runtime \
             -e platform/semantic_service \
             -e platform/semantic_mcp \
