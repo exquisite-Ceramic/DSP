@@ -8,59 +8,45 @@
 
 ## 1. Purpose
 
-Step31 introduces deterministic late binding from the immutable provider-neutral execution plan produced by Step30 into immutable provider/native execution bindings.
+Step31 introduces deterministic late binding from Step30's immutable provider-neutral execution plan into immutable provider/native execution bindings.
 
-It answers one question:
+It answers:
 
 ```text
-Given this exact immutable ExecutionSlice,
+Given this exact ExecutionSlice,
 this exact slice-scoped provider/native execution snapshot,
-and this exact registered provider binding adapter set,
+and this exact registered adapter set,
 which provider implementation binds each ExecutionUnit,
-which native targets and provider-native payload will be used,
+which native targets/provider payload will be used,
 and what binding_set_hash must Step32 authorize?
 ```
 
-It does **not** answer:
+It does **not** answer canonical intent, execution partitioning, approval, RevisionBarrier admission, Host mutation, retry/idempotency, ActualDelta, verification, rollback, or Saga compensation.
 
-```text
-What canonical mutation does the user intend?
-How canonical operations are partitioned across Host/document slices?
-Whether the user approved the ChangeSet?
-Whether the runtime RevisionBarrier passes?
-What ExecutionGrant is issued?
-How HostCommand envelopes/idempotency/retry are constructed?
-Whether the Host mutation succeeds?
-What ActualDelta occurred?
-How verification, reconciliation, rollback, or Saga compensation proceeds?
-```
-
-The intended Phase-G flow is:
+The frozen flow is:
 
 ```text
 Step29 CanonicalChangeSet
         ↓
 Step30 immutable ExecutionPlan
-  └─ ExecutionSlice[]
-       └─ ExecutionUnit[]
         ↓
 RevisionBarrier
         ↓
 Step31 ProviderResolver
-  + slice-scoped ProviderExecutionSnapshot
+  + ProviderExecutionSnapshot
   + ProviderBindingAdapterRegistry
         ↓
-immutable ProviderBindingSet
+ProviderBindingSet
   └─ ProviderBinding[]
         ↓
 binding_set_hash
         ↓
 Step32 ExecutionGrant
         ↓
-Step33 HostCommand / Apply / ActualDelta / Verify / Saga
+Step33 HostCommand / Apply / Verify / Saga
 ```
 
-The central invariant is:
+Central invariant:
 
 > Step31 may choose and freeze the provider/native implementation of an exact Step30 ExecutionUnit. It MUST NOT change canonical semantics, repartition units, widen approved scope, create execution authorization, or perform Host mutation.
 
@@ -68,16 +54,16 @@ The central invariant is:
 
 ## 2. Master-spec interpretation
 
-The v0.6 master spec freezes these relevant boundaries:
+The master spec freezes:
 
 ```text
-ExecutionUnit = minimum provider-binding unit, still canonical/provider-neutral
-ProviderBinding = provider/native execution choice made after execution planning
-ExecutionGrant = per-ExecutionSlice authorization bound to binding_set_hash
-HostCommand = final native execution envelope after authorization
+ExecutionUnit   = minimum provider-binding unit; still canonical/provider-neutral
+ProviderBinding = provider/native choice made after execution planning
+ExecutionGrant  = per-Slice authorization bound to binding_set_hash
+HostCommand     = final native execution envelope after authorization
 ```
 
-The master spec explicitly places Provider Resolver after execution planning and requires late binding to consider at least:
+Provider Resolver is late-bound after execution planning and considers at least:
 
 ```text
 HostRuntimeRef
@@ -88,7 +74,7 @@ Health / availability
 License / certification
 ```
 
-It also requires Provider Resolver to leave these immutable:
+It MUST NOT change:
 
 ```text
 canonical_operation
@@ -98,22 +84,20 @@ expected_effects
 approved scope
 ```
 
-The master spec further requires:
+Provider switching changes implementation identity, not canonical approval identity:
 
 ```text
 old binding_set_hash → old grant invalid
 new binding_set_hash → reissue grant
 ```
 
-without requiring repeated user approval when the canonical ChangeSet and approved semantic scope remain unchanged.
-
-Step31 therefore owns authorization-relevant execution implementation identity, but not user approval or Host dispatch.
+Repeated user approval is not required when ChangeSet and approved semantic scope remain unchanged.
 
 ---
 
-## 3. Chosen package strategy
+## 3. Package strategy
 
-Step31 SHALL be implemented as a separate package:
+Step31 SHALL be a separate package:
 
 ```text
 platform/provider_binding/
@@ -126,78 +110,68 @@ platform/provider_binding/
     adapters.py
 ```
 
-The distribution name SHALL be:
+Distribution:
 
 ```text
 design-provider-binding
 ```
 
-Primary dependencies SHALL be provider-neutral runtime contracts only:
+Primary provider-neutral dependencies:
 
 ```text
 design_execution_planning
 jsonschema
 ```
 
-The package MAY reuse the repository's canonical JSON/SHA-256 helper by importing a stable public helper from an upstream provider-neutral package if available. It MUST NOT depend on AutoCAD/Revit/Tekla sidecar packages, Host SDKs, Host command dispatchers, approval/grant packages, or verification/Saga packages.
+The package MUST NOT depend on AutoCAD/Revit/Tekla sidecars, Host SDKs, Host dispatchers, approval/grant packages, or verification/Saga packages.
 
-The package is physically separate from `design_execution_planning` because Step30 owns provider-neutral execution partition identity while Step31 owns provider/native implementation identity.
+Step30 owns execution partition identity. Step31 owns provider/native implementation identity. They remain physically separate.
 
 ---
 
 ## 4. Ownership boundary
 
-### 4.1 Step30 owns immutable execution intent
+### 4.1 Step30 remains authoritative
 
-Step30 remains authoritative for:
+Step31 consumes but never rewrites:
 
 ```text
-ExecutionSlice.execution_slice_id
-ExecutionSlice.execution_slice_hash
+ExecutionSlice.execution_slice_id/hash
 ExecutionSlice.host_runtime_ref
 ExecutionSlice.approved_scope_ref
-ExecutionUnit.execution_unit_id
-ExecutionUnit.execution_unit_hash
-ExecutionUnit canonical_operation
-targets
-arguments
-preconditions
-expected_effects
-ExecutionDependency graph
+ExecutionUnit.execution_unit_id/hash
+ExecutionUnit.canonical_operation
+ExecutionUnit.targets
+ExecutionUnit.arguments
+ExecutionUnit.preconditions
+ExecutionUnit.expected_effects
 ```
 
-Step31 MUST NOT split, merge, reorder, rewrite, or replace an ExecutionUnit.
+Step31 MUST NOT split, merge, optimize, replace, or reorder canonical Units.
 
 ### 4.2 RevisionBarrier remains outside Step31
 
-Runtime order is:
+Runtime ordering stays:
 
 ```text
-Step30 ExecutionPlan
-        ↓
-RevisionBarrier
-        ↓
-Step31 ProviderBinding
+Step30 → RevisionBarrier → Step31
 ```
 
-Step31 may validate ProviderExecutionSnapshot expiry/freshness evidence, but it MUST NOT create a second Host-revision concurrency truth or reinterpret planning revision requirements.
+Step31 validates provider snapshot expiry, but it does not create a second Host-revision truth or reinterpret planning freshness/coverage/assurance requirements.
 
-### 4.3 Step31 owns implementation selection and binding identity
+### 4.3 Step31 owns
 
-Step31 owns:
-
-- exact ExecutionSlice ↔ ProviderExecutionSnapshot integrity checks;
-- closed-world native target binding validation;
+- exact Slice ↔ ProviderExecutionSnapshot integrity;
+- closed-world native binding validation;
 - deterministic candidate filtering/ranking;
-- deterministic adapter selection;
-- provider-native target/payload/precondition materialization;
+- deterministic Adapter selection;
+- provider-native target/argument/native-metadata materialization;
+- optional provider-native enforcement projections;
 - provider input-schema validation;
 - immutable ProviderBinding construction;
-- binding_hash and slice-level binding_set_hash.
+- `binding_hash` and Slice-level `binding_set_hash`.
 
-### 4.4 Step32 owns authorization
-
-Step32 owns:
+### 4.4 Step32 owns
 
 ```text
 ApprovalRecord
@@ -208,33 +182,30 @@ authorization expiry
 
 Step31 never decides whether the user approved a mutation and never issues a grant.
 
-### 4.5 Step33 owns Host mutation and runtime state
-
-Step33 owns:
+### 4.5 Step33 owns
 
 ```text
 HostCommand
 command_id
-idempotency key
-retry/dispatch state
+idempotency/retry/dispatch
 ActualDelta
-verification result
+verification
 scope comparison
 rollback/compensation
 Saga state
 ```
 
-Step31 MUST NOT call `send_command()` or otherwise mutate a Host.
+Step31 MUST NOT call `send_command()` or mutate a Host.
 
 ---
 
-## 5. Chosen evidence strategy
+## 5. Evidence strategy
 
-### 5.1 Chosen: slice-scoped immutable ProviderExecutionSnapshot
+### 5.1 Slice-scoped immutable ProviderExecutionSnapshot
 
-Step31 SHALL NOT live-query D3, Host sidecars, health services, license services, policy services, or HostBinding registries during deterministic resolution.
+Step31 SHALL NOT live-query D3, Host sidecars, HostBinding storage, health/license/certification services, policy engines, or MCP sessions while resolving.
 
-Instead, workflow code SHALL assemble one immutable provider-neutral execution snapshot per Step30 ExecutionSlice:
+Workflow code supplies one immutable provider-neutral snapshot per Slice:
 
 ```text
 1 ExecutionSlice
@@ -248,30 +219,11 @@ N ProviderBinding
 1 binding_set_hash
 ```
 
-The snapshot is task/slice scoped. It contains only the provider/native evidence required to bind the exact slice.
+This keeps the deterministic core isolated from mutable external state.
 
-This follows the same architectural pattern already used elsewhere in the platform:
+### 5.2 Do not import sidecar-local capability DTOs
 
-```text
-external mutable world
-        ↓
-small immutable task-scoped evidence
-        ↓
-pure deterministic core
-```
-
-### 5.2 Why Step31 does not consume sidecar-local DesignCapabilityProfile directly
-
-Current Host capability DTOs are discovery-local and may still contain legacy mixed semantics such as a single `entity_constraints` field.
-
-The master spec requires canonical semantic constraints and provider-native constraints to be separated:
-
-```text
-canonical_entity_constraints → D4 / canonical applicability
-provider_native_constraints  → Step31 / execution validation
-```
-
-Step31 therefore consumes a normalized provider-execution candidate contract rather than importing any Host-specific capability DTO.
+Current Host capability DTOs may contain legacy mixed semantics. Step31 instead consumes a normalized execution candidate with `provider_native_constraints` separated from canonical applicability constraints.
 
 ---
 
@@ -283,7 +235,7 @@ Step31 v1 freezes:
 1 ExecutionUnit = exactly 1 ProviderBinding
 ```
 
-An ExecutionUnit may contain multiple canonical targets, but one selected provider implementation MUST bind all of them.
+A Unit may contain multiple targets, but one provider implementation MUST bind all of them.
 
 Forbidden:
 
@@ -293,21 +245,19 @@ EU-01
 └─ Provider B binds subset B
 ```
 
-If no single eligible provider can bind all targets, Step31 fails closed with:
+If no single eligible provider can bind the full Unit:
 
 ```text
 PROVIDER_CANDIDATE_UNAVAILABLE
 ```
 
-Step31 MUST NOT silently split the Unit. If a future canonical operation legitimately requires mixed-provider execution, that partitionability must be modeled upstream rather than hidden inside late binding.
+Step31 never silently splits a Unit.
 
 ---
 
-## 7. Frozen public contracts
+## 7. Public contracts
 
 ### 7.1 EligibilityState
-
-The five provider eligibility dimensions use one provider-neutral state enum:
 
 ```text
 EligibilityState {
@@ -317,17 +267,14 @@ EligibilityState {
 }
 ```
 
-Only `SATISFIED` passes the corresponding Step31 eligibility gate. `UNKNOWN` fails closed.
+Only `SATISFIED` passes. `UNKNOWN` fails closed.
 
 ### 7.2 NativeConstraint
 
-Step31 v1 intentionally supports a minimal deterministic native-constraint language:
+Step31 v1 intentionally supports only a minimal deterministic constraint language:
 
 ```text
-NativeConstraintOperator {
-  EQ
-  IN
-}
+NativeConstraintOperator { EQ, IN }
 
 NativeConstraint {
   field
@@ -336,7 +283,7 @@ NativeConstraint {
 }
 ```
 
-For v1, the only generic field is:
+The only v1 generic field is:
 
 ```text
 native_kind
@@ -349,9 +296,7 @@ native_kind EQ "Wall"
 native_kind IN ["LINE", "LWPOLYLINE", "ARC"]
 ```
 
-The generic core compares opaque strings. It does not understand what an AutoCAD `LWPOLYLINE` or a Revit `Wall` means.
-
-More complex Host-specific editability/parameter/design-option rules SHALL be projected by snapshot producers into explicit eligibility evidence or added later through a separately designed constraint extension. Step31 v1 is not a generic Host rule engine.
+The core compares opaque strings; it does not understand Host ontology.
 
 ### 7.3 NativeTargetBindingEvidence
 
@@ -366,7 +311,7 @@ NativeTargetBindingEvidence {
 }
 ```
 
-`host_binding_fingerprint` SHALL be recomputable from the exact persistent HostBinding semantic body:
+`host_binding_fingerprint` is recomputed from:
 
 ```text
 semantic_id
@@ -376,9 +321,7 @@ native_id
 native_kind
 ```
 
-The generic core MUST recompute and verify this fingerprint rather than trusting caller-supplied digest material.
-
-`host_instance_id` is deliberately absent because it is runtime-session identity, not persistent HostBinding identity. Runtime instance identity comes from the parent Step30 `HostRuntimeRef`.
+`host_instance_id` stays outside persistent HostBinding identity and comes from the Slice's HostRuntimeRef.
 
 ### 7.4 ProviderExecutionCandidate
 
@@ -406,46 +349,40 @@ ProviderExecutionCandidate {
   certification_state
 
   policy_priority
-
   candidate_fingerprint
 }
 ```
 
 Rules:
 
-- `policy_priority` is a non-negative deterministic integer; smaller values rank first.
-- candidate state fields are `EligibilityState`.
-- `provider_input_schema` must itself be a valid JSON Schema.
-- `candidate_fingerprint` is recomputed by Step31 from the full candidate semantic body.
-- candidates are immutable evidence, not caller instructions to force a tool.
+- `policy_priority` is a non-negative deterministic integer; lower ranks first.
+- state fields use `EligibilityState`.
+- `provider_input_schema` must be a valid JSON Schema.
+- candidate fingerprint is recomputed from the full candidate semantic body.
+- candidates are evidence, not caller instructions to force a tool.
 
 ### 7.5 ProviderExecutionSnapshot
 
 ```text
 ProviderExecutionSnapshot {
   snapshot_id
-
   execution_slice_id
   execution_slice_hash
-
   host_runtime_ref
-
   native_target_bindings[]
   provider_candidates[]
-
   valid_until
-
   snapshot_hash
 }
 ```
 
-`valid_until` is REQUIRED in v1 and SHALL be a normalized UTC RFC3339 timestamp.
+`valid_until` is REQUIRED in v1 and normalized UTC RFC3339.
 
-`snapshot_id` is an opaque provenance identifier and is not semantic hash material.
+`snapshot_id` is opaque provenance identity and is excluded from the semantic snapshot hash.
 
 ### 7.6 ProviderPreconditionBinding
 
-Provider-native precondition translation must remain mechanically traceable to every canonical Step30 precondition:
+Provider-native preconditions are an **optional additional enforcement projection**, not a replacement for Step30 canonical preconditions:
 
 ```text
 ProviderPreconditionBinding {
@@ -454,7 +391,7 @@ ProviderPreconditionBinding {
 }
 ```
 
-The source fingerprint SHALL be a canonical SHA-256 digest over the exact Step30 `ChangePrecondition` body:
+The source fingerprint is SHA-256 over the exact Step30 `ChangePrecondition` body:
 
 ```text
 kind
@@ -462,13 +399,19 @@ subject_ref
 evidence_ref
 ```
 
-Adapter output MUST contain exactly one ProviderPreconditionBinding for every distinct Step30 precondition fingerprint and no extras.
+Important v1 rule:
 
-This proves complete translation coverage. It does not permit the generic core to reinterpret Host-specific precondition semantics.
+- Step30 preconditions are currently planning requirements (`OPERATION_FRESHNESS`, `COVERAGE`, `ASSURANCE`).
+- They are already bound by `execution_unit_hash` and admitted by upstream planning/barrier logic.
+- Step31 therefore does **not** require every canonical precondition to become a Host/provider-native precondition.
+- If an Adapter emits provider-native preconditions, each emitted row MUST reference a real Step30 source precondition fingerprint; unknown or duplicate source references fail closed.
+- Provider-native preconditions can add enforcement but cannot erase canonical preconditions from the immutable Unit they bind.
+
+This avoids forcing semantic coverage/assurance requirements into Host command syntax while preserving traceability for any native enforcement that is emitted.
 
 ### 7.7 ProviderBindingMaterial
 
-Adapters return only provider-native transformation material:
+Adapters return only transformation material:
 
 ```text
 ProviderBindingMaterial {
@@ -482,19 +425,15 @@ ProviderBindingMaterial {
 Adapters MUST NOT return:
 
 ```text
-binding_id
-binding_hash
+binding_id/hash
 binding_set_hash
 canonical_operation
-canonical targets
-expected_effects
+targets/expected_effects
 approved scope
 provider identity/version
 ExecutionGrant
 HostCommand
 ```
-
-Those values are either upstream immutable semantics or generic Step31-owned identity.
 
 ### 7.8 ProviderBinding
 
@@ -527,38 +466,35 @@ ProviderBinding {
   rollback_contract
 
   binding_expires_at
-
   binding_hash
 }
 ```
 
-`binding_expires_at` equals the snapshot `valid_until` in v1.
+In v1:
 
-Future designs MAY add candidate-level/native-binding-level deadlines and derive the minimum deadline, but Step31 v1 does not introduce those additional validity sources.
+```text
+binding_expires_at = snapshot.valid_until
+```
 
 ### 7.9 ProviderBindingSet
 
 ```text
 ProviderBindingSet {
   binding_set_id
-
   execution_slice_id
   execution_slice_hash
-
   provider_execution_snapshot_id
   provider_execution_snapshot_hash
-
   bindings[]
-
   binding_set_hash
 }
 ```
 
-The snapshot refs are immutable provenance metadata. They are deliberately not authorization hash material.
+Snapshot refs are immutable provenance metadata, deliberately excluded from authorization hash material.
 
-Therefore two resolution records created from different snapshots MAY have the same `binding_set_hash` when the selected providers, native bindings, adapted execution material, and binding expiry are authorization-equivalent.
+Two resolution records from different snapshots MAY have the same `binding_set_hash` when selected providers/native material/expiry are authorization-equivalent.
 
-`binding_set_id` is the semantic authorization identity:
+Authorization identity:
 
 ```text
 binding_set_id = "PBS-" + binding_set_hash[:12]
@@ -574,15 +510,13 @@ ProviderBindingRequest {
 }
 ```
 
-`admission_time` is an explicit normalized UTC timestamp used only to evaluate snapshot expiry. It does NOT enter candidate ranking or any Step31 semantic hash.
-
-The resolver MUST NOT read the process wall clock directly. Supplying admission time explicitly preserves deterministic testing and replay.
+`admission_time` is explicit normalized UTC time used only for expiry admission. It does not enter ranking or semantic hashes. Resolver code MUST NOT read wall-clock time directly.
 
 ---
 
-## 8. Snapshot integrity and closed-world rules
+## 8. Snapshot integrity
 
-Before candidate selection, Step31 MUST verify:
+Before candidate selection:
 
 ```text
 snapshot.execution_slice_id   == slice.execution_slice_id
@@ -590,15 +524,15 @@ snapshot.execution_slice_hash == slice.execution_slice_hash
 snapshot.host_runtime_ref      == slice.host_runtime_ref
 ```
 
-Any mismatch returns:
+Mismatch:
 
 ```text
 PROVIDER_SLICE_MISMATCH
 ```
 
-Every NativeTargetBindingEvidence MUST also match the Slice Host type/document and its HostBinding fingerprint must recompute exactly.
+Every native binding must also match Slice Host type/document and recompute its HostBinding fingerprint exactly.
 
-### 8.1 Exact native-target coverage
+### 8.1 Closed-world native targets
 
 Let:
 
@@ -609,79 +543,61 @@ required_targets = union(slice.execution_units[*].targets)
 Then:
 
 ```text
-set(snapshot.native_target_bindings.semantic_id)
-==
-required_targets
+set(snapshot.native_target_bindings.semantic_id) == required_targets
 ```
 
 Failures:
 
 ```text
-missing target
-→ PROVIDER_NATIVE_BINDING_UNRESOLVED
-
-same semantic_id with duplicate/conflicting binding evidence
-→ PROVIDER_NATIVE_BINDING_CONFLICT
-
-semantic_id not required by this Slice
-→ PROVIDER_NATIVE_BINDING_EXTRANEOUS
+missing      → PROVIDER_NATIVE_BINDING_UNRESOLVED
+duplicate/conflicting → PROVIDER_NATIVE_BINDING_CONFLICT
+extraneous   → PROVIDER_NATIVE_BINDING_EXTRANEOUS
 ```
 
-Identical duplicate rows are still rejected as conflict; snapshot producers must emit one authoritative binding row per semantic target.
+Even identical duplicate rows are rejected; one authoritative row per semantic target is required.
 
 ### 8.2 Candidate scope
 
-Alternative candidates are allowed, including candidates that are not selected.
-
-However every candidate's `canonical_operation` MUST match at least one ExecutionUnit canonical operation in the Slice. Completely unrelated candidate rows are invalid snapshot content:
+Alternative candidates are allowed, including unused alternatives, but every candidate canonical operation MUST correspond to at least one Unit in the Slice. Unrelated candidates are invalid snapshot content:
 
 ```text
 PROVIDER_CANDIDATE_INVALID
 ```
 
-This keeps ProviderExecutionSnapshot slice/task scoped while still allowing multiple alternatives per operation.
-
 ### 8.3 Snapshot hash
 
-Step31 SHALL recompute:
-
 ```text
-snapshot_hash = SHA256(
-  execution_slice_hash
-  + host_runtime_ref
-  + normalized native target binding evidence
-  + normalized provider candidate fingerprints/bodies
-  + valid_until
-)
+snapshot_hash = SHA256({
+  execution_slice_hash,
+  host_runtime_ref,
+  normalized native target evidence,
+  normalized candidate semantic bodies/fingerprints,
+  valid_until
+})
 ```
 
 `snapshot_id` is excluded.
 
-Mismatch returns:
+Mismatch:
 
 ```text
 PROVIDER_SNAPSHOT_HASH_MISMATCH
 ```
 
-If:
+Expiry rule:
 
 ```text
 admission_time >= valid_until
+→ PROVIDER_SNAPSHOT_EXPIRED
 ```
 
-Step31 returns:
-
-```text
-PROVIDER_SNAPSHOT_EXPIRED
-```
-
-No candidate selection or adapter invocation occurs after an expired snapshot is detected.
+No Adapter is called after expiry failure.
 
 ---
 
 ## 9. Candidate fingerprint
 
-`candidate_fingerprint` SHALL bind at least:
+`candidate_fingerprint` binds:
 
 ```text
 provider_server
@@ -702,9 +618,7 @@ certification_state
 policy_priority
 ```
 
-Any semantic change to the candidate evidence therefore changes its fingerprint.
-
-Step31 MUST recompute every fingerprint before selection. A supplied digest mismatch or invalid candidate schema returns:
+Step31 recomputes every fingerprint. Digest mismatch, invalid schema, or invalid constraint syntax returns:
 
 ```text
 PROVIDER_CANDIDATE_INVALID
@@ -714,12 +628,12 @@ PROVIDER_CANDIDATE_INVALID
 
 ## 10. Deterministic candidate eligibility
 
-For each ExecutionUnit, candidate filtering order is fixed:
+For each Unit, filtering order is fixed:
 
 ```text
 1. canonical_operation exact match
-2. execution_unit.canonical_operation_version ∈ compatible_operation_versions
-3. every provider_native_constraint is satisfied by every native target for the Unit
+2. Unit canonical operation version is compatible
+3. every provider_native_constraint is satisfied by every Unit native target
 4. trust_state == SATISFIED
 5. compatibility_state == SATISFIED
 6. health_state == SATISFIED
@@ -727,31 +641,19 @@ For each ExecutionUnit, candidate filtering order is fixed:
 8. certification_state == SATISFIED
 ```
 
-Policy is already frozen into candidate eligibility evidence and `policy_priority`; Step31 does not live-call a policy engine.
+Policy is already projected into candidate state/priority evidence; Step31 does not live-call a policy service.
 
-Candidates failing native constraints are filtered. If the snapshot explicitly claims candidates but native constraints eliminate every candidate, the final Unit outcome is:
+If all candidates are filtered:
 
 ```text
 PROVIDER_CANDIDATE_UNAVAILABLE
 ```
 
-A specific candidate whose native constraint syntax is invalid returns:
-
-```text
-PROVIDER_CANDIDATE_INVALID
-```
-
-The separate code:
-
-```text
-PROVIDER_NATIVE_CONSTRAINT_UNSATISFIED
-```
-
-is reserved for direct validation helpers/tests and diagnostics where a candidate is explicitly checked, not for changing normal multi-candidate fallback semantics.
+`PROVIDER_NATIVE_CONSTRAINT_UNSATISFIED` remains available for direct constraint-validation diagnostics/tests, but normal multi-candidate resolution continues filtering and only returns UNAVAILABLE when no eligible candidate remains.
 
 ---
 
-## 11. Deterministic candidate ranking and ambiguity
+## 11. Deterministic ranking and ambiguity
 
 Eligible candidates rank by:
 
@@ -764,65 +666,54 @@ Eligible candidates rank by:
 )
 ```
 
-The winner is the unique first semantic provider identity.
+Version ordering here is a deterministic identity tie-breaker, not a claim that lexical version order means "better". Any intended version preference must be projected into `policy_priority` by the snapshot producer.
 
-### 11.1 Important tie rule
+### 11.1 Tie rule
 
-A previous informal sketch included `candidate_fingerprint` inside the ranking key while also describing different fingerprints as an ambiguous tie. Those two statements cannot both be true.
+`candidate_fingerprint` is **not** a winner tie-breaker.
 
-The frozen machine rule is therefore:
+If two rows have the same ranking identity:
 
-- ranking identity excludes `candidate_fingerprint`;
-- if two candidate rows have the same ranking identity and the same candidate fingerprint, the snapshot contains a duplicate and is invalid;
-- if two candidate rows have the same ranking identity but different candidate fingerprints, the snapshot contains conflicting evidence for the same provider identity/version/priority and resolution fails closed.
+- same fingerprint → duplicate candidate evidence;
+- different fingerprints → conflicting evidence for the same provider identity/version/priority.
 
-Both cases return:
+Both fail closed:
 
 ```text
 PROVIDER_CANDIDATE_AMBIGUOUS
 ```
 
-Step31 never resolves such a conflict using discovery order, registration order, random choice, or LLM preference.
+Resolver never uses discovery order, registration order, randomness, or LLM preference.
 
 ---
 
 ## 12. No exception-driven provider fallback
 
-After deterministic selection, exactly one selected candidate is passed to its adapter.
+After deterministic selection, exactly one candidate is sent to its Adapter.
 
-If adaptation fails because native material, schema adaptation, or adapter logic cannot produce a valid binding, Step31 returns:
+If adaptation fails:
 
 ```text
 PROVIDER_BINDING_ADAPTATION_FAILED
 ```
 
-Step31 MUST NOT catch that failure and silently try the next-ranked candidate.
+Step31 MUST NOT secretly try the next-ranked candidate.
 
-Reason:
-
-```text
-snapshot says selected candidate is eligible
-        ↓
-adapter says it cannot bind
-```
-
-This is evidence/adapter inconsistency. Hidden fallback would make runtime exception behavior part of provider selection and would mask bad evidence.
-
-Correct recovery is external:
+Recovery is external:
 
 ```text
 fail closed
-→ refresh provider/native execution evidence
+→ refresh provider/native evidence
 → rerun Step31
 ```
 
+This prevents runtime exception behavior from becoming an undocumented provider-selection algorithm.
+
 ---
 
-## 13. ProviderBindingAdapter boundary
+## 13. ProviderBindingAdapter
 
-### 13.1 Adapter protocol
-
-The generic protocol is:
+### 13.1 Protocol
 
 ```text
 ProviderBindingAdapter {
@@ -837,70 +728,54 @@ ProviderBindingAdapter {
 }
 ```
 
-The adapter may perform provider/Host-specific transformation such as:
+Adapters may perform Host/provider-specific transformations such as:
 
 ```text
-SemanticId/native binding → native target format
-canonical units → provider-native units
+semantic/native binding → provider target format
+canonical units → native/internal units
 canonical arguments → provider input payload
-canonical precondition → provider-native precondition representation
-provider-native operation variant metadata
+optional native enforcement projection
+native operation variant metadata
 ```
 
-The generic Step31 package does not understand those transformations.
+### 13.2 Registry
 
-### 13.2 Adapter registry
-
-Adapters are injected via:
+Adapters are injected through:
 
 ```text
 ProviderBindingAdapterRegistry
 ```
 
-Registry key is `provider_server`.
+Key: `provider_server`.
 
-At most one adapter may be registered for a provider_server in one resolver instance.
+At most one Adapter may be registered for a provider_server in one resolver instance.
 
-Conflicting registration returns:
-
-```text
-PROVIDER_ADAPTER_CONFLICT
-```
-
-Missing adapter returns:
+Errors:
 
 ```text
-PROVIDER_ADAPTER_UNAVAILABLE
+missing adapter      → PROVIDER_ADAPTER_UNAVAILABLE
+conflicting adapter  → PROVIDER_ADAPTER_CONFLICT
 ```
 
-The selected adapter's declared `adapter_version` MUST exactly equal `selected_candidate.input_adapter_version`; mismatch is treated as adapter unavailable/incompatible and fails closed.
+The Adapter's declared version MUST exactly match `selected_candidate.input_adapter_version`; mismatch fails closed as unavailable/incompatible.
 
-The generic core MUST NOT contain branches such as:
-
-```python
-if host_type == "AUTOCAD": ...
-elif host_type == "REVIT": ...
-```
-
-and MUST NOT dynamically import Host packages.
+Generic Step31 code MUST NOT contain Host branches such as `if host_type == "AUTOCAD"` and MUST NOT dynamically import Host packages.
 
 ---
 
-## 14. Adapter output integrity gate
+## 14. Adapter output integrity
 
-After Adapter output, generic Step31 validates all authorization-relevant binding material before hashing.
+### 14.1 Native targets
 
-### 14.1 Native target completeness
-
-The Adapter's `native_targets[]` MUST bind exactly the ExecutionUnit target set:
+Adapter output must bind exactly the Unit target set:
 
 ```text
-set(native_targets.semantic_id)
+set(material.native_targets.semantic_id)
 ==
 set(execution_unit.targets)
 ```
 
-The Adapter cannot add, remove, substitute, or duplicate semantic targets.
+It cannot add, remove, substitute, or duplicate targets.
 
 Failure:
 
@@ -908,106 +783,86 @@ Failure:
 PROVIDER_NATIVE_TARGET_MISMATCH
 ```
 
-Each returned native target MUST equal the already-frozen NativeTargetBindingEvidence for that semantic target. An adapter may reformat provider payload representation, but it cannot select a different native identity than the snapshot evidence.
+Each returned native target must equal the frozen snapshot evidence for that semantic target. Adapter formatting may change; native identity may not.
 
 ### 14.2 Canonical semantics are structurally unmodifiable
 
-`ProviderBindingMaterial` contains no fields for:
+Adapter material has no canonical operation/effect/scope fields. Provider identity/version is copied by generic core from the selected candidate. Canonical rewriting is therefore structurally unrepresentable through the Adapter API.
 
-```text
-canonical_operation
-canonical targets
-expected_effects
-approved scope
-```
+### 14.3 Optional provider-native preconditions
 
-ProviderBinding provider identity/version fields are copied by generic core from the selected candidate rather than supplied by the Adapter.
+`provider_preconditions[]` may be empty.
 
-This makes canonical rewriting structurally unrepresentable through the Adapter API.
+If non-empty:
 
-### 14.3 Preconditions
+- every `source_precondition_fingerprint` must correspond to an exact Step30 source precondition;
+- duplicate source references fail closed;
+- no Adapter-generated precondition may claim a nonexistent source precondition.
 
-For each exact Step30 precondition fingerprint, Adapter output MUST contain exactly one corresponding ProviderPreconditionBinding.
-
-Missing, extra, duplicate, or unknown source fingerprints fail with:
+Failure:
 
 ```text
 PROVIDER_BINDING_ADAPTATION_FAILED
 ```
 
-The generic core validates translation coverage, not Host-specific semantic equivalence.
+The core does **not** require complete native translation of all Step30 preconditions, because those are canonical planning/barrier requirements rather than a Host command schema.
 
 ### 14.4 Provider input schema
 
-Adapter `provider_arguments` MUST validate against the selected candidate `provider_input_schema`.
+Adapter `provider_arguments` must validate against selected candidate `provider_input_schema`.
 
-Invalid payload returns:
+Failure:
 
 ```text
 PROVIDER_INPUT_SCHEMA_INVALID
 ```
 
-This is distinct from Step29 canonical-argument schema validation:
+This is distinct from Step29 canonical-argument validation:
 
 ```text
 Step29: canonical arguments → Canonical Action schema
-Step31: provider arguments  → provider execution input schema
+Step31: provider arguments  → Provider execution schema
 ```
 
 ### 14.5 Native binding metadata
 
-`native_binding_metadata` is immutable opaque JSON-like provider material needed to execute the selected implementation but not naturally represented as targets/arguments/preconditions.
+`native_binding_metadata` is immutable opaque execution-semantic metadata that does not fit target/argument/precondition fields, for example parameter-binding refs, native operation variants, or provider schema discriminators.
 
-Allowed examples include:
+Runtime noise such as debug traces, latency, mutable retry state, or log timestamps MUST NOT enter this mapping.
 
-```text
-parameter binding reference
-transaction/native operation variant
-provider schema discriminator
-```
-
-Forbidden examples include non-semantic runtime noise:
-
-```text
-log timestamp
-debug trace
-request duration
-mutable retry state
-```
-
-If metadata can change actual execution behavior, it is binding hash material.
+Any metadata that can change actual execution behavior is binding hash material.
 
 ---
 
 ## 15. Binding expiry
 
-Step31 v1 requires snapshot expiry and freezes:
+Step31 v1 freezes:
 
 ```text
-binding_expires_at = provider_execution_snapshot.valid_until
+binding_expires_at = snapshot.valid_until
 ```
 
-The expiry is authorization-relevant semantic material and therefore enters `binding_hash`.
+Expiry is authorization-relevant and enters `binding_hash`.
 
-Consequently, extending or changing the validity window changes:
+Changing the validity window therefore changes:
 
 ```text
 binding_hash
 → binding_set_hash
-→ Step32 must issue a new ExecutionGrant
+→ old ExecutionGrant cannot be reused
 ```
 
-This is intentionally strict in v1.
+Future versions MAY add candidate/native-binding-level deadlines and derive the minimum, but v1 does not.
 
 ---
 
 ## 16. Hashing model
 
-All Step31 hashes SHALL use canonical JSON + SHA-256 with stable normalized collection ordering.
+All Step31 hashes use canonical JSON + SHA-256 with normalized collection ordering.
 
 Construction IDs MUST NOT be substituted for full hashes inside semantic hash bodies.
 
-### 16.1 Host binding fingerprint
+### 16.1 HostBinding fingerprint
 
 ```text
 host_binding_fingerprint = SHA256({
@@ -1021,9 +876,9 @@ host_binding_fingerprint = SHA256({
 
 ### 16.2 Candidate fingerprint
 
-As defined in §9, candidate fingerprint binds the full normalized candidate semantic body.
+As defined in §9.
 
-### 16.3 ProviderBinding hash
+### 16.3 binding_hash
 
 ```text
 binding_hash = SHA256({
@@ -1047,7 +902,6 @@ binding_hash = SHA256({
 
   verification_contract,
   rollback_contract,
-
   binding_expires_at
 })
 ```
@@ -1066,27 +920,15 @@ Construction ID:
 binding_id = "PB-" + binding_hash[:12]
 ```
 
-### 16.4 Why snapshot hash is excluded from binding_hash
+### 16.4 Why snapshot hash is excluded
 
-Snapshot hash is input-integrity/provenance evidence, not selected execution identity.
+Snapshot hash is input integrity/provenance, not selected execution identity.
 
-Example:
+If only an unused candidate changes while winner/native payload/contracts/expiry remain identical, `snapshot_hash` may change while `binding_hash` remains unchanged.
 
-```text
-Candidate A selected
-Candidate B unused
-Candidate C unused
-```
-
-If only unused Candidate C health evidence changes while A, native targets, adapted payload, contracts, and expiry remain unchanged, actual authorized execution material has not changed.
-
-Therefore an unrelated candidate change may change `snapshot_hash` without changing `binding_hash`.
-
-The selected candidate's exact evidence still enters the binding via `selected_candidate_fingerprint`.
+The selected candidate's exact body still binds through `selected_candidate_fingerprint`.
 
 ### 16.5 binding_set_hash
-
-For one ExecutionSlice:
 
 ```text
 binding_set_hash = SHA256({
@@ -1101,29 +943,29 @@ Construction ID:
 binding_set_id = "PBS-" + binding_set_hash[:12]
 ```
 
-The hash MUST use full 64-character binding hashes, never `PB-<12-char>` construction IDs.
+The hash MUST use full binding hashes, never `PB-<12-char>` IDs.
 
-`provider_execution_snapshot_id/hash` are excluded from authorization hash material for the same provenance reason described above.
+Snapshot ID/hash are excluded from authorization hash material. `ProviderBindingSet` therefore acts as an immutable resolution record whose authorization identity is `binding_set_hash`; provenance refs may differ while authorization-equivalent binding content remains the same.
 
-### 16.6 Hash sensitivity
+### 16.6 Sensitivity
 
-Any selected execution-material change MUST change binding hash and therefore binding_set_hash, including:
+Any selected execution-material change MUST change binding hash/set hash, including:
 
 ```text
 provider server/tool/version
 selected candidate fingerprint
 adapter version
 host instance/document
-native target/native kind/native id
+native id/kind
 provider arguments
-provider preconditions
-native binding metadata
+provider-native preconditions
+native metadata
 verification contract
 rollback contract
 binding expiry
 ```
 
-Provider switching MUST leave these upstream identities unchanged:
+Provider switching leaves upstream hashes unchanged:
 
 ```text
 ChangeSet hash
@@ -1131,7 +973,7 @@ ExecutionUnit hash
 ExecutionSlice hash
 ```
 
-while changing:
+and changes:
 
 ```text
 ProviderBinding hash
@@ -1140,9 +982,7 @@ binding_set_hash
 
 ---
 
-## 17. Stable fail-closed errors
-
-Step31 v1 freezes these machine-readable codes:
+## 17. Fail-closed error codes
 
 ```text
 PROVIDER_BINDING_INPUT_INVALID
@@ -1158,7 +998,6 @@ PROVIDER_NATIVE_BINDING_EXTRANEOUS
 PROVIDER_CANDIDATE_INVALID
 PROVIDER_CANDIDATE_UNAVAILABLE
 PROVIDER_CANDIDATE_AMBIGUOUS
-
 PROVIDER_NATIVE_CONSTRAINT_UNSATISFIED
 
 PROVIDER_ADAPTER_UNAVAILABLE
@@ -1172,13 +1011,15 @@ PROVIDER_BINDING_HASH_MISMATCH
 PROVIDER_BINDING_SET_INVALID
 ```
 
-No error path may silently change provider winner, split an ExecutionUnit, widen target scope, or dispatch a Host command.
+No error path may silently select another provider after Adapter failure, split a Unit, widen targets/scope, or dispatch a Host command.
+
+`PROVIDER_BINDING_HASH_MISMATCH` is reserved for public hash-validation helpers / externally supplied immutable binding validation. Normal resolver construction computes rather than accepts binding hashes.
 
 ---
 
 ## 18. Step32 handoff
 
-Step31 outputs one immutable ProviderBindingSet per ExecutionSlice.
+Step31 outputs one ProviderBindingSet per ExecutionSlice.
 
 Step32 consumes authorization-relevant identity including at least:
 
@@ -1189,7 +1030,7 @@ binding_set_hash
 host_instance_id
 ```
 
-plus governance evidence such as:
+plus governance evidence:
 
 ```text
 ApprovalRecord
@@ -1199,27 +1040,16 @@ allowed_operations
 expires_at
 ```
 
-Step32 then issues the per-Slice ExecutionGrant.
+Step31 MUST NOT generate approval IDs, inspect approvers, re-decide approved scope, choose allowed operations, issue ExecutionGrant, or send HostCommand.
 
-Step31 MUST NOT:
-
-```text
-generate approval_id
-inspect approver identity
-re-decide approved semantic scope
-issue ExecutionGrant
-choose allowed_operations
-send HostCommand
-```
-
-The expected invalidation rule is:
+Expected invalidation behavior:
 
 ```text
 same ChangeSet + same approved scope + changed ProviderBindingSet
         ↓
 no repeated user approval
         ↓
-old ExecutionGrant invalid
+old grant invalid
         ↓
 new binding_set_hash
         ↓
@@ -1230,14 +1060,13 @@ reissue ExecutionGrant
 
 ## 19. Architecture guards
 
-The Step31 production package SHALL contain no direct import of Host-specific packages or execution/governance runtime packages.
+Step31 production code SHALL contain no direct import of Host-specific or execution/governance runtime packages.
 
-Architecture tests SHALL guard against at least:
+Guard at least:
 
 ```text
 autocad_sidecar
-Revit SDK/package names
-Tekla SDK/package names
+Revit/Tekla SDK packages
 HostAdapter
 CommandDispatcher
 send_command
@@ -1246,50 +1075,48 @@ ApprovalRecord
 ExecutionGrant
 ActualDelta
 Saga
-rollback runtime state
-retry runtime state
-idempotency runtime state
+mutable rollback/retry/idempotency state
 ```
 
-The presence of generic contract field names such as `rollback_contract` is allowed; mutable rollback execution ownership is not.
+Generic resolver code SHALL contain no `host_type == ...` provider-specific branches.
 
-The generic resolver SHALL contain no `host_type == ...` provider-specific branching.
+`rollback_contract` as immutable contract data is allowed; rollback runtime ownership is not.
 
 ---
 
 ## 20. Test matrix
 
-Implementation MUST include focused tests covering at least:
+Implementation MUST cover:
 
 | Category | Required behavior |
 |---|---|
-| Contracts | frozen DTOs, tuple normalization, defensive mapping copy, digest/timestamp validation |
-| Snapshot binding | slice ID/hash/HostRuntimeRef mismatch all fail closed |
-| Snapshot hash | caller hash is recomputed; mismatch rejected |
-| Snapshot expiry | explicit admission_time before expiry succeeds; at/after expiry rejects |
+| Contracts | frozen DTOs, tuple normalization, defensive mappings, digest/timestamp validation |
+| Snapshot binding | Slice ID/hash/HostRuntimeRef mismatch rejected |
+| Snapshot hash | supplied hash recomputed; mismatch rejected |
+| Snapshot expiry | explicit admission time before expiry succeeds; at/after expiry rejects |
 | Native identity | HostBinding fingerprint recomputed |
-| Closed-world native targets | missing/conflict/extraneous all rejected |
-| Candidate validity | bad candidate fingerprint/schema/constraint syntax rejected |
-| Candidate scope | candidate for unrelated Slice operation rejected |
-| Candidate filters | operation version/trust/compatibility/health/license/certification/native constraints filter deterministically |
-| Candidate determinism | discovery/input ordering does not affect winner |
-| Ranking | policy priority first, then stable provider identity |
-| Ambiguity | same provider identity/rank with duplicate or conflicting evidence fails closed |
-| Unit granularity | every EU maps to exactly one PB; no partial/multi-provider Unit binding |
-| Adapter registry | missing/conflicting adapter rejected; adapter version must match |
-| No hidden fallback | selected adapter failure does not try next candidate |
+| Closed-world native targets | missing/conflict/extraneous rejected |
+| Candidate validity | bad fingerprint/schema/constraint syntax rejected |
+| Candidate scope | unrelated canonical operation rejected |
+| Candidate filters | version/trust/compatibility/health/license/certification/native constraint gates |
+| Determinism | candidate/input ordering does not alter winner |
+| Ranking | policy priority then stable provider identity |
+| Ambiguity | duplicate/conflicting same-rank provider identity fails closed |
+| Unit granularity | one EU → exactly one PB; no partial/mixed provider binding |
+| Adapter registry | missing/conflicting/version-mismatched adapter rejected |
+| No hidden fallback | selected Adapter failure does not try next candidate |
 | Target integrity | Adapter cannot add/remove/substitute/duplicate targets |
-| Preconditions | exact source-precondition fingerprint coverage required |
-| Provider schema | adapted provider arguments must validate |
-| Hash determinism | input collection ordering does not alter semantic hashes |
-| Binding sensitivity | any selected provider/native/payload/precondition/contracts/expiry change alters binding hash |
+| Native preconditions | optional; emitted rows must reference real unique source preconditions |
+| Provider schema | adapted arguments must validate |
+| Hash determinism | collection ordering does not alter semantic hashes |
+| Binding sensitivity | selected provider/native/payload/preconditions/contracts/expiry change alters binding hash |
 | Binding-set sensitivity | any full binding hash change alters binding_set_hash |
-| Full-hash rule | binding_set_hash uses full 64-hex binding hashes, not PB construction IDs |
-| Unused candidate | unused candidate change may alter snapshot hash but does not alter binding/set hash when winner material and expiry are unchanged |
-| Provider switch | ChangeSet/EU/Slice hashes unchanged; PB and binding_set hashes change |
-| Step32 boundary | Step31 DTOs contain no approval/grant fields |
-| Runtime boundary | no HostCommand/dispatch/retry/ActualDelta/Saga ownership |
-| Regression | Step30, Step29, capability/resolver-related existing tests remain GREEN |
+| Full-hash rule | set hash uses full 64-hex binding hashes, never PB IDs |
+| Unused candidate | may change snapshot hash but not binding/set hash if winner material+expiry unchanged |
+| Provider switch | ChangeSet/EU/Slice hashes unchanged; PB/set hashes change |
+| Step32 boundary | no approval/grant fields or behavior in Step31 |
+| Runtime boundary | no HostCommand/dispatch/retry/ActualDelta/Saga |
+| Regression | Step30, Step29, and existing capability/resolver tests remain GREEN |
 
 ---
 
@@ -1300,26 +1127,26 @@ For the same:
 ```text
 ExecutionSlice semantic body
 ProviderExecutionSnapshot semantic body
-admission_time validity result
-registered adapter implementation/version
+admission result (not expired)
+registered Adapter implementation/version
 ```
 
-Step31 MUST produce the same:
+Step31 produces the same:
 
 ```text
 selected candidate per Unit
 ProviderBinding semantic body
 binding_hash
-ProviderBindingSet bindings
+ProviderBindingSet binding contents
 binding_set_hash
 ```
 
-The following MUST NOT affect winner selection:
+These MUST NOT affect selection:
 
 ```text
-candidate input ordering
-native binding input ordering
-adapter registration ordering
+candidate ordering
+native binding ordering
+Adapter registration ordering
 discovery ordering
 randomness
 LLM preference
@@ -1327,32 +1154,30 @@ wall-clock lookup inside resolver
 exception-driven fallback
 ```
 
-`admission_time` affects only expiry admission. Any two admission times before the same required `valid_until` produce the same binding semantics.
+Any two admission times before the same snapshot expiry produce identical binding semantics.
 
 ---
 
-## 22. v1 non-goals and future extensions
+## 22. v1 non-goals
 
 Step31 v1 deliberately does not implement:
 
-- live provider discovery or health polling;
-- full global Provider Registry infrastructure;
-- full HostBinding Resolution Service;
+- live provider discovery/health polling;
+- global Provider Registry infrastructure;
+- HostBinding Resolution Service;
 - arbitrary native constraint DSL;
 - mixed-provider binding of one ExecutionUnit;
-- candidate-level/native-target-level independent expiry deadlines;
+- candidate/native-target independent expiry deadlines;
 - direct MCP invocation;
-- HostCommand creation or dispatch;
+- HostCommand creation/dispatch;
 - approval/grant logic;
 - verification/rollback/Saga runtime execution.
 
-These can be added behind the frozen evidence/adapter boundaries without changing the core rule that immutable ExecutionUnit semantics precede provider/native binding.
+These remain extendable behind the frozen evidence/Adapter boundary.
 
 ---
 
 ## 23. Final architecture
-
-The frozen Step31 design is:
 
 ```text
 Step30 immutable ExecutionSlice
@@ -1369,7 +1194,7 @@ ProviderExecutionSnapshot
               ↓
  ProviderBindingAdapter transformation
               ↓
- target/precondition/schema integrity gates
+ target/source-ref/schema integrity gates
               ↓
  immutable ProviderBinding
               ↓
@@ -1385,7 +1210,7 @@ ProviderExecutionSnapshot
         ExecutionGrant
 ```
 
-The final ownership invariant is:
+Final ownership invariant:
 
 ```text
 Canonical semantics
@@ -1401,4 +1226,4 @@ Host mutation + read-back + verification + reconciliation + Saga
   Step33 owns
 ```
 
-Step31 is complete when it can deterministically prove and hash **how this already-approved canonical execution unit would be implemented**, without changing **what the canonical unit means** and without yet authorizing or performing the Host mutation.
+Step31 is complete when it can deterministically prove and hash **how this already-approved canonical ExecutionUnit would be implemented**, without changing **what the Unit means** and without yet authorizing or performing the Host mutation.
