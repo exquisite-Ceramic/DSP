@@ -254,7 +254,7 @@ def _resolved_subjects(assertion: Mapping[str, Any], operation) -> tuple[str, ..
     if not isinstance(argument_name, str) or argument_name not in operation.arguments:
         return None
     raw = operation.arguments[argument_name]
-    if isinstance(raw, str) or isinstance(raw, Mapping):
+    if isinstance(raw, (str, Mapping)):
         return None
     try:
         subjects = tuple(raw)
