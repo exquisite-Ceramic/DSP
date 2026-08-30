@@ -8,6 +8,7 @@ from dataclasses import replace
 import design_execution_reconciliation as reconciliation
 import pytest
 from design_gateway_authorization import (
+    AdmittedExecutionAuthority,
     ApprovalAdmission,
     ApprovalConsumptionRequest,
     ExecutionGrantRequest,
@@ -55,7 +56,7 @@ def _assignment(definition, slice_hash):
 
 def _manual_authority(transaction, slice_hash, *, marker="1"):
     execution_slice = _slice(transaction, slice_hash)
-    return reconciliation.AdmittedExecutionAuthority(
+    return AdmittedExecutionAuthority(
         approval_hash=marker * 64,
         grant_hash=("a" if marker != "a" else "b") * 64,
         changeset_hash=transaction.canonical_changeset.changeset_hash,
