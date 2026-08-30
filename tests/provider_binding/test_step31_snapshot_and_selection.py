@@ -3,19 +3,18 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from design_execution_planning import HostRuntimeRef
-
-from design_provider_binding import EligibilityState, ProviderBindingError
-from design_provider_binding.resolver import (
-    _select_candidate,
-    _validate_request_and_snapshot,
-)
 from conftest import (
     digest,
     make_candidate,
     make_native_binding,
     make_request,
     make_snapshot,
+)
+from design_execution_planning import HostRuntimeRef
+from design_provider_binding import EligibilityState, ProviderBindingError
+from design_provider_binding.resolver import (
+    _select_candidate,
+    _validate_request_and_snapshot,
 )
 
 

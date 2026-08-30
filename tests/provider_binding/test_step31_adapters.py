@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from design_provider_binding import (
     NativeConstraint,
     NativeConstraintOperator,

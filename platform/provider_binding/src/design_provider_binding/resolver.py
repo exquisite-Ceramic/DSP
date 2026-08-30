@@ -32,7 +32,7 @@ from .hashing import (
 
 
 def _parse_utc(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 def _native_bindings_by_semantic_id(

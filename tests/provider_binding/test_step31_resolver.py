@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
+from conftest import (
+    FakeBindingAdapter,
+    digest,
+    make_candidate,
+    make_native_binding,
+    make_request,
+    make_snapshot,
+)
 from design_execution_planning import (
     ExecutionSlice,
     ExecutionUnit,
     compute_execution_slice_hash,
     compute_execution_unit_hash,
 )
-
 from design_provider_binding import (
     ProviderBindingAdapterRegistry,
     ProviderBindingError,
@@ -18,14 +23,6 @@ from design_provider_binding import (
     ProviderResolver,
     compute_precondition_fingerprint,
     validate_provider_binding,
-)
-from conftest import (
-    FakeBindingAdapter,
-    digest,
-    make_candidate,
-    make_native_binding,
-    make_request,
-    make_snapshot,
 )
 
 

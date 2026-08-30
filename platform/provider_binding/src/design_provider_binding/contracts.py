@@ -11,7 +11,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
-from design_execution_planning import ExecutionSlice, ExecutionUnit, HostRuntimeRef
+from design_execution_planning import ExecutionSlice, HostRuntimeRef
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")

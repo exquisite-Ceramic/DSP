@@ -5,7 +5,6 @@ from inspect import signature
 
 import pytest
 from design_changeset import ChangePrecondition, PreconditionKind, canonical_hash
-
 from design_provider_binding import (
     EligibilityState,
     NativeConstraint,

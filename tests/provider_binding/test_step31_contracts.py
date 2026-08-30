@@ -5,7 +5,6 @@ from types import MappingProxyType
 
 import pytest
 from design_execution_planning import HostRuntimeRef
-
 from design_provider_binding import (
     EligibilityState,
     NativeConstraint,
