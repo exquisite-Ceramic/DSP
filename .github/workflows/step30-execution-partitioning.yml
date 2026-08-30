@@ -1,0 +1,84 @@
+name: Step30 execution partitioning
+
+on:
+  push:
+    paths:
+      - "platform/execution_planning/**"
+      - "tests/execution_planning/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step30-execution-partitioning-design.md"
+      - "docs/superpowers/plans/2026-08-30-step30-execution-partitioning.md"
+      - ".github/workflows/step30-execution-partitioning.yml"
+  pull_request:
+    paths:
+      - "platform/execution_planning/**"
+      - "tests/execution_planning/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-29-step30-execution-partitioning-design.md"
+      - "docs/superpowers/plans/2026-08-30-step30-execution-partitioning.md"
+      - ".github/workflows/step30-execution-partitioning.yml"
+  workflow_dispatch:
+
+jobs:
+  step30-execution-partitioning:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step30 verification stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/changeset \
+            -e platform/execution_planning \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Verify Step30 PR diff boundary
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step30-execution-partitioning'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step30-execution-partitioning\.yml|docs/superpowers/specs/2026-08-29-step30-execution-partitioning-design\.md|docs/superpowers/plans/2026-08-30-step30-execution-partitioning\.md|platform/execution_planning/.*|tests/execution_planning/.*|pyproject\.toml)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "Step30 changed files outside approved boundary:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+      - name: Run Step30 contract tests
+        run: pytest -q tests/execution_planning/test_step30_contracts.py
+      - name: Run Step30 hashing tests
+        run: pytest -q tests/execution_planning/test_step30_hashing.py
+      - name: Run Step30 routing tests
+        run: pytest -q tests/execution_planning/test_step30_routing.py
+      - name: Run Step30 scope selection tests
+        run: pytest -q tests/execution_planning/test_step30_scope_selection.py
+      - name: Run Step30 planner tests
+        run: pytest -q tests/execution_planning/test_step30_planner.py
+      - name: Run Step30 dependency tests
+        run: pytest -q tests/execution_planning/test_step30_dependencies.py
+      - name: Run Step30 architecture guards
+        run: pytest -q tests/execution_planning/test_step30_architecture.py
+      - name: Run Step28 regressions
+        run: pytest -q tests/approval_scope
+      - name: Run Step29 regressions
+        run: pytest -q tests/changeset
+      - name: Run Step27 regressions
+        run: pytest -q tests/impact
+      - name: Run Ruff on Step30 Python changes
+        run: ruff check platform/execution_planning/src/design_execution_planning tests/execution_planning
+      - name: Run full repository Python test suite
+        run: pytest -q --import-mode=importlib
