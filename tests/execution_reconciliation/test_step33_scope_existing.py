@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import design_execution_reconciliation as reconciliation
 import pytest
 from design_approval_scope import (
     ApprovalScopeDefinition,
@@ -25,8 +26,6 @@ from design_execution_planning import (
     compute_execution_slice_hash,
 )
 from host_contracts import HostEntityRef
-
-import design_execution_reconciliation as reconciliation
 
 
 def _assert_error(code: str, operation, *, upstream_code: str | None = None) -> None:
