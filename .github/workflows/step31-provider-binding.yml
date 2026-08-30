@@ -47,3 +47,5 @@ jobs:
             -e providers/semantics/enterprise_mapping
       - name: Run Step31 contract tests
         run: pytest -q tests/provider_binding/test_step31_contracts.py
+      - name: Run Step31 hashing tests
+        run: pytest -q tests/provider_binding/test_step31_hashing.py
