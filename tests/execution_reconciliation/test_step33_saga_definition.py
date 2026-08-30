@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
 import design_execution_reconciliation as reconciliation
+import pytest
 from design_changeset import ValidationTaskKind
 from design_execution_planning import (
     ExecutionDependency,
