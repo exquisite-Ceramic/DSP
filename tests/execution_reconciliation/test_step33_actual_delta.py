@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 from design_approval_scope import CanonicalAspect
 from design_execution_reconciliation import (
     ActualChange,
@@ -15,7 +16,6 @@ from design_execution_reconciliation import (
     validate_actual_delta_integrity,
 )
 from host_contracts import HostEntityRef
-import pytest
 
 
 D = "a" * 64
