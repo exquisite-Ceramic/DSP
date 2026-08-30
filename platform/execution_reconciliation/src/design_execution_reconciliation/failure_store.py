@@ -29,8 +29,8 @@ from .saga_state import (
     SliceReconciliationStatus,
     StoredExecutionSaga,
 )
+from .store import InMemoryExecutionSagaStore as _Task9ExecutionSagaStore
 from .store import (
-    InMemoryExecutionSagaStore as _Task9ExecutionSagaStore,
     _assignment_task_ids,
     _state_index,
 )
