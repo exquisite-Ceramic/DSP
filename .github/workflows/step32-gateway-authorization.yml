@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Task4 verification stack
+      - name: Install Step32 verification stack
         run: |
           python -m pip install pytest ruff
           python -m pip install -e platform/changeset
@@ -64,7 +64,9 @@ jobs:
         run: pytest -q tests/gateway_authorization/test_step32_contracts.py
       - name: Run Step32 hashing tests
         run: pytest -q tests/gateway_authorization/test_step32_hashing.py
-      - name: Run Ruff on Task4 changes
+      - name: Run Step32 approval service tests
+        run: pytest -q tests/gateway_authorization/test_step32_approval_service.py
+      - name: Run Ruff on Step32 changes
         run: |
           ruff check platform/gateway_authorization/src/design_gateway_authorization
           ruff check tests/gateway_authorization
