@@ -107,14 +107,14 @@ def test_each_binding_unit_hash_must_match_exact_execution_unit(execution_slice)
     assert exc.value.code == "PROVIDER_BINDING_SET_INVALID"
 
 
-def test_tampered_binding_semantic_hash_is_binding_set_invalid(execution_slice):
+def test_tampered_binding_semantic_hash_retains_binding_hash_error(execution_slice):
     binding_set, _ = _default_result(execution_slice)
     first, second = binding_set.bindings
     malformed_binding = replace(first, binding_hash=digest("tampered-binding"))
     malformed = replace(binding_set, bindings=(malformed_binding, second))
     with pytest.raises(ProviderBindingError) as exc:
         validate_provider_binding_set(malformed, execution_slice)
-    assert exc.value.code == "PROVIDER_BINDING_SET_INVALID"
+    assert exc.value.code == "PROVIDER_BINDING_HASH_MISMATCH"
 
 
 def test_set_hash_is_exactly_over_full_binding_hashes(execution_slice):
