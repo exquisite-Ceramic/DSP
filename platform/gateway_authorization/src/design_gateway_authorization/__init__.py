@@ -20,6 +20,7 @@ from .hashing import (
     compute_approval_hash,
     compute_grant_hash,
 )
+from .service import GatewayAuthorizationService
 
 __all__ = [
     "AdmittedExecutionAuthority",
@@ -31,6 +32,7 @@ __all__ = [
     "ExecutionGrant",
     "ExecutionGrantRequest",
     "GatewayAuthorizationError",
+    "GatewayAuthorizationService",
     "GrantLifecycle",
     "GrantState",
     "StoredApproval",
