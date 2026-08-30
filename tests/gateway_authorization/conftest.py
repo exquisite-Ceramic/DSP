@@ -9,20 +9,44 @@ from pathlib import Path
 import pytest
 from design_approval_scope import bind_changeset
 from design_changeset import ChangeSetBuilder
+from design_execution_planning import (
+    ExecutionPlanner,
+    ExecutionPlanningRequest,
+    HostRuntimeRef,
+    RuntimeEntityRoute,
+    RuntimeRoutingEvidence,
+    compute_routing_snapshot_hash,
+)
 from design_gateway_authorization import (
     ApprovalAdmission,
     ApprovalConsumptionRequest,
+    ExecutionGrantRequest,
+    GatewayAuthorizationService,
+    InMemoryGatewayAuthorizationStore,
     compute_admission_fingerprint,
 )
+from design_provider_binding import (
+    ProviderBindingAdapterRegistry,
+    ProviderResolver,
+)
+
+
+def _load_fixture_module(path: Path, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None and spec.loader is not None
+    fixtures = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixtures)
+    return fixtures
 
 
 def _step29_request():
     fixture_path = Path(__file__).parents[1] / "changeset" / "test_step29_derived_builder.py"
-    spec = importlib.util.spec_from_file_location("_step32_step29_fixture", fixture_path)
-    assert spec is not None and spec.loader is not None
-    fixtures = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(fixtures)
-    return fixtures._request()
+    return _load_fixture_module(fixture_path, "_step32_step29_fixture")._request()
+
+
+def _provider_fixtures():
+    fixture_path = Path(__file__).parents[1] / "provider_binding" / "conftest.py"
+    return _load_fixture_module(fixture_path, "_step32_provider_fixture")
 
 
 def resign_admission(admission: ApprovalAdmission, **changes) -> ApprovalAdmission:
@@ -78,3 +102,57 @@ def valid_approval_request() -> ApprovalConsumptionRequest:
         approval_scope_boundary=boundary,
         consumed_at="2026-08-30T07:30:00Z",
     )
+
+
+def build_real_execution_slice(valid_approval_request: ApprovalConsumptionRequest):
+    changeset = valid_approval_request.canonical_changeset
+    boundary = valid_approval_request.approval_scope_boundary
+    runtime = HostRuntimeRef("REVIT", "RVT-01", "DOC-1")
+    routes = [RuntimeEntityRoute(target, runtime) for target in changeset.root_operation.targets]
+    for operation in changeset.derived_operations:
+        routes.extend(RuntimeEntityRoute(target, runtime) for target in operation.targets)
+    route_tuple = tuple(routes)
+    routing = RuntimeRoutingEvidence(
+        "RRS-32",
+        route_tuple,
+        compute_routing_snapshot_hash(route_tuple),
+    )
+    plan = ExecutionPlanner().plan(
+        ExecutionPlanningRequest(changeset, boundary, routing)
+    )
+    assert len(plan.execution_slices) == 1
+    return plan.execution_slices[0]
+
+
+def build_real_binding_set(execution_slice, *, valid_until="2026-08-30T08:30:00Z"):
+    fixtures = _provider_fixtures()
+    candidate = fixtures.make_candidate()
+    snapshot = fixtures.make_snapshot(
+        execution_slice,
+        provider_candidates=(candidate,),
+        valid_until=valid_until,
+    )
+    adapter = fixtures.FakeBindingAdapter()
+    registry = ProviderBindingAdapterRegistry()
+    registry.register(candidate.provider_server, adapter)
+    request = fixtures.make_request(
+        execution_slice,
+        snapshot=snapshot,
+        admission_time="2026-08-30T07:35:00Z",
+    )
+    return ProviderResolver(registry).resolve(request)
+
+
+@pytest.fixture
+def gateway_cross_step(valid_approval_request):
+    store = InMemoryGatewayAuthorizationStore()
+    approval = GatewayAuthorizationService(store).consume_approval(valid_approval_request)
+    execution_slice = build_real_execution_slice(valid_approval_request)
+    binding_set = build_real_binding_set(execution_slice)
+    request = ExecutionGrantRequest(
+        approval_id=approval.approval_id,
+        execution_slice=execution_slice,
+        provider_binding_set=binding_set,
+        issued_at="2026-08-30T07:40:00Z",
+    )
+    return store, approval, execution_slice, binding_set, request
