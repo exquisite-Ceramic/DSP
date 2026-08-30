@@ -21,6 +21,8 @@ _BATCH_FIELDS = {"hostInstanceId", "documentId", "revision", "entities"}
 _ENTITY_FIELDS = {"nativeId", "nativeKind", "layer", "bounds", "properties"}
 _BOUNDS_FIELDS = {"min", "max"}
 _POINT_FIELDS = {"x", "y", "z"}
+_PROPERTY_FIELDS = {"constantWidth"}
+_CONSTANT_WIDTH_FIELDS = {"value", "unit"}
 
 
 def _require_mapping(value: Any, field: str) -> Mapping[str, Any]:
@@ -90,14 +92,25 @@ def _validate_bounds(value: Any) -> dict[str, dict[str, int | float]]:
 
 def _read_constant_width(value: Any) -> tuple[int | float, str]:
     measurement = _require_mapping(value, "properties.constantWidth")
-    width = measurement.get("value")
+    _reject_unknown(
+        measurement,
+        _CONSTANT_WIDTH_FIELDS,
+        "properties.constantWidth",
+    )
+    if set(measurement) != _CONSTANT_WIDTH_FIELDS:
+        raise ValueError("properties.constantWidth must contain value and unit")
+
+    width = measurement["value"]
     if isinstance(width, bool) or not isinstance(width, (int, float)):
         raise ValueError("properties.constantWidth.value must be numeric")
     if isinstance(width, float) and not math.isfinite(width):
         raise ValueError("properties.constantWidth.value must be finite")
-    unit = measurement.get("unit")
-    if not isinstance(unit, str) or not unit.strip():
-        raise ValueError("properties.constantWidth.unit must be a non-empty string")
+    if width <= 0:
+        raise ValueError("properties.constantWidth.value must be positive")
+
+    unit = measurement["unit"]
+    if unit != "mm":
+        raise ValueError("properties.constantWidth.unit must be mm")
     return width, unit
 
 
@@ -163,6 +176,8 @@ class DesignFactAdapter:
                 if "properties" in entity
                 else None
             )
+            if properties is not None:
+                _reject_unknown(properties, _PROPERTY_FIELDS, "properties")
             constant_width = (
                 _read_constant_width(properties["constantWidth"])
                 if properties is not None and "constantWidth" in properties
