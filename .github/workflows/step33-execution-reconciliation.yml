@@ -51,8 +51,14 @@ jobs:
             -e providers/semantics/ifc43 \
             -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping \
-            -e platform/gateway_authorization
+            -e platform/gateway_authorization \
+            -e platform/execution_reconciliation
       - name: Run Step33 focused tests
         run: pytest -q tests/execution_reconciliation
       - name: Run Step30 execution-planning regressions
         run: pytest -q tests/execution_planning
+      - name: Run Step33 focused Ruff
+        run: |
+          ruff check \
+            platform/execution_reconciliation/src/design_execution_reconciliation \
+            tests/execution_reconciliation
