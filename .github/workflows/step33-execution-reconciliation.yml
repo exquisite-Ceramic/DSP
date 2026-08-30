@@ -11,6 +11,8 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
+      - "platform/gateway_authorization/**"
+      - "tests/gateway_authorization/**"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-refinements.md"
       - "docs/superpowers/plans/2026-08-30-step33-execution-reconciliation.md"
@@ -26,6 +28,8 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
+      - "platform/gateway_authorization/**"
+      - "tests/gateway_authorization/**"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-refinements.md"
       - "docs/superpowers/plans/2026-08-30-step33-execution-reconciliation.md"
@@ -69,6 +73,8 @@ jobs:
         run: pytest -q tests/changeset/test_step29_integrity.py
       - name: Run Step30 execution-planning regressions
         run: pytest -q tests/execution_planning
+      - name: Run Step32 admission and revocation regression
+        run: pytest -q tests/gateway_authorization/test_step32_admission_and_revocation.py
       - name: Run Step33 focused Ruff
         run: |
           ruff check \
