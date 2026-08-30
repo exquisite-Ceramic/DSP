@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from typing import Protocol
 
 from .contracts import (
@@ -17,6 +18,11 @@ from .contracts import (
     StoredApproval,
     StoredGrant,
 )
+
+
+def _parse_utc(value: str) -> datetime:
+    raw = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+    return datetime.fromisoformat(raw)
 
 
 class GatewayAuthorizationStore(Protocol):
@@ -116,16 +122,106 @@ class InMemoryGatewayAuthorizationStore:
     ) -> StoredApproval:
         raise NotImplementedError("approval revocation is implemented in Step32 Task 9")
 
+    @staticmethod
+    def _lineage(grant: ExecutionGrant) -> tuple[str, str]:
+        return grant.approval_hash, grant.execution_slice_hash
+
+    def _project_expiry(
+        self,
+        stored: StoredGrant,
+        evaluated_at: str,
+    ) -> StoredGrant:
+        if (
+            stored.lifecycle.state is GrantState.ACTIVE
+            and _parse_utc(evaluated_at) >= _parse_utc(stored.grant.expires_at)
+        ):
+            projected = StoredGrant(
+                stored.grant,
+                GrantLifecycle(GrantState.EXPIRED),
+            )
+            self._grants[stored.grant.grant_hash] = projected
+            return projected
+        return stored
+
     def issue_or_get_grant(self, grant: ExecutionGrant) -> ExecutionGrant:
         if not isinstance(grant, ExecutionGrant):
             raise TypeError("grant must be ExecutionGrant")
-        stored = StoredGrant(grant, GrantLifecycle(GrantState.ACTIVE))
+
+        lineage = self._lineage(grant)
         with self._lock:
-            existing = self._grants.get(grant.grant_hash)
-            if existing is not None:
-                return existing.grant
-            self._grants[grant.grant_hash] = stored
-            return grant
+            grant_hashes = self._lineages.get(lineage)
+            if not grant_hashes:
+                existing = self._grants.get(grant.grant_hash)
+                if existing is not None:
+                    self._lineages[lineage] = [existing.grant.grant_hash]
+                    return existing.grant
+                self._grants[grant.grant_hash] = StoredGrant(
+                    grant,
+                    GrantLifecycle(GrantState.ACTIVE),
+                )
+                self._lineages[lineage] = [grant.grant_hash]
+                return grant
+
+            current_hash = grant_hashes[-1]
+            current = self._project_expiry(
+                self._grants[current_hash],
+                grant.issued_at,
+            )
+            same_binding = current.grant.binding_set_hash == grant.binding_set_hash
+            state = current.lifecycle.state
+
+            if same_binding:
+                if state in (GrantState.ACTIVE, GrantState.ADMITTED):
+                    return current.grant
+                if state is GrantState.REVOKED:
+                    raise GatewayAuthorizationError(
+                        "EXECUTION_GRANT_REVOKED",
+                        "execution grant has been revoked",
+                    )
+                if state is GrantState.EXPIRED:
+                    raise GatewayAuthorizationError(
+                        "EXECUTION_GRANT_EXPIRED",
+                        "execution grant has expired",
+                    )
+
+            if state is GrantState.ADMITTED:
+                raise GatewayAuthorizationError(
+                    "EXECUTION_GRANT_ALREADY_ADMITTED",
+                    "admitted execution authority cannot switch provider binding",
+                )
+
+            if state is GrantState.ACTIVE:
+                superseded = StoredGrant(
+                    current.grant,
+                    GrantLifecycle(
+                        GrantState.REVOKED,
+                        revoked_at=grant.issued_at,
+                        revocation_reason="provider binding superseded",
+                        superseded_by_grant_id=grant.grant_id,
+                    ),
+                )
+                new_stored = StoredGrant(
+                    grant,
+                    GrantLifecycle(GrantState.ACTIVE),
+                )
+                self._grants[current.grant.grant_hash] = superseded
+                self._grants[grant.grant_hash] = new_stored
+                grant_hashes.append(grant.grant_hash)
+                return grant
+
+            if state in (GrantState.REVOKED, GrantState.EXPIRED):
+                new_stored = StoredGrant(
+                    grant,
+                    GrantLifecycle(GrantState.ACTIVE),
+                )
+                self._grants[grant.grant_hash] = new_stored
+                grant_hashes.append(grant.grant_hash)
+                return grant
+
+            raise GatewayAuthorizationError(
+                "EXECUTION_GRANT_CONFLICT",
+                "unsupported grant lineage state",
+            )
 
     def get_grant(self, grant_hash: str) -> StoredGrant | None:
         with self._lock:
