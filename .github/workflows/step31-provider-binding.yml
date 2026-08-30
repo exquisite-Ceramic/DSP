@@ -1,0 +1,48 @@
+name: Step31 provider binding
+
+on:
+  push:
+    paths:
+      - "platform/provider_binding/**"
+      - "tests/provider_binding/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-30-step31-provider-binding-design.md"
+      - "docs/superpowers/plans/2026-08-30-step31-provider-binding.md"
+      - ".github/workflows/step31-provider-binding.yml"
+  pull_request:
+    paths:
+      - "platform/provider_binding/**"
+      - "tests/provider_binding/**"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-30-step31-provider-binding-design.md"
+      - "docs/superpowers/plans/2026-08-30-step31-provider-binding.md"
+      - ".github/workflows/step31-provider-binding.yml"
+  workflow_dispatch:
+
+jobs:
+  step31-provider-binding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step31 RED prerequisites
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/changeset \
+            -e platform/execution_planning \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Run Step31 contract tests
+        run: pytest -q tests/provider_binding/test_step31_contracts.py
