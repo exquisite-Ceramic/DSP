@@ -9,7 +9,12 @@ from design_approval_scope import (
     PredicateOperator,
     PredicateTerm,
 )
-from design_impact import PlanningSnapshotBinding, SemanticEnvironmentBinding, SnapshotSetBinding
+from design_impact import (
+    IntentBoundary,
+    PlanningSnapshotBinding,
+    SemanticEnvironmentBinding,
+    SnapshotSetBinding,
+)
 
 
 def test_selector_requires_exactly_one_selector_form():
@@ -60,11 +65,13 @@ def test_scope_definition_rejects_non_sha256_body_hash():
         "1.0.0",
         (CanonicalAspect.PLACEMENT,),
     )
+    intent = IntentBoundary(("WALL-001",), ("PLACEMENT",), ())
     with pytest.raises(ValueError):
         ApprovalScopeDefinition(
             "DEF",
             "impact",
             evidence,
+            intent,
             planning,
             snapshot_set,
             env,

@@ -260,6 +260,7 @@ class ApprovalScopeDefinition:
     scope_definition_id: str
     impact_analysis_fingerprint: str
     canonical_effect_evidence: CanonicalEffectEvidence
+    intent_boundary: Any
     planning_snapshot_ref: Any
     snapshot_set_ref: Any
     semantic_environment_ref: Any
@@ -282,6 +283,13 @@ class ApprovalScopeDefinition:
 @dataclass(frozen=True, slots=True)
 class ApprovalScopeBoundary:
     scope_id: str
+    scope_definition_id: str
+    impact_analysis_fingerprint: str
+    canonical_effect_evidence: CanonicalEffectEvidence
+    intent_boundary: Any
+    planning_snapshot_ref: Any
+    snapshot_set_ref: Any
+    semantic_environment_ref: Any
     changeset_hash: str
     scope_body_hash: str
     existing_entity_rules: tuple[ExistingEntityRule, ...]
@@ -293,6 +301,14 @@ class ApprovalScopeBoundary:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scope_id", _text(self.scope_id, "scope_id"))
+        object.__setattr__(self, "scope_definition_id", _text(self.scope_definition_id, "scope_definition_id"))
+        object.__setattr__(
+            self,
+            "impact_analysis_fingerprint",
+            _text(self.impact_analysis_fingerprint, "impact_analysis_fingerprint"),
+        )
+        if not isinstance(self.canonical_effect_evidence, CanonicalEffectEvidence):
+            raise TypeError("canonical_effect_evidence must be CanonicalEffectEvidence")
         for name in ("changeset_hash", "scope_body_hash", "scope_hash"):
             object.__setattr__(self, name, _digest(getattr(self, name), name))
         for name in ("existing_entity_rules", "creation_rules", "deletion_rules", "execution_slice_scopes"):

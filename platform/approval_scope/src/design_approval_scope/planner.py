@@ -294,6 +294,7 @@ class ApprovalScopePlanner:
             scope_definition_id=f"ASD-{scope_body_hash[:12]}",
             impact_analysis_fingerprint=impact.analysis_fingerprint,
             canonical_effect_evidence=evidence,
+            intent_boundary=intent,
             planning_snapshot_ref=impact.planning_snapshot_ref,
             snapshot_set_ref=impact.snapshot_set_ref,
             semantic_environment_ref=impact.semantic_environment_ref,

@@ -19,7 +19,11 @@ from .contracts import (
     PredicateTerm,
     ScopeEffectRecipe,
 )
-from .hashing import bind_changeset, compute_scope_body_hash
+from .hashing import (
+    bind_changeset,
+    compute_scope_body_hash,
+    validate_approval_scope_boundary,
+)
 from .planner import ApprovalScopePlanner, direct_existing_rule_id, recipe_existing_rule_id
 
 __all__ = [
@@ -45,4 +49,5 @@ __all__ = [
     "compute_scope_body_hash",
     "direct_existing_rule_id",
     "recipe_existing_rule_id",
+    "validate_approval_scope_boundary",
 ]
