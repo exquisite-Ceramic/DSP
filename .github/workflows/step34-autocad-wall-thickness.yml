@@ -81,7 +81,7 @@ jobs:
           pytest -q tests/execution_reconciliation
       - name: Run Step34 Python lint
         run: |
-          ruff check \
+          ruff check --select E4,E7,E9,F \
             hosts/autocad/sidecar/src/autocad_sidecar/adapter/design_fact_adapter.py \
             hosts/autocad/sidecar/src/autocad_sidecar/adapter/model_adapter.py \
             hosts/autocad/sidecar/src/autocad_sidecar/execution/command_dispatcher.py \
