@@ -244,4 +244,60 @@ MOVE_V1 = CanonicalOperationDefinition(
 )
 
 
-MVP_CANONICAL_OPERATIONS: tuple[CanonicalOperationDefinition, ...] = (MOVE_V1,)
+SET_WALL_THICKNESS_V1 = CanonicalOperationDefinition(
+    canonical_operation="set_wall_thickness.v1",
+    version="1.0.0",
+    title="Set wall thickness",
+    description="Set the canonical wall thickness for selected wall entities.",
+    category="MODEL_OPERATION",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "targets": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            },
+            "thickness": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "number", "exclusiveMinimum": 0},
+                    "unit": {"const": "mm"},
+                },
+                "required": ["value", "unit"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["targets", "thickness"],
+        "additionalProperties": False,
+    },
+    slot_binding_policy={
+        "targets": SlotBindingClass.CONTEXT,
+        "thickness": SlotBindingClass.INTENT,
+    },
+    canonical_entity_constraints=("ifc:IfcWall",),
+    operation_freshness_requirements=(
+        {"aspect": "PROPERTIES", "required_state": "FRESH"},
+    ),
+    coverage_requirements=(),
+    assurance_requirements=(),
+    effects=("PROPERTIES",),
+    verification_contract={
+        "type": "SEMANTIC_ASSERTIONS_V1",
+        "version": "1.0.0",
+        "assertions": [
+            {
+                "subjects": {"from_argument": "targets"},
+                "path": "properties.dsp:WallThickness",
+                "operator": "EQUALS_ARGUMENT",
+                "argument": "thickness",
+            }
+        ],
+    },
+)
+
+
+MVP_CANONICAL_OPERATIONS: tuple[CanonicalOperationDefinition, ...] = (
+    MOVE_V1,
+    SET_WALL_THICKNESS_V1,
+)
