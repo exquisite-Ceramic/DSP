@@ -11,17 +11,17 @@
 
 ## 1. Purpose
 
-Step33 closes the execution loop after Step32 has admitted an `ExecutionGrant` and a Host mutation has occurred. It must answer three independent questions without collapsing their responsibilities:
+Step33 closes the execution loop after Step32 has admitted an `ExecutionGrant` and Host side effects may have occurred. It answers three independent questions:
 
 ```text
 ScopeComparator
 = Did the Host actually modify only what the approval allowed?
 
 SemanticVerifier
-= Given that the side effects stayed inside scope, is the resulting design semantically correct?
+= If the side effects stayed inside scope, is the resulting design semantically correct?
 
 ExecutionSaga
-= Given the durable side effects and verification outcomes so far, may the workflow continue, or must it stop and recover?
+= Given the durable side effects and reconciliation results so far, may execution continue, or must it stop and recover?
 ```
 
 Step33 MUST preserve the master-spec invariants that Host read-back / `ActualDelta` is the authoritative reconciliation fact, `ActualDelta ⊄ ApprovalScopeBoundary` is a blocking `SCOPE_BREACH`, and cross-host failure uses Saga / Compensating ChangeSet rather than XA/2PC.
@@ -40,8 +40,8 @@ Step33 does not:
 - own D5 semantic storage or projection internals;
 - own Semantic Provider implementations;
 - redefine Step28 scope semantics;
-- redefine Step29 ChangeSet semantics or hash algorithms;
-- redefine Step30 Slice / Unit semantics or existing hash algorithms;
+- redefine Step29 ChangeSet semantics or hashes;
+- redefine Step30 Slice/Unit semantics or existing hashes;
 - redefine Step31 ProviderBinding semantics;
 - bypass normal approval for compensation;
 - implement XA/2PC;
@@ -49,7 +49,7 @@ Step33 does not:
 
 ---
 
-## 3. Upstream ownership and fixed handoff
+## 3. Fixed upstream handoff
 
 The authoritative pre-execution lineage remains:
 
@@ -88,7 +88,7 @@ Step33 MUST consume this lineage as immutable authority evidence. It MUST NOT re
 
 ## 4. New subsystem boundary
 
-Step33 introduces one top-level provider-neutral subsystem:
+Step33 introduces one provider-neutral subsystem:
 
 ```text
 platform/execution_reconciliation/
@@ -105,12 +105,12 @@ platform/execution_reconciliation/
 Responsibilities:
 
 - `contracts.py`: immutable Step33 value contracts and stable enums/errors.
-- `hashing.py`: Step33-only canonical semantic hashes.
+- `hashing.py`: Step33-only canonical hashes.
 - `scope_comparator.py`: deterministic `ActualDelta` vs `ApprovalScopeBoundary` evaluation.
 - `verifier.py`: deterministic `ValidationTask` evaluation over snapshot-bound semantic evidence.
-- `saga.py`: deterministic state-transition rules and next-action eligibility.
-- `store.py`: durable atomicity/CAS/idempotent-recovery semantics for Saga state.
-- `service.py`: validates cross-step joins and coordinates the pure Step33 domain operations.
+- `saga.py`: deterministic state-transition and continuation rules.
+- `store.py`: durable atomicity/CAS/idempotent-recovery semantics.
+- `service.py`: cross-step joins, deterministic orchestration of pure Step33 operations, and stable error mapping.
 
 Step33 Core MAY depend only on stable public contracts/validators from Step28–32 and stable semantic snapshot/environment contracts. It MUST NOT read D5 internal projection storage.
 
@@ -118,7 +118,7 @@ Step33 Core MAY depend only on stable public contracts/validators from Step28–
 
 ## 5. Targeted Step30 enhancement
 
-Step33 needs to prove that a Saga binds the complete, intact Step30 `ExecutionPlan`, not an arbitrary caller-supplied Slice list. Therefore Step30 SHALL add one public integrity API:
+Saga creation must bind the complete intact Step30 `ExecutionPlan`, not a caller-invented Slice list. Step30 SHALL therefore expose:
 
 ```python
 validate_execution_plan_integrity(execution_plan)
@@ -127,11 +127,11 @@ validate_execution_plan_integrity(execution_plan)
 The validator SHALL:
 
 - validate every `ExecutionSlice` using existing Step30 semantics;
-- validate dependency references and plan membership;
+- validate execution-dependency references and plan membership;
 - recompute the existing execution-plan semantic body and existing `execution_plan_hash`;
-- fail closed if the stored plan/hash does not match.
+- fail closed on mismatch.
 
-This enhancement MUST NOT change the Step30 `ExecutionPlan` contract or any existing Step30 hash algorithm.
+This MUST NOT change the Step30 `ExecutionPlan` contract or any existing Step30 hash algorithm.
 
 No Step28, Step29, Step31, or Step32 production contract change is required by this design.
 
@@ -139,13 +139,13 @@ No Step28, Step29, Step31, or Step32 production contract change is required by t
 
 # 6. Provider-neutral ActualDelta
 
-## 6.1 Why `HostDelta` is not the Step33 comparison contract
+## 6.1 Boundary
 
-Existing Host `HostDelta` is a Host-local change stream over `document_id + native_id` and revisions. That is necessary provenance, but it cannot directly prove semantic scope membership because Step28 scope rules operate over `SemanticId`, canonical kinds, canonical aspects, creation derivation, and deletion authority.
+Existing Host `HostDelta` is a Host-local stream over `document_id + native_id` and revisions. It is necessary provenance, but it cannot directly prove semantic approval-scope membership because Step28 operates over `SemanticId`, canonical kinds/aspects, creation derivation, and deletion authority.
 
-Step33 therefore consumes a normalized, provider-neutral `ActualDelta` assembled at the Host/Execution → reconciliation boundary.
+Step33 therefore consumes a normalized provider-neutral `ActualDelta` assembled at the Host/Execution → reconciliation boundary.
 
-## 6.2 Contract
+## 6.2 Contracts
 
 ```text
 ActualDelta {
@@ -167,8 +167,6 @@ ActualDelta {
 }
 ```
 
-Each change is:
-
 ```text
 ActualChange {
   change_kind: CREATE | MODIFY | DELETE
@@ -177,10 +175,13 @@ ActualChange {
   canonical_kind?
   changed_aspects[]
 
+  canonical_operation?
+  source_execution_unit_hash?
   source_semantic_id?
   derivation_rule?
 
-  host_entity_ref?   # provenance only
+  host_entity_ref?       # provenance and stable instance discriminator only
+  actual_change_hash
 }
 ```
 
@@ -188,22 +189,33 @@ ActualChange {
 
 - `MODIFY` MUST carry `semantic_id` and at least one canonical `changed_aspect`.
 - `DELETE` MUST carry `semantic_id`.
-- `CREATE` MAY lack a stable post-create `semantic_id` at normalization time, but MUST carry enough canonical evidence to evaluate the applicable Step28 `CreationRule`; where required by the rule, this includes `canonical_kind`, `source_semantic_id`, and `derivation_rule`.
+- `CREATE` MUST carry `canonical_operation` and a stable instance discriminator. The discriminator is `semantic_id` when available, otherwise `host_entity_ref` MUST be present.
+- `CREATE` MAY lack a stable post-create `semantic_id` at normalization time, but MUST carry enough canonical evidence to evaluate the applicable Step28 `CreationRule`; where the rule requires it this includes `canonical_kind`, `source_semantic_id`, and `derivation_rule`.
+- `source_execution_unit_hash`, when present, MUST identify a member of the exact admitted `ExecutionSlice`. It is provenance/lineage evidence, not a substitute for CreationRule matching.
 - `changed_aspects` MUST use the Step28 canonical aspect vocabulary.
-- `host_entity_ref` is provenance only. `ScopeComparator` MUST NOT make authorization decisions from native ids, native types, Host products, layer names, categories, or provider metadata.
-- The full Step32 lineage in `ActualDelta` MUST exactly match the admitted authority before scope comparison begins.
-- `revision_after` MUST represent the Host read-back revision containing the side effects. Revision regressions are invalid.
+- `host_entity_ref` MUST NOT drive semantic authorization decisions from native type/category/layer/product metadata. It MAY distinguish two otherwise identical CREATE instances when no `semantic_id` exists.
+- The Step32 lineage in `ActualDelta` MUST exactly match the admitted authority before comparison starts.
+- `revision_after` MUST represent the Host read-back revision containing the side effects; revision regressions are invalid.
 
-The normalized `ActualDelta` is the authoritative statement of actual Host side effects for reconciliation. D5 reconstruction verifies semantic outcome; it does not replace or overwrite `ActualDelta`.
+The normalized `ActualDelta` is the authoritative statement of actual Host side effects. D5 reconstruction verifies semantic outcome; it does not replace or overwrite `ActualDelta`.
 
----
+## 6.4 ActualChange identity
 
-## 7. ActualDelta semantic identity
+`actual_change_hash` SHALL hash the canonical normalized change body, including the stable instance discriminator. Host-native metadata not needed to distinguish the changed instance MUST NOT change authorization semantics.
 
-`actual_delta_hash` SHALL be:
+The canonical instance key used for ordering/allocation SHALL be:
 
 ```text
-H({
+semantic_id                        if available
+else (document_ref, native_id)     from host_entity_ref
+```
+
+A CREATE with neither identity form is invalid.
+
+## 6.5 ActualDelta identity
+
+```text
+actual_delta_hash = H({
   grant_hash,
   binding_set_hash,
   execution_slice_hash,
@@ -213,31 +225,27 @@ H({
   document_ref,
   revision_before,
   revision_after,
-  canonicalized_changes
+  sorted(actual_change_hashes)
 })
 ```
 
-The hash MUST exclude:
+The hash MUST exclude `actual_delta_id`, receipt timestamps, and itself.
 
-- `actual_delta_id`;
-- observation/receipt timestamps;
-- `actual_delta_hash` itself.
-
-Re-reading the same committed revision with the same normalized side effects MUST produce the same semantic `actual_delta_hash` even after response loss/retry.
+Re-reading the same committed revision with the same normalized side effects MUST produce the same `actual_delta_hash` after response loss/retry.
 
 ---
 
-# 8. ScopeComparator
+# 7. ScopeComparator
 
-## 8.1 Responsibility
+## 7.1 Responsibility
 
-`ScopeComparator` answers exactly one question:
+`ScopeComparator` answers exactly:
 
-> Is every normalized actual Host side effect authorized by the exact Step28 boundary and the exact Step30 Slice scope?
+> Is every normalized actual Host side effect authorized by the exact Step28 boundary and exact Step30 Slice scope?
 
 It does not decide whether the final design result is correct.
 
-## 8.2 Input
+## 7.2 Input
 
 ```text
 ScopeComparisonRequest {
@@ -248,7 +256,7 @@ ScopeComparisonRequest {
 }
 ```
 
-## 8.3 Deterministic validation order
+## 7.3 Validation order
 
 The comparator SHALL execute in this order:
 
@@ -257,52 +265,51 @@ The comparator SHALL execute in this order:
 3. Step28 boundary integrity;
 4. Step30 Slice integrity;
 5. Host/document/revision consistency;
-6. resolve the exact `ExecutionSliceScopeRule` referenced by the Slice;
-7. evaluate `MODIFY` changes;
-8. evaluate `DELETE` changes;
-9. evaluate `CREATE` changes including count allocation;
-10. produce an immutable, hashed comparison result.
+6. exact `ExecutionSliceScopeRule` resolution;
+7. `MODIFY` evaluation;
+8. `DELETE` evaluation;
+9. `CREATE` evaluation and count allocation;
+10. immutable hashed result.
 
-No later rule is allowed to repair an earlier mismatch.
+No later rule may repair an earlier mismatch.
 
-## 8.4 MODIFY
+## 7.4 MODIFY
 
 For every `MODIFY`:
 
-- `semantic_id` MUST be matched by an allowed `ExistingEntityRule` available to the Slice;
-- every changed canonical aspect MUST be contained in the union of authorized aspects for that entity under the Slice scope;
-- an unmatched entity or unauthorized aspect is a scope violation.
+- `semantic_id` MUST match an allowed `ExistingEntityRule` available to the Slice;
+- every changed canonical aspect MUST be contained in the authorized aspect union for that entity under the Slice scope;
+- unmatched entity or unauthorized aspect is a violation.
 
-## 8.5 DELETE
+## 7.5 DELETE
 
-For every `DELETE`:
+For every `DELETE`, `semantic_id` MUST match a `DeletionRule` available to the Slice. Absence of applicable deletion authority is a violation.
 
-- `semantic_id` MUST match a `DeletionRule` available to the Slice;
-- absence of an applicable deletion rule is a scope violation.
+## 7.6 CREATE
 
-## 8.6 CREATE
+For every `CREATE`, authorization MUST be proven from Step28 `CreationRule` semantics, including as applicable:
 
-For every `CREATE`, authorization MUST be proven from the Step28 `CreationRule` semantics, including as applicable:
-
-- canonical operation;
+- `canonical_operation`;
 - source selector;
 - canonical entity kind;
 - required derivation;
 - `max_count`.
 
-A create is not authorized merely because its canonical kind is generally known or because the provider reported success.
+A create is not authorized merely because its canonical kind is generally known or the provider reported success.
 
-### 8.6.1 Deterministic overlapping-rule allocation
+### 7.6.1 Deterministic overlapping-rule allocation
 
-If actual creates can match more than one `CreationRule`, the comparator SHALL treat create-to-rule assignment as a deterministic allocation problem.
+If a create matches multiple `CreationRule`s, create-to-rule assignment is a deterministic allocation problem. An allocation is valid only when every create is assigned to an eligible rule and every rule respects `max_count` where present.
 
-An allocation is valid only when every create is assigned to an eligible rule and each rule's assigned count is `<= max_count` when a maximum exists.
+If multiple valid allocations exist, the comparator SHALL choose the lexicographically canonical allocation ordered by:
 
-If multiple valid allocations exist, the comparator SHALL choose the canonical allocation ordered by stable `rule_id` and stable normalized change identity. Python/container iteration order MUST NOT affect the result.
+```text
+(rule_id, actual_change stable instance key, actual_change_hash)
+```
 
-No valid allocation means `SCOPE_BREACH`.
+Container/Python iteration order MUST NOT affect the result. No valid allocation means `SCOPE_BREACH`.
 
-## 8.7 Output
+## 7.7 Output
 
 ```text
 ScopeComparisonResult {
@@ -314,12 +321,11 @@ ScopeComparisonResult {
 
   matched_changes[]
   violations[]
-
   comparison_hash
 }
 ```
 
-Violation details SHALL use stable machine codes, including at minimum:
+Violation details SHALL use stable machine codes including at minimum:
 
 ```text
 ENTITY_OUTSIDE_SCOPE
@@ -332,21 +338,21 @@ DELETION_FORBIDDEN
 LINEAGE_MISMATCH
 ```
 
-The outer machine condition remains `SCOPE_BREACH`; detail codes are for audit/recovery planning and do not replace it.
+The outer condition remains `SCOPE_BREACH`; detail codes are for audit/recovery planning.
 
-A `SCOPE_BREACH` MUST block remaining not-yet-admitted Saga slices.
+A `SCOPE_BREACH` MUST block remaining not-yet-admitted Saga slices. Semantic verification for that Slice MUST NOT run as a success gate after a scope breach; the authoritative failure is already `SCOPE_BREACH`.
 
 ---
 
-# 9. VerificationEvidenceBundle
+# 8. VerificationEvidenceBundle
 
-## 9.1 Problem
+## 8.1 Purpose
 
-Step29 stores `ValidationTask.contract_ref`, a content-addressed verification semantic reference, but intentionally does not embed all verification contract bodies in the ChangeSet. Likewise, D5 `SemanticSnapshot` binds projection/environment/freshness/coverage/assurance but does not serve as an inline entity-value dump.
+Step29 stores content-addressed `ValidationTask.contract_ref` values but intentionally does not embed every verification contract body. D5 `SemanticSnapshot` binds projection/environment/freshness/coverage/assurance but is not an inline entity-value dump.
 
-Step33 therefore consumes a snapshot-bound, provider-neutral evidence bundle assembled by the Semantic/D5 integration layer.
+Step33 therefore consumes a snapshot-bound provider-neutral evidence bundle assembled by the Semantic/D5 integration layer.
 
-## 9.2 Contract
+## 8.2 Contract
 
 ```text
 VerificationEvidenceBundle {
@@ -369,16 +375,12 @@ VerificationEvidenceBundle {
 }
 ```
 
-Contract evidence:
-
 ```text
 VerificationContractEvidence {
   contract_ref
   contract_body
 }
 ```
-
-Subject evidence is a task-scoped read model:
 
 ```text
 VerificationSubjectEvidence {
@@ -397,31 +399,31 @@ VerificationSubjectEvidence {
 }
 ```
 
-The integration layer SHOULD include only the subject × aspect × field evidence required by the ValidationTasks. It MUST NOT require a full IFC/Metro mirror.
+The integration layer SHOULD return only the subject × aspect × field evidence required by the ValidationTasks. A full IFC/Metro mirror is not required.
 
-## 9.3 Integrity rules
+## 8.3 Integrity
 
-For every referenced verification contract:
+For every referenced contract:
 
 ```text
 H(contract_body) == ValidationTask.contract_ref
 ```
 
-The evidence bundle's SemanticEnvironment MUST exactly match the ChangeSet/approval planning environment. Snapshot/projection references MUST prove the post-execution Host revision being verified.
+The bundle SemanticEnvironment MUST exactly match the ChangeSet/approval planning environment. Snapshot/projection references MUST prove the post-execution Host revision being verified.
 
 Missing evidence is not success.
 
 ---
 
-# 10. SemanticVerifier
+# 9. SemanticVerifier
 
-## 10.1 Responsibility
+## 9.1 Responsibility
 
-`SemanticVerifier` evaluates the exact Step29 `ValidationTask` semantics over the exact snapshot-bound evidence bundle. It does not decide execution order or Saga continuation.
+`SemanticVerifier` evaluates the exact Step29 `ValidationTask` semantics over exact snapshot-bound evidence. It does not decide execution order or Saga continuation.
 
-Host self-reported verification fields may be retained as diagnostics/provenance but MUST NOT directly produce a platform verification PASS.
+Host self-reported verification fields may be diagnostics/provenance but MUST NOT directly produce a platform PASS.
 
-## 10.2 Input
+## 9.2 Input
 
 ```text
 SemanticVerificationRequest {
@@ -433,11 +435,9 @@ SemanticVerificationRequest {
 }
 ```
 
-`validation_tasks[]` MUST be an exact subset of `canonical_changeset.validation_tasks`. The caller may not invent new tasks.
+`validation_tasks[]` MUST be an exact subset of `canonical_changeset.validation_tasks`; callers may not invent tasks.
 
-## 10.3 Validation order
-
-The verifier SHALL execute in this order:
+## 9.3 Validation order
 
 1. request/type integrity;
 2. authority lineage exact joins;
@@ -445,13 +445,13 @@ The verifier SHALL execute in this order:
 4. evidence-bundle integrity/hash;
 5. SemanticEnvironment exact match;
 6. post-execution snapshot/projection/revision lineage;
-7. `ValidationTask.contract_ref` ↔ contract evidence matching;
+7. task `contract_ref` ↔ contract evidence matching;
 8. `H(contract_body) == contract_ref`;
 9. subject-evidence completeness;
 10. deterministic contract evaluation;
 11. deterministic aggregate result.
 
-## 10.4 Result model
+## 9.4 Result
 
 ```text
 VerificationStatus =
@@ -463,19 +463,15 @@ VerificationStatus =
 ```text
 SemanticVerificationResult {
   verification_id
-
   changeset_hash
   execution_slice_hash
   actual_delta_hash
   evidence_bundle_hash
-
   task_results[]
   status
   verification_hash
 }
 ```
-
-Per task:
 
 ```text
 ValidationTaskResult {
@@ -487,46 +483,36 @@ ValidationTaskResult {
 }
 ```
 
-Aggregate rules are fixed:
+Aggregation is fixed:
 
 ```text
-all task results PASSED
-→ PASSED
-
-any task result FAILED
-→ FAILED
-
-no FAILED but any EVIDENCE_INSUFFICIENT
-→ EVIDENCE_INSUFFICIENT
+all PASSED                     → PASSED
+any FAILED                     → FAILED
+no FAILED + any INSUFFICIENT   → EVIDENCE_INSUFFICIENT
 ```
 
-Execution-loop mapping:
+Execution-loop mapping is fixed:
 
 ```text
-PASSED
-→ verification passes
-
-FAILED
-→ VERIFY_FAILED
-
-EVIDENCE_INSUFFICIENT
-→ VERIFY_FAILED
-  detail = VERIFY_EVIDENCE_INSUFFICIENT
+PASSED                 → verification passes
+FAILED                 → VERIFY_FAILED
+EVIDENCE_INSUFFICIENT  → VERIFY_FAILED
+                         detail = VERIFY_EVIDENCE_INSUFFICIENT
 ```
 
-Therefore the platform distinguishes "proved wrong" from "could not sufficiently prove correct", but both fail closed for a production write.
+The platform therefore distinguishes "proved wrong" from "could not sufficiently prove correct", while both fail closed for production writes.
 
 ---
 
-## 11. Declarative verification contract
+# 10. Declarative verification contract
 
-Step33 SHALL support a provider-neutral declarative contract type:
+Step33 SHALL support provider-neutral:
 
 ```text
 SEMANTIC_ASSERTIONS_V1
 ```
 
-The contract describes semantic assertions as data rather than Host or operation-specific Python branches. Example shape:
+Example:
 
 ```json
 {
@@ -543,7 +529,7 @@ The contract describes semantic assertions as data rather than Host or operation
 }
 ```
 
-Step33 Core MAY support a small fixed operator vocabulary, initially including:
+The fixed provider-neutral operator vocabulary initially includes:
 
 ```text
 EXISTS
@@ -555,24 +541,17 @@ RELATIONSHIP_EXISTS
 CLASSIFICATION_IS
 ```
 
-The evaluator MUST NOT contain branches such as:
+The evaluator MUST NOT branch by Host product or provider-specific operation.
 
-```text
-if host == "REVIT": ...
-if operation == "set_revit_wall_thickness": ...
-```
+Legacy/weak contracts such as `{"type":"HOST_READ_BACK"}` do not prove semantic correctness by themselves. When deterministic semantic proof is required but the contract cannot be executed, the result MUST be `EVIDENCE_INSUFFICIENT` with detail `VERIFY_CONTRACT_UNSUPPORTED`.
 
-Legacy/weak contracts such as `{"type":"HOST_READ_BACK"}` do not prove semantic correctness by themselves. If a ValidationTask requires semantic proof and its contract cannot be executed deterministically, the result MUST be `EVIDENCE_INSUFFICIENT` with detail `VERIFY_CONTRACT_UNSUPPORTED`.
-
-Published canonical-operation verification semantics MUST NOT be silently strengthened in place if that would change the existing contract fingerprint. Such semantic change requires an appropriate versioned contract/operation evolution.
+Published verification semantics MUST NOT be silently strengthened in place if that changes the existing contract fingerprint. Such semantic change requires versioned contract/operation evolution.
 
 ---
 
-## 12. Verification examples
+# 11. Verification examples
 
-### 12.1 Inside scope but wrong value
-
-Intent/bound operation:
+## 11.1 Inside scope but wrong value
 
 ```text
 set_thickness.v1
@@ -580,7 +559,7 @@ WALL-001
 thickness = 300 mm
 ```
 
-Actual Host side effect:
+Actual side effect:
 
 ```text
 WALL-001
@@ -588,53 +567,29 @@ MODIFY
 changed_aspects = [PROPERTIES]
 ```
 
-If Step28 authorizes `WALL-001 / PROPERTIES`, ScopeComparator returns:
+If Step28 authorizes `WALL-001 / PROPERTIES`, ScopeComparator returns `WITHIN_SCOPE`.
 
-```text
-WITHIN_SCOPE
-```
-
-If post-execution evidence is:
+If post-execution evidence says:
 
 ```text
 WALL-001.properties.thickness = 350 mm
 ```
 
-SemanticVerifier returns:
+SemanticVerifier returns `FAILED` with detail `EXPECTED_VALUE_MISMATCH`; Slice outcome is `VERIFY_FAILED`, not `SCOPE_BREACH`.
 
-```text
-FAILED
-failure detail = EXPECTED_VALUE_MISMATCH
-```
+## 11.2 Missing evidence
 
-The Slice outcome is `VERIFY_FAILED`, not `SCOPE_BREACH`.
-
-### 12.2 Missing semantic evidence
-
-If the read-back reconstruction proves only `IDENTITY` and `CLASSIFICATION` but the task requires `PROPERTIES.thickness`, the task result is:
-
-```text
-EVIDENCE_INSUFFICIENT
-failure detail = REQUIRED_FIELD_MISSING
-```
-
-The production execution loop maps this to `VERIFY_FAILED`.
+If reconstruction proves only `IDENTITY`/`CLASSIFICATION` but validation requires `PROPERTIES.thickness`, the task result is `EVIDENCE_INSUFFICIENT` with detail `REQUIRED_FIELD_MISSING`, mapped to `VERIFY_FAILED`.
 
 ---
 
-# 13. Execution Saga
+# 12. Execution Saga
 
-## 13.1 Responsibility
+## 12.1 Responsibility
 
-Step33 Saga records durable post-admission execution/reconciliation state and enforces deterministic continuation barriers. LangGraph remains the workflow driver; Gateway remains the authorization owner.
+Step33 Saga records durable post-admission execution/reconciliation state and enforces continuation barriers. LangGraph remains workflow driver; Gateway remains authorization owner.
 
-Step33 answers:
-
-> Given the durable state of all Slices, is the next requested transition valid?
-
-It does not issue permissions itself.
-
-## 13.2 Immutable definition
+## 12.2 Immutable definition
 
 ```text
 ExecutionSagaDefinition {
@@ -646,7 +601,7 @@ ExecutionSagaDefinition {
   execution_plan_hash
 
   ordered_slice_hashes[]
-  execution_dependencies[]
+  slice_dependencies[]
 
   saga_definition_hash
 }
@@ -658,11 +613,22 @@ Saga creation MUST validate:
 - Step29 `CanonicalChangeSet` integrity;
 - Step30 `ExecutionPlan` integrity;
 - exact ChangeSet ↔ Boundary ↔ Plan joins;
-- all Saga slice/dependency members equal the Step30 plan members.
+- Saga slices equal Step30 plan slices;
+- Saga slice dependencies are deterministically derived from Step30 execution-unit dependencies.
 
-The Saga definition is immutable after creation.
+### 12.2.1 Slice dependency derivation
 
-## 13.3 Durable lifecycle
+Step30 dependencies are between `ExecutionUnit`s. Step33 SHALL derive a Slice dependency edge `Slice A → Slice B` when any Step30 unit dependency crosses from a unit in A to a unit in B. Same-Slice dependencies remain Step30-local and do not create a self edge.
+
+The derived Slice DAG MUST be acyclic if the validated Step30 plan is valid.
+
+### 12.2.2 Canonical sequential order
+
+v0.6 uses one canonical sequential order for all side-effecting Slices, including independent DAG roots. `ordered_slice_hashes` SHALL be a deterministic topological order of the derived Slice DAG, with `execution_slice_hash` as the tie-breaker among simultaneously eligible Slices.
+
+This order is part of `saga_definition_hash` and removes scheduling ambiguity across retries/processes.
+
+## 12.3 Durable lifecycle
 
 ```text
 StoredExecutionSaga {
@@ -687,15 +653,16 @@ COMPENSATION_FAILED
 FAILED
 ```
 
-A Saga may become `SUCCEEDED` only when every required Slice has durably reached `SUCCEEDED` after Host commit, scope comparison PASS, and semantic verification PASS.
+`SUCCEEDED` requires every required Slice to have durably reached `SUCCEEDED` after commit, scope PASS, and semantic verification PASS.
 
 ---
 
-## 14. Slice reconciliation lifecycle
+# 13. Slice reconciliation lifecycle
 
 ```text
 SliceReconciliationState {
   execution_slice_hash
+  sequence_index
 
   state:
     NOT_STARTED
@@ -723,42 +690,66 @@ SliceReconciliationState {
 }
 ```
 
-`HOST_COMMITTED` is not success. A committed Slice MUST complete reconciliation before it can become `SUCCEEDED`.
+`HOST_COMMITTED` is not success.
 
-Required outcome mapping:
+Outcome mapping:
 
 | Host commit | Scope | Verify | Slice outcome |
 |---|---|---|---|
 | no | — | — | `FAILED_BEFORE_COMMIT` |
-| yes | breach | — | `SCOPE_BREACH` |
+| yes | breach | not run as success gate | `SCOPE_BREACH` |
 | yes | within | failed | `VERIFY_FAILED` |
 | yes | within | insufficient | `VERIFY_FAILED` |
 | yes | within | passed | `SUCCEEDED` |
 
----
+### 13.1 Mandatory reconciliation order
 
-# 15. Sequential admission barrier for v0.6
-
-v0.6 SHALL default to sequential side-effecting Slice admission.
-
-No next Slice may become admitted until every required predecessor Slice is durably reconciled and `SUCCEEDED`.
+For a committed Slice:
 
 ```text
-previous required predecessor
-RECONCILED + SUCCEEDED
-        ↓
-next Slice may be reserved/admitted
+HOST_COMMITTED
+→ RECONCILING
+→ ScopeComparator
 ```
 
-This rule makes the master-spec requirement "scope breach stops remaining slices" enforceable: not-yet-started later Slices have not yet produced Host side effects.
+If scope result is `SCOPE_BREACH`, Slice immediately becomes `SCOPE_BREACH`; remaining Slices are blocked and semantic verification is not used to override or downgrade that failure.
 
-Parallel-safe execution groups are explicitly deferred beyond Step33 v0.6 unless a later ADR revises this rule.
+Only `WITHIN_SCOPE` may proceed to:
+
+```text
+D5 reconstruct
+→ VerificationEvidenceBundle
+→ SemanticVerifier
+```
+
+`record_verification_result` MUST reject a Slice without a previously persisted `WITHIN_SCOPE` comparison result for the same `actual_delta_hash`.
 
 ---
 
-## 16. Admission reservation and crash recovery
+# 14. Sequential admission barrier for v0.6
 
-There is an unavoidable cross-subsystem crash window between Step33 deciding a Slice may proceed and Step32 durably admitting its Grant. Therefore Step33 SHALL use a reservation state:
+v0.6 SHALL allow at most one active side-effecting Slice at a time across the entire Saga, not merely one per dependency chain.
+
+The only Slice eligible for `ADMISSION_RESERVED` is the lowest `sequence_index` Slice still `NOT_STARTED`, and all of its derived Slice predecessors MUST already be `SUCCEEDED`.
+
+While any Slice is in:
+
+```text
+ADMISSION_RESERVED
+ADMITTED
+HOST_COMMITTED
+RECONCILING
+```
+
+no other Slice may be reserved/admitted.
+
+Thus even two independent DAG roots execute in the frozen canonical sequence. Parallel-safe execution groups are deferred beyond Step33 v0.6 unless a later ADR revises this rule.
+
+---
+
+# 15. Admission reservation and crash recovery
+
+Cross-subsystem crash window:
 
 ```text
 NOT_STARTED
@@ -767,57 +758,44 @@ NOT_STARTED
 → ADMITTED               # Step33 confirmation
 ```
 
-If the process crashes while the Slice is `ADMISSION_RESERVED`, that state is an explicit recovery point.
+`ADMISSION_RESERVED` is an explicit recovery point. Because Step32 recovers repeated admission of the same already-admitted Grant, workflow replay may query/retry Step32 and complete Step33 confirmation without creating a second Host mutation.
 
-Because Step32 already recovers repeated admission of the same already-admitted Grant, the workflow may retry/read Step32 authority and complete the Step33 confirmation without creating a second Host mutation.
-
-Step33 MUST NOT infer `ADMITTED` merely from elapsed time.
+Step33 MUST NOT infer `ADMITTED` from elapsed time.
 
 ---
 
-# 17. Failure transitions
+# 16. Failure transitions
 
-## 17.1 Failure before any commit
+## 16.1 No committed side effect
 
-If the first Slice fails before Host commit and no earlier Slice committed:
+If the first/only attempted Slice fails before Host commit and no earlier Slice committed:
 
 ```text
 Slice → FAILED_BEFORE_COMMIT
 Saga  → FAILED
 ```
 
-No compensation is required because DSP has no committed Host mutation to undo.
+No compensation is required.
 
-## 17.2 Later pre-commit failure after prior success
+## 16.2 Partial commit
 
-```text
-Slice A → SUCCEEDED
-Slice B → FAILED_BEFORE_COMMIT
-```
-
-The Saga MUST enter:
+If any earlier Slice is already `SUCCEEDED` and a later Slice fails before commit, or if any committed Slice ends `VERIFY_FAILED`/`SCOPE_BREACH`:
 
 ```text
-PARTIALLY_COMMITTED
+Saga → PARTIALLY_COMMITTED
 ```
 
-All remaining not-yet-admitted Slices MUST atomically become `BLOCKED`.
+All remaining `NOT_STARTED` Slices MUST atomically become `BLOCKED`; no new reservation/admission is allowed.
 
-## 17.3 Verification failure after commit
-
-A committed Slice with `VERIFY_FAILED` has already changed the Host. Therefore the Saga MUST enter `PARTIALLY_COMMITTED` and block remaining Slices; it MUST NOT collapse directly to a simple no-side-effect `FAILED` state.
-
-## 17.4 Scope breach after commit
-
-A committed Slice with `SCOPE_BREACH` MUST enter the same partial/recovery path, block remaining Slices, and preserve the scope violation evidence.
+A committed failure MUST NOT collapse to a simple no-side-effect `FAILED` state.
 
 ---
 
-# 18. Compensation boundary
+# 17. Compensation boundary
 
-Step33 MUST NOT compensate by emitting Host-native rollback commands or by constructing an ungoverned reverse operation.
+Step33 MUST NOT emit Host-native rollback commands or construct an ungoverned reverse operation.
 
-Step33 produces only a provider-neutral recovery proposal/evidence object:
+It produces provider-neutral recovery intent/evidence:
 
 ```text
 CompensationProposal {
@@ -825,7 +803,6 @@ CompensationProposal {
 
   source_saga_id
   source_changeset_hash
-
   failed_slice_hash
   committed_slice_hashes[]
 
@@ -834,12 +811,9 @@ CompensationProposal {
   scope_breach_refs[]
 
   desired_recovery_effects[]
-
   proposal_hash
 }
 ```
-
-It states what canonical recovery effects are desired based on actual committed evidence. It does not state how Revit/AutoCAD/Tekla should undo the change.
 
 A real compensation write MUST re-enter the normal DSP write path from current facts:
 
@@ -858,21 +832,17 @@ CompensationProposal
 → Step33 reconciliation again
 ```
 
-The original `ExecutionGrant` MUST NOT automatically authorize compensation.
-
-Enterprise policy MAY automatically approve a class of low-risk compensating ChangeSets, but that is a Gateway policy decision, not Saga self-authorization.
+The original `ExecutionGrant` MUST NOT automatically authorize compensation. Enterprise policy MAY automatically approve some low-risk compensating ChangeSets, but that is Gateway policy, not Saga self-authorization.
 
 ---
 
-## 19. Compensation terminal semantics
-
-Original Saga outcomes remain truthful:
+# 18. Compensation terminal semantics
 
 ```text
-original business intent fully completed
+original business intent completed
 → SUCCEEDED
 
-original business intent failed,
+original intent failed,
 known committed side effects successfully compensated
 → COMPENSATED
 
@@ -880,25 +850,25 @@ compensation also failed
 → COMPENSATION_FAILED
 ```
 
-`COMPENSATED` MUST NOT be rewritten as `SUCCEEDED`.
+`COMPENSATED` MUST NOT become `SUCCEEDED`.
 
-`COMPENSATION_FAILED` is terminal for automatic Step33 recovery in v0.6 and requires HITL/manual recovery or a separately authorized recovery workflow. Step33 MUST NOT enter an unbounded automatic compensation loop.
+`COMPENSATION_FAILED` is terminal for automatic Step33 recovery in v0.6 and requires HITL/manual or separately authorized recovery. No unbounded automatic compensation loop is allowed.
 
 ---
 
-# 20. Store atomicity, CAS, and replay
+# 19. Store atomicity, CAS, and replay
 
 The Step33 Store owns:
 
 - atomic Saga creation/uniqueness;
 - `saga_revision` CAS;
 - per-Slice transition serialization;
-- sequential admission reservation;
+- global sequential admission reservation;
 - atomic blocking of remaining Slices on partial failure;
 - immutable evidence refs for committed transitions;
 - compensation lifecycle transitions;
-- idempotent same-evidence recovery;
-- conflict detection for different evidence.
+- same-evidence idempotent recovery;
+- different-evidence conflict detection.
 
 Representative operations:
 
@@ -915,24 +885,22 @@ record_compensation_result
 get_saga
 ```
 
-Every mutating operation SHALL require an expected `saga_revision` or an equivalent atomic lineage precondition.
+Every mutating operation SHALL require expected `saga_revision` or equivalent atomic lineage precondition.
 
 Rules:
 
-- same logical transition + same evidence hash replay → return/recover the already committed logical result;
+- same logical transition + same evidence hash replay → return/recover existing logical result;
 - same logical transition + different evidence → `SAGA_CONFLICT`;
-- stale `saga_revision` → conflict;
+- stale revision → conflict;
 - terminal Saga states reject unrelated new execution transitions.
 
-The Store owns atomicity; the service owns deterministic validation and stable domain-error mapping.
+Store owns atomicity; service owns deterministic validation and stable domain-error mapping.
 
 ---
 
-# 21. Time model
+# 20. Time model
 
-Step33 domain logic MUST NOT read the wall clock.
-
-All timestamps are explicit inputs/evidence, including as applicable:
+Step33 domain logic MUST NOT read the wall clock. All times are explicit inputs/evidence, including as applicable:
 
 ```text
 reserved_at
@@ -944,17 +912,13 @@ compensation_started_at
 compensation_completed_at
 ```
 
-Audit timestamps do not silently change semantic evidence identity unless explicitly included in a defined Step33 hash.
+Audit timestamps do not alter semantic evidence identity unless a defined Step33 hash explicitly includes them.
 
 ---
 
-# 22. Step33 hashes
+# 21. Step33 hashes
 
-Step33 adds new hashes only. It MUST NOT modify Step28–32 existing semantic hashes.
-
-## 22.1 Scope comparison
-
-Conceptually:
+Step33 adds new hashes only. Step28–32 existing hashes MUST remain unchanged.
 
 ```text
 comparison_hash = H({
@@ -966,8 +930,6 @@ comparison_hash = H({
   status
 })
 ```
-
-## 22.2 Verification evidence
 
 ```text
 evidence_bundle_hash = H({
@@ -983,8 +945,6 @@ evidence_bundle_hash = H({
 })
 ```
 
-## 22.3 Verification result
-
 ```text
 verification_hash = H({
   changeset_hash,
@@ -996,8 +956,6 @@ verification_hash = H({
 })
 ```
 
-## 22.4 Saga definition
-
 ```text
 saga_definition_hash = H({
   changeset_hash,
@@ -1005,17 +963,15 @@ saga_definition_hash = H({
   semantic_environment_ref,
   execution_plan_hash,
   ordered_slice_hashes,
-  execution_dependencies
+  slice_dependencies
 })
 ```
 
-Mutable Saga lifecycle state is not folded back into `saga_definition_hash`.
+Mutable Saga lifecycle is not folded into `saga_definition_hash`.
 
 ---
 
-# 23. Stable Step33 errors
-
-Top-level Step33 machine errors SHALL include:
+# 22. Stable Step33 errors
 
 ```text
 ACTUAL_DELTA_INPUT_INVALID
@@ -1042,13 +998,13 @@ SAGA_ALREADY_TERMINAL
 COMPENSATION_CONFLICT
 ```
 
-Violation/task detail codes such as `ENTITY_OUTSIDE_SCOPE`, `CREATION_COUNT_EXCEEDED`, `EXPECTED_VALUE_MISMATCH`, and `REQUIRED_FIELD_MISSING` are structured detail. Natural-language messages MUST NOT drive retry/replan/compensation decisions.
+Violation/task detail codes such as `ENTITY_OUTSIDE_SCOPE`, `CREATION_COUNT_EXCEEDED`, `EXPECTED_VALUE_MISMATCH`, and `REQUIRED_FIELD_MISSING` are structured detail. Natural-language text MUST NOT drive retry/replan/compensation decisions.
 
 ---
 
-# 24. Service facade
+# 23. Service facade
 
-The provider-neutral facade is tentatively:
+The provider-neutral facade SHALL expose operations equivalent to:
 
 ```text
 ExecutionReconciliationService
@@ -1066,15 +1022,15 @@ record_compensation_result(...)
 get_saga(...)
 ```
 
-`reconcile_slice(...)` MAY be a convenience facade over already-created immutable scope/verification evidence, but it MUST NOT hide external Host execution, D5 reconstruction, or Semantic Service lookups inside the pure domain transaction.
+`reconcile_slice(...)` MAY be a convenience facade over already-created immutable scope/verification evidence, but MUST NOT hide external Host execution, D5 reconstruction, or Semantic Service lookups inside the pure domain transaction.
 
 ---
 
-# 25. Architecture guardrails
+# 24. Architecture guardrails
 
-The Step33 package MUST fail architecture tests if production code introduces:
+Step33 production code MUST fail architecture tests if it introduces:
 
-- Host product names/branches (`AutoCAD`, `Revit`, `Tekla`, etc.);
+- Host product names/branches;
 - Host-native command/transaction APIs;
 - provider-specific verification paths;
 - direct D5 internal projection-storage imports;
@@ -1082,69 +1038,72 @@ The Step33 package MUST fail architecture tests if production code introduces:
 - XA/2PC transaction managers;
 - direct DB-vendor APIs in domain service code;
 - `datetime.now`, `datetime.utcnow`, `time.time`, or equivalent wall-clock reads;
-- private Step28–32 implementation/hash imports where a public validator/contract exists.
+- private Step28–32 implementation/hash imports where public APIs exist.
 
-Step33 MUST use public integrity validators from Step28–30 and the frozen public contracts of Step31–32.
+Step33 MUST use public integrity validators from Step28–30 and frozen public contracts of Step31–32.
 
 ---
 
-# 26. Test matrix / Definition of Done
+# 25. Test matrix / Definition of Done
 
-Step33 is not complete until fresh CI on the exact final branch HEAD proves at least the following.
+Step33 is complete only when fresh CI on the exact final branch HEAD proves at least:
 
-## 26.1 ActualDelta
+## 25.1 ActualDelta
 
-- deterministic semantic hash;
-- same committed revision + same normalized side effects re-hash identically;
+- deterministic `actual_change_hash` and `actual_delta_hash`;
+- same committed revision/effects re-hash identically;
 - bad lineage fails before comparison;
 - revision regression fails closed;
-- Host-native provenance cannot change authorization outcome.
+- CREATE without stable instance discriminator fails;
+- Host-native provenance fields cannot alter semantic authorization outcome.
 
-## 26.2 ScopeComparator
+## 25.2 ScopeComparator
 
-- MODIFY allowed entity/aspect passes;
-- MODIFY unauthorized aspect returns `SCOPE_BREACH`;
-- DELETE without deletion authority returns `SCOPE_BREACH`;
-- CREATE inside kind/source/derivation/count passes;
-- CREATE wrong kind fails;
-- CREATE wrong source fails;
-- CREATE derivation mismatch fails;
-- CREATE over `max_count` fails;
-- overlapping CreationRules produce deterministic canonical allocation;
-- implicit Host associativity side effects must be represented in ActualDelta and are evaluated, not ignored.
+- allowed MODIFY entity/aspect passes;
+- unauthorized MODIFY aspect breaches;
+- DELETE without authority breaches;
+- CREATE correct operation/kind/source/derivation/count passes;
+- wrong operation/kind/source/derivation fails;
+- `max_count` overflow fails;
+- overlapping CreationRules use deterministic canonical allocation;
+- implicit Host associativity side effects are represented/evaluated rather than ignored.
 
-## 26.3 SemanticVerifier
+## 25.3 SemanticVerifier
 
-- contract body hash must equal `ValidationTask.contract_ref`;
+- contract body hash equals `ValidationTask.contract_ref`;
 - SemanticEnvironment drift fails closed;
-- snapshot/revision mismatch fails closed;
-- semantic assertion pass → `PASSED`;
+- snapshot/revision mismatch fails;
+- assertion pass → `PASSED`;
 - expected-value mismatch → `FAILED` / `VERIFY_FAILED`;
-- missing required subject/field/aspect → `EVIDENCE_INSUFFICIENT` / `VERIFY_FAILED`;
-- unsupported weak contract cannot produce PASS;
-- Host self-reported verification success cannot bypass independent evidence evaluation.
+- missing evidence → `EVIDENCE_INSUFFICIENT` / `VERIFY_FAILED`;
+- unsupported weak contract cannot PASS;
+- Host self-reported success cannot bypass independent evaluation;
+- verifier cannot run as the success gate after persisted `SCOPE_BREACH`.
 
-## 26.4 Saga
+## 25.4 Saga
 
-- first Slice pre-commit failure with no commits → `FAILED`;
+- deterministic Slice dependency derivation/topological order;
+- two independent root Slices still execute sequentially by hash tie-break order;
+- at most one Slice may be active/reserved globally;
+- first pre-commit failure with no commits → `FAILED`;
 - A success + B pre-commit failure → `PARTIALLY_COMMITTED`;
 - committed `VERIFY_FAILED` → `PARTIALLY_COMMITTED`;
 - committed `SCOPE_BREACH` → `PARTIALLY_COMMITTED`;
 - partial failure atomically blocks remaining Slices;
-- no next Slice reservation before all required predecessors are `SUCCEEDED`;
-- concurrent reservation attempts permit only the valid single sequential winner;
-- reserve → Step32 admit crash window is recoverable through `ADMISSION_RESERVED`;
-- same transition/evidence replay is idempotent recovery;
-- same transition/different evidence conflicts;
-- all required Slices reconciled `SUCCEEDED` → Saga `SUCCEEDED`;
-- compensated original Saga ends `COMPENSATED`, never `SUCCEEDED`;
-- compensation failure ends `COMPENSATION_FAILED`.
+- no next reservation before canonical prior Slice and all required predecessors are `SUCCEEDED`;
+- concurrent reservations permit only one valid winner;
+- reserve → Step32 admit crash window recovers from `ADMISSION_RESERVED`;
+- same transition/evidence replay recovers idempotently;
+- different evidence conflicts;
+- all Slices reconciled `SUCCEEDED` → Saga `SUCCEEDED`;
+- compensation success → original Saga `COMPENSATED`, never `SUCCEEDED`;
+- compensation failure → `COMPENSATION_FAILED`.
 
-## 26.5 Cross-step regressions
+## 25.5 Cross-step regression
 
-Fresh CI MUST run Step28, Step29, Step30, Step31, Step32 regression suites plus full-repository tests and the Step33 architecture/lint matrix.
+Fresh CI MUST run Step28, Step29, Step30, Step31, Step32 regression suites, Step33 architecture/lint matrix, and full-repository tests.
 
-The frozen master-spec acceptance behaviors covered by Step33 include:
+Acceptance behaviors include:
 
 ```text
 ActualDelta outside scope stops remaining slices
@@ -1154,9 +1113,9 @@ cross-host Saga preserves auditable partial/compensation state
 
 ---
 
-# 27. Frozen implementation boundary
+# 26. Frozen implementation boundary
 
-The Step33 implementation branch may modify only:
+Allowed changes:
 
 ```text
 platform/execution_reconciliation/**
@@ -1164,7 +1123,7 @@ tests/execution_reconciliation/**
 
 platform/execution_planning/**
 tests/execution_planning/**
-  # only the targeted ExecutionPlan integrity validator and its tests
+  # only validate_execution_plan_integrity and its tests
 
 docs/superpowers/specs/**
 docs/superpowers/plans/**
@@ -1173,7 +1132,7 @@ docs/superpowers/plans/**
 pyproject.toml
 ```
 
-The Step33 implementation MUST NOT modify, absent a newly approved blocker:
+Forbidden absent a newly approved blocker:
 
 ```text
 platform/gateway_authorization/**
@@ -1190,13 +1149,11 @@ providers/**
 contracts/**
 ```
 
-A newly discovered blocker that requires crossing this boundary MUST be surfaced and explicitly re-approved before implementation continues.
+Any newly discovered blocker requiring boundary expansion MUST be surfaced and explicitly re-approved before implementation continues.
 
 ---
 
-# 28. Phase H handoff
-
-A completed Step33 provides the execution/reconciliation substrate for:
+# 27. Phase H handoff
 
 ```text
 Step34 — wall thickness / Revit
@@ -1208,8 +1165,8 @@ Step35 — wall thickness / AutoCAD
   zero Host branches in Core
 
 Step36 — OFFSET CREATE scope case
-  CreationRule kind/source/derivation/count
-  including SCOPE_BREACH behavior
+  CreationRule operation/kind/source/derivation/count
+  including SCOPE_BREACH
 
 Step37 — cross-host SnapshotSet/Saga failure injection
   Slice A success
@@ -1219,23 +1176,23 @@ Step37 — cross-host SnapshotSet/Saga failure injection
   → auditable Compensating ChangeSet workflow
 ```
 
-Step33 therefore closes Phase G from immutable intent and authorization to observed side effects, independent verification, and auditable partial-failure recovery.
+Step33 closes Phase G from immutable intent/authorization to observed side effects, independent verification, and auditable partial-failure recovery.
 
 ---
 
-# 29. Frozen design decisions
+# 28. Frozen design decisions
 
-The following decisions are approved and normative for this design:
-
-1. Step33 consumes a provider-neutral `ActualDelta`; it does not compare raw HostDelta directly to semantic approval scope.
+1. Step33 consumes provider-neutral `ActualDelta`; it does not compare raw HostDelta directly with semantic approval scope.
 2. `ScopeComparator` and `SemanticVerifier` are separate: unauthorized side effects are `SCOPE_BREACH`; incorrect in-scope outcomes are `VERIFY_FAILED`.
-3. Verification uses a snapshot-bound `VerificationEvidenceBundle`; Step33 does not directly query D5 internal storage or Semantic Provider implementations.
+3. Verification uses snapshot-bound `VerificationEvidenceBundle`; Step33 does not directly query D5 internal storage or Semantic Provider implementations.
 4. Machine-unexecutable or insufficient verification evidence cannot produce PASS.
-5. v0.6 cross-host Saga defaults to sequential Slice admission.
-6. A committed Slice followed by `SCOPE_BREACH` or `VERIFY_FAILED` places the Saga in `PARTIALLY_COMMITTED` and blocks remaining Slices.
-7. Compensation is expressed as provider-neutral recovery intent and must re-enter the normal ChangeSet → Approval → Grant write path.
-8. Original execution authority does not automatically authorize compensation.
-9. `COMPENSATED` is distinct from `SUCCEEDED`.
-10. Step33 lifecycle recovery is durable/CAS-based and uses explicit timestamps; domain logic does not read wall clock time.
-11. Existing Step28–32 semantic hash algorithms remain unchanged.
-12. Step30 gains only a public `validate_execution_plan_integrity()` integrity API required for Saga creation.
+5. v0.6 cross-host Saga uses one deterministic global sequential Slice order, including independent roots.
+6. A committed `SCOPE_BREACH` or `VERIFY_FAILED` puts the Saga in `PARTIALLY_COMMITTED` and blocks remaining Slices.
+7. Scope comparison precedes semantic verification; a scope breach is never overridden by verifier output.
+8. Compensation is provider-neutral recovery intent and must re-enter the normal ChangeSet → Approval → Grant write path.
+9. Original execution authority does not automatically authorize compensation.
+10. `COMPENSATED` is distinct from `SUCCEEDED`.
+11. Step33 recovery is durable/CAS-based with explicit timestamps and no domain wall-clock reads.
+12. Existing Step28–32 semantic hash algorithms remain unchanged.
+13. Step30 gains only public `validate_execution_plan_integrity()` for Saga creation.
+14. CREATE evidence binds canonical operation and stable created-instance identity so CreationRule allocation is deterministic and auditable.
