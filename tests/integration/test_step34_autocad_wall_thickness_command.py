@@ -121,7 +121,14 @@ async def test_dispatcher_replays_successful_wall_thickness_by_idempotency_key()
 
     assert first.ok
     assert second.ok
-    assert second == first
+    assert first.replayed is False
+    assert second.replayed is True
+    assert second.command_id == first.command_id
+    assert second.status == first.status
+    assert second.payload == first.payload
+    assert second.error == first.error
+    assert second.revision_after == first.revision_after
+    assert second.verification == first.verification
     assert [payload["operation"] for payload in transport.payloads] == [
         "context.current_document",
         "set_wall_thickness.v1",
