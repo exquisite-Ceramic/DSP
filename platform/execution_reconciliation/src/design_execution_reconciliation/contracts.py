@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any
 
 from design_approval_scope import ApprovalScopeBoundary, CanonicalAspect
-from design_changeset import canonical_hash
+from design_changeset import CanonicalChangeSet, ValidationTask, canonical_hash
 from design_execution_planning import ExecutionSlice
 from design_gateway_authorization import AdmittedExecutionAuthority
 from host_contracts import HostEntityRef
@@ -50,6 +50,12 @@ class ActualChangeKind(str, Enum):
 class ScopeComparisonStatus(str, Enum):
     WITHIN_SCOPE = "WITHIN_SCOPE"
     SCOPE_BREACH = "SCOPE_BREACH"
+
+
+class VerificationStatus(str, Enum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    EVIDENCE_INSUFFICIENT = "EVIDENCE_INSUFFICIENT"
 
 
 def _text(value: object, field_name: str) -> str:
@@ -376,7 +382,7 @@ class VerificationSubjectEvidence:
         object.__setattr__(
             self,
             "snapshot_hash",
-            _digest(self.snapshot_hash, "snapshot_hash"),
+            _text(self.snapshot_hash, "snapshot_hash"),
         )
         _require_type(self.projection_ref, SemanticProjectionRef, "projection_ref")
 
@@ -482,6 +488,121 @@ class VerificationEvidenceBundle:
             self,
             "baseline_subject_evidence",
             tuple(sorted(baseline_subjects, key=subject_key)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticVerificationRequest:
+    admitted_execution_authority: AdmittedExecutionAuthority
+    approval_scope_boundary: ApprovalScopeBoundary
+    canonical_changeset: CanonicalChangeSet
+    actual_delta: ActualDelta
+    validation_tasks: tuple[ValidationTask, ...]
+    verification_evidence_bundle: VerificationEvidenceBundle
+    verified_at: str
+
+    def __post_init__(self) -> None:
+        _require_type(
+            self.admitted_execution_authority,
+            AdmittedExecutionAuthority,
+            "admitted_execution_authority",
+        )
+        _require_type(
+            self.approval_scope_boundary,
+            ApprovalScopeBoundary,
+            "approval_scope_boundary",
+        )
+        _require_type(self.canonical_changeset, CanonicalChangeSet, "canonical_changeset")
+        _require_type(self.actual_delta, ActualDelta, "actual_delta")
+        tasks = _typed_tuple(self.validation_tasks, ValidationTask, "validation_tasks")
+        object.__setattr__(
+            self,
+            "validation_tasks",
+            tuple(sorted(tasks, key=lambda item: item.validation_task_id)),
+        )
+        _require_type(
+            self.verification_evidence_bundle,
+            VerificationEvidenceBundle,
+            "verification_evidence_bundle",
+        )
+        object.__setattr__(self, "verified_at", _text(self.verified_at, "verified_at"))
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationTaskResult:
+    validation_task_id: str
+    status: VerificationStatus | str
+    observations: tuple[str, ...]
+    failure_codes: tuple[str, ...]
+    task_result_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "validation_task_id",
+            _text(self.validation_task_id, "validation_task_id"),
+        )
+        object.__setattr__(
+            self,
+            "status",
+            _enum(self.status, VerificationStatus, "verification status"),
+        )
+        object.__setattr__(self, "observations", _texts(self.observations, "observation"))
+        object.__setattr__(
+            self,
+            "failure_codes",
+            _texts(self.failure_codes, "failure_code"),
+        )
+        object.__setattr__(
+            self,
+            "task_result_hash",
+            _digest(self.task_result_hash, "task_result_hash"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticVerificationResult:
+    verification_id: str
+    changeset_hash: str
+    execution_slice_hash: str
+    actual_delta_hash: str
+    evidence_bundle_hash: str
+    task_results: tuple[ValidationTaskResult, ...]
+    status: VerificationStatus | str
+    verification_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "verification_id",
+            _text(self.verification_id, "verification_id"),
+        )
+        for field_name in (
+            "changeset_hash",
+            "execution_slice_hash",
+            "actual_delta_hash",
+            "evidence_bundle_hash",
+            "verification_hash",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _digest(getattr(self, field_name), field_name),
+            )
+        results = _typed_tuple(
+            self.task_results,
+            ValidationTaskResult,
+            "task_results",
+        )
+        object.__setattr__(
+            self,
+            "task_results",
+            tuple(sorted(results, key=lambda item: item.validation_task_id)),
+        )
+        object.__setattr__(
+            self,
+            "status",
+            _enum(self.status, VerificationStatus, "verification status"),
         )
 
 
@@ -599,7 +720,11 @@ __all__ = [
     "ScopeComparisonStatus",
     "ScopeMatch",
     "ScopeViolation",
+    "SemanticVerificationRequest",
+    "SemanticVerificationResult",
+    "ValidationTaskResult",
     "VerificationContractEvidence",
     "VerificationEvidenceBundle",
+    "VerificationStatus",
     "VerificationSubjectEvidence",
 ]
