@@ -28,6 +28,7 @@ from .hashing import (
     compute_precondition_fingerprint,
     compute_provider_snapshot_hash,
     validate_provider_binding,
+    validate_provider_binding_set,
     validate_provider_binding_set_hash,
 )
 from .resolver import ProviderResolver
@@ -57,5 +58,6 @@ __all__ = [
     "native_constraints_satisfied",
     "validate_native_constraints",
     "validate_provider_binding",
+    "validate_provider_binding_set",
     "validate_provider_binding_set_hash",
 ]

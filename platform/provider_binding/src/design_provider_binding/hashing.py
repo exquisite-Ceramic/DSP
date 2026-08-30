@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any
 
 from design_changeset import ChangePrecondition, canonical_hash
+from design_execution_planning import ExecutionSlice
 
 from .contracts import (
     NativeConstraint,
@@ -264,6 +265,57 @@ def validate_provider_binding_set_hash(binding_set: ProviderBindingSet) -> None:
         )
 
 
+def validate_provider_binding_set(
+    binding_set: ProviderBindingSet,
+    execution_slice: ExecutionSlice,
+) -> None:
+    if (
+        binding_set.execution_slice_id != execution_slice.execution_slice_id
+        or binding_set.execution_slice_hash != execution_slice.execution_slice_hash
+    ):
+        raise ProviderBindingError(
+            "PROVIDER_BINDING_SET_INVALID",
+            "binding set slice mismatch",
+        )
+
+    units = {
+        unit.execution_unit_id: unit
+        for unit in execution_slice.execution_units
+    }
+    bindings = {
+        binding.execution_unit_id: binding
+        for binding in binding_set.bindings
+    }
+    if (
+        len(bindings) != len(binding_set.bindings)
+        or set(bindings) != set(units)
+    ):
+        raise ProviderBindingError(
+            "PROVIDER_BINDING_SET_INVALID",
+            "binding set unit coverage mismatch",
+        )
+
+    for unit_id, binding in bindings.items():
+        if (
+            binding.execution_slice_id != execution_slice.execution_slice_id
+            or binding.execution_slice_hash != execution_slice.execution_slice_hash
+        ):
+            raise ProviderBindingError(
+                "PROVIDER_BINDING_SET_INVALID",
+                "binding references wrong slice",
+            )
+        if binding.execution_unit_hash != units[unit_id].execution_unit_hash:
+            raise ProviderBindingError(
+                "PROVIDER_BINDING_SET_INVALID",
+                "binding set unit hash mismatch",
+            )
+
+    for binding in binding_set.bindings:
+        validate_provider_binding(binding)
+
+    validate_provider_binding_set_hash(binding_set)
+
+
 __all__ = [
     "compute_binding_hash",
     "compute_binding_set_hash",
@@ -272,5 +324,6 @@ __all__ = [
     "compute_precondition_fingerprint",
     "compute_provider_snapshot_hash",
     "validate_provider_binding",
+    "validate_provider_binding_set",
     "validate_provider_binding_set_hash",
 ]

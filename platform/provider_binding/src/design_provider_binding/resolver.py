@@ -27,6 +27,7 @@ from .hashing import (
     compute_precondition_fingerprint,
     compute_provider_snapshot_hash,
     validate_provider_binding,
+    validate_provider_binding_set,
 )
 
 
@@ -393,7 +394,7 @@ class ProviderResolver:
             execution_slice_hash=execution_slice.execution_slice_hash,
             binding_hashes=(item.binding_hash for item in normalized_bindings),
         )
-        return ProviderBindingSet(
+        binding_set = ProviderBindingSet(
             f"PBS-{binding_set_hash[:12]}",
             execution_slice.execution_slice_id,
             execution_slice.execution_slice_hash,
@@ -402,6 +403,8 @@ class ProviderResolver:
             normalized_bindings,
             binding_set_hash,
         )
+        validate_provider_binding_set(binding_set, execution_slice)
+        return binding_set
 
 
 __all__ = [
