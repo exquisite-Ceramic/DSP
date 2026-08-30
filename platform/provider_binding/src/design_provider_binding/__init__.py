@@ -1,5 +1,11 @@
 """Public immutable Step31 provider-binding API."""
 
+from .adapters import (
+    ProviderBindingAdapter,
+    ProviderBindingAdapterRegistry,
+    native_constraints_satisfied,
+    validate_native_constraints,
+)
 from .contracts import (
     EligibilityState,
     NativeConstraint,
@@ -31,6 +37,8 @@ __all__ = [
     "NativeConstraintOperator",
     "NativeTargetBindingEvidence",
     "ProviderBinding",
+    "ProviderBindingAdapter",
+    "ProviderBindingAdapterRegistry",
     "ProviderBindingError",
     "ProviderBindingMaterial",
     "ProviderBindingRequest",
@@ -44,6 +52,8 @@ __all__ = [
     "compute_host_binding_fingerprint",
     "compute_precondition_fingerprint",
     "compute_provider_snapshot_hash",
+    "native_constraints_satisfied",
+    "validate_native_constraints",
     "validate_provider_binding",
     "validate_provider_binding_set_hash",
 ]
