@@ -188,10 +188,12 @@ def test_native_constraint_normalizes_in_values():
     assert constraint.values == ("Door", "Wall")
 
 
-def test_native_binding_evidence_is_frozen(digest):
+def test_native_binding_evidence_is_frozen(digest_fn):
     from design_provider_binding import NativeTargetBindingEvidence
 
-    value = NativeTargetBindingEvidence("WALL-001", "REVIT", "DOC-1", "42", "Wall", digest("host-binding"))
+    value = NativeTargetBindingEvidence(
+        "WALL-001", "REVIT", "DOC-1", "42", "Wall", digest_fn("host-binding")
+    )
     with pytest.raises(FrozenInstanceError):
         value.native_id = "43"
 ```
@@ -514,6 +516,8 @@ def validate_provider_binding_set_hash(binding_set: ProviderBindingSet) -> None:
     if binding_set.binding_set_hash != expected or binding_set.binding_set_id != f"PBS-{expected[:12]}":
         raise ProviderBindingError("PROVIDER_BINDING_SET_INVALID", "provider binding set hash/id mismatch")
 ```
+
+The `compute_binding_hash(...)` signature SHALL list every §16.3 semantic field explicitly; `...` above denotes the already-frozen argument list from the design, not an implementation omission. The implementation task must copy those exact fields from §16.3 into the signature and payload in the same commit.
 
 - [ ] **Step 5: Run GREEN and commit**
 
