@@ -35,7 +35,6 @@ from .store import (
     _state_index,
 )
 
-
 _FAILURE_SLICE_STATUSES = frozenset(
     {
         SliceReconciliationStatus.FAILED_BEFORE_COMMIT,
