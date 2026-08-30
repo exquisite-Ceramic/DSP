@@ -1,4 +1,4 @@
-"""Task12 RED: freeze Step33 architecture and exact CI/workflow boundary."""
+"""Task12 architecture and exact CI/workflow boundary guards."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import yaml
 
 _PACKAGE = Path("platform/execution_reconciliation/src/design_execution_reconciliation")
 _WORKFLOW = Path(".github/workflows/step33-execution-reconciliation.yml")
+_BASE_SHA = "cef76e111f74d10f063eedfebc7efc0d805caefa"
 
 _FROZEN_PATHS = [
     ".github/workflows/step33-execution-reconciliation.yml",
@@ -83,6 +84,18 @@ _REQUIRED_TEST_COMMANDS = (
     "pytest -q tests/gateway_authorization",
     "pytest -q --import-mode=importlib",
 )
+_FINAL_SESSION_COMMANDS = (
+    "pytest -q tests/approval_scope",
+    "pytest -q tests/changeset",
+    "pytest -q tests/execution_planning",
+    "pytest -q tests/provider_binding",
+    "pytest -q tests/gateway_authorization",
+    "pytest -q tests/execution_reconciliation",
+    "ruff check",
+    "pytest -q --import-mode=importlib",
+    "git diff --check",
+    f"git diff --name-only {_BASE_SHA}...HEAD",
+)
 _RUFF_TARGETS = (
     "platform/execution_planning/src/design_execution_planning",
     "platform/execution_reconciliation/src/design_execution_reconciliation",
@@ -139,15 +152,18 @@ def _workflow() -> dict:
     return yaml.load(_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
-def _workflow_runs() -> str:
+def _workflow_steps() -> tuple[dict, ...]:
     workflow = _workflow()
-    jobs = workflow["jobs"]
-    return "\n".join(
-        step.get("run", "")
-        for job in jobs.values()
+    return tuple(
+        step
+        for job in workflow["jobs"].values()
         for step in job.get("steps", [])
         if isinstance(step, dict)
     )
+
+
+def _workflow_runs() -> str:
+    return "\n".join(step.get("run", "") for step in _workflow_steps())
 
 
 def test_step33_production_has_no_host_product_private_storage_or_native_dispatch_coupling() -> None:
@@ -201,8 +217,8 @@ def test_workflow_paths_are_exactly_the_frozen_step33_boundary() -> None:
 def test_workflow_has_step33_pr_diff_gate() -> None:
     text = _WORKFLOW.read_text(encoding="utf-8")
     assert "github.head_ref == 'feat/step33-execution-reconciliation'" in text
-    assert "git diff --name-only" in text
-    assert "cef76e111f74d10f063eedfebc7efc0d805caefa" not in text
+    assert 'git diff --check "$BASE_SHA...$HEAD_SHA"' in text
+    assert 'git diff --name-only "$BASE_SHA...$HEAD_SHA"' in text
 
 
 def test_workflow_installs_step32_stack_plus_step33_and_runs_final_matrix() -> None:
@@ -214,3 +230,20 @@ def test_workflow_installs_step32_stack_plus_step33_and_runs_final_matrix() -> N
     assert "ruff check" in runs
     for target in _RUFF_TARGETS:
         assert target in runs
+
+
+def test_workflow_has_single_fresh_branch_final_verification_session() -> None:
+    candidates = tuple(
+        step
+        for step in _workflow_steps()
+        if step.get("name") == "Run fresh Step33 final verification session"
+    )
+    assert len(candidates) == 1
+    step = candidates[0]
+    condition = step.get("if", "")
+    assert "feat/step33-execution-reconciliation" in condition
+    run = step.get("run", "")
+    for command in _FINAL_SESSION_COMMANDS:
+        assert command in run
+    for target in _RUFF_TARGETS:
+        assert target in run
