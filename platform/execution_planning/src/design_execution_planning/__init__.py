@@ -19,7 +19,10 @@ from .hashing import (
     compute_execution_unit_hash,
     compute_routing_snapshot_hash,
 )
-from .integrity import validate_execution_slice_integrity
+from .integrity import (
+    validate_execution_plan_integrity,
+    validate_execution_slice_integrity,
+)
 from .planner import ExecutionPlanner
 
 __all__ = [
@@ -39,5 +42,6 @@ __all__ = [
     "compute_execution_slice_hash",
     "compute_execution_unit_hash",
     "compute_routing_snapshot_hash",
+    "validate_execution_plan_integrity",
     "validate_execution_slice_integrity",
 ]
