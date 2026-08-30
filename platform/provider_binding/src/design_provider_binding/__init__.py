@@ -30,6 +30,7 @@ from .hashing import (
     validate_provider_binding,
     validate_provider_binding_set_hash,
 )
+from .resolver import ProviderResolver
 
 __all__ = [
     "EligibilityState",
@@ -46,6 +47,7 @@ __all__ = [
     "ProviderExecutionCandidate",
     "ProviderExecutionSnapshot",
     "ProviderPreconditionBinding",
+    "ProviderResolver",
     "compute_binding_hash",
     "compute_binding_set_hash",
     "compute_candidate_fingerprint",
