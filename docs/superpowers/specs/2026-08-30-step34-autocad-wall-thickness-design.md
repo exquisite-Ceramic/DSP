@@ -71,6 +71,58 @@ Step34 reuses existing capabilities rather than redesigning them:
 5. Step32 remains the authority/admission boundary.
 6. Step33 already owns `ActualDelta`, `ScopeComparator`, semantic verification, and the execution reconciliation lifecycle.
 
+## Canonical Operation Contract
+
+The current MVP canonical catalog contains `move.v1` but no wall-thickness operation. Step34 therefore adds one platform-owned Host-independent operation definition; this extends the canonical action catalog without changing D4 resolution architecture.
+
+Frozen contract identity:
+
+```text
+canonical_operation = set_wall_thickness.v1
+version = 1.0.0
+category = MODEL_OPERATION
+```
+
+Frozen canonical arguments:
+
+```json
+{
+  "targets": ["<semantic-id>"],
+  "thickness": {
+    "value": 300.0,
+    "unit": "mm"
+  }
+}
+```
+
+Ownership:
+
+- `targets` = CONTEXT-bound semantic identities
+- `thickness` = INTENT-bound canonical measurement
+
+Canonical effects are exactly `PROPERTIES`.
+
+Canonical entity eligibility is wall-semantic, expressed with canonical classification evidence such as `ifc:IfcWall`; it must not mention `LWPOLYLINE`, AutoCAD Handle, layer, or `ConstantWidth`.
+
+The verification contract is semantic and argument-bound:
+
+```json
+{
+  "type": "SEMANTIC_ASSERTIONS_V1",
+  "version": "1.0.0",
+  "assertions": [
+    {
+      "subjects": {"from_argument": "targets"},
+      "path": "properties.dsp:WallThickness",
+      "operator": "EQUALS_ARGUMENT",
+      "argument": "thickness"
+    }
+  ]
+}
+```
+
+No Host-native verification token is used as the Step33 semantic success condition.
+
 ## Native Snapshot Contract Extension
 
 Step34 extends only the AutoCAD Host-local snapshot DTO. It does not alter the frozen Step18 `NormalizedDesignFact` contract.
@@ -100,8 +152,8 @@ The Host extractor must never label an unknown drawing unit as `mm`. Step34 muta
 The AutoCAD sidecar converts the native `ConstantWidth` observation into an existing `NormalizedDesignFact`:
 
 ```text
-fact_kind     = PROPERTY
-predicate     = constant_width
+fact_kind      = PROPERTY
+predicate      = constant_width
 value          = 200.0
 value_type     = NUMBER
 unit           = mm
@@ -146,6 +198,14 @@ For the Step34 fixture this yields:
 A-WALL -> ifc:IfcWall
 LWPOLYLINE.ConstantWidth = 200 mm -> dsp:WallThickness = 200 mm
 ```
+
+## AutoCAD Provider Capability and Binding
+
+The AutoCAD provider surface adds a wall-thickness capability bound to `set_wall_thickness.v1`.
+
+Provider-native eligibility remains in ProviderBinding/capability metadata. The AutoCAD binding may constrain the native target to `LWPOLYLINE`; D4 must see only canonical wall eligibility.
+
+The provider-side input adapter translates the admitted canonical measurement into the Host command argument required by the AutoCAD plugin. This translation occurs after ProviderBinding/Step32 admission, not inside canonical resolution.
 
 ## AutoCAD Mutation Operation
 
@@ -253,6 +313,8 @@ The plugin MUST NOT be changed back to a fixed global pipe name; doing so would 
 
 Step34 may change only what is necessary in these areas:
 
+- platform canonical operation catalog/tests for `set_wall_thickness.v1`
+- AutoCAD provider capability/profile and post-binding input translation
 - AutoCAD plugin native snapshot extraction
 - AutoCAD plugin wall-thickness command/handler/verifier and registration
 - AutoCAD sidecar snapshot normalization
