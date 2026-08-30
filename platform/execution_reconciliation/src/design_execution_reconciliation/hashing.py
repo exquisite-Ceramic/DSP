@@ -1,14 +1,17 @@
-"""Canonical Step33 hashing for authoritative normalized Host side effects."""
+"""Canonical Step33 hashing for normalized side effects and verification evidence."""
 
 from __future__ import annotations
 
 from design_changeset import canonical_hash
+from semantic_runtime import SemanticProjectionRef, SemanticSnapshot
 
 from .contracts import (
     ActualChange,
     ActualDelta,
     ReconciliationError,
     ScopeComparisonResult,
+    VerificationEvidenceBundle,
+    VerificationSubjectEvidence,
 )
 
 
@@ -25,6 +28,40 @@ def _instance_payload(change: ActualChange) -> dict[str, object] | None:
             "native_id": change.host_entity_ref.native_id,
         }
     return None
+
+
+def _projection_payload(ref: SemanticProjectionRef | None) -> object:
+    return None if ref is None else ref.payload()
+
+
+def _snapshot_ref_payload(snapshot: SemanticSnapshot | None) -> object:
+    if snapshot is None:
+        return None
+    return {
+        "snapshot_id": snapshot.snapshot_id,
+        "snapshot_hash": snapshot.hash,
+        "document_ref": snapshot.document_ref,
+        "base_host_revision": snapshot.base_host_revision,
+        "projection_ref": snapshot.projection_ref.payload(),
+        "semantic_environment_ref": snapshot.semantic_environment_ref.payload(),
+    }
+
+
+def _subject_payload(subject: VerificationSubjectEvidence) -> dict[str, object]:
+    return {
+        "semantic_id": subject.semantic_id,
+        "canonical_kind": subject.canonical_kind,
+        "properties": subject.properties,
+        "placement": subject.placement,
+        "geometry_evidence": subject.geometry_evidence,
+        "relationships": list(subject.relationships),
+        "constraints": list(subject.constraints),
+        "classification": list(subject.classification),
+        "evidence_aspects": [aspect.value for aspect in subject.evidence_aspects],
+        "snapshot_id": subject.snapshot_id,
+        "snapshot_hash": subject.snapshot_hash,
+        "projection_ref": subject.projection_ref.payload(),
+    }
 
 
 def compute_actual_change_hash(change: ActualChange) -> str:
@@ -139,9 +176,103 @@ def compute_scope_comparison_hash(result: ScopeComparisonResult) -> str:
     )
 
 
+def compute_verification_evidence_bundle_hash(
+    bundle: VerificationEvidenceBundle,
+) -> str:
+    """Hash one complete snapshot-bound provider-neutral verification evidence body."""
+    if not isinstance(bundle, VerificationEvidenceBundle):
+        raise TypeError("bundle must be VerificationEvidenceBundle")
+    return canonical_hash(
+        {
+            "changeset_hash": bundle.changeset_hash,
+            "execution_slice_hash": bundle.execution_slice_hash,
+            "actual_delta_hash": bundle.actual_delta_hash,
+            "semantic_environment_ref": bundle.semantic_environment_ref.payload(),
+            "post_execution_snapshot_ref": _snapshot_ref_payload(
+                bundle.post_execution_snapshot_ref
+            ),
+            "post_execution_projection_ref": _projection_payload(
+                bundle.post_execution_projection_ref
+            ),
+            "base_host_revision": bundle.base_host_revision,
+            "baseline_snapshot_ref": _snapshot_ref_payload(bundle.baseline_snapshot_ref),
+            "baseline_projection_ref": _projection_payload(
+                bundle.baseline_projection_ref
+            ),
+            "contract_evidence": [
+                {
+                    "contract_ref": item.contract_ref,
+                    "contract_body": item.contract_body,
+                }
+                for item in bundle.contract_evidence
+            ],
+            "subject_evidence": [
+                _subject_payload(item) for item in bundle.subject_evidence
+            ],
+            "baseline_subject_evidence": [
+                _subject_payload(item) for item in bundle.baseline_subject_evidence
+            ],
+        }
+    )
+
+
+def _validate_subject_uniqueness(
+    subjects: tuple[VerificationSubjectEvidence, ...],
+    field_name: str,
+) -> None:
+    seen: set[tuple[str, str, str]] = set()
+    for subject in subjects:
+        key = (subject.snapshot_id, subject.snapshot_hash, subject.semantic_id)
+        if key in seen:
+            raise ReconciliationError(
+                "VERIFY_INPUT_INVALID",
+                f"{field_name} contains duplicate snapshot-bound semantic evidence",
+            )
+        seen.add(key)
+
+
+def validate_verification_evidence_bundle_integrity(
+    bundle: VerificationEvidenceBundle,
+) -> None:
+    """Reconstruct intrinsic evidence identity without any cross-object joins."""
+    if not isinstance(bundle, VerificationEvidenceBundle):
+        raise ReconciliationError(
+            "VERIFY_INPUT_INVALID",
+            "bundle must be VerificationEvidenceBundle",
+        )
+
+    contract_bodies: dict[str, str] = {}
+    for evidence in bundle.contract_evidence:
+        body_hash = canonical_hash(evidence.contract_body)
+        previous = contract_bodies.get(evidence.contract_ref)
+        if body_hash != evidence.contract_ref or (
+            previous is not None and previous != body_hash
+        ):
+            raise ReconciliationError(
+                "VERIFY_CONTRACT_MISMATCH",
+                "verification contract body does not match its content-addressed ref",
+            )
+        contract_bodies[evidence.contract_ref] = body_hash
+
+    _validate_subject_uniqueness(bundle.subject_evidence, "subject_evidence")
+    _validate_subject_uniqueness(
+        bundle.baseline_subject_evidence,
+        "baseline_subject_evidence",
+    )
+
+    expected_hash = compute_verification_evidence_bundle_hash(bundle)
+    if bundle.evidence_bundle_hash != expected_hash:
+        raise ReconciliationError(
+            "VERIFY_INPUT_INVALID",
+            "VerificationEvidenceBundle body does not match its committed hash",
+        )
+
+
 __all__ = [
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
     "compute_scope_comparison_hash",
+    "compute_verification_evidence_bundle_hash",
     "validate_actual_delta_integrity",
+    "validate_verification_evidence_bundle_integrity",
 ]
