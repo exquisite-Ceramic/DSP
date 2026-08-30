@@ -37,8 +37,10 @@ from semantic_service import (
     SemanticService,
 )
 
+dsp_core_semantic_provider = pytest.importorskip("dsp_core_semantic_provider")
 enterprise_mapping_provider = pytest.importorskip("enterprise_mapping_provider")
 ifc43_semantic_provider = pytest.importorskip("ifc43_semantic_provider")
+DSP_CORE_PROVIDER = dsp_core_semantic_provider.DSP_CORE_PROVIDER
 ENTERPRISE_MAPPING_PROVIDER = enterprise_mapping_provider.ENTERPRISE_MAPPING_PROVIDER
 IFC43_PROVIDER = ifc43_semantic_provider.IFC43_PROVIDER
 
@@ -59,13 +61,31 @@ def _snapshot(layer: str) -> dict[str, object]:
     }
 
 
+def _snapshot_with_wall_thickness(layer: str, width_mm: float) -> dict[str, object]:
+    snapshot = _snapshot(layer)
+    snapshot["entities"] = [
+        {
+            **snapshot["entities"][0],
+            "properties": {
+                "constantWidth": {
+                    "value": width_mm,
+                    "unit": "mm",
+                }
+            },
+        }
+    ]
+    return snapshot
+
+
 def _semantic_stack() -> tuple[SemanticService, SemanticEnvironment]:
     registry = SemanticProviderRegistry()
+    registry.register(DSP_CORE_PROVIDER)
     registry.register(IFC43_PROVIDER)
     registry.register(ENTERPRISE_MAPPING_PROVIDER)
     store = SemanticEnvironmentStore()
     environment = store.pin(
         (
+            ProviderRef("dsp.core", "1.0"),
             ProviderRef("buildingSMART.ifc43", "4.3.2.0"),
             ProviderRef("dsp.enterprise.mapping", "1.0.0"),
         ),
@@ -253,6 +273,31 @@ def test_a_wall_reaches_existing_d5_as_canonical_ifc_wall() -> None:
     assert dirty.state(
         DOCUMENT_ID, TARGET_SUBJECT, SemanticAspect.GEOMETRY
     ) is FreshnessState.UNKNOWN
+
+
+def test_a_wall_width_projects_to_canonical_dsp_wall_thickness() -> None:
+    facts = DesignFactAdapter().normalize_snapshot(
+        _snapshot_with_wall_thickness("A-WALL", 200.0)
+    )
+    service, environment = _semantic_stack()
+
+    claims = service.project_facts(facts, environment.environment_id)
+    keyed = {(claim.predicate, claim.canonical_term_id): claim for claim in claims}
+
+    classification = keyed[("classification", "ifc:IfcWall")]
+    assert classification.subject == TARGET_SUBJECT
+    assert classification.value is None
+    assert classification.unit is None
+
+    thickness = keyed[("property", "dsp:WallThickness")]
+    assert thickness.subject == TARGET_SUBJECT
+    assert thickness.value == 200.0
+    assert thickness.unit == "mm"
+    assert thickness.assurance == "RULE_DERIVED"
+
+    resolved = service.resolve_term("dsp:WallThickness", environment.environment_id)
+    assert resolved.term_id == "dsp:WallThickness"
+    assert resolved.provenance.provider_id == "dsp.core"
 
 
 @pytest.mark.parametrize("layer", ["A-WALLISH", "X-A-WALL"])
