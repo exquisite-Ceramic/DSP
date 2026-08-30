@@ -1,6 +1,6 @@
 # Step33 — Execution Reconciliation / ScopeComparator / Saga Design
 
-> Status: Design approved in chat; written-spec review pending
+> Status: Implemented; implementation proof recorded at `78476f6dfa9d8b99d96be142138b576fe50d2dfa` / Actions `33325648436`; exact status-HEAD CI is still required before merge
 > Date: 2026-08-30
 > Base: `main@cef76e111f74d10f063eedfebc7efc0d805caefa`
 > Branch: `feat/step33-execution-reconciliation`
@@ -1196,3 +1196,155 @@ Step33 closes Phase G from immutable intent/authorization to observed side effec
 12. Existing Step28–32 semantic hash algorithms remain unchanged.
 13. Step30 gains only public `validate_execution_plan_integrity()` for Saga creation.
 14. CREATE evidence binds canonical operation and stable created-instance identity so CreationRule allocation is deterministic and auditable.
+
+---
+
+# 29. Implemented contract refinements and verification evidence
+
+This section incorporates the Step33-only contract refinements that were discovered while decomposing and executing the implementation plan. It is normative together with the rest of this design and supersedes any narrower contract sketch in §§6, 8, 9, 12, and 21 where they differ. These refinements do not change any existing Step28, Step29, Step30, Step31, or Step32 semantic hash identity.
+
+## 29.1 Creation source canonical-kind evidence
+
+`ActualChange` additionally carries:
+
+```text
+source_canonical_kind?
+```
+
+Step33 evaluates a Step28 `CreationRule.source_selector` only from provider-neutral `ActualChange` evidence:
+
+```text
+PredicateField.SEMANTIC_ID      -> ActualChange.source_semantic_id
+PredicateField.CANONICAL_KIND   -> ActualChange.source_canonical_kind
+PredicateField.SOURCE_ENTITY    -> ActualChange.source_semantic_id
+PredicateField.DERIVATION_RULE  -> ActualChange.derivation_rule
+```
+
+Missing evidence makes that predicate non-matching. Step33 MUST NOT backfill source-selector evidence from Host-native type/category/layer metadata or by querying D5 internals.
+
+## 29.2 Baseline evidence for DELTA_EQUALS_ARGUMENT
+
+`VerificationEvidenceBundle` additionally carries:
+
+```text
+baseline_snapshot_ref?
+baseline_projection_ref?
+baseline_subject_evidence[]
+```
+
+`VerificationSubjectEvidence` additionally carries:
+
+```text
+snapshot_id
+snapshot_hash
+```
+
+When any requested executable verification assertion uses `DELTA_EQUALS_ARGUMENT`:
+
+```text
+baseline snapshot/evidence required
+→ baseline snapshot identity == CanonicalChangeSet.planning_snapshot_ref
+→ baseline and post evidence share the exact SemanticEnvironment
+→ required baseline subject/path must be present
+otherwise EVIDENCE_INSUFFICIENT / REQUIRED_BASELINE_MISSING
+```
+
+The evidence-bundle hash includes baseline snapshot/projection references and baseline subject evidence when present. Step33 performs no unit conversion; canonical operation arguments and semantic evidence must already use canonical semantic units. If a tolerance unit is supplied, explicit observed/expected units must agree or evidence is insufficient.
+
+## 29.3 SemanticVerifier exact joins
+
+The implemented request contract is:
+
+```text
+SemanticVerificationRequest {
+  admitted_execution_authority
+  approval_scope_boundary
+  canonical_changeset
+  actual_delta
+  validation_tasks[]
+  verification_evidence_bundle
+  verified_at
+}
+```
+
+Step33 calls public Step29 `validate_changeset_integrity(changeset, boundary)` rather than reimplementing ChangeSet integrity. Post-execution revision verification joins to the authoritative `ActualDelta`, not merely a caller-supplied delta hash. Boundary, ChangeSet, authority, ActualDelta, Slice, evidence bundle, and SemanticEnvironment MUST join exactly before assertion evaluation.
+
+## 29.4 Complete ValidationTask-to-Slice assignment
+
+Step29 `ValidationTask`s are ChangeSet-scoped while Step30 has no task-to-Slice field. Step33 therefore derives immutable task ownership during Saga definition construction:
+
+```text
+SliceValidationAssignment {
+  execution_slice_hash
+  validation_task_ids[]
+}
+
+ExecutionSagaDefinition {
+  ...
+  slice_validation_assignments[]
+  saga_definition_hash
+}
+```
+
+Assignment is deterministic and complete:
+
+```text
+CANONICAL_OPERATION task
+→ resolve exactly one ChangeSet operation by
+  canonical_operation_ref + exact subject_semantic_ids
+→ assign to the Slice containing that operation's ExecutionUnit
+
+DEPENDENCY_VERIFICATION task
+→ resolve exactly one SemanticImpactEvidence by
+  dependency_ref + affected subject
+→ if affected semantic id is the target of exactly one ChangeSet operation,
+  assign to that operation's Slice
+→ otherwise assign to the Slice containing the source_semantic_id operation
+→ ambiguous or unresolved assignment = SAGA_INTEGRITY_INVALID
+```
+
+Every ChangeSet `ValidationTask` MUST be assigned exactly once. `slice_validation_assignments` are included in `saga_definition_hash` with canonical sorting.
+
+A Slice may enter `SUCCEEDED` only after:
+
+```text
+persisted ScopeComparisonResult == WITHIN_SCOPE
++
+persisted SemanticVerificationResult covers exactly every ValidationTask
+assigned to that Slice by the Saga definition
++
+verification aggregate == PASSED
+```
+
+Caller omission of an assigned task is invalid and cannot produce Slice success.
+
+## 29.5 Fresh implementation verification
+
+Implementation proof before this status update:
+
+```text
+implementation SHA: 78476f6dfa9d8b99d96be142138b576fe50d2dfa
+GitHub Actions run: 33325648436
+result: completed / success
+```
+
+The fresh final-verification session in that exact run executed together:
+
+```bash
+pytest -q tests/approval_scope
+pytest -q tests/changeset
+pytest -q tests/execution_planning
+pytest -q tests/provider_binding
+pytest -q tests/gateway_authorization
+pytest -q tests/execution_reconciliation
+ruff check \
+  platform/execution_planning/src/design_execution_planning \
+  platform/execution_reconciliation/src/design_execution_reconciliation \
+  tests/execution_planning tests/execution_reconciliation
+pytest -q --import-mode=importlib
+git diff --check
+git diff --check cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD
+git diff --name-only cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD
+```
+
+The workflow also applied the frozen-path gate to the committed base-to-HEAD path list. All steps in run `33325648436`, including `Run fresh Step33 final verification session`, completed successfully. The design-status commit created by this section still requires the separate Task12.8 exact-HEAD Actions proof before Step33 is merge-ready.
