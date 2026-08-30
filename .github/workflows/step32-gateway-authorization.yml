@@ -11,6 +11,8 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
+      - "platform/provider_binding/**"
+      - "tests/provider_binding/**"
       - "docs/superpowers/specs/2026-08-30-step32-gateway-authorization-design.md"
       - "docs/superpowers/plans/2026-08-30-step32-gateway-authorization.md"
       - ".github/workflows/step32-gateway-authorization.yml"
@@ -25,6 +27,8 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
+      - "platform/provider_binding/**"
+      - "tests/provider_binding/**"
       - "docs/superpowers/specs/2026-08-30-step32-gateway-authorization-design.md"
       - "docs/superpowers/plans/2026-08-30-step32-gateway-authorization.md"
       - ".github/workflows/step32-gateway-authorization.yml"
@@ -54,7 +58,7 @@ jobs:
         run: |
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
           printf '%s\n' "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -Ev '^(platform/(gateway_authorization|approval_scope|changeset|execution_planning)/|tests/(gateway_authorization|approval_scope|changeset|execution_planning)/|docs/superpowers/(specs/2026-08-30-step32-gateway-authorization-design|plans/2026-08-30-step32-gateway-authorization)\.md|\.github/workflows/step32-gateway-authorization\.yml|pyproject\.toml)' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(platform/(gateway_authorization|approval_scope|changeset|execution_planning|provider_binding)/|tests/(gateway_authorization|approval_scope|changeset|execution_planning|provider_binding)/|docs/superpowers/(specs/2026-08-30-step32-gateway-authorization-design|plans/2026-08-30-step32-gateway-authorization)\.md|\.github/workflows/step32-gateway-authorization\.yml|pyproject\.toml)' || true)"
           if [ -n "$bad" ]; then
             echo "Step32 changed files outside approved boundary:"
             printf '%s\n' "$bad"
@@ -68,10 +72,16 @@ jobs:
         run: pytest -q tests/gateway_authorization/test_step32_approval_service.py
       - name: Run Step32 approval store tests
         run: pytest -q tests/gateway_authorization/test_step32_store_approval.py
+      - name: Run Step32 grant service tests
+        run: pytest -q tests/gateway_authorization/test_step32_grant_service.py
       - name: Run Step28 approval-scope regressions
         run: pytest -q tests/approval_scope
       - name: Run Step29 changeset regressions
         run: pytest -q tests/changeset
+      - name: Run Step30 execution-planning regressions
+        run: pytest -q tests/execution_planning
+      - name: Run Step31 provider-binding regressions
+        run: pytest -q tests/provider_binding
       - name: Run Ruff on Step32 changes
         run: |
           ruff check platform/gateway_authorization/src/design_gateway_authorization
