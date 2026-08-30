@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+
 from design_approval_scope import CanonicalAspect
 from design_execution_reconciliation import (
     ActualChange,
