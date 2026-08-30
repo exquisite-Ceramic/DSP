@@ -195,6 +195,13 @@ def bind_changeset(
     )
     return ApprovalScopeBoundary(
         scope_id=scope_id,
+        scope_definition_id=scope_definition.scope_definition_id,
+        impact_analysis_fingerprint=scope_definition.impact_analysis_fingerprint,
+        canonical_effect_evidence=scope_definition.canonical_effect_evidence,
+        intent_boundary=scope_definition.intent_boundary,
+        planning_snapshot_ref=scope_definition.planning_snapshot_ref,
+        snapshot_set_ref=scope_definition.snapshot_set_ref,
+        semantic_environment_ref=scope_definition.semantic_environment_ref,
         changeset_hash=changeset_hash,
         scope_body_hash=scope_definition.scope_body_hash,
         existing_entity_rules=scope_definition.existing_entity_rules,
@@ -204,3 +211,9 @@ def bind_changeset(
         execution_slice_scopes=scope_definition.execution_slice_scope_rules,
         scope_hash=scope_hash,
     )
+
+
+def validate_approval_scope_boundary(boundary: ApprovalScopeBoundary) -> None:
+    """Validate a final Step28 boundary. Integrity checks are added in Step32 Task 1."""
+    if not isinstance(boundary, ApprovalScopeBoundary):
+        raise TypeError("boundary must be ApprovalScopeBoundary")
