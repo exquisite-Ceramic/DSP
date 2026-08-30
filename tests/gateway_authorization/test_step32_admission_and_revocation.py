@@ -130,7 +130,7 @@ def test_concurrent_admission_returns_one_logical_handoff(gateway_cross_step):
         f"2026-08-30T07:{minute:02d}:00Z" for minute in range(45, 60)
     )
     admitted_times += tuple(
-        f"2026-08-30T08:{minute:02d}:00Z" for minute in range(0, 17)
+        f"2026-08-30T08:{minute:02d}:00Z" for minute in range(17)
     )
 
     with ThreadPoolExecutor(max_workers=16) as pool:
