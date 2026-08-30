@@ -193,7 +193,7 @@ def _baseline_subject_index(
         return None
 
     snapshot_environment = _environment_identity(snapshot.semantic_environment_ref)
-    if snapshot_environment != _environment_identity(planning.semantic_environment_ref):
+    if snapshot_environment != _environment_identity(planning.semantic_environment):
         return None
     if snapshot_environment != _environment_identity(bundle.semantic_environment_ref):
         return None
