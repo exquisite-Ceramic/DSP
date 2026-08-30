@@ -12,7 +12,6 @@ from design_execution_planning import (
 from design_gateway_authorization import (
     ApprovalLifecycle,
     ApprovalState,
-    ExecutionGrantRequest,
     GatewayAuthorizationError,
     GatewayAuthorizationService,
     StoredApproval,
