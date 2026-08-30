@@ -12,6 +12,8 @@ from .contracts import (
     ApprovalState,
     ExecutionGrant,
     GatewayAuthorizationError,
+    GrantLifecycle,
+    GrantState,
     StoredApproval,
     StoredGrant,
 )
@@ -115,7 +117,15 @@ class InMemoryGatewayAuthorizationStore:
         raise NotImplementedError("approval revocation is implemented in Step32 Task 9")
 
     def issue_or_get_grant(self, grant: ExecutionGrant) -> ExecutionGrant:
-        raise NotImplementedError("grant lineage issuance is implemented in Step32 Task 8")
+        if not isinstance(grant, ExecutionGrant):
+            raise TypeError("grant must be ExecutionGrant")
+        stored = StoredGrant(grant, GrantLifecycle(GrantState.ACTIVE))
+        with self._lock:
+            existing = self._grants.get(grant.grant_hash)
+            if existing is not None:
+                return existing.grant
+            self._grants[grant.grant_hash] = stored
+            return grant
 
     def get_grant(self, grant_hash: str) -> StoredGrant | None:
         with self._lock:
