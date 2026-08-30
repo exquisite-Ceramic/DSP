@@ -11,6 +11,7 @@ from design_execution_planning import (
     compute_execution_slice_hash,
     compute_execution_unit_hash,
 )
+from design_provider_binding import ProviderBindingMaterial
 
 
 def digest(label: str) -> str:
@@ -97,3 +98,52 @@ def build_execution_slice() -> ExecutionSlice:
 @pytest.fixture
 def execution_slice():
     return build_execution_slice()
+
+
+class FakeBindingAdapter:
+    def __init__(
+        self,
+        *,
+        adapter_version: str = "1.0.0",
+        material_factory=None,
+        error: Exception | None = None,
+    ) -> None:
+        self.adapter_version = adapter_version
+        self.material_factory = material_factory
+        self.error = error
+        self.calls = []
+
+    def bind(
+        self,
+        execution_unit,
+        host_runtime_ref,
+        selected_candidate,
+        native_target_bindings,
+    ):
+        self.calls.append(
+            (
+                execution_unit,
+                host_runtime_ref,
+                selected_candidate,
+                native_target_bindings,
+            )
+        )
+        if self.error is not None:
+            raise self.error
+        if self.material_factory is not None:
+            return self.material_factory(execution_unit, native_target_bindings)
+        return ProviderBindingMaterial(
+            native_targets=native_target_bindings,
+            provider_arguments={
+                "native_ids": [item.native_id for item in native_target_bindings],
+                "operation": execution_unit.canonical_operation,
+                "canonical_arguments": dict(execution_unit.arguments),
+            },
+            provider_preconditions=(),
+            native_binding_metadata={"variant": "default"},
+        )
+
+
+@pytest.fixture
+def fake_adapter():
+    return FakeBindingAdapter()
