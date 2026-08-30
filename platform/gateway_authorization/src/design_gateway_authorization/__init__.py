@@ -21,6 +21,7 @@ from .hashing import (
     compute_grant_hash,
 )
 from .service import GatewayAuthorizationService
+from .store import GatewayAuthorizationStore, InMemoryGatewayAuthorizationStore
 
 __all__ = [
     "AdmittedExecutionAuthority",
@@ -33,8 +34,10 @@ __all__ = [
     "ExecutionGrantRequest",
     "GatewayAuthorizationError",
     "GatewayAuthorizationService",
+    "GatewayAuthorizationStore",
     "GrantLifecycle",
     "GrantState",
+    "InMemoryGatewayAuthorizationStore",
     "StoredApproval",
     "StoredGrant",
     "compute_admission_fingerprint",
