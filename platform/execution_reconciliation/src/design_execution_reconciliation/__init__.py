@@ -51,6 +51,7 @@ from .saga_state import (
     StoredExecutionSaga,
 )
 from .scope_comparator import ScopeComparator
+from .service import ExecutionReconciliationService
 from .store_protocol import ExecutionSagaStore
 from .verifier import SemanticVerifier
 
@@ -61,6 +62,7 @@ __all__ = [
     "CompensationExecutionRef",
     "CompensationProposal",
     "CompensationProposalRequest",
+    "ExecutionReconciliationService",
     "ExecutionSagaBuilder",
     "ExecutionSagaDefinition",
     "ExecutionSagaPlanner",
