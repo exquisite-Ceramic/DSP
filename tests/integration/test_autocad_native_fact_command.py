@@ -95,6 +95,38 @@ async def test_dispatcher_reads_native_snapshot_and_normalizes_design_facts():
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_normalizes_lwpolyline_constant_width_as_property_fact():
+    snapshot = {
+        **SNAPSHOT,
+        "entities": [
+            {
+                **SNAPSHOT["entities"][0],
+                "properties": {
+                    "constantWidth": {
+                        "value": 200.0,
+                        "unit": "mm",
+                    }
+                },
+            }
+        ],
+    }
+    transport = NativeFactTransport(snapshot=snapshot)
+    dispatcher = CommandDispatcher(HostAdapter(transport=transport))
+
+    batch = await dispatcher.extract_design_facts(["A31"])
+
+    properties = [fact for fact in batch.facts if fact.fact_kind is FactKind.PROPERTY]
+    assert len(properties) == 1
+    fact = properties[0]
+    assert fact.predicate == "constant_width"
+    assert fact.value == 200.0
+    assert fact.unit == "mm"
+    assert fact.source_scheme == "autocad.property"
+    assert fact.source_code == "LWPOLYLINE.ConstantWidth"
+    assert fact.subject_native_ref.native_kind == "LWPOLYLINE"
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_preserves_host_error_message():
     transport = NativeFactTransport(error_message="unable to resolve readable AutoCAD entity handle: BAD")
     dispatcher = CommandDispatcher(HostAdapter(transport=transport))
