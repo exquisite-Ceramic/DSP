@@ -10,6 +10,8 @@ from .contracts import (
     ActualDelta,
     ReconciliationError,
     ScopeComparisonResult,
+    SemanticVerificationResult,
+    ValidationTaskResult,
     VerificationEvidenceBundle,
     VerificationSubjectEvidence,
 )
@@ -268,10 +270,48 @@ def validate_verification_evidence_bundle_integrity(
         )
 
 
+def compute_validation_task_result_hash(result: ValidationTaskResult) -> str:
+    """Hash one deterministic ValidationTask evaluation result."""
+    if not isinstance(result, ValidationTaskResult):
+        raise TypeError("result must be ValidationTaskResult")
+    return canonical_hash(
+        {
+            "validation_task_id": result.validation_task_id,
+            "status": result.status.value,
+            "observations": list(result.observations),
+            "failure_codes": list(result.failure_codes),
+        }
+    )
+
+
+def compute_semantic_verification_hash(result: SemanticVerificationResult) -> str:
+    """Hash semantic verification meaning, excluding audit-only timestamps/ids."""
+    if not isinstance(result, SemanticVerificationResult):
+        raise TypeError("result must be SemanticVerificationResult")
+    return canonical_hash(
+        {
+            "changeset_hash": result.changeset_hash,
+            "execution_slice_hash": result.execution_slice_hash,
+            "actual_delta_hash": result.actual_delta_hash,
+            "evidence_bundle_hash": result.evidence_bundle_hash,
+            "task_result_hashes": [
+                item.task_result_hash
+                for item in sorted(
+                    result.task_results,
+                    key=lambda item: item.validation_task_id,
+                )
+            ],
+            "status": result.status.value,
+        }
+    )
+
+
 __all__ = [
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
     "compute_scope_comparison_hash",
+    "compute_semantic_verification_hash",
+    "compute_validation_task_result_hash",
     "compute_verification_evidence_bundle_hash",
     "validate_actual_delta_integrity",
     "validate_verification_evidence_bundle_integrity",
