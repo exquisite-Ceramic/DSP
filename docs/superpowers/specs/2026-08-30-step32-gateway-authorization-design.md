@@ -106,7 +106,7 @@ Step32 therefore owns:
 approval admission consumption
 approval authorization evidence
 execution-grant issuance
-execution-grant lifecycle
+approval/grant lifecycle authorization state
 atomic authorization state
 structured authorization failures
 ```
@@ -328,7 +328,7 @@ admission_fingerprint = H({
 })
 ```
 
-This fingerprint is the content identity stored beside the one-time `admission_id` so a reused identity with altered authority content is distinguishable from an ordinary retry.
+Step32 owns the canonical helper that computes/validates this fingerprint. The one-time `admission_id` is a store identity; the fingerprint is the immutable authority-content identity used for replay/conflict detection.
 
 `approved_at` is the approval fact time. `expires_at` is the admission validity deadline. Both are immutable authorization evidence.
 
@@ -347,7 +347,7 @@ ApprovalConsumptionRequest {
 }
 ```
 
-`consumed_at` is explicit UTC input. It is Gateway audit time only; it MUST NOT overwrite or reinterpret `approved_at`.
+`consumed_at` is explicit UTC input. It is both the deterministic admission-expiry evaluation time and the Gateway consumption audit time. It MUST NOT overwrite or reinterpret `approved_at`.
 
 The validation order is fixed:
 
@@ -356,7 +356,7 @@ contract/type validation
 ↓
 admission fingerprint integrity
 ↓
-admission expiry
+admission expiry at consumed_at
 ↓
 Step28 ApprovalScopeBoundary integrity
 ↓
@@ -371,6 +371,12 @@ canonical-operation least-privilege check
 compute ApprovalRecord + approval_hash
 ↓
 atomic consume + persist
+```
+
+Admission is valid only when:
+
+```text
+consumed_at < admission.expires_at
 ```
 
 Validation order is normative because stable error classification and audit behavior must not depend on incidental implementation order.
@@ -438,9 +444,9 @@ The broader policy allowance is not persisted as execution authority.
 
 ---
 
-## 8. ApprovalRecord
+## 8. ApprovalRecord and lifecycle
 
-Frozen contract:
+Frozen immutable contract:
 
 ```text
 ApprovalRecord {
@@ -467,6 +473,21 @@ ApprovalRecord {
 
 `approval_id` is a construction/address identity and MUST NOT carry independent authorization semantics.
 
+Mutable revocation state is separate:
+
+```text
+ApprovalLifecycle {
+  state:
+    ACTIVE
+    REVOKED
+
+  revoked_at?
+  revocation_reason?
+}
+```
+
+A successfully consumed ApprovalRecord starts ACTIVE. Admission expiry applies before consumption only; a durable ApprovalRecord does not automatically become invalid merely because the original one-time Admission later passes its `expires_at`. Subsequent authority loss is explicit revocation.
+
 ### 8.1 Approval hash
 
 ```text
@@ -492,8 +513,9 @@ Excluded from `approval_hash`:
 approval_id
 admission_id
 consumed_at
+ApprovalLifecycle.state
 revoked_at
-mutable lifecycle projection
+revocation_reason
 approval_hash itself
 ```
 
@@ -511,12 +533,12 @@ consumed_at
 = Gateway ingestion/audit time,
   not user approval truth
 
-revocation/state
-= mutable lifecycle state,
+revocation lifecycle
+= mutable authorization state,
   not immutable approval body
 ```
 
-Two records with the same immutable approval authority body must have the same `approval_hash` even if store construction ids or consumption audit time differ.
+Two records with the same immutable approval authority body have the same `approval_hash` even if construction ids or consumption audit time differ.
 
 ---
 
@@ -542,6 +564,8 @@ get_grant(...)
 admit_grant(...)
 revoke_grant(...)
 ```
+
+`get_approval()` returns authoritative immutable `ApprovalRecord` plus its authoritative `ApprovalLifecycle` projection; callers never submit lifecycle state as authority.
 
 The Step32 service MUST NOT know PostgreSQL, Redis, DynamoDB, SQL syntax, distributed-lock implementation, or vendor-specific transaction APIs.
 
@@ -573,7 +597,7 @@ must atomically perform:
 BEGIN
 
 assert admission_id has not been consumed
-insert durable ApprovalRecord
+insert durable ApprovalRecord + ACTIVE ApprovalLifecycle
 record admission consumption identity/fingerprint
 
 COMMIT
@@ -651,17 +675,17 @@ ExecutionGrantRequest {
 
 The caller supplies only `approval_id`, not a caller-owned `ApprovalRecord` value.
 
-Step32 must resolve:
+Step32 resolves:
 
 ```text
 approval_id
 ↓
 GatewayAuthorizationStore.get_approval()
 ↓
-authoritative ApprovalRecord
+authoritative ApprovalRecord + ApprovalLifecycle
 ```
 
-This prevents a caller from presenting a modified approval object as authority.
+This prevents a caller from presenting a modified approval object or lifecycle projection as authority.
 
 ---
 
@@ -674,7 +698,7 @@ contract/type validation
 ↓
 ApprovalRecord exists
 ↓
-ApprovalRecord not revoked
+ApprovalLifecycle is ACTIVE
 ↓
 Step30 ExecutionSlice integrity
 ↓
@@ -690,11 +714,11 @@ host_instance_id consistency
 ↓
 Slice canonical operations ⊆ ApprovalRecord.allowed_operations
 ↓
-binding expiry validation
+binding expiry validation at issued_at
 ↓
 derive grant expiry
 ↓
-compute ExecutionGrant + grant_hash
+compute candidate ExecutionGrant + grant_hash
 ↓
 atomic issue_or_get_grant
 ```
@@ -705,7 +729,7 @@ The Slice operation set is derived from exact `ExecutionUnit.canonical_operation
 
 ## 14. ExecutionGrant
 
-Frozen contract:
+Frozen immutable contract:
 
 ```text
 ExecutionGrant {
@@ -779,7 +803,7 @@ Excluded:
 grant_id
 approval_id
 execution_slice_id
-state
+GrantLifecycle.state
 admitted_at
 revoked_at
 superseded_by_grant_id
@@ -858,14 +882,14 @@ Within one lineage:
 
 ```text
 ACTIVE + same binding_set_hash
-→ return existing Grant
+→ return the already-committed existing Grant unchanged
 
 ACTIVE + different binding_set_hash
 → atomically revoke/supersede old ACTIVE Grant
 → create exactly one new ACTIVE Grant
 
 ADMITTED + same binding_set_hash
-→ return same Grant
+→ return the same already-committed Grant
 → retry/recovery path only
 
 ADMITTED + different binding_set_hash
@@ -885,9 +909,19 @@ EXPIRED + fresh different binding_set_hash
 → may issue a new Grant if all validation still passes
 ```
 
-Grant issuance is intentionally **idempotent get-or-create** for the same lineage and same BindingSet.
+The exact idempotency identity for issuance is:
 
-This differs from approval admission consumption, which is strict one-time.
+```text
+approval_hash
++ execution_slice_hash
++ binding_set_hash
+```
+
+`issued_at` is part of the immutable Grant body, but it is **not** a retry discriminator. When concurrent or repeated requests for the same idempotency identity provide different `issued_at` values, the first transaction that commits creates the Grant; losing/retry callers receive that existing Grant unchanged, including its original `issued_at`, `expires_at`, and `grant_hash`.
+
+This prevents network retry time from creating a second authority while preserving the first actual issuance time in the immutable grant body.
+
+Grant issuance is intentionally **idempotent get-or-create**. This differs from approval admission consumption, which is strict one-time.
 
 ---
 
@@ -938,9 +972,11 @@ with conditions equivalent to:
 ```text
 WHERE grant_hash = ?
   AND state = ACTIVE
-  AND parent approval is not revoked
-  AND now < expires_at
+  AND parent ApprovalLifecycle = ACTIVE
+  AND admitted_at < expires_at
 ```
+
+`admitted_at` is explicit UTC input and is also the deterministic expiry-evaluation time for admission.
 
 The operation must be atomic.
 
@@ -1003,7 +1039,7 @@ Revoking an ApprovalRecord is an authoritative parent revocation.
 The store operation must atomically make the approval non-authoritative and apply child semantics:
 
 ```text
-ApprovalRecord revoked
+ApprovalLifecycle ACTIVE → REVOKED
 
 ACTIVE child Grants
 → REVOKED
@@ -1073,6 +1109,14 @@ revoke_execution_grant(
   revoked_at,
   reason
 )
+```
+
+Step32 hashing exports at least:
+
+```text
+compute_admission_fingerprint(...)
+compute_approval_hash(...)
+compute_grant_hash(...)
 ```
 
 Service owns:
@@ -1204,7 +1248,14 @@ revoked_at
 
 Domain validation MUST NOT call wall-clock APIs internally.
 
-The caller/Gateway supplies the evaluation time explicitly. This keeps deterministic tests, replay, and audit reconstruction possible.
+Deterministic evaluation times are:
+
+```text
+Approval admission expiry → consumed_at
+Grant issuance/binding expiry → issued_at
+Grant admission expiry → admitted_at
+Revocation audit → revoked_at
+```
 
 Expiry is derived from immutable timestamps and never mutates authorization hashes after construction.
 
@@ -1236,7 +1287,7 @@ Step31 malformed ProviderBindingSet rejected through public validator
 ### 26.2 Approval
 
 ```text
-valid Admission creates exactly one ApprovalRecord
+valid Admission creates exactly one ApprovalRecord + ACTIVE ApprovalLifecycle
 approved_at is preserved from Admission
 consumed_at does not change approval semantics
 expired Admission rejected
@@ -1264,6 +1315,8 @@ approval_hash deterministic
 construction ids do not affect approval_hash
 consumed_at does not affect approval_hash
 approved_at does affect approval_hash
+Admission expiry after successful consumption does not revoke ApprovalRecord
+explicit approval revoke changes lifecycle but not approval_hash
 ```
 
 ### 26.3 Grant
@@ -1288,7 +1341,10 @@ grant_hash deterministic
 construction ids do not affect grant_hash
 
 same lineage + same BindingSet concurrent request
-→ one Grant, both callers receive same Grant
+→ one Grant, both callers receive same committed Grant
+
+same lineage + same BindingSet retry with later issued_at
+→ existing original Grant returned unchanged
 
 ACTIVE old BindingSet + new BindingSet
 → old superseded/revoked + exactly one new ACTIVE Grant
@@ -1432,13 +1488,13 @@ compute ApprovalRecord / approval_hash
       ↓
 atomic consume_admission_once
       ↓
-durable ApprovalRecord
+durable ACTIVE ApprovalRecord
 ```
 
 Grant side:
 
 ```text
-authoritative ApprovalRecord
+authoritative ACTIVE ApprovalRecord
 + exact Step30 ExecutionSlice
 + exact Step31 ProviderBindingSet
       ↓
@@ -1446,7 +1502,7 @@ deterministic validation
       ↓
 lock (approval_hash, execution_slice_hash) lineage
       ↓
-return same ACTIVE Grant
+return same committed Grant
 or invalidate prior ACTIVE binding authority
       ↓
 issue/get exactly one Grant
@@ -1469,6 +1525,9 @@ one approval_hash + execution_slice_hash
 
 one Grant
 → at most one logical Slice execution
+
+same issuance idempotency identity
+→ retry never creates a new authority from a later issued_at
 
 ADMITTED Slice
 → cannot silently rebind and execute again
@@ -1493,7 +1552,7 @@ Approval admission consumption
 = strict one-time authority consumption
 
 ExecutionGrant issuance
-= idempotent lineage-scoped get-or-create
+= idempotent lineage/binding-scoped get-or-create
 
 ExecutionGrant admission
 = CAS-protected one-logical-execution transition
