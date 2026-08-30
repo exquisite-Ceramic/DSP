@@ -23,3 +23,12 @@ rules:
       case_sensitive: false
     target_term_id: ifc:IfcWall
     assurance: RULE_DERIVED
+
+  - mapping_id: enterprise.autocad.property.lwpolyline-constant-width.v1
+    source_scheme: autocad.property
+    match:
+      type: EXACT
+      pattern: LWPOLYLINE.ConstantWidth
+      case_sensitive: true
+    target_term_id: dsp:WallThickness
+    assurance: RULE_DERIVED
