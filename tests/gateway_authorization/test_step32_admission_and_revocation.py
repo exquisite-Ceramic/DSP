@@ -127,10 +127,10 @@ def test_parent_approval_revocation_has_admission_error_precedence(gateway_cross
 def test_concurrent_admission_returns_one_logical_handoff(gateway_cross_step):
     store, _approval, service, _request, grant = _issued(gateway_cross_step)
     admitted_times = tuple(
-        f"2026-08-30T07:{minute:02d}:00Z" for minute in range(45, 61)
+        f"2026-08-30T07:{minute:02d}:00Z" for minute in range(45, 60)
     )
     admitted_times += tuple(
-        f"2026-08-30T08:{minute:02d}:00Z" for minute in range(0, 16)
+        f"2026-08-30T08:{minute:02d}:00Z" for minute in range(0, 17)
     )
 
     with ThreadPoolExecutor(max_workers=16) as pool:
