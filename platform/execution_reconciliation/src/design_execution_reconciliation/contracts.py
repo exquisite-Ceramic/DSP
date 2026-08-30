@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
+from typing import Any
 
 from design_approval_scope import ApprovalScopeBoundary, CanonicalAspect
+from design_changeset import canonical_hash
 from design_execution_planning import ExecutionSlice
 from design_gateway_authorization import AdmittedExecutionAuthority
 from host_contracts import HostEntityRef
+from semantic_runtime import SemanticEnvironmentRef, SemanticProjectionRef, SemanticSnapshot
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -122,6 +128,57 @@ def _typed_tuple(values, typ: type, field_name: str):
     if any(not isinstance(value, typ) for value in normalized):
         raise TypeError(f"{field_name} contains invalid values")
     return normalized
+
+
+def _freeze_value(value: Any, field_name: str) -> Any:
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{field_name} mapping keys must be strings")
+            normalized[key] = _freeze_value(item, field_name)
+        return MappingProxyType(normalized)
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_value(item, field_name) for item in value)
+    if isinstance(value, (set, frozenset)):
+        frozen = tuple(_freeze_value(item, field_name) for item in value)
+        return tuple(sorted(frozen, key=lambda item: canonical_hash(_plain_value(item))))
+    return deepcopy(value)
+
+
+def _plain_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _plain_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain_value(item) for item in value]
+    return value
+
+
+def _readonly_mapping(value: Mapping[str, Any], field_name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be a mapping")
+    return _freeze_value(value, field_name)
+
+
+def _optional_readonly_mapping(
+    value: Mapping[str, Any] | None,
+    field_name: str,
+) -> Mapping[str, Any] | None:
+    return None if value is None else _readonly_mapping(value, field_name)
+
+
+def _mapping_tuple(values, field_name: str) -> tuple[Mapping[str, Any], ...]:
+    frozen = tuple(_readonly_mapping(value, field_name) for value in values)
+    return tuple(sorted(frozen, key=lambda item: canonical_hash(_plain_value(item))))
+
+
+def _texts(values, field_name: str) -> tuple[str, ...]:
+    return tuple(sorted({_text(value, field_name) for value in values}))
+
+
+def _require_type(value: object, typ: type, field_name: str) -> None:
+    if not isinstance(value, typ):
+        raise TypeError(f"{field_name} must be {typ.__name__}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +306,186 @@ class ActualDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationContractEvidence:
+    contract_ref: str
+    contract_body: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "contract_ref", _digest(self.contract_ref, "contract_ref"))
+        object.__setattr__(
+            self,
+            "contract_body",
+            _readonly_mapping(self.contract_body, "contract_body"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationSubjectEvidence:
+    semantic_id: str
+    canonical_kind: str
+    properties: Mapping[str, Any]
+    placement: Mapping[str, Any] | None
+    geometry_evidence: Mapping[str, Any] | None
+    relationships: tuple[Mapping[str, Any], ...]
+    constraints: tuple[Mapping[str, Any], ...]
+    classification: tuple[str, ...]
+    evidence_aspects: tuple[CanonicalAspect | str, ...]
+    snapshot_id: str
+    snapshot_hash: str
+    projection_ref: SemanticProjectionRef
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "semantic_id", _text(self.semantic_id, "semantic_id"))
+        object.__setattr__(
+            self,
+            "canonical_kind",
+            _text(self.canonical_kind, "canonical_kind"),
+        )
+        object.__setattr__(
+            self,
+            "properties",
+            _readonly_mapping(self.properties, "properties"),
+        )
+        object.__setattr__(
+            self,
+            "placement",
+            _optional_readonly_mapping(self.placement, "placement"),
+        )
+        object.__setattr__(
+            self,
+            "geometry_evidence",
+            _optional_readonly_mapping(self.geometry_evidence, "geometry_evidence"),
+        )
+        object.__setattr__(
+            self,
+            "relationships",
+            _mapping_tuple(self.relationships, "relationships"),
+        )
+        object.__setattr__(
+            self,
+            "constraints",
+            _mapping_tuple(self.constraints, "constraints"),
+        )
+        object.__setattr__(
+            self,
+            "classification",
+            _texts(self.classification, "classification"),
+        )
+        object.__setattr__(self, "evidence_aspects", _aspects(self.evidence_aspects))
+        object.__setattr__(self, "snapshot_id", _text(self.snapshot_id, "snapshot_id"))
+        object.__setattr__(
+            self,
+            "snapshot_hash",
+            _digest(self.snapshot_hash, "snapshot_hash"),
+        )
+        _require_type(self.projection_ref, SemanticProjectionRef, "projection_ref")
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationEvidenceBundle:
+    evidence_bundle_id: str
+    changeset_hash: str
+    execution_slice_hash: str
+    actual_delta_hash: str
+    semantic_environment_ref: SemanticEnvironmentRef
+    post_execution_snapshot_ref: SemanticSnapshot
+    post_execution_projection_ref: SemanticProjectionRef
+    base_host_revision: str
+    baseline_snapshot_ref: SemanticSnapshot | None
+    baseline_projection_ref: SemanticProjectionRef | None
+    contract_evidence: tuple[VerificationContractEvidence, ...]
+    subject_evidence: tuple[VerificationSubjectEvidence, ...]
+    baseline_subject_evidence: tuple[VerificationSubjectEvidence, ...]
+    evidence_bundle_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "evidence_bundle_id",
+            _text(self.evidence_bundle_id, "evidence_bundle_id"),
+        )
+        for field_name in (
+            "changeset_hash",
+            "execution_slice_hash",
+            "actual_delta_hash",
+            "evidence_bundle_hash",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _digest(getattr(self, field_name), field_name),
+            )
+        _require_type(
+            self.semantic_environment_ref,
+            SemanticEnvironmentRef,
+            "semantic_environment_ref",
+        )
+        _require_type(
+            self.post_execution_snapshot_ref,
+            SemanticSnapshot,
+            "post_execution_snapshot_ref",
+        )
+        _require_type(
+            self.post_execution_projection_ref,
+            SemanticProjectionRef,
+            "post_execution_projection_ref",
+        )
+        if self.baseline_snapshot_ref is not None:
+            _require_type(
+                self.baseline_snapshot_ref,
+                SemanticSnapshot,
+                "baseline_snapshot_ref",
+            )
+        if self.baseline_projection_ref is not None:
+            _require_type(
+                self.baseline_projection_ref,
+                SemanticProjectionRef,
+                "baseline_projection_ref",
+            )
+        object.__setattr__(
+            self,
+            "base_host_revision",
+            _text(self.base_host_revision, "base_host_revision"),
+        )
+
+        contracts = _typed_tuple(
+            self.contract_evidence,
+            VerificationContractEvidence,
+            "contract_evidence",
+        )
+        subjects = _typed_tuple(
+            self.subject_evidence,
+            VerificationSubjectEvidence,
+            "subject_evidence",
+        )
+        baseline_subjects = _typed_tuple(
+            self.baseline_subject_evidence,
+            VerificationSubjectEvidence,
+            "baseline_subject_evidence",
+        )
+        object.__setattr__(
+            self,
+            "contract_evidence",
+            tuple(
+                sorted(
+                    contracts,
+                    key=lambda item: (
+                        item.contract_ref,
+                        canonical_hash(_plain_value(item.contract_body)),
+                    ),
+                )
+            ),
+        )
+        subject_key = lambda item: (item.snapshot_id, item.snapshot_hash, item.semantic_id)
+        object.__setattr__(self, "subject_evidence", tuple(sorted(subjects, key=subject_key)))
+        object.__setattr__(
+            self,
+            "baseline_subject_evidence",
+            tuple(sorted(baseline_subjects, key=subject_key)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ScopeMatch:
     actual_change_hash: str
     rule_id: str
@@ -362,4 +599,7 @@ __all__ = [
     "ScopeComparisonStatus",
     "ScopeMatch",
     "ScopeViolation",
+    "VerificationContractEvidence",
+    "VerificationEvidenceBundle",
+    "VerificationSubjectEvidence",
 ]
