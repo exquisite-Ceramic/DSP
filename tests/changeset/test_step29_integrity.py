@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import importlib
+import importlib.util
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from design_approval_scope import bind_changeset
@@ -13,7 +14,14 @@ from design_changeset import (
 
 
 def _transaction():
-    fixtures = importlib.import_module("tests.changeset.test_step29_derived_builder")
+    fixture_path = Path(__file__).with_name("test_step29_derived_builder.py")
+    spec = importlib.util.spec_from_file_location(
+        "_step29_derived_builder_fixture",
+        fixture_path,
+    )
+    assert spec is not None and spec.loader is not None
+    fixtures = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixtures)
     request = fixtures._request()
     changeset = ChangeSetBuilder().build(request)
     boundary = bind_changeset(
