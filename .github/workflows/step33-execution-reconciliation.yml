@@ -7,6 +7,8 @@ on:
       - "tests/execution_reconciliation/**"
       - "platform/approval_scope/**"
       - "tests/approval_scope/**"
+      - "platform/changeset/**"
+      - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md"
@@ -20,6 +22,8 @@ on:
       - "tests/execution_reconciliation/**"
       - "platform/approval_scope/**"
       - "tests/approval_scope/**"
+      - "platform/changeset/**"
+      - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
       - "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md"
@@ -61,6 +65,8 @@ jobs:
         run: pytest -q tests/execution_reconciliation
       - name: Run Step28 approval-scope regressions
         run: pytest -q tests/approval_scope
+      - name: Run Step29 ChangeSet integrity regression
+        run: pytest -q tests/changeset/test_step29_integrity.py
       - name: Run Step30 execution-planning regressions
         run: pytest -q tests/execution_planning
       - name: Run Step33 focused Ruff
