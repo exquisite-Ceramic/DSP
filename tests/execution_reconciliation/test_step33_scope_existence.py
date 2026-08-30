@@ -306,7 +306,10 @@ def test_create_source_predicate_canonical_kind_uses_source_kind(
             )
         )
     )
-    rule = _rule(source_selector=selector)
+    rule = _rule(
+        source_selector=selector,
+        entity_kinds=("ifc:IfcDoor",),
+    )
     boundary, execution_slice = _synthetic_creation_boundary_and_slice(
         step33_single_slice_transaction,
         (rule,),
