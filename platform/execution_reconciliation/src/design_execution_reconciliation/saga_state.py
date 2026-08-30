@@ -86,6 +86,7 @@ class SliceReconciliationState:
     admitted_at: str | None = None
     committed_at: str | None = None
     reconciled_at: str | None = None
+    failed_at: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -125,6 +126,7 @@ class SliceReconciliationState:
             "admitted_at",
             "committed_at",
             "reconciled_at",
+            "failed_at",
         ):
             object.__setattr__(
                 self,
@@ -140,6 +142,10 @@ class StoredExecutionSaga:
     status: ExecutionSagaStatus | str
     slice_states: tuple[SliceReconciliationState, ...]
     compensation_refs: tuple[str, ...] = ()
+    compensation_proposal_hash: str | None = None
+    compensating_changeset_hash: str | None = None
+    compensation_succeeded: bool | None = None
+    compensation_completed_at: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.definition, ExecutionSagaDefinition):
@@ -165,6 +171,25 @@ class StoredExecutionSaga:
         object.__setattr__(self, "slice_states", states)
         refs = tuple(sorted({_text(item, "compensation_ref") for item in self.compensation_refs}))
         object.__setattr__(self, "compensation_refs", refs)
+        for field_name in (
+            "compensation_proposal_hash",
+            "compensating_changeset_hash",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _optional_digest(getattr(self, field_name), field_name),
+            )
+        if self.compensation_succeeded is not None and not isinstance(
+            self.compensation_succeeded,
+            bool,
+        ):
+            raise TypeError("compensation_succeeded must be bool or None")
+        object.__setattr__(
+            self,
+            "compensation_completed_at",
+            _optional_text(self.compensation_completed_at, "compensation_completed_at"),
+        )
 
 
 __all__ = [
