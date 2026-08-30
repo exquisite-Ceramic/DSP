@@ -144,6 +144,11 @@ def build_real_binding_set(execution_slice, *, valid_until="2026-08-30T08:30:00Z
 
 
 @pytest.fixture
+def real_binding_set_builder():
+    return build_real_binding_set
+
+
+@pytest.fixture
 def gateway_cross_step(valid_approval_request):
     store = InMemoryGatewayAuthorizationStore()
     approval = GatewayAuthorizationService(store).consume_approval(valid_approval_request)
