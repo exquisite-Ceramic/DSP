@@ -57,8 +57,8 @@ jobs:
         run: pytest -q tests/execution_reconciliation
       - name: Run Step30 execution-planning regressions
         run: pytest -q tests/execution_planning
-      - name: Show Step33 Ruff canonical diff
+      - name: Run Step33 focused Ruff
         run: |
-          ruff check --diff \
+          ruff check \
             platform/execution_reconciliation/src/design_execution_reconciliation \
             tests/execution_reconciliation
