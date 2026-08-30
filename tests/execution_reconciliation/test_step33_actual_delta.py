@@ -239,3 +239,28 @@ def test_tampered_delta_hash_fails_integrity() -> None:
         "ACTUAL_DELTA_INTEGRITY_INVALID",
         lambda: validate_actual_delta_integrity(delta),
     )
+
+
+def test_public_single_slice_fixture_is_real(step33_single_slice_transaction) -> None:
+    transaction = step33_single_slice_transaction
+    assert transaction.execution_plan.changeset_hash == transaction.canonical_changeset.changeset_hash
+    assert len(transaction.execution_plan.execution_slices) == 1
+    assert transaction.execution_slice == transaction.execution_plan.execution_slices[0]
+
+
+def test_public_gateway_fixture_admits_exact_slice_authority(
+    step33_single_slice_transaction,
+    step33_admitted_authority,
+) -> None:
+    transaction = step33_single_slice_transaction
+    authority = step33_admitted_authority
+    assert authority.execution_slice_hash == transaction.execution_slice.execution_slice_hash
+    assert authority.changeset_hash == transaction.canonical_changeset.changeset_hash
+    assert authority.approved_scope_hash == transaction.approval_scope_boundary.scope_hash
+
+
+def test_public_two_slice_fixture_is_real(step33_two_slice_transaction) -> None:
+    transaction = step33_two_slice_transaction
+    assert transaction.execution_plan.changeset_hash == transaction.canonical_changeset.changeset_hash
+    assert len(transaction.execution_plan.execution_slices) == 2
+    assert len(transaction.execution_plan.execution_dependencies) == 1
