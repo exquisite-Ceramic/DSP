@@ -109,6 +109,14 @@ _SEMANTIC_ASSERTIONS_EFFECTS = (CanonicalAspect.PROPERTIES,)
 _SEMANTIC_ASSERTIONS_VERIFICATION = {
     "type": "SEMANTIC_ASSERTIONS_V1",
     "version": "1.0.0",
+    "assertions": [
+        {
+            "subjects": {"from_argument": "targets"},
+            "path": "properties.thickness",
+            "operator": "EQUALS_LITERAL",
+            "value": 300.0,
+        }
+    ],
 }
 _SEMANTIC_ASSERTIONS_FINGERPRINT = compute_contract_definition_fingerprint(
     canonical_operation="semantic.assertions.v1",
