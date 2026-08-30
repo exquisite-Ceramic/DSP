@@ -55,3 +55,5 @@ jobs:
         run: pytest -q tests/provider_binding/test_step31_snapshot_and_selection.py
       - name: Run Step31 resolver tests
         run: pytest -q tests/provider_binding/test_step31_resolver.py
+      - name: Run Step31 binding-set tests
+        run: pytest -q tests/provider_binding/test_step31_binding_set.py
