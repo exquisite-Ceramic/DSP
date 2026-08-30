@@ -8,13 +8,7 @@ import design_execution_reconciliation as reconciliation
 from design_approval_scope import CanonicalAspect
 from design_changeset import canonical_hash
 from semantic_runtime import Coverage, SemanticSnapshot, SnapshotKind
-from tests.execution_reconciliation.test_step33_verifier import (
-    _contract,
-    _projection,
-    _request,
-    _subject,
-    _verify,
-)
+from test_step33_verifier import _contract, _projection, _request, _subject, _verify
 
 
 def _rehash_bundle(bundle):
@@ -25,7 +19,15 @@ def _rehash_bundle(bundle):
     )
 
 
-def _with_baseline(transaction, *, x=10.0, thickness=0.25, snapshot_id=None, snapshot_hash=None, projection=None):
+def _with_baseline(
+    transaction,
+    *,
+    x=10.0,
+    thickness=0.25,
+    snapshot_id=None,
+    snapshot_hash=None,
+    projection=None,
+):
     planning = transaction.canonical_changeset.planning_snapshot_ref
 
     def mutate(bundle):
@@ -48,7 +50,7 @@ def _with_baseline(transaction, *, x=10.0, thickness=0.25, snapshot_id=None, sna
             semantic_id="WALL-001",
             canonical_kind="ifc:IfcWall",
             properties={"thickness": thickness},
-            placement={"x": x},
+            placement={} if x is None else {"x": x},
             geometry_evidence=None,
             relationships=(),
             constraints=(),
@@ -71,25 +73,6 @@ def _with_baseline(transaction, *, x=10.0, thickness=0.25, snapshot_id=None, sna
         )
 
     return mutate
-
-
-def _post_subject_with_thickness(value):
-    projection = _projection("POST")
-    snapshot = SemanticSnapshot(
-        snapshot_id="PS-STEP33-POST",
-        kind=SnapshotKind.PLANNING,
-        project_id="PROJECT-STEP33",
-        freshness_contract_id="FC-STEP33-POST",
-        freshness_contract_hash=canonical_hash({"freshness": "post"}),
-        document_ref="DOC-1",
-        base_host_revision="11",
-        coverage=Coverage("DOC-1", ("WALL-001",)),
-        projection_ref=projection,
-        semantic_environment_ref=None,  # replaced from request bundle before use
-        aspect_guarantees=(),
-        hash=canonical_hash({"snapshot": "step33-post"}),
-    )
-    return snapshot
 
 
 def test_delta_equals_argument_passes_with_exact_planning_baseline(
