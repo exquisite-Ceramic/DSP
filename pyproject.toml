@@ -37,6 +37,7 @@ pythonpath = [
     "platform/changeset/src",
     "platform/execution_planning/src",
     "platform/provider_binding/src",
+    "tests/provider_binding",
 ]
 addopts = "-ra --strict-markers"
 markers = [
