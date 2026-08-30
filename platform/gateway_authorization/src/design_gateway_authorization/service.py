@@ -14,13 +14,30 @@ from design_changeset import (
     ChangeSetError,
     validate_changeset_integrity,
 )
+from design_execution_planning import (
+    ExecutionPlanningError,
+    ExecutionSlice,
+    validate_execution_slice_integrity,
+)
+from design_provider_binding import (
+    ProviderBindingError,
+    ProviderBindingSet,
+    validate_provider_binding_set,
+)
 
 from .contracts import (
     ApprovalConsumptionRequest,
     ApprovalRecord,
+    ApprovalState,
+    ExecutionGrant,
+    ExecutionGrantRequest,
     GatewayAuthorizationError,
 )
-from .hashing import compute_admission_fingerprint, compute_approval_hash
+from .hashing import (
+    compute_admission_fingerprint,
+    compute_approval_hash,
+    compute_grant_hash,
+)
 
 
 def _error(
@@ -42,7 +59,7 @@ def _parse_utc(value: str) -> datetime:
 
 
 class GatewayAuthorizationService:
-    """Validate immutable approval evidence before one atomic store consumption."""
+    """Validate immutable approval and execution authority before store mutation."""
 
     def __init__(self, store) -> None:
         if store is None or not callable(getattr(store, "consume_admission_once", None)):
@@ -67,6 +84,46 @@ class GatewayAuthorizationService:
             record,
         )
 
+    def issue_execution_grant(self, request: ExecutionGrantRequest) -> ExecutionGrant:
+        self._require_grant_request(request)
+        get_approval = getattr(self._store, "get_approval", None)
+        if not callable(get_approval):
+            raise TypeError("store must provide get_approval")
+        stored = get_approval(request.approval_id)
+        if stored is None:
+            _error("APPROVAL_RECORD_NOT_FOUND", "approval record not found")
+        if stored.lifecycle.state is ApprovalState.REVOKED:
+            _error("APPROVAL_REVOKED", "approval is revoked")
+
+        self._validate_slice_integrity(request.execution_slice)
+        self._validate_slice_approval_join(stored.record, request.execution_slice)
+        self._validate_binding_set(
+            request.provider_binding_set,
+            request.execution_slice,
+        )
+        self._validate_host_consistency(
+            request.execution_slice,
+            request.provider_binding_set,
+        )
+        allowed_operations = self._validate_grant_operations(
+            stored.record,
+            request.execution_slice,
+        )
+        expires_at = self._derive_grant_expiry(
+            request.provider_binding_set,
+            request.issued_at,
+        )
+        grant = self._build_grant(
+            stored.record,
+            request,
+            allowed_operations,
+            expires_at,
+        )
+        issue_or_get_grant = getattr(self._store, "issue_or_get_grant", None)
+        if not callable(issue_or_get_grant):
+            raise TypeError("store must provide issue_or_get_grant")
+        return issue_or_get_grant(grant)
+
     @staticmethod
     def _require_approval_request(request: ApprovalConsumptionRequest) -> None:
         if not isinstance(request, ApprovalConsumptionRequest):
@@ -80,6 +137,24 @@ class GatewayAuthorizationService:
             _error(
                 "APPROVAL_INPUT_INVALID",
                 "canonical_changeset must be CanonicalChangeSet",
+            )
+
+    @staticmethod
+    def _require_grant_request(request: ExecutionGrantRequest) -> None:
+        if not isinstance(request, ExecutionGrantRequest):
+            _error(
+                "EXECUTION_GRANT_INPUT_INVALID",
+                "request must be ExecutionGrantRequest",
+            )
+        if not isinstance(request.execution_slice, ExecutionSlice):
+            _error(
+                "EXECUTION_GRANT_INPUT_INVALID",
+                "execution_slice must be ExecutionSlice",
+            )
+        if not isinstance(request.provider_binding_set, ProviderBindingSet):
+            _error(
+                "EXECUTION_GRANT_INPUT_INVALID",
+                "provider_binding_set must be ProviderBindingSet",
             )
 
     @staticmethod
@@ -184,6 +259,123 @@ class GatewayAuthorizationService:
                 "ChangeSet contains canonical operations outside policy authority",
             )
         return operations
+
+    @staticmethod
+    def _validate_slice_integrity(execution_slice: ExecutionSlice) -> None:
+        try:
+            validate_execution_slice_integrity(execution_slice)
+        except ExecutionPlanningError as exc:
+            _error(
+                "EXECUTION_GRANT_SLICE_MISMATCH",
+                "Step30 ExecutionSlice integrity validation failed",
+                upstream_code=exc.code,
+            )
+
+    @staticmethod
+    def _validate_slice_approval_join(
+        approval: ApprovalRecord,
+        execution_slice: ExecutionSlice,
+    ) -> None:
+        if execution_slice.changeset_hash != approval.changeset_hash:
+            _error(
+                "EXECUTION_GRANT_SLICE_MISMATCH",
+                "ExecutionSlice changeset does not match ApprovalRecord",
+            )
+        if execution_slice.approved_scope_ref.scope_hash != approval.approved_scope_hash:
+            _error(
+                "EXECUTION_GRANT_SLICE_MISMATCH",
+                "ExecutionSlice scope does not match ApprovalRecord",
+            )
+
+    @staticmethod
+    def _validate_binding_set(
+        binding_set: ProviderBindingSet,
+        execution_slice: ExecutionSlice,
+    ) -> None:
+        try:
+            validate_provider_binding_set(binding_set, execution_slice)
+        except ProviderBindingError as exc:
+            _error(
+                "EXECUTION_GRANT_BINDING_MISMATCH",
+                "Step31 ProviderBindingSet validation failed",
+                upstream_code=exc.code,
+            )
+
+    @staticmethod
+    def _validate_host_consistency(
+        execution_slice: ExecutionSlice,
+        binding_set: ProviderBindingSet,
+    ) -> None:
+        expected_host = execution_slice.host_runtime_ref.host_instance_id
+        if any(binding.host_instance_id != expected_host for binding in binding_set.bindings):
+            _error(
+                "EXECUTION_GRANT_BINDING_MISMATCH",
+                "Provider bindings do not target the ExecutionSlice host instance",
+            )
+
+    @staticmethod
+    def _validate_grant_operations(
+        approval: ApprovalRecord,
+        execution_slice: ExecutionSlice,
+    ) -> tuple[str, ...]:
+        operations = tuple(
+            sorted({unit.canonical_operation for unit in execution_slice.execution_units})
+        )
+        if not set(operations).issubset(approval.allowed_operations):
+            _error(
+                "EXECUTION_GRANT_OPERATION_FORBIDDEN",
+                "ExecutionSlice contains operations outside ApprovalRecord authority",
+            )
+        return operations
+
+    @staticmethod
+    def _derive_grant_expiry(
+        binding_set: ProviderBindingSet,
+        issued_at: str,
+    ) -> str:
+        expires_at = min(binding.binding_expires_at for binding in binding_set.bindings)
+        if _parse_utc(issued_at) >= _parse_utc(expires_at):
+            _error(
+                "EXECUTION_BINDING_EXPIRED",
+                "provider binding authority is expired at issued_at",
+            )
+        return expires_at
+
+    @staticmethod
+    def _build_grant(
+        approval: ApprovalRecord,
+        request: ExecutionGrantRequest,
+        allowed_operations: tuple[str, ...],
+        expires_at: str,
+    ) -> ExecutionGrant:
+        execution_slice = request.execution_slice
+        binding_set = request.provider_binding_set
+        grant_hash = compute_grant_hash(
+            approval_hash=approval.approval_hash,
+            changeset_hash=execution_slice.changeset_hash,
+            approved_scope_hash=execution_slice.approved_scope_ref.scope_hash,
+            execution_slice_hash=execution_slice.execution_slice_hash,
+            binding_set_hash=binding_set.binding_set_hash,
+            host_instance_id=execution_slice.host_runtime_ref.host_instance_id,
+            allowed_operations=allowed_operations,
+            issued_at=request.issued_at,
+            expires_at=expires_at,
+        )
+        return ExecutionGrant(
+            grant_id=f"EG-{grant_hash[:12]}",
+            approval_id=approval.approval_id,
+            approval_hash=approval.approval_hash,
+            changeset_hash=execution_slice.changeset_hash,
+            approved_scope_hash=execution_slice.approved_scope_ref.scope_hash,
+            execution_slice_id=execution_slice.execution_slice_id,
+            execution_slice_hash=execution_slice.execution_slice_hash,
+            binding_set_hash=binding_set.binding_set_hash,
+            host_instance_id=execution_slice.host_runtime_ref.host_instance_id,
+            allowed_operations=allowed_operations,
+            issued_at=request.issued_at,
+            expires_at=expires_at,
+            grant_hash=grant_hash,
+        )
 
     @staticmethod
     def _build_approval_record(
