@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
-from conftest import build_real_binding_set
 from design_gateway_authorization import (
     GatewayAuthorizationError,
     GatewayAuthorizationService,
@@ -57,8 +56,14 @@ def _initial_grant(gateway_cross_step):
     return store, service, execution_slice, request, grant
 
 
-def _alternate_request(execution_slice, request, *, issued_at="2026-08-30T07:50:00Z"):
-    binding_set = build_real_binding_set(
+def _alternate_request(
+    binding_set_builder,
+    execution_slice,
+    request,
+    *,
+    issued_at="2026-08-30T07:50:00Z",
+):
+    binding_set = binding_set_builder(
         execution_slice,
         valid_until="2026-08-30T09:30:00Z",
     )
@@ -87,10 +92,13 @@ def test_active_same_binding_retry_returns_original_grant_unchanged(gateway_cros
     assert retried.expires_at == original.expires_at
 
 
-def test_active_different_binding_supersedes_old_grant(gateway_cross_step):
+def test_active_different_binding_supersedes_old_grant(
+    gateway_cross_step,
+    real_binding_set_builder,
+):
     store, service, execution_slice, request, original = _initial_grant(gateway_cross_step)
     replacement = service.issue_execution_grant(
-        _alternate_request(execution_slice, request)
+        _alternate_request(real_binding_set_builder, execution_slice, request)
     )
 
     assert replacement.grant_hash != original.grant_hash
@@ -116,14 +124,17 @@ def test_admitted_same_binding_returns_original_grant(gateway_cross_step):
     assert retried == original
 
 
-def test_admitted_different_binding_is_rejected(gateway_cross_step):
+def test_admitted_different_binding_is_rejected(
+    gateway_cross_step,
+    real_binding_set_builder,
+):
     store, service, execution_slice, request, original = _initial_grant(gateway_cross_step)
     _seed_lifecycle(
         store,
         original,
         GrantLifecycle(GrantState.ADMITTED, admitted_at="2026-08-30T07:45:00Z"),
     )
-    alternate = _alternate_request(execution_slice, request)
+    alternate = _alternate_request(real_binding_set_builder, execution_slice, request)
 
     _assert_error(
         "EXECUTION_GRANT_ALREADY_ADMITTED",
@@ -151,7 +162,10 @@ def test_revoked_same_binding_is_rejected(gateway_cross_step):
     )
 
 
-def test_revoked_different_binding_allows_new_grant(gateway_cross_step):
+def test_revoked_different_binding_allows_new_grant(
+    gateway_cross_step,
+    real_binding_set_builder,
+):
     store, service, execution_slice, request, original = _initial_grant(gateway_cross_step)
     _seed_lifecycle(
         store,
@@ -164,7 +178,7 @@ def test_revoked_different_binding_allows_new_grant(gateway_cross_step):
     )
 
     replacement = service.issue_execution_grant(
-        _alternate_request(execution_slice, request)
+        _alternate_request(real_binding_set_builder, execution_slice, request)
     )
     assert replacement.grant_hash != original.grant_hash
     assert store.get_grant(replacement.grant_hash).lifecycle.state is GrantState.ACTIVE
@@ -183,10 +197,14 @@ def test_expired_same_binding_is_rejected(gateway_cross_step):
     )
 
 
-def test_expired_grant_allows_fresh_different_binding(gateway_cross_step):
+def test_expired_grant_allows_fresh_different_binding(
+    gateway_cross_step,
+    real_binding_set_builder,
+):
     store, service, execution_slice, request, original = _initial_grant(gateway_cross_step)
     replacement = service.issue_execution_grant(
         _alternate_request(
+            real_binding_set_builder,
             execution_slice,
             request,
             issued_at="2026-08-30T08:31:00Z",
