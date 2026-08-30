@@ -11,8 +11,6 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
-      - "platform/provider_binding/**"
-      - "tests/provider_binding/**"
       - "docs/superpowers/specs/2026-08-30-step32-gateway-authorization-design.md"
       - "docs/superpowers/plans/2026-08-30-step32-gateway-authorization.md"
       - ".github/workflows/step32-gateway-authorization.yml"
@@ -27,8 +25,6 @@ on:
       - "tests/changeset/**"
       - "platform/execution_planning/**"
       - "tests/execution_planning/**"
-      - "platform/provider_binding/**"
-      - "tests/provider_binding/**"
       - "docs/superpowers/specs/2026-08-30-step32-gateway-authorization-design.md"
       - "docs/superpowers/plans/2026-08-30-step32-gateway-authorization.md"
       - ".github/workflows/step32-gateway-authorization.yml"
@@ -47,9 +43,21 @@ jobs:
           python-version: "3.11"
       - name: Install Step32 verification stack
         run: |
-          python -m pip install pytest ruff
-          python -m pip install -e platform/changeset
-          python -m pip install -e platform/gateway_authorization
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/changeset \
+            -e platform/execution_planning \
+            -e platform/provider_binding \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping \
+            -e platform/gateway_authorization
       - name: Verify Step32 PR diff boundary
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/step32-gateway-authorization'
         env:
@@ -58,28 +66,20 @@ jobs:
         run: |
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
           printf '%s\n' "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -Ev '^(platform/(gateway_authorization|approval_scope|changeset|execution_planning|provider_binding)/|tests/(gateway_authorization|approval_scope|changeset|execution_planning|provider_binding)/|docs/superpowers/(specs/2026-08-30-step32-gateway-authorization-design|plans/2026-08-30-step32-gateway-authorization)\.md|\.github/workflows/step32-gateway-authorization\.yml|pyproject\.toml)' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/step32-gateway-authorization\.yml|docs/superpowers/specs/2026-08-30-step32-gateway-authorization-design\.md|docs/superpowers/plans/2026-08-30-step32-gateway-authorization\.md|platform/gateway_authorization/.*|tests/gateway_authorization/.*|platform/approval_scope/.*|tests/approval_scope/.*|platform/changeset/.*|tests/changeset/.*|platform/execution_planning/.*|tests/execution_planning/.*|pyproject\.toml)$' || true)"
           if [ -n "$bad" ]; then
             echo "Step32 changed files outside approved boundary:"
             printf '%s\n' "$bad"
             exit 1
           fi
-      - name: Run Step32 contract tests
-        run: pytest -q tests/gateway_authorization/test_step32_contracts.py
-      - name: Run Step32 hashing tests
-        run: pytest -q tests/gateway_authorization/test_step32_hashing.py
-      - name: Run Step32 approval service tests
-        run: pytest -q tests/gateway_authorization/test_step32_approval_service.py
-      - name: Run Step32 approval store tests
-        run: pytest -q tests/gateway_authorization/test_step32_store_approval.py
-      - name: Run Step32 grant service tests
-        run: pytest -q tests/gateway_authorization/test_step32_grant_service.py
-      - name: Run Step32 grant lineage tests
-        run: pytest -q tests/gateway_authorization/test_step32_grant_lineage.py
-      - name: Run Step32 admission and revocation tests
-        run: pytest -q tests/gateway_authorization/test_step32_admission_and_revocation.py
-      - name: Run Step32 architecture tests
-        run: pytest -q tests/gateway_authorization/test_step32_architecture.py
+      - name: Run Step28 integrity gate
+        run: pytest -q tests/approval_scope/test_step28_integrity.py
+      - name: Run Step29 integrity gate
+        run: pytest -q tests/changeset/test_step29_integrity.py
+      - name: Run Step30 integrity gate
+        run: pytest -q tests/execution_planning/test_step30_integrity.py
+      - name: Run all Step32 gateway authorization tests
+        run: pytest -q tests/gateway_authorization
       - name: Run Step28 approval-scope regressions
         run: pytest -q tests/approval_scope
       - name: Run Step29 changeset regressions
@@ -88,7 +88,13 @@ jobs:
         run: pytest -q tests/execution_planning
       - name: Run Step31 provider-binding regressions
         run: pytest -q tests/provider_binding
-      - name: Run Ruff on Step32 changes
+      - name: Run Step32 frozen Ruff matrix
         run: |
-          ruff check platform/gateway_authorization/src/design_gateway_authorization
-          ruff check tests/gateway_authorization
+          ruff check \
+            platform/approval_scope/src/design_approval_scope \
+            platform/changeset/src/design_changeset \
+            platform/execution_planning/src/design_execution_planning \
+            platform/gateway_authorization/src/design_gateway_authorization \
+            tests/approval_scope tests/changeset tests/execution_planning tests/gateway_authorization
+      - name: Run full repository tests
+        run: pytest -q --import-mode=importlib
