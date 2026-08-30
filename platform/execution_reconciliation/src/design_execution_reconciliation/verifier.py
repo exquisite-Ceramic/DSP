@@ -173,6 +173,41 @@ def _validate_post_snapshot_lineage(request: SemanticVerificationRequest) -> Non
             _lineage_error("post-execution subject evidence is bound to another projection")
 
 
+def _baseline_subject_index(
+    request: SemanticVerificationRequest,
+) -> Mapping[str, VerificationSubjectEvidence] | None:
+    bundle = request.verification_evidence_bundle
+    snapshot = bundle.baseline_snapshot_ref
+    projection = bundle.baseline_projection_ref
+    if snapshot is None or projection is None:
+        return None
+
+    planning = request.canonical_changeset.planning_snapshot_ref
+    if snapshot.snapshot_id != planning.snapshot_id:
+        return None
+    if snapshot.hash != planning.snapshot_hash:
+        return None
+    if snapshot.document_ref != planning.document_ref:
+        return None
+    if snapshot.projection_ref != projection:
+        return None
+
+    snapshot_environment = _environment_identity(snapshot.semantic_environment_ref)
+    if snapshot_environment != _environment_identity(planning.semantic_environment_ref):
+        return None
+    if snapshot_environment != _environment_identity(bundle.semantic_environment_ref):
+        return None
+
+    subjects: dict[str, VerificationSubjectEvidence] = {}
+    for subject in bundle.baseline_subject_evidence:
+        if subject.snapshot_id != snapshot.snapshot_id or subject.snapshot_hash != snapshot.hash:
+            return None
+        if subject.projection_ref != projection:
+            return None
+        subjects[subject.semantic_id] = subject
+    return subjects
+
+
 def _operation_for_task(request: SemanticVerificationRequest, task: ValidationTask):
     if task.kind is not ValidationTaskKind.CANONICAL_OPERATION:
         return None
@@ -265,10 +300,137 @@ def _resolved_subjects(assertion: Mapping[str, Any], operation) -> tuple[str, ..
     return tuple(subjects)
 
 
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _measurement(value: object) -> tuple[int | float, str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    if "value" not in value or "unit" not in value:
+        return None
+    number = value["value"]
+    unit = value["unit"]
+    if not _is_number(number) or not isinstance(unit, str) or not unit:
+        return None
+    return number, unit
+
+
+def _compare_value(
+    actual: object,
+    expected: object,
+    tolerance: object,
+) -> tuple[VerificationStatus, str | None]:
+    if tolerance is _MISSING:
+        if actual == expected:
+            return VerificationStatus.PASSED, None
+        return VerificationStatus.FAILED, "EXPECTED_VALUE_MISMATCH"
+
+    if not isinstance(tolerance, Mapping):
+        return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+    absolute = tolerance.get("absolute", _MISSING)
+    if not _is_number(absolute) or absolute < 0:
+        return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+
+    unit = tolerance.get("unit", _MISSING)
+    if unit is not _MISSING:
+        if not isinstance(unit, str) or not unit:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+        actual_measurement = _measurement(actual)
+        expected_measurement = _measurement(expected)
+        if actual_measurement is None or expected_measurement is None:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+        actual_value, actual_unit = actual_measurement
+        expected_value, expected_unit = expected_measurement
+        if actual_unit != unit or expected_unit != unit:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+    else:
+        if not _is_number(actual) or not _is_number(expected):
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+        actual_value = actual
+        expected_value = expected
+
+    if abs(actual_value - expected_value) <= absolute:
+        return VerificationStatus.PASSED, None
+    return VerificationStatus.FAILED, "EXPECTED_VALUE_MISMATCH"
+
+
+def _delta_value(post: object, baseline: object) -> object:
+    if _is_number(post) and _is_number(baseline):
+        return post - baseline
+
+    post_measurement = _measurement(post)
+    baseline_measurement = _measurement(baseline)
+    if post_measurement is None or baseline_measurement is None:
+        return _MISSING
+    post_value, post_unit = post_measurement
+    baseline_value, baseline_unit = baseline_measurement
+    if post_unit != baseline_unit:
+        return _MISSING
+    return {"value": post_value - baseline_value, "unit": post_unit}
+
+
+def _evaluate_delta_assertion(
+    assertion: Mapping[str, Any],
+    operation,
+    subjects: tuple[str, ...],
+    subjects_by_id: Mapping[str, VerificationSubjectEvidence],
+    baseline_subjects_by_id: Mapping[str, VerificationSubjectEvidence] | None,
+) -> tuple[VerificationStatus, str | None]:
+    if baseline_subjects_by_id is None:
+        return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_BASELINE_MISSING"
+
+    path = assertion.get("path")
+    argument_name = assertion.get("argument")
+    if not isinstance(path, str) or not path:
+        return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+    if (
+        operation is None
+        or not isinstance(argument_name, str)
+        or argument_name not in operation.arguments
+    ):
+        return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+    expected = operation.arguments[argument_name]
+    tolerance = assertion.get("tolerance", _MISSING)
+    required_aspect = _required_aspect("DELTA_EQUALS_ARGUMENT", path)
+
+    for semantic_id in subjects:
+        post_subject = subjects_by_id.get(semantic_id)
+        if post_subject is None:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_FIELD_MISSING"
+        baseline_subject = baseline_subjects_by_id.get(semantic_id)
+        if baseline_subject is None:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_BASELINE_MISSING"
+        if required_aspect is not None and required_aspect not in post_subject.evidence_aspects:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_FIELD_MISSING"
+        if (
+            required_aspect is not None
+            and required_aspect not in baseline_subject.evidence_aspects
+        ):
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_BASELINE_MISSING"
+
+        post_value = _path_value(post_subject, path)
+        if post_value is _MISSING:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_FIELD_MISSING"
+        baseline_value = _path_value(baseline_subject, path)
+        if baseline_value is _MISSING:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_BASELINE_MISSING"
+        delta = _delta_value(post_value, baseline_value)
+        if delta is _MISSING:
+            return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
+
+        outcome = _compare_value(delta, expected, tolerance)
+        if outcome[0] is not VerificationStatus.PASSED:
+            return outcome
+
+    return VerificationStatus.PASSED, None
+
+
 def _evaluate_assertion(
     assertion: Mapping[str, Any],
     operation,
     subjects_by_id: Mapping[str, VerificationSubjectEvidence],
+    baseline_subjects_by_id: Mapping[str, VerificationSubjectEvidence] | None,
 ) -> tuple[VerificationStatus, str | None]:
     operator = assertion.get("operator")
     if not isinstance(operator, str):
@@ -278,7 +440,13 @@ def _evaluate_assertion(
         return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
 
     if operator == "DELTA_EQUALS_ARGUMENT":
-        return VerificationStatus.EVIDENCE_INSUFFICIENT, "REQUIRED_BASELINE_MISSING"
+        return _evaluate_delta_assertion(
+            assertion,
+            operation,
+            subjects,
+            subjects_by_id,
+            baseline_subjects_by_id,
+        )
 
     for semantic_id in subjects:
         subject = subjects_by_id.get(semantic_id)
@@ -316,8 +484,13 @@ def _evaluate_assertion(
                 ):
                     return VerificationStatus.EVIDENCE_INSUFFICIENT, "VERIFY_CONTRACT_UNSUPPORTED"
                 expected = operation.arguments[argument_name]
-            if actual != expected:
-                return VerificationStatus.FAILED, "EXPECTED_VALUE_MISMATCH"
+            outcome = _compare_value(
+                actual,
+                expected,
+                assertion.get("tolerance", _MISSING),
+            )
+            if outcome[0] is not VerificationStatus.PASSED:
+                return outcome
             continue
 
         if operator == "RELATIONSHIP_EXISTS":
@@ -367,8 +540,14 @@ def _result_for_task(
             subjects_by_id = {
                 subject.semantic_id: subject for subject in bundle.subject_evidence
             }
+            baseline_subjects_by_id = _baseline_subject_index(request)
             outcomes = tuple(
-                _evaluate_assertion(assertion, operation, subjects_by_id)
+                _evaluate_assertion(
+                    assertion,
+                    operation,
+                    subjects_by_id,
+                    baseline_subjects_by_id,
+                )
                 if isinstance(assertion, Mapping)
                 else (
                     VerificationStatus.EVIDENCE_INSUFFICIENT,
