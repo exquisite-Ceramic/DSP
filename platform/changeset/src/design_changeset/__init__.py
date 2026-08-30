@@ -31,6 +31,7 @@ from .hashing import (
     compute_proposed_change_hash,
     compute_scope_rule_fingerprint,
 )
+from .integrity import validate_changeset_integrity
 
 __all__ = [
     "ApprovalScopeDefinitionRef",
@@ -60,4 +61,5 @@ __all__ = [
     "compute_operation_semantic_hash",
     "compute_proposed_change_hash",
     "compute_scope_rule_fingerprint",
+    "validate_changeset_integrity",
 ]
