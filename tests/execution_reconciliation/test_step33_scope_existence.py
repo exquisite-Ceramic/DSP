@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import design_execution_reconciliation as reconciliation
-import pytest
 from design_approval_scope import (
     ApprovalScopeDefinition,
     CreationRule,
