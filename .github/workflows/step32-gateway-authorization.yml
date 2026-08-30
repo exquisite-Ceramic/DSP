@@ -45,6 +45,7 @@ jobs:
         run: |
           python -m pip install pytest ruff
           python -m pip install -e platform/changeset
+          python -m pip install -e platform/gateway_authorization
       - name: Verify Step32 PR diff boundary
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/step32-gateway-authorization'
         env:
@@ -60,12 +61,10 @@ jobs:
             exit 1
           fi
       - name: Run Step32 contract tests
-        env:
-          PYTHONPATH: platform/gateway_authorization/src
         run: pytest -q tests/gateway_authorization/test_step32_contracts.py
       - name: Run Step32 hashing tests
-        env:
-          PYTHONPATH: platform/gateway_authorization/src
         run: pytest -q tests/gateway_authorization/test_step32_hashing.py
       - name: Run Ruff on Task4 changes
-        run: ruff check tests/gateway_authorization
+        run: |
+          ruff check platform/gateway_authorization/src/design_gateway_authorization
+          ruff check tests/gateway_authorization
