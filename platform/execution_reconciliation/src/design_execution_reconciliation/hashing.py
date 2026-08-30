@@ -15,6 +15,7 @@ from .contracts import (
     VerificationEvidenceBundle,
     VerificationSubjectEvidence,
 )
+from .saga_contracts import ExecutionSagaDefinition
 
 
 def _instance_payload(change: ActualChange) -> dict[str, object] | None:
@@ -306,9 +307,40 @@ def compute_semantic_verification_hash(result: SemanticVerificationResult) -> st
     )
 
 
+def compute_execution_saga_definition_hash(definition: ExecutionSagaDefinition) -> str:
+    """Hash immutable Saga meaning, including canonical order and task ownership."""
+    if not isinstance(definition, ExecutionSagaDefinition):
+        raise TypeError("definition must be ExecutionSagaDefinition")
+    return canonical_hash(
+        {
+            "changeset_hash": definition.changeset_hash,
+            "approved_scope_hash": definition.approved_scope_hash,
+            "semantic_environment_ref": definition.semantic_environment_ref.payload(),
+            "execution_plan_hash": definition.execution_plan_hash,
+            "ordered_slice_hashes": list(definition.ordered_slice_hashes),
+            "slice_dependencies": [
+                {
+                    "predecessor_slice_hash": item.predecessor_slice_hash,
+                    "successor_slice_hash": item.successor_slice_hash,
+                    "reason_refs": list(item.reason_refs),
+                }
+                for item in definition.slice_dependencies
+            ],
+            "slice_validation_assignments": [
+                {
+                    "execution_slice_hash": item.execution_slice_hash,
+                    "validation_task_ids": list(item.validation_task_ids),
+                }
+                for item in definition.slice_validation_assignments
+            ],
+        }
+    )
+
+
 __all__ = [
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
+    "compute_execution_saga_definition_hash",
     "compute_scope_comparison_hash",
     "compute_semantic_verification_hash",
     "compute_validation_task_result_hash",
