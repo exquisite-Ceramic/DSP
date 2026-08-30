@@ -7,8 +7,8 @@ from dataclasses import dataclass, replace
 import pytest
 from design_approval_scope import (
     ApprovalScopeBoundary,
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalEffectEvidence,
     DirectEntityEffect,
@@ -22,8 +22,8 @@ from design_changeset import (
     BoundOperationEvidence,
     CanonicalChangeSet,
     CanonicalOperationContractEvidence,
-    ChangeSetBuildRequest,
     ChangeSetBuilder,
+    ChangeSetBuildRequest,
     DerivedOperationMaterialization,
     compute_bound_operation_evidence_fingerprint,
     compute_bound_operation_fingerprint,
@@ -91,7 +91,6 @@ from design_provider_binding import (
     compute_binding_set_hash,
     compute_host_binding_fingerprint,
 )
-
 
 _SEMANTIC_ASSERTIONS_SCHEMA = {
     "type": "object",
