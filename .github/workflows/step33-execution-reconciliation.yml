@@ -39,6 +39,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          git diff --check "$BASE_SHA...$HEAD_SHA"
           git diff --name-only "$BASE_SHA...$HEAD_SHA" > /tmp/step33-paths.txt
           python - <<'PY'
           from pathlib import Path
@@ -117,3 +118,51 @@ jobs:
             tests/execution_reconciliation
       - name: Run full repository importlib suite
         run: pytest -q --import-mode=importlib
+      - name: Run fresh Step33 final verification session
+        if: github.ref_name == 'feat/step33-execution-reconciliation' || github.head_ref == 'feat/step33-execution-reconciliation'
+        run: |
+          pytest -q tests/approval_scope
+          pytest -q tests/changeset
+          pytest -q tests/execution_planning
+          pytest -q tests/provider_binding
+          pytest -q tests/gateway_authorization
+          pytest -q tests/execution_reconciliation
+          ruff check \
+            platform/execution_planning/src/design_execution_planning \
+            platform/execution_reconciliation/src/design_execution_reconciliation \
+            tests/execution_planning tests/execution_reconciliation
+          pytest -q --import-mode=importlib
+          git diff --check
+          git diff --check cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD
+          git diff --name-only cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD | tee /tmp/step33-final-paths.txt
+          python - <<'PY'
+          from pathlib import Path
+
+          allowed_exact = {
+              ".github/workflows/step33-execution-reconciliation.yml",
+              "docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md",
+              "docs/superpowers/plans/2026-08-30-step33-execution-reconciliation.md",
+              "pyproject.toml",
+          }
+          allowed_prefixes = (
+              "platform/execution_reconciliation/",
+              "tests/execution_reconciliation/",
+              "platform/execution_planning/",
+              "tests/execution_planning/",
+          )
+          paths = tuple(
+              line.strip()
+              for line in Path("/tmp/step33-final-paths.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          )
+          outside = tuple(
+              path
+              for path in paths
+              if path not in allowed_exact
+              and not any(path.startswith(prefix) for prefix in allowed_prefixes)
+          )
+          if outside:
+              raise SystemExit(
+                  "Step33 final diff exceeds frozen boundary:\n" + "\n".join(outside)
+              )
+          PY
