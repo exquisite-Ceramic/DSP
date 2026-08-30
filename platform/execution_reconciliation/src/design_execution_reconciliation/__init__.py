@@ -51,7 +51,7 @@ from .saga_state import (
     StoredExecutionSaga,
 )
 from .scope_comparator import ScopeComparator
-from .store import ExecutionSagaStore
+from .store_protocol import ExecutionSagaStore
 from .verifier import SemanticVerifier
 
 __all__ = [
