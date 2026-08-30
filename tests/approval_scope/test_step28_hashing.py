@@ -91,11 +91,12 @@ def test_material_scope_change_changes_body_hash():
 
 
 def definition():
-    env, planning, snapshot_set, evidence, _intent, rule, slice_rule = fixtures()
+    env, planning, snapshot_set, evidence, intent, rule, slice_rule = fixtures()
     return ApprovalScopeDefinition(
         "DEF-1",
         "impact-fp",
         evidence,
+        intent,
         planning,
         snapshot_set,
         env,
