@@ -1,4 +1,5 @@
 from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
+from dsp_core_semantic_provider import DSP_CORE_PROVIDER
 from enterprise_mapping_provider import ENTERPRISE_MAPPING_PROVIDER
 from ifc43_semantic_provider import IFC43_PROVIDER
 from semantic_service import ProviderRef, SemanticEnvironmentStore, SemanticProviderRegistry, SemanticService
@@ -20,11 +21,13 @@ def test_step19_autocad_a_wall_fact_projects_to_ifc_wall_without_d5():
     facts = DesignFactAdapter().normalize_snapshot(snapshot)
 
     registry = SemanticProviderRegistry()
+    registry.register(DSP_CORE_PROVIDER)
     registry.register(IFC43_PROVIDER)
     registry.register(ENTERPRISE_MAPPING_PROVIDER)
     store = SemanticEnvironmentStore()
     environment = store.pin(
         (
+            ProviderRef("dsp.core", "1.0"),
             ProviderRef("buildingSMART.ifc43", "4.3.2.0"),
             ProviderRef("dsp.enterprise.mapping", "1.0.0"),
         ),
