@@ -168,4 +168,4 @@ def test_parameter_binder_binds_only_source_target_for_offset() -> None:
         "distance": {"value": 300.0, "unit": "mm"},
         "side_point": {"x": 5000.0, "y": 2000.0, "z": 0.0, "unit": "mm"},
     }
-    assert bound.binding_evidence["targets"].source == "ParameterBindingContext.selection"
+    assert bound.binding_evidence["targets"].source == "ContextSnapshot.selection"
