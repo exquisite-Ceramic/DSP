@@ -280,8 +280,12 @@ class ExecutionSagaCoordinator:
                         failed_at=host_result.failed_at,
                         failure_ref=host_result.failure_ref,
                     )
-                raise NotImplementedError(
-                    "Step37 ambiguous Host commit handling is implemented in Task7"
+                return CoordinationResult(
+                    saga_id=definition.saga_id,
+                    saga_revision=stored.saga_revision,
+                    status=CoordinationStatus.RECOVERY_REQUIRED,
+                    active_slice_hash=execution_slice.execution_slice_hash,
+                    failure_ref=host_result.failure_ref,
                 )
             if not isinstance(host_result, HostCommitted):
                 raise CoordinationError(
