@@ -115,8 +115,42 @@ jobs:
         run: python -m pytest tests/execution_reconciliation -q
       - name: Run full repository importlib regression
         run: python -m pytest --import-mode=importlib -q
-      - name: Run Step36 Python lint
-        run: ruff check --select E,F,I platform hosts/autocad/sidecar tests
+      - name: Diagnose Step36 Python lint against main
+        run: |
+          git worktree add /tmp/dsp-main origin/main
+          (
+            cd /tmp/dsp-main
+            ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/main-ruff.json || true
+          )
+          ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+              rows = json.loads(Path(path).read_text(encoding="utf-8"))
+              result: Counter[tuple[str, str, str]] = Counter()
+              for row in rows:
+                  filename = str(row["filename"]).replace("\\", "/")
+                  for marker in ("/platform/", "/hosts/", "/tests/"):
+                      if marker in filename:
+                          filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                          break
+                  result[(filename, row["code"], row["message"])] += 1
+              return result
+
+          main = diagnostics("/tmp/main-ruff.json")
+          head = diagnostics("/tmp/head-ruff.json")
+          added = head - main
+          resolved = main - head
+          print(f"main diagnostics: {sum(main.values())}")
+          print(f"head diagnostics: {sum(head.values())}")
+          print(f"new diagnostics: {sum(added.values())}")
+          for item, count in sorted(added.items()):
+              print("NEW", count, item)
+          print(f"resolved diagnostics: {sum(resolved.values())}")
+          PY
       - name: Verify Step36 diff whitespace
         run: |
           git diff --check
