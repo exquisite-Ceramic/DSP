@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from design_orchestrator.canonical_operations import (
+    CanonicalCreationContract,
+    CanonicalExistenceEffect,
+)
+
 
 class ApprovalScopeError(ValueError):
     def __init__(self, code: str, message: str) -> None:
@@ -82,6 +87,18 @@ def _aspects(values, *, required: bool = False) -> tuple[CanonicalAspect, ...]:
     return result
 
 
+def _existence_effects(values) -> tuple[CanonicalExistenceEffect, ...]:
+    return tuple(
+        sorted(
+            {
+                _enum(v, CanonicalExistenceEffect, "canonical existence effect")
+                for v in values
+            },
+            key=lambda v: v.value,
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PredicateTerm:
     field: PredicateField
@@ -128,6 +145,8 @@ class CanonicalEffectEvidence:
     canonical_operation: str
     canonical_operation_version: str
     allowed_aspects: tuple[CanonicalAspect | str, ...]
+    allowed_existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
+    creation_contract: CanonicalCreationContract | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_operation", _text(self.canonical_operation, "canonical_operation"))
@@ -135,7 +154,23 @@ class CanonicalEffectEvidence:
         if re.fullmatch(r"\d+\.\d+\.\d+", version) is None:
             raise ValueError("canonical_operation_version must use MAJOR.MINOR.PATCH")
         object.__setattr__(self, "canonical_operation_version", version)
-        object.__setattr__(self, "allowed_aspects", _aspects(self.allowed_aspects, required=True))
+
+        aspects = _aspects(self.allowed_aspects)
+        existence_effects = _existence_effects(self.allowed_existence_effects)
+        if not aspects and not existence_effects:
+            raise ValueError("canonical effect evidence requires effect authority")
+        object.__setattr__(self, "allowed_aspects", aspects)
+        object.__setattr__(self, "allowed_existence_effects", existence_effects)
+
+        if self.creation_contract is not None and not isinstance(
+            self.creation_contract, CanonicalCreationContract
+        ):
+            raise TypeError("creation_contract must be CanonicalCreationContract")
+        if CanonicalExistenceEffect.CREATE in existence_effects:
+            if self.creation_contract is None:
+                raise ValueError("CREATE existence authority requires creation_contract")
+        elif self.creation_contract is not None:
+            raise ValueError("creation_contract requires CREATE existence authority")
 
 
 @dataclass(frozen=True, slots=True)
