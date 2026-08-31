@@ -1,66 +1,123 @@
 # Phase H Revit Wall Thickness Gap Closure Design
 
-**Status:** FROZEN DESIGN — user-approved approach A on 2026-09-01
+**Status:** FROZEN DESIGN — approach A approved; written-spec review pending  
+**Date:** 2026-09-01  
+**Base:** `main@6a611d369ad3b1b189c977f3676f6af38c8a170f`  
+**Branch:** `feat/phase-h-revit-wall-thickness-gap-closure`  
+**Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
 
-**Purpose:** Close the Phase H Revit gap by proving that the existing DSP canonical / approval / execution / reconciliation core can drive one real Revit wall-thickness mutation without adding Revit-specific semantics to platform core.
+## 1. Purpose
 
-## 1. Decision
+Close the Phase H Revit gap by proving that the existing DSP canonical / approval / execution / reconciliation core can drive one real Revit wall-thickness mutation without adding Revit-specific semantics to platform core.
 
-Adopt **Exclusive WallType MVP**.
+This is an architectural parity proof, not a generic Revit authoring feature.
 
-The first real Revit acceptance supports `set_wall_thickness.v1` only when every target wall uses a Basic `WallType` whose effective native side effects are confined to the already-approved canonical target set. The initial live acceptance is intentionally narrower: exactly one selected wall, one WallType used by exactly that wall, a non-vertically-compound structure, and exactly one editable non-membrane layer.
+The success claim is:
 
-If the target WallType is shared by any wall outside the approved target set, execution fails before opening a mutating Revit transaction with stable failure code:
+> AutoCAD and Revit, despite different native object models and execution/threading constraints, execute the same canonical `set_wall_thickness.v1` through the same Step27-37 governance and reconciliation semantics, while Host-specific knowledge remains behind Host/provider adapters.
 
-`SHARED_WALL_TYPE_OUTSIDE_SCOPE`
+## 2. Decision
 
-The coordinator, Step33, and canonical scope are not widened to hide native type-level side effects.
+Adopt **Exclusive Isolated WallType MVP**.
 
-## 2. Why this gap closure exists
+The first Revit implementation supports exactly one approved target wall per execution. The target must be a Basic Wall whose `WallType` is used by exactly that wall and whose native dependency/isolation checks show no supported cross-entity associativity that could be changed by the thickness mutation.
 
-The repository now proves the full governed path with AutoCAD, including canonical operation resolution, deterministic impact, closed approval scope, immutable ChangeSet, execution partitioning, provider binding, gateway authorization, reconciliation, CREATE scope enforcement, and cross-host Saga coordination. However, `main` still contains only `hosts/autocad` as a real Host implementation.
+The MVP therefore requires all of the following before mutation:
 
-This gap closure is therefore an architectural acceptance test: a second Host with materially different native object semantics must fit behind the same platform contracts.
+```text
+approved target count = 1
+WallKind = Basic
+WallType user set = exactly the approved wall
+CompoundStructure exists
+CompoundStructure is not vertically compound
+exactly one editable non-membrane thickness layer
+no hosted inserts/openings in the supported isolation probe
+no joined wall at either location-curve end in the supported isolation probe
+```
 
-Success means the platform can say, with real evidence, that adding Revit did **not** require a Revit branch in D4, Step27, Step28, Step29, Step30, Step32, Step33, or Step37.
+Any failed isolation condition is a **before-commit rejection**. The provider does not duplicate WallTypes, widen the approval scope, or hide wider native effects.
 
-## 3. Frozen reuse boundary
+## 3. Why this gap closure exists
 
-The following production semantics are **read-only for this phase** unless implementation proves an unavoidable public-interface defect and design is reopened:
+The repository already proves the governed path with AutoCAD through canonical operation resolution, deterministic impact, approval scope, immutable ChangeSet, execution partitioning, provider binding, gateway authorization, reconciliation, CREATE scope enforcement, and cross-host Saga coordination.
 
-- D4 operation resolver semantics
-- `set_wall_thickness.v1` canonical operation definition
-- Step27 deterministic impact semantics
-- Step28 approval-scope semantics
-- Step29 immutable ChangeSet semantics
-- Step30 `HostRuntimeRef`, `ExecutionSlice`, and routing semantics
-- Step31 provider-binding contracts and resolver semantics
-- Step32 admission / grant semantics
-- Step33 `ActualDelta`, scope comparison, semantic verification, Saga states, and compensation semantics
-- Step37 `ExecutionSagaCoordinator` semantics
-- shared `NormalizedDesignFact` wire contract
-- shared HostCommand JSON schema
-- AutoCAD production code
+However, `main` still contains only `hosts/autocad` as a real Host family. The original Phase H ordering expected a Revit wall-thickness proof as well.
 
-Revit-specific API types, category names, WallType rules, CompoundStructure mechanics, and threading rules must remain outside those layers.
+This gap closure therefore tests the architectural claim that Host expansion should remain close to O(N): adding Revit must add a Host/provider integration, not a Revit branch in Core.
 
-## 4. Canonical operation remains unchanged
+## 4. Frozen reuse boundary
 
-The Revit Host executes the existing canonical operation:
+The following production semantics are read-only for this phase unless implementation proves a public-interface defect and this design is reopened:
+
+- D4 operation resolver semantics;
+- `set_wall_thickness.v1` canonical operation definition;
+- Step27 deterministic impact semantics;
+- Step28 approval-scope semantics;
+- Step29 immutable ChangeSet semantics;
+- Step30 `HostRuntimeRef`, `ExecutionSlice`, and routing semantics;
+- Step31 provider-binding contracts and resolver semantics;
+- Step32 admission / grant semantics;
+- Step33 `ActualDelta`, scope comparison, semantic verification, Saga states, and compensation semantics;
+- Step37 `ExecutionSagaCoordinator` semantics;
+- shared `NormalizedDesignFact` wire contract;
+- shared HostCommand JSON schema;
+- AutoCAD production code.
+
+Revit API types, category names, WallType rules, CompoundStructure mechanics, unit APIs, threading rules, and native dependency probes must remain outside those layers.
+
+If implementation requires platform Core to learn `WallType`, `CompoundStructure`, `OST_Walls`, `ExternalEvent`, Revit internal units, or Revit transaction APIs, implementation stops and design is reopened.
+
+## 5. Canonical operation remains unchanged
+
+The Revit Host executes the existing platform operation:
 
 ```text
 canonical_operation = set_wall_thickness.v1
 canonical target     = ifc:IfcWall
-effect               = PROPERTIES
-argument             = thickness { value: positive number, unit: mm }
-verification          = dsp:WallThickness EQUALS_ARGUMENT thickness
+effects              = PROPERTIES
+argument              = thickness { value: positive number, unit: mm }
+verification          = properties.dsp:WallThickness EQUALS_ARGUMENT thickness
 ```
 
 There is no `set_revit_wall_thickness`, `set_walltype_width`, or Revit-specific canonical aspect.
 
-ProviderBinding translates the canonical operation to the Revit provider tool. D4 never sees `Wall`, `WallType`, `CompoundStructure`, `OST_Walls`, layer indices, Revit internal units, or Revit transaction details.
+This is required for cross-Host semantic parity: Step34 already froze the same action for AutoCAD as `PROPERTIES` only. A Revit provider may not redefine the public meaning of a canonical operation merely because its native implementation uses a different object model.
 
-## 5. Host architecture
+ProviderBinding translates the canonical operation to a Revit provider tool. D4 never sees `Wall`, `WallType`, `CompoundStructure`, `OST_Walls`, layer indices, Revit internal units, or Revit transaction details.
+
+## 6. Canonical effect versus native representation regeneration
+
+This section resolves the geometry ambiguity explicitly.
+
+Step23 defines `effects` as **canonical semantic effects expected from the user operation**. Step34 then freezes wall thickness as `PROPERTIES` only and proves a property-only `ActualDelta` even though changing AutoCAD `LWPOLYLINE.ConstantWidth` also changes the entity's rendered/native width.
+
+Revit must preserve the same canonical abstraction.
+
+For `set_wall_thickness.v1`:
+
+- changing the approved wall's canonical `dsp:WallThickness` is a `PROPERTIES` change;
+- Host-internal BRep/tessellation/solid regeneration that is solely the physical representation of that same approved thickness property is **not independently projected as `CanonicalAspect.GEOMETRY`**;
+- changing a native support object such as the exclusive `WallType` is implementation evidence, not a fabricated second canonical design entity;
+- this rule does **not** permit the provider to hide another semantic entity or another independently observable canonical aspect that changed through Host associativity.
+
+The master spec requires Host read-back / ActualDelta to include implicit associativity effects and requires `ActualDelta ⊆ ApprovalScopeBoundary`. Step27 likewise models `HOST_NATIVE` propagation as something DSP predicts and later verifies rather than a duplicate platform mutation.
+
+Therefore any of the following remain material actual side effects when observed:
+
+```text
+another canonical entity changed
+another wall changed
+placement/location curve changed
+relationships/hosting changed
+an independently modeled geometry aspect changed beyond the entailed wall-thickness representation
+an unexpected create/delete occurred
+```
+
+Such effects may not be dropped merely to keep the Slice in scope.
+
+The MVP avoids needing new approved propagation by using the isolation preconditions in §9 and by post-commit read-back checks in §13.
+
+## 7. Host architecture
 
 Add a new Host family under `hosts/revit` following the existing Host boundary:
 
@@ -73,9 +130,9 @@ hosts/revit/sidecar        Python, Revit-free
     |
     | Named Pipe, HostContract JSON unchanged
     v
-hosts/revit/plugin         .NET 8, Revit process
+hosts/revit/plugin         .NET, in Revit process
     |
-    | queued command
+    | queue Host request
     v
 ExternalEvent.Raise()
     |
@@ -86,25 +143,39 @@ IExternalEventHandler.Execute(UIApplication)
 Revit API + Transaction
 ```
 
-### 5.1 Transport scope
+### 7.1 Transport scope
 
 The MVP uses **Named Pipe only**.
 
-The existing gRPC proto names its service `AutoCadHost`; this phase does not rename or generalize that service because transport migration is independent of Revit semantic parity. Revit gRPC support requires a separate design review.
+The existing gRPC proto still names its service `AutoCadHost`; this phase does not rename/generalize it because transport migration is independent of Revit semantic parity. Revit gRPC support requires a separate design review.
 
-The shared HostCommand JSON shape remains unchanged. Mutating Revit commands still carry the existing idempotency key and revision precondition.
+The shared HostCommand JSON shape remains unchanged. Mutating Revit commands use the existing idempotency key and revision precondition.
 
-### 5.2 Threading invariant
+### 7.2 Threading invariant
 
 No background pipe listener, Python sidecar, Task, worker thread, or timer may call the Revit API directly.
 
-The plugin may receive and queue requests away from the Revit API context, but all reads and writes that touch `Autodesk.Revit.*` must execute from a valid Revit API callback. For asynchronous host requests the MVP uses `ExternalEvent` and `IExternalEventHandler.Execute(UIApplication)`.
+The plugin may receive and queue requests outside the Revit API context, but all accesses to `Autodesk.Revit.*` execute from a valid Revit API callback. For asynchronous Host requests the MVP uses `ExternalEvent` and `IExternalEventHandler.Execute(UIApplication)`.
 
-The Host request completes only after that handler has produced a deterministic result or failure value.
+The Host request completes only after the handler produces a deterministic result or failure value.
 
-## 6. Revit native target identity
+### 7.3 Native API confinement
 
-For persisted native binding identity use:
+Revit API references are confined to the plugin native/API boundary:
+
+```text
+hosts/revit/plugin/**/Native/**
+```
+
+The plugin project file may contain `RevitAPI.dll` / `RevitAPIUI.dll` references needed to compile that boundary.
+
+Non-native plugin logic depends on plugin-local interfaces/value contracts and must not spread `Autodesk.Revit.*` types into sidecar, platform, semantic providers, shared contracts, or generic tests.
+
+ExternalEvent/bootstrap implementations that necessarily implement Autodesk interfaces belong in the Native boundary.
+
+## 8. Revit native target identity
+
+Persist native binding identity as:
 
 ```text
 host_type       = revit
@@ -112,120 +183,122 @@ native_id       = Element.UniqueId
 native_kind     = Wall
 ```
 
-`ElementId` may be carried as ephemeral diagnostic evidence but is not the durable binding identity.
+`ElementId` may be retained as ephemeral diagnostic evidence but is not the durable binding identity.
 
-Rationale: Autodesk defines `Element.UniqueId` as a stable unique identifier within the document, suitable for external persistence and later retrieval; `ElementId` may change in situations where `UniqueId` remains stable.
+A ProviderBinding resolves the approved semantic wall to exactly one current Revit `Wall` by `UniqueId` in the execution document. Missing, wrong-kind, or wrong-document resolution fails before mutation.
 
-A ProviderBinding must resolve the approved semantic wall to exactly one current Revit `Wall` by `UniqueId` in the execution document. Missing, duplicated, wrong-kind, or wrong-document resolution fails before mutation.
+## 9. Exclusive and isolated target invariant
 
-## 7. Revit wall-thickness native model
-
-A Revit wall's compound width belongs to its `WallType` / `CompoundStructure`, not to an independently writable instance-width property.
-
-Autodesk documents these native facts:
-
-- compound layers determine total host-object thickness;
-- total width cannot be set directly; layer widths must change;
-- the modified `CompoundStructure` must be written back to the `HostObjAttributes` / WallType;
-- changing that type affects every instance using it;
-- a distinct layer combination normally requires duplicating the type.
-
-That type-level sharing is the central safety issue for this phase.
-
-## 8. Exclusive WallType invariant
-
-Before mutation, the Revit provider must derive the set:
+The entire MVP, not merely the live test, is single-target:
 
 ```text
-S = all Wall instances in the same document whose type id == target.WallType.Id
-A = approved target Wall UniqueIds for this ExecutionSlice
+len(approved targets) == 1
 ```
 
-Mutation is eligible only if:
+Let:
+
+```text
+A = {approved target Wall.UniqueId}
+S = {UniqueId of every Wall in the document whose type id == target.WallType.Id}
+```
+
+Mutation is eligible only when:
 
 ```text
 S == A
 ```
 
-The first live acceptance further requires:
-
-```text
-len(A) == 1
-len(S) == 1
-```
-
-This is a native precondition, not a new canonical entity rule. It proves that the native support-object mutation cannot affect an unapproved canonical wall.
-
 If `S != A`, return:
 
 ```text
-code = SHARED_WALL_TYPE_OUTSIDE_SCOPE
+code  = SHARED_WALL_TYPE_OUTSIDE_SCOPE
 phase = BEFORE_COMMIT
 ```
 
-Requirements:
+The Revit provider also performs a deterministic **native isolation probe** before transaction commit. For the MVP it must prove at minimum:
+
+1. there are no hosted inserts/openings returned by the supported Wall insert probe;
+2. neither endpoint of the wall's location curve is currently joined to another wall according to the supported location/join probe;
+3. no provider-supported dependency probe reports another design element that this operation is expected to mutate.
+
+If isolation cannot be proven, fail closed before mutation. Stable codes may include:
+
+```text
+WALL_INSERTS_OUTSIDE_MVP
+WALL_JOIN_OUTSIDE_MVP
+WALL_ASSOCIATIVITY_UNPROVEN
+```
+
+This isolation is a native execution precondition, not a new canonical semantic rule.
+
+Requirements for every before-commit isolation failure:
 
 - no mutating Revit Transaction is committed;
 - no `ActualDelta` is fabricated;
 - no duplicate WallType is created;
-- no successor Slice is admitted as if the Host mutation succeeded.
+- no successor Slice is treated as if the Host mutation succeeded.
 
-## 9. Supported WallType shape for the MVP
+## 10. Supported WallType shape
 
 The MVP accepts only:
 
 - `WallKind.Basic`;
 - non-null `CompoundStructure`;
 - `CompoundStructure.IsVerticallyCompound == false`;
-- exactly one editable non-membrane layer selected by the Revit provider's deterministic rule;
-- desired thickness is positive and convertible from canonical millimetres to Revit internal length units.
+- exactly one editable non-membrane layer under the deterministic rule below;
+- desired thickness positive and convertible from canonical millimetres to the selected Revit version's internal length units.
 
-The deterministic first-version layer rule is intentionally narrow:
+The deterministic layer rule is intentionally narrow:
 
 1. enumerate `CompoundStructure.GetLayers()` in native order;
-2. exclude membrane layers and zero-width/non-width-editable candidates;
+2. exclude membrane layers and layers whose width cannot legally be set;
 3. require exactly one remaining editable layer;
-4. set that layer's width so the resulting total wall width equals the canonical requested thickness.
+4. set that layer so the resulting total wall width equals the canonical requested thickness.
 
-If the shape does not satisfy this rule, fail before mutation with a stable provider/Host failure such as:
+Unsupported cases fail before mutation with stable codes such as:
 
-- `UNSUPPORTED_WALL_KIND`
-- `VERTICALLY_COMPOUND_WALL_UNSUPPORTED`
-- `AMBIGUOUS_WALL_THICKNESS_LAYER`
+```text
+UNSUPPORTED_WALL_KIND
+VERTICALLY_COMPOUND_WALL_UNSUPPORTED
+AMBIGUOUS_WALL_THICKNESS_LAYER
+```
 
-Multi-layer redistribution policy is explicitly outside this gap closure.
+Multi-layer redistribution policy is outside this gap closure.
 
-## 10. Mutation algorithm
+## 11. Mutation algorithm
 
-For one admitted execution:
+For the one admitted wall:
 
 ```text
 resolve Wall by UniqueId
     -> verify document/runtime identity
+    -> verify target count == 1
     -> verify current revision
     -> verify WallKind.Basic
     -> obtain WallType + CompoundStructure
     -> verify Exclusive WallType invariant
+    -> verify native isolation invariant
     -> verify supported layer shape
+    -> capture native pre-state evidence
     -> convert canonical mm to Revit internal length units
     -> construct modified CompoundStructure
     -> begin Revit Transaction
     -> WallType.SetCompoundStructure(modified)
     -> commit Transaction
+    -> capture DocumentChanged/native transaction evidence
     -> read WallType.GetCompoundStructure().GetWidth()
+    -> read target Wall identity/location/relationship invariants
     -> convert read-back width to mm
-    -> emit Host result
+    -> emit Host result evidence
 ```
 
-The read-back is mandatory. A successful `SetCompoundStructure` call without post-commit read-back is insufficient evidence for Host success.
+The read-back is mandatory. A successful API call without post-commit read-back is insufficient evidence for Host success.
 
-## 11. Document revision barrier
+## 12. Document revision barrier
 
-Each live Revit Host instance maintains a session-scoped monotonic integer revision.
+Each live Revit Host instance maintains a session-scoped monotonic integer revision per document.
 
-The plugin subscribes to `ControlledApplication.DocumentChanged`. Autodesk documents that this event is raised after a Revit transaction is committed, undone, or redone and is intended for keeping external data synchronized with the Revit database.
-
-The Host increments its revision for each relevant document-change event.
+The plugin subscribes to `ControlledApplication.DocumentChanged`. The revision owner is this document-change observer; command execution must not independently increment a second counter for its own transaction.
 
 The existing HostCommand revision precondition remains authoritative:
 
@@ -233,26 +306,54 @@ The existing HostCommand revision precondition remains authoritative:
 expected_revision == current_host_revision
 ```
 
-A stale revision fails before mutation with the existing revision-conflict pattern. A plugin restart creates a new `host_instance_id`; a revision from an old Host runtime cannot silently authorize mutation in a new runtime.
+A stale revision fails before mutation. A plugin restart creates a new `host_instance_id`; a revision from an old Host runtime cannot silently authorize a new runtime.
 
-Implementation must avoid double-counting its own commit. The revision owner is the document-change observer; command execution reads the resulting revision after commit rather than independently incrementing a second counter.
+The successful command returns the revision that contains the committed side effects.
 
-## 12. Idempotency
+## 13. Native post-commit evidence and actual side effects
 
-The Revit Host follows the existing mutating-command idempotency rule.
+The Revit plugin must retain transaction/read-back evidence sufficient for the execution integration layer to distinguish:
+
+```text
+expected support-object mutation
+expected target wall property outcome
+unexpected external native change evidence
+```
+
+At minimum, the provider records:
+
+- Wall UniqueId;
+- WallType UniqueId;
+- layer index;
+- total width before/after;
+- target location/identity invariant evidence before/after;
+- document revision before/after;
+- Revit document-change evidence associated with the transaction where deterministically attributable.
+
+Native support-object writes such as the exclusive WallType do not become a second canonical `ActualChange` merely because Revit stores the property there.
+
+However, the integration boundary may produce `HostCommitted` only after it can construct a truthful provider-neutral `ActualDelta` for the canonical effects that actually occurred. It must not knowingly discard a mapped canonical side effect outside the approved wall/property scope.
+
+If post-commit evidence shows a wider semantic effect and that effect can be normalized, it must enter `ActualDelta` and Step33 decides `SCOPE_BREACH`.
+
+If a real commit is known to have occurred but the integration layer cannot establish enough identity/evidence to truthfully normalize the observed wider effect, it must **not fabricate a clean `ActualDelta`** and must not label the event `FAILED_BEFORE_COMMIT`. Such a case is outside the success path and is a design-review stop if current Step37 contracts cannot represent it without semantic loss.
+
+The controlled MVP fixture and isolation checks are specifically intended to prevent this unresolved post-commit condition from being part of the positive acceptance path.
+
+## 14. Idempotency
 
 For the same idempotency key and identical effective command fingerprint:
 
-- the first successful execution performs one Revit mutation;
+- first successful execution performs one Revit mutation;
 - replay returns the stored successful result;
 - replay performs no second Revit transaction;
-- revision does not advance because of the replay itself.
+- revision does not advance because of replay itself.
 
 Reuse with a conflicting command fingerprint fails closed rather than executing a different mutation under the same key.
 
-## 13. ProviderBinding
+## 15. ProviderBinding
 
-Step31 remains generic. A Revit binding uses the existing fields, for example conceptually:
+Step31 remains generic. A Revit binding uses existing fields, conceptually:
 
 ```text
 provider_server = revit-local
@@ -262,17 +363,17 @@ native_id       = <Wall.UniqueId>
 native_kind     = Wall
 ```
 
-Provider-native constraints may require `native_kind == Wall` using the existing Step31 `NativeConstraint` contract.
+Provider-native constraints may require `native_kind == Wall` using existing Step31 `NativeConstraint` semantics.
 
-The provider adapter may carry native arguments/evidence such as Wall UniqueId, resolved WallType UniqueId, supported-layer index, and canonical thickness converted for the Host command, but those values do not become canonical operation inputs.
+The provider adapter may carry native evidence/arguments such as Wall UniqueId, WallType UniqueId, selected layer index, and native-unit values. Those values do not become canonical operation inputs.
 
-Step31 must not be changed merely to add Revit vocabulary.
+Step31 must not change merely to add Revit vocabulary.
 
-## 14. Revit design facts
+## 16. Revit design facts
 
-The Revit adapter converts a native snapshot into the already-frozen `NormalizedDesignFact` contract.
+The Revit adapter converts native snapshots into the already-frozen `NormalizedDesignFact` contract.
 
-Minimum wall facts for this phase:
+Minimum facts:
 
 ### Identity
 
@@ -305,15 +406,15 @@ value         = <number>
 unit          = mm
 ```
 
-The Revit adapter owns the conversion from Revit internal units to millimetres. D5 and Semantic Service do not learn Revit unit APIs.
+The Revit adapter owns Revit-internal-unit -> millimetre conversion. D5 and Semantic Service do not learn Revit unit APIs.
 
-The adapter producer id and deterministic fact-id namespace must be Revit-specific but the emitted contract shape remains shared.
+The adapter producer id and deterministic fact-id namespace are Revit-specific; the emitted contract shape remains shared.
 
-## 15. Enterprise semantic mapping
+## 17. Enterprise semantic mapping
 
 Extend the enterprise mapping catalog rather than D5 or IFC provider code.
 
-Required deterministic mappings:
+Required mappings:
 
 ```text
 revit.builtin_category / OST_Walls
@@ -327,13 +428,13 @@ The IFC4.3 provider remains authoritative for `ifc:*` vocabulary meaning. The en
 
 No Markdown parsing, Revit API call, or Host-specific branch enters Semantic Service.
 
-## 16. Post-execution semantic reconstruction
+## 18. Post-execution semantic reconstruction
 
 The proof path is:
 
 ```text
 real Revit Wall
-    -> Revit native read-back
+    -> native read-back
     -> Revit NormalizedDesignFact batch
     -> SemanticService projection
     -> enterprise mapping
@@ -342,7 +443,7 @@ real Revit Wall
     -> Step33 VerificationEvidenceBundle
 ```
 
-The verification subject for the approved wall must expose:
+The verification subject must prove:
 
 ```text
 classification contains ifc:IfcWall
@@ -351,9 +452,9 @@ properties.dsp:WallThickness == requested canonical thickness
 
 A Host-native success flag alone cannot make Step33 verification pass.
 
-## 17. ActualDelta projection
+## 19. ActualDelta projection
 
-Under the Exclusive WallType invariant, the canonical observable mutation is projected as one `MODIFY` per approved wall:
+Under the exclusive/isolation invariants, the expected canonical mutation is:
 
 ```text
 change_kind     = MODIFY
@@ -362,118 +463,135 @@ canonical_kind  = ifc:IfcWall
 changed_aspects = (PROPERTIES,)
 ```
 
-The Revit WallType mutation is native support-object evidence, not a fabricated second canonical design entity.
+This matches the already-frozen Step34 cross-Host meaning of `set_wall_thickness.v1`.
 
-Provider/Host evidence may retain:
+The Revit WallType mutation is native support-object evidence, not a fabricated second canonical design entity. WallType UniqueId, layer index, native before/after width, and transaction evidence remain provider/Host evidence.
 
-- Wall UniqueId;
-- WallType UniqueId;
-- layer index;
-- width before/after in native and canonical units;
-- document revision before/after.
+If actual normalized canonical evidence contains another entity or aspect, it must not be deleted to force this expected projection. Step33 scope comparison remains authoritative.
 
-That native evidence must not introduce Revit vocabulary into Step33 canonical scope comparison.
-
-If the Exclusive WallType invariant cannot be proved, execution is forbidden; Step37 must not use this projection to conceal wider native effects.
-
-## 18. Failure semantics
-
-Expected failures are values and are classified before or after commit.
+## 20. Failure semantics
 
 ### Before commit
 
 Examples:
 
+- target count != 1;
 - stale document revision;
-- target not found;
-- wrong native kind;
-- shared WallType outside approved target set;
+- target not found / wrong native kind / wrong document;
+- shared WallType outside approved target;
+- hosted inserts/openings outside MVP;
+- joined wall outside MVP;
+- associativity cannot be proven isolated;
 - unsupported wall kind;
 - vertically compound wall;
 - ambiguous editable layer;
-- invalid canonical/native unit conversion;
+- invalid unit conversion;
 - invalid idempotency reuse.
 
-These failures produce no `ActualDelta` and are eligible for the existing Step37/Step33 precommit failure path.
+These failures produce no `ActualDelta` and use the existing precommit failure path.
 
-### After possible commit
+### Ambiguous commit
 
-If transport or plugin coordination loses certainty after the Revit transaction may have committed, the Host result must map to the existing `COMMIT_STATE_UNKNOWN` behavior. It must not be rewritten as a precommit failure and must not be blindly retried.
+If transport/plugin coordination loses certainty after the transaction may have committed, map to the existing `COMMIT_STATE_UNKNOWN` behavior. It must not be rewritten as a precommit failure and must not be blindly retried.
 
-Recovery requires restored Host facts / reconciliation under the existing Step37 fail-closed rule.
+### Confirmed commit with unnormalizable wider side effect
 
-## 19. Scope and verification failures remain Step33-owned
+This is not `BEFORE_COMMIT` and not semantically equivalent to a clean `HostCommitted` result. If encountered, implementation stops and the design is reopened rather than falsifying `ActualDelta` or overloading `COMMIT_STATE_UNKNOWN` to mean something it does not mean.
 
-After a confirmed Host commit:
+## 21. Scope and verification remain Step33-owned
 
-- an `ActualDelta` with any extra canonical aspect must become Step33 `SCOPE_BREACH`;
-- reconstructed wall thickness differing from the canonical request must become `VERIFY_FAILED`;
-- only a within-scope delta plus passing semantic verification may make the Slice and Saga `SUCCEEDED`.
+After a confirmed, truthfully normalized Host commit:
 
-Revit provider code cannot override those decisions.
+- any extra canonical aspect/entity outside the approved boundary -> Step33 `SCOPE_BREACH`;
+- reconstructed wall thickness differing from the canonical request -> `VERIFY_FAILED`;
+- only within-scope ActualDelta + passing semantic verification -> Slice/Saga `SUCCEEDED`.
 
-## 20. No inferred rollback
+Revit code cannot override those decisions.
 
-This phase does not add Revit inverse-command logic.
+## 22. No inferred rollback
 
-A failed or partially committed execution uses existing Step33 durable evidence and compensation proposal semantics. Any recovery mutation must be expressed as new canonical recovery intent and re-enter the governed chain.
+This phase adds no Revit inverse-command logic.
 
-No coordinator or Host adapter may infer "set previous WallType width" as an automatic global rollback without a separately governed operation.
+A failed/partially committed execution uses existing Step33 durable evidence and compensation proposal semantics. Any recovery mutation is new canonical recovery intent that re-enters the governed chain.
 
-## 21. File / component boundary
+No coordinator or Host adapter may silently restore the previous WallType width as an ungoverned global rollback.
 
-Expected new or changed areas are limited to Revit Host integration and host-neutral mapping/test surfaces:
+## 23. File / component boundary
+
+Expected new/changed production areas are limited to Revit Host integration and enterprise mapping:
 
 ```text
 hosts/revit/plugin/**
 hosts/revit/sidecar/**
 providers/semantics/enterprise_mapping/**
-tests/revit/** or equivalent focused host tests
+```
+
+Test/docs/CI areas may include:
+
+```text
+tests/revit/**
 tests/integration/test_phase_h_revit_*.py
 docs/runbooks/revit-*.md
 .github/workflows/phase-h-revit-wall-thickness*.yml
 ```
 
-Shared contracts may receive only compatibility/test/build wiring proven necessary by the existing wire format; changing their semantic shape is not part of the approved design.
+Shared contracts may receive only build/compatibility/test wiring proven necessary by the existing wire format; changing their semantic shape is not approved.
 
-Platform directories Step27-37 are expected to remain production-code unchanged.
+Platform Step27-37 production directories are expected to remain unchanged.
 
-## 22. Build baseline
+## 24. Revit version / .NET build baseline
 
-The Revit plugin uses the .NET 8 API family used by Revit 2025 and later. Autodesk's Revit 2026 developer requirements state that the Revit API requires Microsoft .NET 8.0 and references `RevitAPI.dll` and `RevitAPIUI.dll` from the installed Revit program directory.
+This phase does **not** claim one .NET target works for every current Revit release/update.
 
-This phase does not require a multi-Revit-version packaging system. The implementation plan must select one installed Revit 2025+ version for the real-host acceptance while keeping the code on APIs common to that supported .NET 8 family wherever practical.
+The implementation plan must lock one concrete installed Revit version for the real-host acceptance and target the runtime officially required by that exact release.
 
-## 23. Test strategy
+Known current compatibility facts include:
 
-### Pure / offline
+- Revit 2025 moved add-ins to the .NET 8 family;
+- Revit 2026 originally used .NET 8, but Autodesk's current Revit 2026 update documentation reports .NET 10 support/migration for Revit 2026.5.
 
-Prove without a live Revit process:
+Therefore the build must not encode the stale rule `Revit 2025+ == net8.0-windows`.
+
+Multi-version plugin packaging is a non-goal. If the acceptance machine's installed Revit version is not known when the implementation plan is written, the plan must make the exact live-build target an explicit external acceptance prerequisite rather than guessing it.
+
+## 25. Test strategy
+
+### 25.1 Pure / offline
+
+Prove without live Revit:
 
 - Revit native snapshot -> deterministic `NormalizedDesignFact` values;
-- Revit enterprise mappings -> `ifc:IfcWall` and `dsp:WallThickness`;
+- enterprise mappings -> `ifc:IfcWall` and `dsp:WallThickness`;
 - ProviderBinding accepts exact Revit Wall target and rejects wrong native kind;
+- target-count guard rejects more than one target;
 - supported WallType-shape evaluator is deterministic;
-- shared-type set difference produces `SHARED_WALL_TYPE_OUTSIDE_SCOPE` before mutation;
-- canonical mm / Revit internal-unit conversion round trips within defined tolerance;
-- idempotency store replays a prior success without re-execution;
-- architecture guard prevents `Autodesk.Revit` imports outside `hosts/revit/plugin` native/API boundary and tests;
+- shared-type mismatch produces `SHARED_WALL_TYPE_OUTSIDE_SCOPE` before mutation;
+- insert/join/isolation failures are precommit;
+- canonical mm / Revit internal-unit conversion behavior is deterministic for the pinned API version;
+- idempotency replay returns prior success without re-execution;
+- architecture guard prevents Revit API leakage outside plugin Native boundary;
 - platform Step27-37 production source remains unchanged.
 
-### Plugin tests with Revit API abstractions
+### 25.2 Plugin-local tests
 
-Keep Revit API mechanics behind narrow plugin-local interfaces so deterministic tests can prove:
+Keep Revit mechanics behind narrow plugin-local interfaces so deterministic tests can prove:
 
 - request queue -> ExternalEvent handler dispatch;
 - no mutation on failed preflight;
 - exactly one transaction attempt on success;
 - no second transaction on idempotent replay;
-- read-back result controls success evidence;
+- read-back controls success evidence;
+- native transaction evidence is captured;
 - ambiguous post-commit completion is not downgraded to precommit failure.
 
-### Real Revit acceptance
+### 25.3 Real Revit acceptance
 
-Use a controlled RVT fixture containing a Basic wall with an exclusive, supported WallType.
+Use a controlled RVT fixture containing exactly one Basic wall with:
+
+- an exclusive supported WallType;
+- no hosted insert/opening;
+- no wall join at either end under the chosen isolation probe;
+- no other known provider-supported association expected to mutate.
 
 Required positive proof:
 
@@ -483,7 +601,7 @@ real Wall pre-read != 300 mm
 one Revit mutation commits
 real post-read = 300 mm
 reconstructed dsp:WallThickness = 300 mm
-ActualDelta = MODIFY / PROPERTIES only
+ActualDelta = target MODIFY / PROPERTIES only
 ScopeComparator = WITHIN_SCOPE
 SemanticVerifier = PASSED
 Saga = SUCCEEDED
@@ -491,74 +609,86 @@ Saga = SUCCEEDED
 
 Required negative proofs:
 
-1. **Shared WallType** — a second unapproved wall uses the same type -> precommit `SHARED_WALL_TYPE_OUTSIDE_SCOPE`, no mutation.
-2. **Stale revision** — precondition mismatch -> no transaction commit.
-3. **Idempotency replay** — same key -> same successful result, no second mutation, no replay-caused revision increment.
-4. **Wrong reconstructed width** — Host commit can be real, but semantic evidence reports a different width -> `VERIFY_FAILED`, Saga not `SUCCEEDED`.
-5. **Extra canonical aspect** — deliberately constructed reconciliation evidence includes another aspect -> `SCOPE_BREACH`, Saga not `SUCCEEDED`.
+1. **Shared WallType** — second unapproved wall uses same type -> precommit `SHARED_WALL_TYPE_OUTSIDE_SCOPE`, no mutation.
+2. **Hosted insert / join isolation** — supported associativity probe detects dependency -> precommit reject, no mutation.
+3. **Stale revision** — mismatch -> no transaction commit.
+4. **Idempotency replay** — same key -> same successful result, no second mutation or replay-caused revision increment.
+5. **Wrong reconstructed width** — real/fixture Host commit can exist, semantic evidence reports different width -> `VERIFY_FAILED`, Saga not `SUCCEEDED`.
+6. **Extra canonical aspect** — deliberately constructed truthful reconciliation evidence contains another aspect -> `SCOPE_BREACH`, Saga not `SUCCEEDED`.
 
-## 24. Completion gates
+## 26. Completion gates
 
-The gap closure is complete only when all of these are evidenced:
+The gap closure is complete only when all are evidenced:
 
 ```text
-real Revit Host exists under hosts/revit                              PASS
-same set_wall_thickness.v1 canonical contract reused                  PASS
-Step27-30 production semantics unchanged                              PASS
-Step31 contract/resolver production semantics unchanged               PASS
-Step32 production semantics unchanged                                 PASS
-Step33 production semantics unchanged                                 PASS
-Step37 production semantics unchanged                                 PASS
-Revit API absent from platform core                                   PASS
-Revit command enters API context through ExternalEvent                PASS
-Wall identity persists by UniqueId                                    PASS
-shared WallType outside approval fails before mutation                PASS
-no hidden WallType duplication/CREATE in MVP                          PASS
-real 300 mm wall mutation commits once                                PASS
-real post-commit read-back equals 300 mm                              PASS
-Revit facts project to ifc:IfcWall + dsp:WallThickness                PASS
-ActualDelta reports only approved canonical wall/property change       PASS
-ScopeComparator = WITHIN_SCOPE                                        PASS
-SemanticVerifier = PASSED                                             PASS
-Saga = SUCCEEDED                                                       PASS
-stale revision is precommit/no mutation                               PASS
-idempotency replay has no second Revit mutation                       PASS
-wrong semantic reconstruction -> VERIFY_FAILED                        PASS
-extra canonical aspect -> SCOPE_BREACH                                PASS
-existing AutoCAD / Step27-37 regressions remain green                 PASS
+real Revit Host exists under hosts/revit                                PASS
+same set_wall_thickness.v1 canonical contract reused                    PASS
+canonical effect remains PROPERTIES consistently across AutoCAD/Revit   PASS
+Step27-30 production semantics unchanged                                PASS
+Step31 contract/resolver production semantics unchanged                 PASS
+Step32 production semantics unchanged                                   PASS
+Step33 production semantics unchanged                                   PASS
+Step37 production semantics unchanged                                   PASS
+Revit API absent from platform/sidecar/semantic core                    PASS
+Revit API confined to plugin Native boundary                            PASS
+Revit command enters API context through ExternalEvent                  PASS
+Wall identity persists by UniqueId                                      PASS
+MVP rejects target count != 1                                           PASS
+shared WallType outside approval fails before mutation                  PASS
+insert/join/isolation failure occurs before mutation                    PASS
+no hidden WallType duplication/CREATE                                   PASS
+real 300 mm wall mutation commits once                                  PASS
+real post-commit read-back equals 300 mm                                PASS
+native transaction/read-back evidence retained                          PASS
+Revit facts project to ifc:IfcWall + dsp:WallThickness                  PASS
+truthful ActualDelta reports approved wall/property outcome              PASS
+ScopeComparator = WITHIN_SCOPE                                          PASS
+SemanticVerifier = PASSED                                               PASS
+Saga = SUCCEEDED                                                        PASS
+stale revision is precommit/no mutation                                 PASS
+idempotency replay has no second mutation                               PASS
+wrong semantic reconstruction -> VERIFY_FAILED                          PASS
+extra canonical aspect -> SCOPE_BREACH                                  PASS
+existing AutoCAD / Step27-37 regressions remain green                   PASS
 ```
 
-## 25. Explicit non-goals
+## 27. Explicit non-goals
 
-This gap closure does **not** implement:
+This gap closure does not implement:
 
+- multiple target walls in one Revit thickness execution;
 - automatic duplication of shared WallTypes;
-- automatic reassignment of one wall to a duplicated type;
+- automatic reassignment to a duplicated type;
 - canonical CREATE authority for Revit type objects;
 - approval expansion to all walls sharing a type;
 - general multi-layer wall redistribution;
 - vertically compound walls;
 - stacked walls or curtain walls;
-- wall joins / hosted openings / geometry impact policy beyond the approved property proof;
+- walls with supported detected inserts/joins/associativity;
+- generalized Revit dependency/impact policy;
 - Revit gRPC transport;
-- automatic rollback or inverse Host commands;
+- automatic rollback/inverse Host commands;
 - multi-version Revit packaging;
-- Revit-specific branches in platform semantic or execution core.
+- Revit-specific branches in platform semantic/execution core.
 
-Each of those requires a separate design decision if later needed.
+Each requires a separate design decision if later needed.
 
-## 26. Architecture success criterion
+## 28. Architecture success criterion
 
-The strongest outcome of this phase is not merely "Revit can set a wall width." It is:
+The strongest result is not merely "Revit can set a wall width." It is:
 
-> AutoCAD and Revit, despite having different native object models and execution/threading constraints, both execute the same canonical `set_wall_thickness.v1` through the same Step27-37 governance and reconciliation core, with Host-specific knowledge contained behind Host/provider adapters.
+> A real Revit Host can execute the already-frozen canonical wall-thickness meaning through the same governance/reconciliation core as AutoCAD, while Revit-specific type sharing, unit conversion, API threading, identity, and native isolation remain provider/Host concerns.
 
-If implementation requires platform core to learn `WallType`, `CompoundStructure`, `OST_Walls`, `ExternalEvent`, or Revit unit APIs, the design has failed and must be reopened rather than patched around.
+If that claim cannot be achieved without lying about actual side effects, the implementation must stop and reopen the design rather than weakening scope comparison.
 
-## 27. Authoritative references
+## 29. Repository references
 
-Repository contracts used by this design:
-
+- `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
+- `docs/superpowers/specs/2026-08-29-step23-canonical-action-contract-design.md`
+- `docs/superpowers/specs/2026-08-29-step27-impact-layer-design.md`
+- `docs/superpowers/specs/2026-08-29-step28-approval-scope-boundary-design.md`
+- `docs/superpowers/specs/2026-08-30-step33-execution-reconciliation-design.md`
+- `docs/superpowers/specs/2026-08-30-step34-autocad-wall-thickness-design.md`
 - `platform/orchestrator/src/design_orchestrator/canonical_operations.py`
 - `contracts/python/design_fact_contracts/`
 - `contracts/schemas/host-command.schema.json`
@@ -566,12 +696,11 @@ Repository contracts used by this design:
 - `platform/execution_reconciliation/src/design_execution_reconciliation/`
 - `platform/execution_coordination/src/design_execution_coordination/`
 - `providers/semantics/enterprise_mapping/`
-- `tests/integration/test_step34_autocad_wall_thickness_reconciliation.py`
 
-Autodesk Revit API references reviewed for this design:
+## 30. Autodesk references reviewed
 
-- CompoundStructure: https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API/files/Revit_API_Developers_Guide/Revit_Geometric_Elements/Walls_Floors_Ceilings_Roofs_and_Openings/Revit_API_Revit_API_Developers_Guide_Revit_Geometric_Elements_Walls_Floors_Ceilings_Roofs_and_Openings_CompoundStructure_html.html
-- Element.UniqueId: https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API-MainReference/files/html/f9a9cb77-6913-6d41-ecf5-4398a24e8ff8.htm
-- External Events: https://help.autodesk.com/cloudhelp/2025/CHS/Revit-API/files/Revit_API_Developers_Guide/Advanced_Topics/Revit_API_Revit_API_Developers_Guide_Advanced_Topics_External_Events_html.html
-- ControlledApplication.DocumentChanged: https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API-MainReference/files/html/f7acc5b4-a1b4-12ca-802b-0ee78942589e.htm
-- Revit 2026 development requirements (.NET 8): https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API/files/Revit_API_Developers_Guide/Introduction/Getting_Started/Welcome_to_the_Revit_Platform_API/Revit_API_Revit_API_Developers_Guide_Introduction_Getting_Started_Welcome_to_the_Revit_Platform_API_Development_Requirements_html.html
+- CompoundStructure / walls, floors, ceilings and roofs: <https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API/files/Revit_API_Developers_Guide/Revit_Geometric_Elements/Walls_Floors_Ceilings_Roofs_and_Openings/Revit_API_Revit_API_Developers_Guide_Revit_Geometric_Elements_Walls_Floors_Ceilings_Roofs_and_Openings_CompoundStructure_html.html>
+- `Element.UniqueId`: <https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API-MainReference/files/html/f9a9cb77-6913-6d41-ecf5-4398a24e8ff8.htm>
+- External Events: <https://help.autodesk.com/cloudhelp/2025/CHS/Revit-API/files/Revit_API_Developers_Guide/Advanced_Topics/Revit_API_Revit_API_Developers_Guide_Advanced_Topics_External_Events_html.html>
+- `ControlledApplication.DocumentChanged`: <https://help.autodesk.com/cloudhelp/2026/ENU/Revit-API-MainReference/files/html/f7acc5b4-a1b4-12ca-802b-0ee78942589e.htm>
+- Revit 2026 updates / runtime changes: <https://help.autodesk.com/view/RVT/2026/ENU/?guid=RevitReleaseNotes_2026updates_html>
