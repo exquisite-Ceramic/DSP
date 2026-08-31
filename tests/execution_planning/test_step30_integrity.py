@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from design_approval_scope import CanonicalExistenceEffect
 from design_execution_planning import (
     ExecutionPlanner,
     ExecutionPlanningError,
@@ -48,6 +49,26 @@ def test_execution_unit_body_tamper_is_detected(step30_transaction) -> None:
     execution_slice = _real_execution_slice(step30_transaction)
     unit = execution_slice.execution_units[0]
     bad = replace(unit, arguments={**dict(unit.arguments), "tampered": True})
+    tampered = replace(
+        execution_slice,
+        execution_units=(bad, *execution_slice.execution_units[1:]),
+    )
+
+    with pytest.raises(ExecutionPlanningError) as exc:
+        validate_execution_slice_integrity(tampered)
+    assert exc.value.code == "EXECUTION_UNIT_INTEGRITY_INVALID"
+
+
+def test_execution_unit_existence_authority_tamper_is_detected(step30_transaction) -> None:
+    execution_slice = _real_execution_slice(step30_transaction)
+    unit = execution_slice.execution_units[0]
+    try:
+        bad = replace(
+            unit,
+            expected_existence_effects=(CanonicalExistenceEffect.CREATE,),
+        )
+    except TypeError:
+        pytest.fail("ExecutionUnit must expose expected_existence_effects")
     tampered = replace(
         execution_slice,
         execution_units=(bad, *execution_slice.execution_units[1:]),
