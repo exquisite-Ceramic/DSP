@@ -53,28 +53,36 @@ def compute_execution_unit_hash(
     arguments: Mapping[str, Any],
     preconditions: Iterable[ChangePrecondition],
     expected_effects: Iterable[object],
+    expected_existence_effects: Iterable[object] = (),
 ) -> str:
-    return canonical_hash(
+    payload = {
+        "changeset_hash": changeset_hash,
+        "source_operation_hash": source_operation_hash,
+        "canonical_operation": canonical_operation,
+        "canonical_operation_version": canonical_operation_version,
+        "canonical_definition_fingerprint": canonical_definition_fingerprint,
+        "targets": sorted(set(targets)),
+        "arguments": arguments,
+        "preconditions": sorted(
+            (_precondition_payload(item) for item in preconditions),
+            key=lambda item: (item["kind"], item["subject_ref"], item["evidence_ref"]),
+        ),
+        "expected_effects": sorted(
+            {
+                getattr(item, "value", str(item))
+                for item in expected_effects
+            }
+        ),
+    }
+    existence_effects = sorted(
         {
-            "changeset_hash": changeset_hash,
-            "source_operation_hash": source_operation_hash,
-            "canonical_operation": canonical_operation,
-            "canonical_operation_version": canonical_operation_version,
-            "canonical_definition_fingerprint": canonical_definition_fingerprint,
-            "targets": sorted(set(targets)),
-            "arguments": arguments,
-            "preconditions": sorted(
-                (_precondition_payload(item) for item in preconditions),
-                key=lambda item: (item["kind"], item["subject_ref"], item["evidence_ref"]),
-            ),
-            "expected_effects": sorted(
-                {
-                    getattr(item, "value", str(item))
-                    for item in expected_effects
-                }
-            ),
+            getattr(item, "value", str(item))
+            for item in expected_existence_effects
         }
     )
+    if existence_effects:
+        payload["expected_existence_effects"] = existence_effects
+    return canonical_hash(payload)
 
 
 def compute_execution_slice_hash(
