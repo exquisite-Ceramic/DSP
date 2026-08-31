@@ -93,6 +93,11 @@ def _admit_creation_rules(
 ) -> tuple[CreationRule, ...]:
     if not request.requested_creation_rules:
         return ()
+    if not canonical_existence and not intent_existence:
+        _error(
+            "SCOPE_EXISTENCE_EFFECT_UNSUPPORTED",
+            "Step28 legacy requests have no canonical existence-effect authority",
+        )
     if "CREATE" not in canonical_existence or "CREATE" not in intent_existence:
         _error(
             "SCOPE_RULE_INVALID",
