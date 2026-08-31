@@ -60,6 +60,7 @@ def test_profile_parser_keeps_provider_tool_separate_from_canonical_operation() 
         {"aspect": "PLACEMENT", "required_state": "FRESH"},
     )
     assert profile.effects == ("PLACEMENT", "GEOMETRY")
+    assert profile.existence_effects == ()
     assert profile.idempotent is True
 
 
@@ -99,6 +100,7 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
         "view.fit",
         "interaction.pick_point",
         "cad.move",
+        "cad.offset",
         "cad.set_wall_thickness",
     ]
 
@@ -115,6 +117,15 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
     ]
     assert move_tool["_meta"]["com.company.design/preview"] is False
     assert move_tool["_meta"]["com.company.design/rollback"] is False
+    assert move_tool["_meta"]["com.company.design/existence_effects"] == []
+
+    offset_tool = next(tool for tool in tools if tool["name"] == "cad.offset")
+    assert offset_tool["_meta"]["com.company.design/operation"] == "offset.v1"
+    assert offset_tool["_meta"]["com.company.design/category"] == "MODEL_OPERATION"
+    assert offset_tool["_meta"]["com.company.design/entities"] == ["LWPOLYLINE"]
+    assert offset_tool["_meta"]["com.company.design/effects"] == []
+    assert offset_tool["_meta"]["com.company.design/existence_effects"] == ["CREATE"]
+    assert offset_tool["_meta"]["com.company.design/idempotent"] is True
 
     thickness_tool = next(tool for tool in tools if tool["name"] == "cad.set_wall_thickness")
     assert thickness_tool["_meta"]["com.company.design/operation"] == "set_wall_thickness.v1"
@@ -124,6 +135,7 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
         {"aspect": "PROPERTIES", "required_state": "FRESH"}
     ]
     assert thickness_tool["_meta"]["com.company.design/effects"] == ["PROPERTIES"]
+    assert thickness_tool["_meta"]["com.company.design/existence_effects"] == []
     assert thickness_tool["_meta"]["com.company.design/idempotent"] is True
     assert thickness_tool["_meta"]["com.company.design/verification"] == {
         "type": "HOST_READ_BACK"
@@ -150,6 +162,9 @@ async def test_mcp_server_tools_list_preserves_design_profile_meta() -> None:
         async def move(self, handles, dx, dy, dz=0.0, **kwargs):  # pragma: no cover
             raise AssertionError("not called")
 
+        async def offset(self, handles, distance, side_point, **kwargs):  # pragma: no cover
+            raise AssertionError("not called")
+
         async def set_wall_thickness(self, handles, thickness_mm, **kwargs):  # pragma: no cover
             raise AssertionError("not called")
 
@@ -157,12 +172,17 @@ async def test_mcp_server_tools_list_preserves_design_profile_meta() -> None:
     tools = await server.list_tools()
     interaction = next(tool for tool in tools if tool.name == "interaction.pick_point")
     move = next(tool for tool in tools if tool.name == "cad.move")
+    offset = next(tool for tool in tools if tool.name == "cad.offset")
     thickness = next(tool for tool in tools if tool.name == "cad.set_wall_thickness")
 
     assert interaction.meta["com.company.design/operation"] == "interaction.pick_point.v1"
     assert interaction.meta["com.company.design/category"] == "INTERACTION"
     assert move.meta["com.company.design/operation"] == "move.v1"
     assert move.meta["com.company.design/category"] == "MODEL_OPERATION"
+    assert offset.meta["com.company.design/operation"] == "offset.v1"
+    assert offset.meta["com.company.design/entities"] == ["LWPOLYLINE"]
+    assert offset.meta["com.company.design/effects"] == []
+    assert offset.meta["com.company.design/existence_effects"] == ["CREATE"]
     assert thickness.meta["com.company.design/operation"] == "set_wall_thickness.v1"
     assert thickness.meta["com.company.design/entities"] == ["LWPOLYLINE"]
     assert thickness.meta["com.company.design/effects"] == ["PROPERTIES"]

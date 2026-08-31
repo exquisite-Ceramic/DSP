@@ -11,6 +11,7 @@ CATEGORY_KEY = f"{META_PREFIX}category"
 ENTITIES_KEY = f"{META_PREFIX}entities"
 EXECUTION_FRESHNESS_KEY = f"{META_PREFIX}execution_freshness"
 EFFECTS_KEY = f"{META_PREFIX}effects"
+EXISTENCE_EFFECTS_KEY = f"{META_PREFIX}existence_effects"
 RISK_KEY = f"{META_PREFIX}risk"
 PREVIEW_KEY = f"{META_PREFIX}preview"
 ROLLBACK_KEY = f"{META_PREFIX}rollback"
@@ -31,6 +32,7 @@ class DesignCapabilityProfile:
     entity_constraints: tuple[str, ...]
     execution_freshness: tuple[dict[str, Any], ...]
     effects: tuple[Any, ...]
+    existence_effects: tuple[Any, ...]
     risk: str | None
     preview_supported: bool
     rollback_supported: bool
@@ -95,6 +97,10 @@ def parse_design_capability(
         execution_freshness.append(dict(item))
 
     effects = _sequence(raw_meta.get(EFFECTS_KEY), field=EFFECTS_KEY)
+    existence_effects = _sequence(
+        raw_meta.get(EXISTENCE_EFFECTS_KEY),
+        field=EXISTENCE_EFFECTS_KEY,
+    )
 
     raw_verification = raw_meta.get(VERIFICATION_KEY) or {}
     if not isinstance(raw_verification, Mapping):
@@ -124,6 +130,7 @@ def parse_design_capability(
         entity_constraints=entity_constraints,
         execution_freshness=tuple(execution_freshness),
         effects=effects,
+        existence_effects=existence_effects,
         risk=risk,
         preview_supported=bool(raw_meta.get(PREVIEW_KEY, False)),
         rollback_supported=bool(raw_meta.get(ROLLBACK_KEY, False)),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from host_contracts.command import HostCommand
 from host_contracts.entity_ref import HostEntityRef
@@ -48,6 +50,39 @@ class ModelAdapter:
                     "y": dy,
                     "z": dz,
                 }
+            },
+            preconditions=preconditions,
+            idempotency_key=idempotency_key or str(uuid.uuid4()),
+        )
+        return await self._host.send_command(command)
+
+    async def offset(
+        self,
+        handles: list[str],
+        distance: Mapping[str, Any],
+        side_point: Mapping[str, Any],
+        *,
+        document_id: str,
+        idempotency_key: str | None = None,
+        revision: int | None = None,
+    ) -> HostCommandResult:
+        preconditions = (
+            [{"type": "revision", "expected": revision}]
+            if revision is not None
+            else None
+        )
+        command = HostCommand(
+            command_id=str(uuid.uuid4()),
+            document_id=document_id,
+            mode="EXECUTE",
+            operation="offset.v1",
+            target_native_refs=[
+                HostEntityRef(document_id=document_id, native_id=handle)
+                for handle in handles
+            ],
+            arguments={
+                "distance": dict(distance),
+                "sidePoint": dict(side_point),
             },
             preconditions=preconditions,
             idempotency_key=idempotency_key or str(uuid.uuid4()),
