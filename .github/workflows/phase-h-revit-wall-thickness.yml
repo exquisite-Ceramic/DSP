@@ -1,0 +1,40 @@
+name: Phase H Revit wall thickness
+
+on:
+  push:
+    paths:
+      - ".github/workflows/phase-h-revit-wall-thickness.yml"
+      - "hosts/revit/**"
+      - "tests/revit/**"
+      - "tests/integration/test_phase_h_revit_wall_thickness_reconciliation.py"
+      - "tests/integration/test_phase_h_revit_wall_thickness_live.py"
+      - "providers/semantics/enterprise_mapping/**"
+  pull_request:
+    paths:
+      - ".github/workflows/phase-h-revit-wall-thickness.yml"
+      - "hosts/revit/**"
+      - "tests/revit/**"
+      - "tests/integration/test_phase_h_revit_wall_thickness_reconciliation.py"
+      - "tests/integration/test_phase_h_revit_wall_thickness_live.py"
+      - "providers/semantics/enterprise_mapping/**"
+  workflow_dispatch:
+
+jobs:
+  phase-h-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install Python verification dependencies
+        run: python -m pip install pytest
+      - name: Verify Revit architecture boundary
+        run: python -m pytest tests/revit/test_revit_architecture.py -q -vv
+      - name: Verify Revit-free .NET core
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
