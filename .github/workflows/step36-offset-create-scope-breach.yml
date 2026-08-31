@@ -7,8 +7,10 @@ on:
     paths:
       - 'platform/orchestrator/**'
       - 'platform/impact/**'
+      - 'platform/approval_scope/**'
       - 'tests/orchestrator/**'
       - 'tests/impact/**'
+      - 'tests/approval_scope/**'
       - '.github/workflows/step36-offset-create-scope-breach.yml'
   workflow_dispatch:
 
@@ -35,3 +37,7 @@ jobs:
         run: python -m pytest tests/impact/test_step36_creation_intent.py -q
       - name: Run impact regression
         run: python -m pytest tests/impact -q
+      - name: Run Step36 Task3 focused tests
+        run: python -m pytest tests/approval_scope/test_step36_creation_scope.py -q
+      - name: Run approval scope regression
+        run: python -m pytest tests/approval_scope -q
