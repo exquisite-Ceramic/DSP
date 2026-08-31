@@ -114,6 +114,8 @@ def _verify_contract_fingerprint(contract: CanonicalOperationContractEvidence) -
         argument_schema=contract.argument_schema,
         effects=contract.effects,
         verification_contract=contract.verification_contract,
+        existence_effects=contract.existence_effects,
+        creation_contract=contract.creation_contract,
     )
     if expected != contract.definition_fingerprint:
         _error(
