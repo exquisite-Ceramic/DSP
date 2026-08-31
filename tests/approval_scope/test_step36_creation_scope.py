@@ -1,15 +1,19 @@
 import hashlib
 import json
+from dataclasses import replace
 
 import pytest
 
 from design_approval_scope import (
+    ApprovalScopeError,
     ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    CanonicalAspect,
     CanonicalCreationContract,
     CanonicalEffectEvidence,
     CanonicalExistenceEffect,
     CreationRule,
+    DeletionRule,
     EntitySelector,
     ExecutionSliceScopeRule,
 )
@@ -20,6 +24,9 @@ from design_impact import (
     SemanticEnvironmentBinding,
     SnapshotSetBinding,
 )
+
+
+_UNSET = object()
 
 
 def _creation_contract() -> CanonicalCreationContract:
@@ -60,7 +67,7 @@ def _expected_creation_rule_id(rule: CreationRule) -> str:
     return f"CR-{hashlib.sha256(encoded).hexdigest()[:12]}"
 
 
-def _offset_request() -> ApprovalScopePlanRequest:
+def _offset_parts():
     environment = SemanticEnvironmentBinding("ENV-1", "env-hash")
     planning = PlanningSnapshotBinding("PS-1", "planning-hash", "DOC-1", environment)
     snapshot_set = SnapshotSetBinding("SS-1", "set-hash", ("PS-1",), environment)
@@ -89,24 +96,43 @@ def _offset_request() -> ApprovalScopePlanRequest:
         allowed_derived_rule_refs=(),
         allowed_existence_effects=("CREATE",),
     )
-    requested = _requested_creation_rule()
-    admitted_rule_id = _expected_creation_rule_id(requested)
-    return ApprovalScopePlanRequest(
-        canonical_effect_evidence=evidence,
-        impact_analysis=impact,
-        intent_boundary=intent,
-        direct_entity_effects=(),
-        scope_effect_recipes=(),
-        requested_creation_rules=(requested,),
-        requested_deletion_rules=(),
-        execution_slice_scope_rules=(
+    return impact, evidence, intent
+
+
+def _offset_request(
+    *,
+    rule: CreationRule | None = None,
+    evidence: CanonicalEffectEvidence | None = None,
+    intent: IntentBoundary | None = None,
+    slices=_UNSET,
+    delete: tuple[DeletionRule, ...] = (),
+) -> ApprovalScopePlanRequest:
+    impact, default_evidence, default_intent = _offset_parts()
+    requested = rule or _requested_creation_rule()
+    if slices is _UNSET:
+        slices = (
             ExecutionSliceScopeRule(
                 "SLICE-OFFSET",
                 "DOC-1",
-                creation_rule_ids=(admitted_rule_id,),
+                creation_rule_ids=(_expected_creation_rule_id(requested),),
             ),
-        ),
+        )
+    return ApprovalScopePlanRequest(
+        canonical_effect_evidence=evidence or default_evidence,
+        impact_analysis=impact,
+        intent_boundary=intent or default_intent,
+        direct_entity_effects=(),
+        scope_effect_recipes=(),
+        requested_creation_rules=(requested,),
+        requested_deletion_rules=delete,
+        execution_slice_scope_rules=tuple(slices),
     )
+
+
+def _assert_code(code: str, request: ApprovalScopePlanRequest) -> None:
+    with pytest.raises(ApprovalScopeError) as exc:
+        ApprovalScopePlanner().plan(request)
+    assert exc.value.code == code
 
 
 def test_create_only_canonical_effect_evidence_allows_empty_aspects() -> None:
@@ -152,3 +178,47 @@ def test_planner_admits_exact_closed_creation_rule() -> None:
         ),
     )
     assert result.execution_slice_scope_rules[0].creation_rule_ids == (expected_id,)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        _requested_creation_rule(canonical_operation="copy.v1"),
+        _requested_creation_rule(
+            source_selector=EntitySelector(entities=("WALL-001", "WALL-999"))
+        ),
+        _requested_creation_rule(entity_kinds=("ifc:IfcWall", "ifc:IfcDoor")),
+        _requested_creation_rule(max_count=None),
+        _requested_creation_rule(max_count=2),
+        _requested_creation_rule(required_derivation="RULE-WRONG"),
+    ],
+)
+def test_creation_rule_cannot_widen_or_change_canonical_authority(rule: CreationRule) -> None:
+    _assert_code("SCOPE_RULE_INVALID", _offset_request(rule=rule))
+
+
+def test_creation_requires_canonical_create_authority() -> None:
+    evidence = CanonicalEffectEvidence(
+        canonical_operation="offset.v1",
+        canonical_operation_version="1.0.0",
+        allowed_aspects=(CanonicalAspect.GEOMETRY,),
+    )
+    _assert_code("SCOPE_RULE_INVALID", _offset_request(evidence=evidence))
+
+
+def test_creation_requires_intent_create_authority() -> None:
+    _, _, intent = _offset_parts()
+    intent = replace(intent, allowed_existence_effects=())
+    _assert_code("SCOPE_RULE_INVALID", _offset_request(intent=intent))
+
+
+def test_every_creation_rule_must_be_covered_by_slice_scope() -> None:
+    _assert_code("SCOPE_SLICE_RULE_INVALID", _offset_request(slices=()))
+
+
+def test_delete_remains_unsupported() -> None:
+    deletion = DeletionRule("DELETE-1", EntitySelector(entities=("WALL-001",)))
+    _assert_code(
+        "SCOPE_EXISTENCE_EFFECT_UNSUPPORTED",
+        _offset_request(delete=(deletion,)),
+    )
