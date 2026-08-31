@@ -98,3 +98,5 @@ def test_single_instance_host_waits_for_client_completion_before_reaccepting() -
     assert "await pipe.WaitForConnectionAsync(ct);" in source
     assert "await HandleClientAsync(pipe, ct);" in source
     assert "_ = Task.Run(() => HandleClientAsync(pipe, ct), ct);" not in source
+
+# CI carrier: collect the new Step36 live scope acceptance under full importlib.
