@@ -7,6 +7,7 @@ from design_changeset import CanonicalChangeSet
 from design_execution_planning import ExecutionPlan
 from design_execution_reconciliation import (
     ExecutionReconciliationService,
+    ExecutionSagaStatus,
     SliceReconciliationStatus,
 )
 
@@ -24,6 +25,18 @@ _ACTIVE_SLICE_STATUSES = frozenset(
         SliceReconciliationStatus.ADMITTED,
         SliceReconciliationStatus.HOST_COMMITTED,
         SliceReconciliationStatus.RECONCILING,
+    }
+)
+_TERMINAL_COORDINATION_STATUS = {
+    ExecutionSagaStatus.SUCCEEDED: CoordinationStatus.SUCCEEDED,
+    ExecutionSagaStatus.FAILED: CoordinationStatus.FAILED,
+    ExecutionSagaStatus.PARTIALLY_COMMITTED: CoordinationStatus.PARTIALLY_COMMITTED,
+}
+_NON_FORWARD_SAGA_STATUSES = frozenset(
+    {
+        ExecutionSagaStatus.COMPENSATING,
+        ExecutionSagaStatus.COMPENSATED,
+        ExecutionSagaStatus.COMPENSATION_FAILED,
     }
 )
 
@@ -86,6 +99,21 @@ class ExecutionSagaCoordinator:
             raise CoordinationError(
                 "SAGA_INTEGRITY_INVALID",
                 "ExecutionPlan Slices differ from immutable Step33 Saga ordering",
+            )
+
+        terminal_status = _TERMINAL_COORDINATION_STATUS.get(stored.status)
+        if terminal_status is not None:
+            return CoordinationResult(
+                saga_id=definition.saga_id,
+                saga_revision=stored.saga_revision,
+                status=terminal_status,
+                active_slice_hash=None,
+                failure_ref=None,
+            )
+        if stored.status in _NON_FORWARD_SAGA_STATUSES:
+            raise CoordinationError(
+                "SAGA_NOT_FORWARD_EXECUTABLE",
+                "Step33 Saga is in compensation lifecycle and cannot execute forward",
             )
 
         active = tuple(
