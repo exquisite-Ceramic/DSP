@@ -231,7 +231,14 @@ def test_compensation_proposal_uses_only_durable_step33_evidence(
     )
     assert proposal.verification_failure_refs == ()
     assert proposal.scope_breach_refs == (failed_state.scope_comparison_hash,)
-    assert tuple(proposal.desired_recovery_effects) == _DESIRED_RECOVERY_EFFECTS
+    assert len(proposal.desired_recovery_effects) == 1
+    recovery_effect = proposal.desired_recovery_effects[0]
+    assert recovery_effect["canonical_operation"] == "semantic.assertions.v1"
+    assert tuple(recovery_effect["targets"]) == ("WALL-001",)
+    assert (
+        recovery_effect["arguments"]["assertions"]["properties.thickness"]
+        == 300.0
+    )
     assert calls_before == (
         tuple(authority_port.calls),
         tuple(registry.resolutions),
