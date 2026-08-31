@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -7,6 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_ROOT = REPO_ROOT / "hosts/revit/plugin/Revit.AgentHost.Core"
 NATIVE_HOST_ROOT = REPO_ROOT / "hosts/revit/plugin/Revit.AgentHost"
 NATIVE_SOURCE_ROOT = NATIVE_HOST_ROOT / "Native"
+IPC_ROOT = NATIVE_HOST_ROOT / "Ipc"
 SIDECAR_ROOT = REPO_ROOT / "hosts/revit/sidecar"
 NATIVE_PROJECT = NATIVE_HOST_ROOT / "Revit.AgentHost.csproj"
 
@@ -95,3 +97,44 @@ def test_step27_to_step37_platform_production_remains_revit_free() -> None:
                 violations.append(f"{relative}: {','.join(tokens)}")
 
     assert violations == []
+
+
+def test_named_pipe_server_is_revit_api_free() -> None:
+    server = IPC_ROOT / "NamedPipeServer.cs"
+    assert server.is_file()
+    assert "Autodesk.Revit" not in server.read_text(encoding="utf-8")
+
+
+def test_document_changed_subscription_has_one_native_wiring_owner() -> None:
+    plugin_entry = NATIVE_SOURCE_ROOT / "PluginEntry.cs"
+    tracker = NATIVE_SOURCE_ROOT / "Revision/DocumentRevisionTracker.cs"
+    assert plugin_entry.is_file()
+    assert tracker.is_file()
+
+    subscribers = []
+    for path in _text_files(NATIVE_HOST_ROOT, (".cs",)):
+        if ".DocumentChanged +=" in path.read_text(encoding="utf-8"):
+            subscribers.append(path)
+
+    assert len(subscribers) == 1
+    assert subscribers[0] in (plugin_entry, tracker)
+    assert "OnDocumentChanged" in tracker.read_text(encoding="utf-8")
+
+
+def test_command_handlers_never_increment_revision_independently() -> None:
+    handlers = (
+        IPC_ROOT / "NamedPipeServer.cs",
+        IPC_ROOT / "RequestDispatcher.cs",
+        NATIVE_SOURCE_ROOT / "ExternalEvents/RevitExternalEventHandler.cs",
+    )
+    missing = [path.relative_to(REPO_ROOT).as_posix() for path in handlers if not path.is_file()]
+    assert missing == []
+
+    revision_increment = re.compile(
+        r"(?:\+\+\s*[_a-z0-9]*revision|[_a-z0-9]*revision\s*\+\+)",
+        re.IGNORECASE,
+    )
+    for path in handlers:
+        text = path.read_text(encoding="utf-8")
+        assert revision_increment.search(text) is None
+        assert ".OnDocumentChanged(" not in text
