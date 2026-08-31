@@ -15,6 +15,7 @@ EXPECTED_METADATA = {
     "target_ifc_provider_version": "4.3.2.0",
     "target_ifc_schema": "IFC4X3_ADD2",
 }
+# Phase H adds only these two reviewed Revit rule IDs to the legacy AutoCAD set.
 EXPECTED_RULE_IDS = (
     "enterprise.autocad.layer.a-wall-prefix.v1",
     "enterprise.autocad.layer.a-wall.exact.v1",
