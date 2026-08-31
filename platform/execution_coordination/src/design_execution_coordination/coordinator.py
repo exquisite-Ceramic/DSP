@@ -69,7 +69,7 @@ class ExecutionSagaCoordinator:
         self._clock = clock
 
     @staticmethod
-    def _terminal_result(stored) -> CoordinationResult | None:
+    def _terminal_result(stored, failure_ref=None) -> CoordinationResult | None:
         status = _TERMINAL_COORDINATION_STATUS.get(stored.status)
         if status is None:
             return None
@@ -78,7 +78,7 @@ class ExecutionSagaCoordinator:
             saga_revision=stored.saga_revision,
             status=status,
             active_slice_hash=None,
-            failure_ref=None,
+            failure_ref=failure_ref,
         )
 
     @staticmethod
@@ -107,6 +107,21 @@ class ExecutionSagaCoordinator:
                 "SAGA_INTEGRITY_INVALID",
                 f"Saga validation assignment references unknown task {exc.args[0]}",
             ) from exc
+
+    @staticmethod
+    def _authority_matches(
+        authority,
+        execution_slice,
+        canonical_changeset,
+        approval_scope_boundary,
+    ) -> bool:
+        return (
+            authority.execution_slice_hash == execution_slice.execution_slice_hash
+            and authority.changeset_hash == canonical_changeset.changeset_hash
+            and authority.approved_scope_hash == approval_scope_boundary.scope_hash
+            and authority.host_instance_id
+            == execution_slice.host_runtime_ref.host_instance_id
+        )
 
     def execute(
         self,
@@ -210,6 +225,28 @@ class ExecutionSagaCoordinator:
                     "AUTHORITY_RESULT_INVALID",
                     "authority port returned an invalid result",
                 )
+            if not self._authority_matches(
+                authority,
+                execution_slice,
+                canonical_changeset,
+                approval_scope_boundary,
+            ):
+                stored = self._reconciliation.fail_slice_before_commit(
+                    definition.saga_id,
+                    execution_slice_hash,
+                    expected_revision=stored.saga_revision,
+                    failed_at=self._clock.now(),
+                )
+                terminal = self._terminal_result(
+                    stored,
+                    "COORDINATION_AUTHORITY_MISMATCH",
+                )
+                if terminal is None:
+                    raise CoordinationError(
+                        "SAGA_INTEGRITY_INVALID",
+                        "authority mismatch did not produce a terminal Step33 Saga",
+                    )
+                return terminal
             stored = self._reconciliation.confirm_slice_admitted(
                 definition.saga_id,
                 authority,
