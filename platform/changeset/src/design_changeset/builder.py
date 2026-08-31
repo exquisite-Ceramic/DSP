@@ -312,6 +312,7 @@ def _cover_creation_scope(
             "canonical CREATE authority requires a creation contract",
         )
 
+    compatible = []
     for rule in scope.creation_rules:
         if rule.canonical_operation != contract.canonical_operation:
             continue
@@ -323,12 +324,20 @@ def _cover_creation_scope(
             continue
         if rule.required_derivation != creation_contract.required_derivation:
             continue
-        return (rule.rule_id,), (compute_scope_rule_fingerprint(rule),)
+        compatible.append(rule)
 
-    _error(
-        "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
-        "no Step28 creation rule proves the exact canonical creation authority",
-    )
+    if not compatible:
+        _error(
+            "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+            "no Step28 creation rule proves the exact canonical creation authority",
+        )
+    if len(compatible) > 1:
+        _error(
+            "CHANGESET_SCOPE_MEMBERSHIP_AMBIGUOUS",
+            "multiple Step28 creation rules prove the same canonical creation authority",
+        )
+    rule = compatible[0]
+    return (rule.rule_id,), (compute_scope_rule_fingerprint(rule),)
 
 
 def _preconditions(bound: BoundOperationEvidence) -> tuple[ChangePrecondition, ...]:
