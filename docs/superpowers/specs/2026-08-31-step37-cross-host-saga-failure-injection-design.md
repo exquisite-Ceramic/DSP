@@ -1,6 +1,6 @@
 # Step37 Cross-Host Saga Failure Injection Design
 
-**Status:** FROZEN DESIGN CANDIDATE — pending user review
+**Status:** FROZEN DESIGN — user approved on 2026-08-31
 
 **Base:** `main` at `2b114462c9932d478f752564c0449224125ed58f` (Step36 merged)
 
