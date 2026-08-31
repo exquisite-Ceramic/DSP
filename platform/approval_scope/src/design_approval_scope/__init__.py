@@ -24,6 +24,7 @@ from .contracts import (
 from .hashing import (
     bind_changeset,
     compute_scope_body_hash,
+    creation_rule_id,
     validate_approval_scope_boundary,
 )
 from .planner import ApprovalScopePlanner, direct_existing_rule_id, recipe_existing_rule_id
@@ -51,6 +52,7 @@ __all__ = [
     "ScopeEffectRecipe",
     "bind_changeset",
     "compute_scope_body_hash",
+    "creation_rule_id",
     "direct_existing_rule_id",
     "recipe_existing_rule_id",
     "validate_approval_scope_boundary",
