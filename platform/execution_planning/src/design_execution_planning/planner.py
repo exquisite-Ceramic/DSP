@@ -6,6 +6,8 @@ from collections.abc import Mapping
 
 from design_approval_scope import (
     ApprovalScopeBoundary,
+    CreationRule,
+    DeletionRule,
     ExecutionSliceScopeRule,
     ExistingEntityRule,
 )
@@ -36,6 +38,8 @@ from .hashing import (
     compute_routing_snapshot_hash,
 )
 
+ScopeRule = ExistingEntityRule | CreationRule | DeletionRule
+
 
 def _error(code: str, message: str):
     raise ExecutionPlanningError(code, message)
@@ -48,16 +52,20 @@ def _operations(changeset: CanonicalChangeSet) -> tuple[CanonicalChangeOperation
 def _validate_scope_binding(
     changeset: CanonicalChangeSet,
     boundary: ApprovalScopeBoundary,
-) -> dict[str, ExistingEntityRule]:
+) -> dict[str, ScopeRule]:
     if changeset.changeset_hash != boundary.changeset_hash:
         _error("EXECUTION_SCOPE_MISMATCH", "approval scope does not bind this ChangeSet")
     if changeset.approval_scope_definition_ref.scope_body_hash != boundary.scope_body_hash:
         _error("EXECUTION_SCOPE_MISMATCH", "approval scope body differs from the ChangeSet scope reference")
 
-    rules: dict[str, ExistingEntityRule] = {}
-    for rule in boundary.existing_entity_rules:
+    rules: dict[str, ScopeRule] = {}
+    for rule in (
+        *boundary.existing_entity_rules,
+        *boundary.creation_rules,
+        *boundary.deletion_rules,
+    ):
         if rule.rule_id in rules:
-            _error("EXECUTION_SCOPE_MISMATCH", "approval scope contains duplicate existing rule ids")
+            _error("EXECUTION_SCOPE_MISMATCH", "approval scope contains duplicate rule ids")
         rules[rule.rule_id] = rule
 
     for operation in _operations(changeset):
@@ -74,7 +82,7 @@ def _validate_scope_binding(
 
 def _source_operation_hash(
     operation: CanonicalChangeOperation,
-    rules_by_id: Mapping[str, ExistingEntityRule],
+    rules_by_id: Mapping[str, ScopeRule],
 ) -> str:
     try:
         fingerprints = tuple(
@@ -96,6 +104,7 @@ def _source_operation_hash(
         expected_effects=operation.expected_effects,
         scope_rule_fingerprints=fingerprints,
         source_evidence=operation.source_evidence,
+        expected_existence_effects=operation.expected_existence_effects,
     )
     if operation.operation_id != f"COP-{source_hash[:12]}":
         _error(
@@ -124,13 +133,13 @@ def _select_slice_scope(
     for candidate in boundary.execution_slice_scopes:
         if candidate.document_ref != document_ref:
             continue
-        if not required.issubset(candidate.existing_rule_ids):
-            continue
         authority = (
             set(candidate.existing_rule_ids)
             | set(candidate.creation_rule_ids)
             | set(candidate.deletion_rule_ids)
         )
+        if not required.issubset(authority):
+            continue
         surplus = authority - required
         candidates.append((len(surplus), _slice_body(candidate), candidate))
 
@@ -223,6 +232,7 @@ def _build_unit(
         arguments=operation.arguments,
         preconditions=changeset.preconditions,
         expected_effects=operation.expected_effects,
+        expected_existence_effects=operation.expected_existence_effects,
     )
     return ExecutionUnit(
         execution_unit_id=f"EU-{unit_hash[:12]}",
@@ -236,6 +246,7 @@ def _build_unit(
         preconditions=changeset.preconditions,
         expected_effects=operation.expected_effects,
         execution_unit_hash=unit_hash,
+        expected_existence_effects=operation.expected_existence_effects,
     )
 
 
