@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from design_approval_scope import ApprovalScopeDefinition, CanonicalAspect
+from design_approval_scope import (
+    ApprovalScopeDefinition,
+    CanonicalAspect,
+    CanonicalExistenceEffect,
+)
 from design_impact import ImpactAnalysis
 from jsonschema import SchemaError, ValidationError, validate
 
@@ -293,6 +297,38 @@ def _cover_scope(
         sorted(compute_scope_rule_fingerprint(selected[rule_id]) for rule_id in rule_ids)
     )
     return rule_ids, fingerprints
+
+
+def _cover_creation_scope(
+    *,
+    targets: tuple[str, ...],
+    contract: CanonicalOperationContractEvidence,
+    scope: ApprovalScopeDefinition,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    creation_contract = contract.creation_contract
+    if creation_contract is None:
+        _error(
+            "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+            "canonical CREATE authority requires a creation contract",
+        )
+
+    for rule in scope.creation_rules:
+        if rule.canonical_operation != contract.canonical_operation:
+            continue
+        if rule.source_selector.entities != targets:
+            continue
+        if not set(rule.entity_kinds).issubset(set(creation_contract.entity_kinds)):
+            continue
+        if rule.max_count is None or rule.max_count > creation_contract.max_count:
+            continue
+        if rule.required_derivation != creation_contract.required_derivation:
+            continue
+        return (rule.rule_id,), (compute_scope_rule_fingerprint(rule),)
+
+    _error(
+        "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+        "no Step28 creation rule proves the exact canonical creation authority",
+    )
 
 
 def _preconditions(bound: BoundOperationEvidence) -> tuple[ChangePrecondition, ...]:
@@ -659,11 +695,24 @@ class ChangeSetBuilder:
         _validate_arguments(bound.arguments, contract)
 
         expected_effects = tuple(contract.effects)
-        scope_rule_ids, scope_rule_fingerprints = _cover_scope(
-            targets=targets,
-            expected_effects=expected_effects,
-            scope=scope,
-        )
+        expected_existence_effects = tuple(contract.existence_effects)
+        if expected_existence_effects:
+            if expected_existence_effects != (CanonicalExistenceEffect.CREATE,):
+                _error(
+                    "CHANGESET_SCOPE_MEMBERSHIP_UNRESOLVED",
+                    "Step29 does not admit this existence-effect combination",
+                )
+            scope_rule_ids, scope_rule_fingerprints = _cover_creation_scope(
+                targets=targets,
+                contract=contract,
+                scope=scope,
+            )
+        else:
+            scope_rule_ids, scope_rule_fingerprints = _cover_scope(
+                targets=targets,
+                expected_effects=expected_effects,
+                scope=scope,
+            )
         source = OperationSourceEvidence(
             source_kind=OperationSourceKind.ROOT_BOUND_OPERATION,
             source_fingerprint=bound.bound_operation_evidence_fingerprint,
@@ -678,6 +727,7 @@ class ChangeSetBuilder:
             expected_effects=expected_effects,
             scope_rule_fingerprints=scope_rule_fingerprints,
             source_evidence=source,
+            expected_existence_effects=expected_existence_effects,
         )
         root = CanonicalChangeOperation(
             operation_id=f"COP-{root_hash[:12]}",
@@ -690,6 +740,7 @@ class ChangeSetBuilder:
             expected_effects=expected_effects,
             scope_rule_ids=scope_rule_ids,
             source_evidence=source,
+            expected_existence_effects=expected_existence_effects,
         )
 
         derived, dependencies, derived_hashes = _materialize_derived(
