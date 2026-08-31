@@ -61,6 +61,7 @@ POINT_OPERATION = CanonicalOperationDefinition(
         "targets": SlotBindingClass.CONTEXT,
         "point": SlotBindingClass.INTENT,
     },
+    effects=("PLACEMENT",),
     verification_contract={"type": "HOST_READ_BACK"},
 )
 
@@ -237,6 +238,7 @@ def test_interaction_recipe_is_only_allowed_for_required_intent_slots() -> None:
             "additionalProperties": False,
         },
         slot_binding_policy={"point": SlotBindingClass.INTENT},
+        effects=("PLACEMENT",),
         verification_contract={"type": "HOST_READ_BACK"},
     )
 
@@ -273,6 +275,7 @@ def test_interaction_recipe_cannot_target_provider_slot() -> None:
             "additionalProperties": False,
         },
         slot_binding_policy={"native_ref": SlotBindingClass.PROVIDER},
+        effects=("PROPERTIES",),
         verification_contract={"type": "HOST_READ_BACK"},
     )
 
