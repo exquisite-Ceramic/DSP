@@ -6,12 +6,14 @@ on:
       - 'feat/step36-offset-create-scope-breach'
     paths:
       - 'platform/orchestrator/**'
+      - 'platform/impact/**'
       - 'tests/orchestrator/**'
+      - 'tests/impact/**'
       - '.github/workflows/step36-offset-create-scope-breach.yml'
   workflow_dispatch:
 
 jobs:
-  task1-orchestrator:
+  step36-offline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +31,5 @@ jobs:
         run: python -m pytest tests/orchestrator/test_step36_offset_action.py -q
       - name: Run orchestrator regression
         run: python -m pytest tests/orchestrator -q
+      - name: Run Step36 Task2 focused tests
+        run: python -m pytest tests/impact/test_step36_creation_intent.py -q
