@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DspRevitTargetFramework)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <Target Name="ValidateDspRevitBuildInputs" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(DspRevitVersion)' == ''" Text="DspRevitVersion must be supplied for a native Revit build." />
+    <Error Condition="'$(DspRevitTargetFramework)' == ''" Text="DspRevitTargetFramework must be supplied for a native Revit build." />
+    <Error Condition="'$(DspRevitApiDir)' == ''" Text="DspRevitApiDir must be supplied for a native Revit build." />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Revit.AgentHost.Core\Revit.AgentHost.Core.csproj" />
+    <Reference Include="RevitAPI">
+      <HintPath>$(DspRevitApiDir)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(DspRevitApiDir)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
