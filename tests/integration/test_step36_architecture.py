@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from design_approval_scope import CanonicalAspect
 from design_orchestrator.canonical_operations import OFFSET_V1
 
