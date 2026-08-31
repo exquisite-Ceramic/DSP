@@ -153,7 +153,7 @@ def _creation_hash(rule: CreationRule, *, existence: bool = True) -> str:
         CanonicalEffectEvidence(
             "offset.v1",
             "1.0.0",
-            (),
+            (CanonicalAspect.GEOMETRY,),
             ("CREATE",),
             contract,
         )
@@ -166,7 +166,7 @@ def _creation_hash(rule: CreationRule, *, existence: bool = True) -> str:
     )
     intent = IntentBoundary(
         ("WALL-001",),
-        () if existence else ("GEOMETRY",),
+        ("GEOMETRY",),
         (),
         ("CREATE",) if existence else (),
     )
