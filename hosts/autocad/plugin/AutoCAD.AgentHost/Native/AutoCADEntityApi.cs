@@ -150,6 +150,65 @@ public static class AutoCADEntityApi
         }
     }
 
+    public static (Dictionary<string, double> Before, Dictionary<string, double> After) SetConstantWidths(
+        IEnumerable<string> handles,
+        double targetWidth)
+    {
+        if (!double.IsFinite(targetWidth) || targetWidth <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetWidth), "target width must be finite and positive");
+        }
+
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("no active document.");
+        if (doc.Database.Insunits != UnitsValue.Millimeters)
+        {
+            throw new InvalidOperationException("set_wall_thickness.v1 requires an AutoCAD document in millimetres");
+        }
+
+        var targets = handles
+            .Where(handle => !string.IsNullOrWhiteSpace(handle))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (targets.Length == 0)
+        {
+            throw new ArgumentException("at least one target handle is required", nameof(handles));
+        }
+
+        var before = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var after = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        using var transaction = doc.Database.TransactionManager.StartTransaction();
+
+        foreach (var handle in targets)
+        {
+            if (!TryResolveObjectId(doc.Database, handle, out var id)
+                || !id.IsValid
+                || id.IsNull
+                || id.IsErased
+                || id.IsEffectivelyErased)
+            {
+                throw new InvalidOperationException($"unable to resolve writable AutoCAD entity handle: {handle}");
+            }
+
+            var polyline = transaction.GetObject(id, OpenMode.ForWrite) as Polyline
+                ?? throw new InvalidOperationException($"wall thickness target must be an AutoCAD Polyline: {handle}");
+
+            before[handle] = polyline.ConstantWidth;
+            polyline.ConstantWidth = targetWidth;
+            after[handle] = polyline.ConstantWidth;
+
+            if (Math.Abs(after[handle] - targetWidth) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    $"native ConstantWidth postcondition failed for {handle}: expected {targetWidth}, got {after[handle]}");
+            }
+        }
+
+        transaction.Commit();
+        AutoCADDocumentApi.BumpRevision(doc.Name);
+        return (before, after);
+    }
+
     internal static bool TryResolveObjectId(Database database, string nativeId, out ObjectId objectId)
     {
         objectId = ObjectId.Null;
