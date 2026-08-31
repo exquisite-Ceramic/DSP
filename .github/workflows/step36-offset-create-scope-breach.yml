@@ -20,5 +20,7 @@ jobs:
           python-version: '3.11'
       - name: Install test dependencies
         run: python -m pip install pytest pytest-asyncio jsonschema
-      - name: Run Step36 Task1 RED/GREEN tests
+      - name: Run Step36 Task1 focused tests
         run: python -m pytest tests/orchestrator/test_step36_offset_action.py -q
+      - name: Run orchestrator regression
+        run: python -m pytest tests/orchestrator -q
