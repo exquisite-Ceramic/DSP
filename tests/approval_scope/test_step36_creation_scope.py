@@ -5,8 +5,8 @@ from dataclasses import replace
 import pytest
 from design_approval_scope import (
     ApprovalScopeError,
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalCreationContract,
     CanonicalEffectEvidence,
@@ -23,7 +23,6 @@ from design_impact import (
     SemanticEnvironmentBinding,
     SnapshotSetBinding,
 )
-
 
 _UNSET = object()
 
