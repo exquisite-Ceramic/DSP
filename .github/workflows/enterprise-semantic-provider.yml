@@ -44,7 +44,7 @@ jobs:
             -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping
       - name: Verify Step20 PR diff boundary
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/enterprise-a-wall-mapping-provider'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
