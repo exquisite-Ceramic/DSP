@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 import pytest
-
 from autocad_live_host import live_autocad_host_adapter
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
 from design_approval_scope import (
