@@ -59,6 +59,7 @@ def _definition(
         slot_binding_policy=slot_binding_policy,
         verification_contract={"type": "HOST_READ_BACK"},
         operation_freshness_requirements=operation_freshness_requirements,
+        effects=("PROPERTIES",),
     )
 
 
