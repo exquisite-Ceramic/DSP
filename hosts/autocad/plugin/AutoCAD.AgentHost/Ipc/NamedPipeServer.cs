@@ -45,7 +45,7 @@ public sealed class NamedPipeServer
                     PipeOptions.Asynchronous);
 
                 await pipe.WaitForConnectionAsync(ct);
-                _ = Task.Run(() => HandleClientAsync(pipe, ct), ct);
+                await HandleClientAsync(pipe, ct);
             }
             catch (OperationCanceledException)
             {

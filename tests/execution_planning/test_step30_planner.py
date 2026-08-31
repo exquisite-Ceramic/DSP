@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+from design_approval_scope import CanonicalExistenceEffect
 from design_execution_planning import (
     ExecutionPlanner,
     ExecutionPlanningRequest,
@@ -9,6 +12,7 @@ from design_execution_planning import (
     compute_execution_plan_hash,
     compute_routing_snapshot_hash,
 )
+from design_execution_planning.planner import _build_unit
 
 
 def _request(transaction, *, root_ref=None, derived_ref=None, reverse_routes=False):
@@ -62,6 +66,21 @@ def test_unit_is_lossless_projection_and_carries_all_preconditions(step30_transa
         assert unit.expected_effects == operation.expected_effects
         assert unit.preconditions == changeset.preconditions
         assert unit.execution_unit_id == f"EU-{unit.execution_unit_hash[:12]}"
+
+
+def test_creation_operation_projects_source_only_existence_authority(step30_transaction) -> None:
+    changeset, _ = step30_transaction
+    operation = replace(
+        changeset.root_operation,
+        expected_effects=(),
+        expected_existence_effects=(CanonicalExistenceEffect.CREATE,),
+    )
+
+    unit = _build_unit(changeset, operation, "b" * 64)
+
+    assert unit.targets == operation.targets
+    assert unit.expected_effects == ()
+    assert unit.expected_existence_effects == (CanonicalExistenceEffect.CREATE,)
 
 
 def test_same_runtime_and_scope_key_groups_units_into_one_slice(step30_transaction) -> None:

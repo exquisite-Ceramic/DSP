@@ -1,9 +1,13 @@
 """Host-neutral orchestrator components."""
 
 from design_orchestrator.canonical_operations import (
+    CanonicalCreationContract,
+    CanonicalExistenceEffect,
     CanonicalOperationDefinition,
     MOVE_V1,
     MVP_CANONICAL_OPERATIONS,
+    OFFSET_V1,
+    SET_WALL_THICKNESS_V1,
     SlotBindingClass,
 )
 from design_orchestrator.interactive_binding import (
@@ -25,6 +29,8 @@ from design_orchestrator.operation_resolver import (
 from design_orchestrator.parameter_binder import (
     MVP_BINDING_RECIPES,
     MOVE_V1_BINDING_RECIPE,
+    OFFSET_V1_BINDING_RECIPE,
+    SET_WALL_THICKNESS_V1_BINDING_RECIPE,
     BindingError,
     BindingResolverKind,
     BoundOperationProposal,
@@ -43,6 +49,8 @@ __all__ = [
     "BindingError",
     "BindingResolverKind",
     "BoundOperationProposal",
+    "CanonicalCreationContract",
+    "CanonicalExistenceEffect",
     "CanonicalOperationDefinition",
     "CanonicalOperationRef",
     "CapabilityConflictError",
@@ -54,6 +62,8 @@ __all__ = [
     "MOVE_V1_BINDING_RECIPE",
     "MVP_BINDING_RECIPES",
     "MVP_CANONICAL_OPERATIONS",
+    "OFFSET_V1",
+    "OFFSET_V1_BINDING_RECIPE",
     "OperationBindingRecipe",
     "OperationInteractionRecipe",
     "OperationPolicy",
@@ -65,6 +75,8 @@ __all__ = [
     "ResolutionContext",
     "ResolutionResult",
     "ResolvedOperation",
+    "SET_WALL_THICKNESS_V1",
+    "SET_WALL_THICKNESS_V1_BINDING_RECIPE",
     "SlotBindingClass",
     "SlotBindingEvidence",
     "SlotBindingRecipe",

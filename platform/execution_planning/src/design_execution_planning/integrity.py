@@ -36,6 +36,7 @@ def _validate_execution_unit(unit: ExecutionUnit, changeset_hash: str) -> None:
         arguments=unit.arguments,
         preconditions=unit.preconditions,
         expected_effects=unit.expected_effects,
+        expected_existence_effects=unit.expected_existence_effects,
     )
     if unit.execution_unit_hash != expected_hash:
         _invalid(

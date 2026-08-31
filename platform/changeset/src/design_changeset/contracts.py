@@ -10,7 +10,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
-from design_approval_scope import CanonicalAspect
+from design_approval_scope import (
+    CanonicalAspect,
+    CanonicalCreationContract,
+    CanonicalExistenceEffect,
+)
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -103,6 +107,20 @@ def _aspects(values, *, required: bool = False) -> tuple[CanonicalAspect, ...]:
     return result
 
 
+def _existence_effects(values) -> tuple[CanonicalExistenceEffect, ...]:
+    return tuple(
+        sorted(
+            {
+                value
+                if isinstance(value, CanonicalExistenceEffect)
+                else CanonicalExistenceEffect(str(value))
+                for value in values
+            },
+            key=lambda item: item.value,
+        )
+    )
+
+
 def _readonly_mapping(value: Mapping[str, Any], field_name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{field_name} must be a mapping")
@@ -122,12 +140,28 @@ class CanonicalOperationContractEvidence:
     effects: tuple[CanonicalAspect | str, ...]
     verification_contract: Mapping[str, Any]
     definition_fingerprint: str
+    existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
+    creation_contract: CanonicalCreationContract | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_operation", _text(self.canonical_operation, "canonical_operation"))
         object.__setattr__(self, "canonical_operation_version", _version(self.canonical_operation_version, "canonical_operation_version"))
         object.__setattr__(self, "argument_schema", _readonly_mapping(self.argument_schema, "argument_schema"))
-        object.__setattr__(self, "effects", _aspects(self.effects, required=True))
+        effects = _aspects(self.effects)
+        existence_effects = _existence_effects(self.existence_effects)
+        if not effects and not existence_effects:
+            raise ValueError("canonical operation contract requires effect authority")
+        creation_contract = self.creation_contract
+        if creation_contract is not None:
+            _require_type(creation_contract, CanonicalCreationContract, "creation_contract")
+        if CanonicalExistenceEffect.CREATE in existence_effects:
+            if creation_contract is None:
+                raise ValueError("CREATE existence authority requires creation_contract")
+        elif creation_contract is not None:
+            raise ValueError("creation_contract requires CREATE existence authority")
+        object.__setattr__(self, "effects", effects)
+        object.__setattr__(self, "existence_effects", existence_effects)
+        object.__setattr__(self, "creation_contract", creation_contract)
         object.__setattr__(self, "verification_contract", _readonly_mapping(self.verification_contract, "verification_contract"))
         object.__setattr__(self, "definition_fingerprint", _digest(self.definition_fingerprint, "definition_fingerprint"))
 
@@ -201,6 +235,7 @@ class CanonicalChangeOperation:
     expected_effects: tuple[CanonicalAspect | str, ...]
     scope_rule_ids: tuple[str, ...]
     source_evidence: OperationSourceEvidence
+    expected_existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "operation_id", _text(self.operation_id, "operation_id"))
@@ -210,7 +245,12 @@ class CanonicalChangeOperation:
         object.__setattr__(self, "canonical_definition_fingerprint", _digest(self.canonical_definition_fingerprint, "canonical_definition_fingerprint"))
         object.__setattr__(self, "targets", _texts(self.targets, "target", required=True))
         object.__setattr__(self, "arguments", _readonly_mapping(self.arguments, "arguments"))
-        object.__setattr__(self, "expected_effects", _aspects(self.expected_effects, required=True))
+        expected_effects = _aspects(self.expected_effects)
+        expected_existence_effects = _existence_effects(self.expected_existence_effects)
+        if not expected_effects and not expected_existence_effects:
+            raise ValueError("change operation requires expected effect authority")
+        object.__setattr__(self, "expected_effects", expected_effects)
+        object.__setattr__(self, "expected_existence_effects", expected_existence_effects)
         object.__setattr__(self, "scope_rule_ids", _texts(self.scope_rule_ids, "scope_rule_id", required=True))
         _require_type(self.source_evidence, OperationSourceEvidence, "source_evidence")
 

@@ -19,7 +19,10 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Any, Protocol
 
-from design_orchestrator.canonical_operations import CanonicalOperationDefinition
+from design_orchestrator.canonical_operations import (
+    CanonicalExistenceEffect,
+    CanonicalOperationDefinition,
+)
 
 
 _POLICY_DECISIONS = frozenset({"ALLOW", "APPROVAL_REQUIRED", "DENY"})
@@ -229,6 +232,7 @@ class ResolvedOperation:
     context_freshness_requirements: tuple[dict[str, Any], ...]
     operation_freshness_requirements: tuple[dict[str, Any], ...]
     effects: tuple[Any, ...]
+    existence_effects: tuple[CanonicalExistenceEffect, ...]
     policy_decision: str
     risk: str | None
     task_score: float
@@ -263,6 +267,9 @@ class ResolutionResult:
                     list(operation.operation_freshness_requirements)
                 ),
                 "effects": deepcopy(list(operation.effects)),
+                "existence_effects": [
+                    item.value for item in operation.existence_effects
+                ],
                 "policy_decision": operation.policy_decision,
                 "risk": operation.risk,
                 "task_score": operation.task_score,
@@ -514,6 +521,7 @@ class OperationResolver:
                     definition.operation_freshness_requirements
                 ),
                 effects=self._aggregate_effects(profiles),
+                existence_effects=tuple(definition.existence_effects),
                 policy_decision=policy_decision,
                 risk=self._aggregate_risk(profiles),
                 task_score=task_score,

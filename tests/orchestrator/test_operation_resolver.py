@@ -123,6 +123,7 @@ def definition_for(canonical_operation: str) -> CanonicalOperationDefinition:
         category="MODEL_OPERATION",
         input_schema=json.loads(json.dumps(GENERIC_CANONICAL_SCHEMA)),
         slot_binding_policy={"targets": SlotBindingClass.INTENT},
+        effects=("PROPERTIES",),
         verification_contract={"type": "HOST_READ_BACK"},
     )
 
@@ -325,6 +326,7 @@ def test_duplicate_canonical_definitions_fail_closed() -> None:
         category="MODEL_OPERATION",
         input_schema={"type": "object", "properties": {}},
         slot_binding_policy={},
+        effects=("PROPERTIES",),
         verification_contract={"type": "NONE"},
     )
 

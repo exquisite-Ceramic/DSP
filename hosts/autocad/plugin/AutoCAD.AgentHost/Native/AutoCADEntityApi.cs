@@ -7,6 +7,25 @@ using HostContracts;
 
 namespace AutoCAD.AgentHost.Native;
 
+public sealed record OffsetNativeResult(
+    HostEntityRef Source,
+    HostEntityRef Created,
+    Extents3d SourceBoundsBefore,
+    Extents3d SourceBoundsAfter,
+    string SourceLayer,
+    string CreatedLayer);
+
+public sealed class OffsetNativeException : InvalidOperationException
+{
+    public OffsetNativeException(string errorCode, string message)
+        : base(message)
+    {
+        ErrorCode = errorCode;
+    }
+
+    public string ErrorCode { get; }
+}
+
 /// <summary>Entity-level wrappers: selection, position reads, translation.</summary>
 public static class AutoCADEntityApi
 {
@@ -207,6 +226,192 @@ public static class AutoCADEntityApi
         transaction.Commit();
         AutoCADDocumentApi.BumpRevision(doc.Name);
         return (before, after);
+    }
+
+    public static OffsetNativeResult OffsetPolyline(
+        string handle,
+        double distanceMm,
+        double sideX,
+        double sideY,
+        double sideZ) =>
+        OffsetPolyline(handle, distanceMm, new Point3d(sideX, sideY, sideZ));
+
+    public static OffsetNativeResult OffsetPolyline(string handle, double distanceMm, Point3d sidePoint)
+    {
+        if (string.IsNullOrWhiteSpace(handle))
+        {
+            throw new ArgumentException("offset target handle is required", nameof(handle));
+        }
+
+        if (!double.IsFinite(distanceMm) || distanceMm <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(distanceMm),
+                "offset distance must be finite and positive");
+        }
+
+        if (!double.IsFinite(sidePoint.X)
+            || !double.IsFinite(sidePoint.Y)
+            || !double.IsFinite(sidePoint.Z))
+        {
+            throw new ArgumentException("offset side point must contain finite coordinates", nameof(sidePoint));
+        }
+
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("no active document.");
+        if (doc.Database.Insunits != UnitsValue.Millimeters)
+        {
+            throw new InvalidOperationException("offset.v1 requires an AutoCAD document in millimetres");
+        }
+
+        if (!TryResolveObjectId(doc.Database, handle, out var id)
+            || !id.IsValid
+            || id.IsNull
+            || id.IsErased
+            || id.IsEffectivelyErased)
+        {
+            throw new OffsetNativeException(
+                "OFFSET_TARGET_NOT_FOUND",
+                $"unable to resolve AutoCAD offset target handle: {handle}");
+        }
+
+        DBObjectCollection? positiveObjects = null;
+        DBObjectCollection? negativeObjects = null;
+        Polyline? selected = null;
+        var selectedOwnedByTransaction = false;
+
+        try
+        {
+            using var transaction = doc.Database.TransactionManager.StartTransaction();
+            var source = transaction.GetObject(id, OpenMode.ForRead) as Polyline
+                ?? throw new OffsetNativeException(
+                    "OFFSET_TARGET_UNSUPPORTED",
+                    $"offset.v1 target must be an AutoCAD Polyline: {handle}");
+
+            var sourceBoundsBefore = source.GeometricExtents;
+            var sourceLayer = source.Layer;
+
+            positiveObjects = source.GetOffsetCurves(distanceMm);
+            negativeObjects = source.GetOffsetCurves(-distanceMm);
+            var positive = RequireSinglePolyline(positiveObjects, "+distance");
+            var negative = RequireSinglePolyline(negativeObjects, "-distance");
+
+            var positiveDistance = DistanceToSidePoint(positive, sidePoint);
+            var negativeDistance = DistanceToSidePoint(negative, sidePoint);
+            if (Math.Abs(positiveDistance - negativeDistance) <= 1e-6)
+            {
+                throw new OffsetNativeException(
+                    "OFFSET_SIDE_AMBIGUOUS",
+                    "offset side point is equidistant from the positive and negative offset candidates");
+            }
+
+            selected = positiveDistance < negativeDistance ? positive : negative;
+            selected.Layer = sourceLayer;
+
+            var owner = transaction.GetObject(source.OwnerId, OpenMode.ForWrite) as BlockTableRecord
+                ?? throw new OffsetNativeException(
+                    "OFFSET_OWNER_UNSUPPORTED",
+                    $"unable to resolve owner BlockTableRecord for offset target: {handle}");
+            owner.AppendEntity(selected);
+            transaction.AddNewlyCreatedDBObject(selected, true);
+            selectedOwnedByTransaction = true;
+
+            if (selected.ObjectId.IsNull || !selected.ObjectId.IsValid)
+            {
+                throw new OffsetNativeException(
+                    "OFFSET_CREATED_INVALID",
+                    "offset.v1 did not produce a valid database-resident Polyline");
+            }
+
+            var sourceBoundsAfter = source.GeometricExtents;
+            if (!BoundsEqual(sourceBoundsBefore, sourceBoundsAfter))
+            {
+                throw new OffsetNativeException(
+                    "OFFSET_SOURCE_CHANGED",
+                    $"offset.v1 mutated source geometry for handle: {handle}");
+            }
+
+            if (!string.Equals(selected.Layer, sourceLayer, StringComparison.Ordinal))
+            {
+                throw new OffsetNativeException(
+                    "OFFSET_CREATED_LAYER_MISMATCH",
+                    $"offset.v1 created entity on unexpected layer: {selected.Layer}");
+            }
+
+            var sourceRef = new HostEntityRef
+            {
+                DocumentId = doc.Name,
+                NativeId = source.Handle.ToString(),
+                NativeType = source.GetType().Name,
+            };
+            var createdRef = new HostEntityRef
+            {
+                DocumentId = doc.Name,
+                NativeId = selected.Handle.ToString(),
+                NativeType = selected.GetType().Name,
+            };
+
+            transaction.Commit();
+            AutoCADDocumentApi.BumpRevision(doc.Name);
+
+            return new OffsetNativeResult(
+                sourceRef,
+                createdRef,
+                sourceBoundsBefore,
+                sourceBoundsAfter,
+                sourceLayer,
+                selected.Layer);
+        }
+        finally
+        {
+            DisposeTransientOffsetObjects(positiveObjects, selected, selectedOwnedByTransaction);
+            DisposeTransientOffsetObjects(negativeObjects, selected, selectedOwnedByTransaction);
+        }
+    }
+
+    private static Polyline RequireSinglePolyline(DBObjectCollection objects, string candidateLabel)
+    {
+        if (objects.Count != 1 || objects[0] is not Polyline polyline)
+        {
+            throw new OffsetNativeException(
+                "OFFSET_RESULT_UNSUPPORTED",
+                $"offset {candidateLabel} must produce exactly one AutoCAD Polyline");
+        }
+
+        return polyline;
+    }
+
+    private static double DistanceToSidePoint(Polyline candidate, Point3d sidePoint) =>
+        candidate.GetClosestPointTo(sidePoint, false).DistanceTo(sidePoint);
+
+    private static bool BoundsEqual(Extents3d left, Extents3d right) =>
+        Math.Abs(left.MinPoint.X - right.MinPoint.X) <= 1e-6
+        && Math.Abs(left.MinPoint.Y - right.MinPoint.Y) <= 1e-6
+        && Math.Abs(left.MinPoint.Z - right.MinPoint.Z) <= 1e-6
+        && Math.Abs(left.MaxPoint.X - right.MaxPoint.X) <= 1e-6
+        && Math.Abs(left.MaxPoint.Y - right.MaxPoint.Y) <= 1e-6
+        && Math.Abs(left.MaxPoint.Z - right.MaxPoint.Z) <= 1e-6;
+
+    private static void DisposeTransientOffsetObjects(
+        DBObjectCollection? objects,
+        Polyline? selected,
+        bool selectedOwnedByTransaction)
+    {
+        if (objects is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < objects.Count; index++)
+        {
+            var dbObject = objects[index];
+            if (selectedOwnedByTransaction && ReferenceEquals(dbObject, selected))
+            {
+                continue;
+            }
+
+            dbObject.Dispose();
+        }
     }
 
     internal static bool TryResolveObjectId(Database database, string nativeId, out ObjectId objectId)

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import inspect
 
-from design_changeset import ChangePrecondition, PreconditionKind
+from design_approval_scope import CanonicalExistenceEffect
+from design_changeset import ChangePrecondition, PreconditionKind, canonical_hash
 from design_execution_planning import HostRuntimeRef, RuntimeEntityRoute
 
 
@@ -56,6 +57,77 @@ def test_execution_unit_hash_changes_with_semantic_material() -> None:
         **common,
     )
     assert first != second
+
+
+def test_empty_existence_effects_preserve_legacy_unit_hash() -> None:
+    hashing = _hashing()
+    precondition = ChangePrecondition(
+        PreconditionKind.OPERATION_FRESHNESS,
+        "move.v1@1.0.0",
+        "d" * 64,
+    )
+    arguments = {"targets": ["WALL-001"], "displacement": [100.0, 0.0, 0.0]}
+    legacy = canonical_hash(
+        {
+            "changeset_hash": "a" * 64,
+            "source_operation_hash": "b" * 64,
+            "canonical_operation": "move.v1",
+            "canonical_operation_version": "1.0.0",
+            "canonical_definition_fingerprint": "c" * 64,
+            "targets": ["WALL-001"],
+            "arguments": arguments,
+            "preconditions": [
+                {
+                    "kind": PreconditionKind.OPERATION_FRESHNESS.value,
+                    "subject_ref": "move.v1@1.0.0",
+                    "evidence_ref": "d" * 64,
+                }
+            ],
+            "expected_effects": ["GEOMETRY", "PLACEMENT"],
+        }
+    )
+
+    current = hashing.compute_execution_unit_hash(
+        changeset_hash="a" * 64,
+        source_operation_hash="b" * 64,
+        canonical_operation="move.v1",
+        canonical_operation_version="1.0.0",
+        canonical_definition_fingerprint="c" * 64,
+        targets=("WALL-001",),
+        arguments=arguments,
+        preconditions=(precondition,),
+        expected_effects=("PLACEMENT", "GEOMETRY"),
+    )
+
+    assert current == legacy
+
+
+def test_execution_unit_hash_binds_nonempty_existence_authority() -> None:
+    hashing = _hashing()
+    common = {
+        "changeset_hash": "a" * 64,
+        "source_operation_hash": "b" * 64,
+        "canonical_operation": "offset.v1",
+        "canonical_operation_version": "1.0.0",
+        "canonical_definition_fingerprint": "c" * 64,
+        "targets": ("WALL-001",),
+        "arguments": {
+            "targets": ["WALL-001"],
+            "distance": {"value": 300.0, "unit": "mm"},
+        },
+        "preconditions": (),
+        "expected_effects": (),
+    }
+    create = hashing.compute_execution_unit_hash(
+        expected_existence_effects=(CanonicalExistenceEffect.CREATE,),
+        **common,
+    )
+    none = hashing.compute_execution_unit_hash(
+        expected_existence_effects=(),
+        **common,
+    )
+
+    assert create != none
 
 
 def test_slice_hash_is_unit_order_independent_and_host_sensitive() -> None:

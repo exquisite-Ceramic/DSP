@@ -9,6 +9,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from design_orchestrator.canonical_operations import CanonicalExistenceEffect
+
 
 class ImpactError(ValueError):
     """Stable Step27 domain error carrying a machine-readable code."""
@@ -315,6 +317,7 @@ class IntentBoundary:
     direct_targets: tuple[str, ...]
     allowed_canonical_effects: tuple[str, ...] = ()
     allowed_derived_rule_refs: tuple[str, ...] = ()
+    allowed_existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
 
     def __post_init__(self) -> None:
         direct_targets = _tuple_text(
@@ -346,6 +349,18 @@ class IntentBoundary:
                 sorted_values=True,
             ),
         )
+        existence_effects = tuple(
+            sorted(
+                {
+                    value
+                    if isinstance(value, CanonicalExistenceEffect)
+                    else CanonicalExistenceEffect(str(value))
+                    for value in self.allowed_existence_effects
+                },
+                key=lambda item: item.value,
+            )
+        )
+        object.__setattr__(self, "allowed_existence_effects", existence_effects)
 
 
 @dataclass(frozen=True, slots=True)

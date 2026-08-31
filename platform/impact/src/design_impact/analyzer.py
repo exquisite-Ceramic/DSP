@@ -578,6 +578,19 @@ class ImpactAnalyzer:
             }
             for rule in sorted(request.constraint_rules, key=lambda item: item.constraint_id)
         ]
+        intent_payload: dict[str, object] = {
+            "direct_targets": list(request.intent_boundary.direct_targets),
+            "allowed_canonical_effects": list(
+                request.intent_boundary.allowed_canonical_effects
+            ),
+            "allowed_derived_rule_refs": list(
+                request.intent_boundary.allowed_derived_rule_refs
+            ),
+        }
+        if request.intent_boundary.allowed_existence_effects:
+            intent_payload["allowed_existence_effects"] = [
+                value.value for value in request.intent_boundary.allowed_existence_effects
+            ]
         payload = {
             "operation": {
                 "canonical_operation": request.bound_operation.operation.canonical_operation,
@@ -602,15 +615,7 @@ class ImpactAnalyzer:
             "dependency_edges": dependency_payload,
             "constraint_rules": constraint_payload,
             "observed_facts": _jsonable(request.observed_facts),
-            "intent_boundary": {
-                "direct_targets": list(request.intent_boundary.direct_targets),
-                "allowed_canonical_effects": list(
-                    request.intent_boundary.allowed_canonical_effects
-                ),
-                "allowed_derived_rule_refs": list(
-                    request.intent_boundary.allowed_derived_rule_refs
-                ),
-            },
+            "intent_boundary": intent_payload,
         }
         return _canonical_hash(payload)
 

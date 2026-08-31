@@ -72,6 +72,7 @@ def _definition(
         },
         slot_binding_policy={"targets": SlotBindingClass.CONTEXT},
         canonical_entity_constraints=canonical_entity_constraints,
+        effects=("PROPERTIES",),
         verification_contract={"type": "HOST_READ_BACK"},
     )
 

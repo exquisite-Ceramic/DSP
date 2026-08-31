@@ -10,6 +10,8 @@ from enum import Enum
 from hashlib import sha256
 from typing import Any
 
+from design_approval_scope import CreationRule, DeletionRule, ExistingEntityRule
+
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
@@ -99,19 +101,27 @@ def compute_contract_definition_fingerprint(
     argument_schema: Mapping[str, Any],
     effects,
     verification_contract: Mapping[str, Any],
+    existence_effects=(),
+    creation_contract=None,
 ) -> str:
     normalized_effects = sorted(
         item.value if isinstance(item, Enum) else str(item) for item in effects
     )
-    return canonical_hash(
-        {
-            "canonical_operation": canonical_operation,
-            "canonical_operation_version": canonical_operation_version,
-            "argument_schema": argument_schema,
-            "effects": normalized_effects,
-            "verification_contract": verification_contract,
-        }
+    payload: dict[str, object] = {
+        "canonical_operation": canonical_operation,
+        "canonical_operation_version": canonical_operation_version,
+        "argument_schema": argument_schema,
+        "effects": normalized_effects,
+        "verification_contract": verification_contract,
+    }
+    normalized_existence = sorted(
+        item.value if isinstance(item, Enum) else str(item) for item in existence_effects
     )
+    if normalized_existence:
+        payload["existence_effects"] = normalized_existence
+    if creation_contract is not None:
+        payload["creation_contract"] = creation_contract
+    return canonical_hash(payload)
 
 
 def compute_proposed_change_hash(change: Mapping[str, object]) -> str:
@@ -120,31 +130,52 @@ def compute_proposed_change_hash(change: Mapping[str, object]) -> str:
     return canonical_hash(change)
 
 
-def compute_scope_rule_fingerprint(rule: object) -> str:
-    selector = rule.selector
+def _selector_payload(selector: object) -> object:
     predicate = getattr(selector, "predicate", None)
     if predicate is None:
-        selector_payload: object = {"entities": list(selector.entities)}
-    else:
-        selector_payload = {
-            "predicate": [
-                {
-                    "field": term.field,
-                    "operator": term.operator,
-                    "values": list(term.values),
-                }
-                for term in predicate.all_of
-            ]
-        }
-    return canonical_hash(
-        {
-            "selector": selector_payload,
-            "allowed_aspects": sorted(
-                item.value if isinstance(item, Enum) else str(item)
-                for item in rule.allowed_aspects
-            ),
-        }
-    )
+        return {"entities": list(selector.entities)}
+    return {
+        "predicate": [
+            {
+                "field": term.field,
+                "operator": term.operator,
+                "values": list(term.values),
+            }
+            for term in predicate.all_of
+        ]
+    }
+
+
+def compute_scope_rule_fingerprint(rule: object) -> str:
+    if isinstance(rule, ExistingEntityRule):
+        return canonical_hash(
+            {
+                "selector": _selector_payload(rule.selector),
+                "allowed_aspects": sorted(
+                    item.value if isinstance(item, Enum) else str(item)
+                    for item in rule.allowed_aspects
+                ),
+            }
+        )
+    if isinstance(rule, CreationRule):
+        return canonical_hash(
+            {
+                "rule_kind": "CREATION",
+                "canonical_operation": rule.canonical_operation,
+                "source_selector": _selector_payload(rule.source_selector),
+                "entity_kinds": list(rule.entity_kinds),
+                "max_count": rule.max_count,
+                "required_derivation": rule.required_derivation,
+            }
+        )
+    if isinstance(rule, DeletionRule):
+        return canonical_hash(
+            {
+                "rule_kind": "DELETION",
+                "selector": _selector_payload(rule.selector),
+            }
+        )
+    raise TypeError("scope rule must be ExistingEntityRule, CreationRule, or DeletionRule")
 
 
 def compute_operation_semantic_hash(
@@ -158,23 +189,29 @@ def compute_operation_semantic_hash(
     expected_effects,
     scope_rule_fingerprints,
     source_evidence: object,
+    expected_existence_effects=(),
 ) -> str:
-    return canonical_hash(
-        {
-            "origin": origin,
-            "canonical_operation": canonical_operation,
-            "canonical_operation_version": canonical_operation_version,
-            "canonical_definition_fingerprint": canonical_definition_fingerprint,
-            "targets": sorted(set(targets)),
-            "arguments": arguments,
-            "expected_effects": sorted(
-                item.value if isinstance(item, Enum) else str(item)
-                for item in expected_effects
-            ),
-            "scope_rule_fingerprints": sorted(set(scope_rule_fingerprints)),
-            "source_evidence": source_evidence,
-        }
+    payload: dict[str, object] = {
+        "origin": origin,
+        "canonical_operation": canonical_operation,
+        "canonical_operation_version": canonical_operation_version,
+        "canonical_definition_fingerprint": canonical_definition_fingerprint,
+        "targets": sorted(set(targets)),
+        "arguments": arguments,
+        "expected_effects": sorted(
+            item.value if isinstance(item, Enum) else str(item)
+            for item in expected_effects
+        ),
+        "scope_rule_fingerprints": sorted(set(scope_rule_fingerprints)),
+        "source_evidence": source_evidence,
+    }
+    normalized_existence = sorted(
+        item.value if isinstance(item, Enum) else str(item)
+        for item in expected_existence_effects
     )
+    if normalized_existence:
+        payload["expected_existence_effects"] = normalized_existence
+    return canonical_hash(payload)
 
 
 def compute_changeset_hash(semantic_body: Mapping[str, Any]) -> str:

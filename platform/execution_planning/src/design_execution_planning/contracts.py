@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from design_approval_scope import ApprovalScopeBoundary, CanonicalAspect
+from design_approval_scope import (
+    ApprovalScopeBoundary,
+    CanonicalAspect,
+    CanonicalExistenceEffect,
+)
 from design_changeset import CanonicalChangeSet, ChangePrecondition
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -70,7 +74,7 @@ def _typed_tuple(values, typ: type, field_name: str, *, required: bool = False):
 
 
 def _aspects(values) -> tuple[CanonicalAspect, ...]:
-    normalized = tuple(
+    return tuple(
         sorted(
             {
                 value if isinstance(value, CanonicalAspect) else CanonicalAspect(str(value))
@@ -79,9 +83,20 @@ def _aspects(values) -> tuple[CanonicalAspect, ...]:
             key=lambda item: item.value,
         )
     )
-    if not normalized:
-        raise ValueError("expected_effects requires at least one canonical aspect")
-    return normalized
+
+
+def _existence_effects(values) -> tuple[CanonicalExistenceEffect, ...]:
+    return tuple(
+        sorted(
+            {
+                value
+                if isinstance(value, CanonicalExistenceEffect)
+                else CanonicalExistenceEffect(str(value))
+                for value in values
+            },
+            key=lambda item: item.value,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +180,7 @@ class ExecutionUnit:
     preconditions: tuple[ChangePrecondition, ...]
     expected_effects: tuple[CanonicalAspect | str, ...]
     execution_unit_hash: str
+    expected_existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "execution_unit_id", _text(self.execution_unit_id, "execution_unit_id"))
@@ -192,7 +208,16 @@ class ExecutionUnit:
             "preconditions",
             _typed_tuple(self.preconditions, ChangePrecondition, "preconditions"),
         )
-        object.__setattr__(self, "expected_effects", _aspects(self.expected_effects))
+        expected_effects = _aspects(self.expected_effects)
+        expected_existence_effects = _existence_effects(self.expected_existence_effects)
+        if not expected_effects and not expected_existence_effects:
+            raise ValueError("execution unit requires expected effect authority")
+        object.__setattr__(self, "expected_effects", expected_effects)
+        object.__setattr__(
+            self,
+            "expected_existence_effects",
+            expected_existence_effects,
+        )
         object.__setattr__(
             self,
             "execution_unit_hash",

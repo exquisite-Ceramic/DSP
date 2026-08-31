@@ -16,6 +16,7 @@ def _design_meta(
     entities: list[str] | None = None,
     execution_freshness: list[dict[str, Any]] | None = None,
     effects: list[Any] | None = None,
+    existence_effects: list[Any] | None = None,
     risk: str = "NONE",
     preview: bool = False,
     rollback: bool = False,
@@ -28,6 +29,7 @@ def _design_meta(
         "com.company.design/entities": entities or [],
         "com.company.design/execution_freshness": execution_freshness or [],
         "com.company.design/effects": effects or [],
+        "com.company.design/existence_effects": existence_effects or [],
         "com.company.design/risk": risk,
         "com.company.design/preview": preview,
         "com.company.design/rollback": rollback,
@@ -116,6 +118,57 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     {"aspect": "PLACEMENT", "required_state": "FRESH"}
                 ],
                 effects=["PLACEMENT", "GEOMETRY"],
+                risk="LOW",
+                preview=False,
+                rollback=False,
+                idempotent=True,
+                verification={"type": "HOST_READ_BACK"},
+            ),
+        },
+        {
+            "name": "cad.offset",
+            "description": "Create one AutoCAD polyline offset from one source polyline.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "handles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 1,
+                    },
+                    "distance": {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "number", "exclusiveMinimum": 0},
+                            "unit": {"const": "mm"},
+                        },
+                        "required": ["value", "unit"],
+                        "additionalProperties": False,
+                    },
+                    "side_point": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"},
+                            "unit": {"const": "mm"},
+                        },
+                        "required": ["x", "y", "z", "unit"],
+                        "additionalProperties": False,
+                    },
+                    "idempotency_key": {"type": ["string", "null"]},
+                    "revision": {"type": ["integer", "null"]},
+                },
+                "required": ["handles", "distance", "side_point"],
+                "additionalProperties": False,
+            },
+            "_meta": _design_meta(
+                operation="offset.v1",
+                category="MODEL_OPERATION",
+                entities=["LWPOLYLINE"],
+                effects=[],
+                existence_effects=["CREATE"],
                 risk="LOW",
                 preview=False,
                 rollback=False,
@@ -234,6 +287,27 @@ def build_mcp_server(
             dx,
             dy,
             dz,
+            idempotency_key=idempotency_key,
+            revision=revision,
+        )
+        return result.to_dict()
+
+    @server.tool(
+        name="cad.offset",
+        description=definitions["cad.offset"]["description"],
+        meta=definitions["cad.offset"]["_meta"],
+    )
+    async def offset(
+        handles: list[str],
+        distance: dict[str, Any],
+        side_point: dict[str, Any],
+        idempotency_key: str | None = None,
+        revision: int | None = None,
+    ) -> dict[str, Any]:
+        result = await dispatcher.offset(
+            handles,
+            distance,
+            side_point,
             idempotency_key=idempotency_key,
             revision=revision,
         )
