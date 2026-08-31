@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 
@@ -89,7 +90,7 @@ async def test_live_wall_thickness_mutates_200_to_300_and_advances_revision() ->
         result = await dispatcher.set_wall_thickness(
             handles,
             300.0,
-            idempotency_key="step34-live-wall-thickness-200-to-300",
+            idempotency_key=f"step34-live-wall-thickness-{uuid.uuid4()}",
             revision=revision_before,
         )
         assert result.ok, result.error
