@@ -53,6 +53,7 @@ jobs:
           python -m pytest
           tests/changeset/test_step36_creation_hashing.py
           tests/changeset/test_step36_creation_contracts.py
+          tests/changeset/test_step36_creation_builder.py
           -q
       - name: Run changeset regression
         run: python -m pytest tests/changeset -q
