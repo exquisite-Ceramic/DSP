@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 from design_orchestrator.canonical_operations import (
+    MVP_CANONICAL_OPERATIONS,
+    OFFSET_V1,
     CanonicalCreationContract,
     CanonicalExistenceEffect,
     CanonicalOperationDefinition,
-    MVP_CANONICAL_OPERATIONS,
-    OFFSET_V1,
     SlotBindingClass,
 )
 from design_orchestrator.operation_resolver import (
