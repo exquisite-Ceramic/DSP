@@ -1,0 +1,18 @@
+[project]
+name = "revit-sidecar"
+version = "0.1.0"
+description = "Thin Named Pipe sidecar for the DSP Revit host."
+requires-python = ">=3.11"
+dependencies = [
+    "host-contracts>=0.1.0",
+]
+
+[project.optional-dependencies]
+pipe = ["pywin32>=306; platform_system == 'Windows'"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
