@@ -7,19 +7,11 @@ using HostContracts;
 
 namespace AutoCAD.AgentHost.Native;
 
-public sealed record NativeBoundsSnapshot(
-    double MinX,
-    double MinY,
-    double MinZ,
-    double MaxX,
-    double MaxY,
-    double MaxZ);
-
 public sealed record OffsetNativeResult(
     HostEntityRef Source,
     HostEntityRef Created,
-    NativeBoundsSnapshot SourceBoundsBefore,
-    NativeBoundsSnapshot SourceBoundsAfter,
+    Extents3d SourceBoundsBefore,
+    Extents3d SourceBoundsAfter,
     string SourceLayer,
     string CreatedLayer);
 
@@ -296,7 +288,7 @@ public static class AutoCADEntityApi
                     "OFFSET_TARGET_UNSUPPORTED",
                     $"offset.v1 target must be an AutoCAD Polyline: {handle}");
 
-            var sourceBoundsBefore = SnapshotBounds(source.GeometricExtents);
+            var sourceBoundsBefore = source.GeometricExtents;
             var sourceLayer = source.Layer;
 
             positiveObjects = source.GetOffsetCurves(distanceMm);
@@ -324,7 +316,14 @@ public static class AutoCADEntityApi
             transaction.AddNewlyCreatedDBObject(selected, true);
             selectedOwnedByTransaction = true;
 
-            var sourceBoundsAfter = SnapshotBounds(source.GeometricExtents);
+            if (selected.ObjectId.IsNull || !selected.ObjectId.IsValid)
+            {
+                throw new OffsetNativeException(
+                    "OFFSET_CREATED_INVALID",
+                    "offset.v1 did not produce a valid database-resident Polyline");
+            }
+
+            var sourceBoundsAfter = source.GeometricExtents;
             if (!BoundsEqual(sourceBoundsBefore, sourceBoundsAfter))
             {
                 throw new OffsetNativeException(
@@ -385,22 +384,13 @@ public static class AutoCADEntityApi
     private static double DistanceToSidePoint(Polyline candidate, Point3d sidePoint) =>
         candidate.GetClosestPointTo(sidePoint, false).DistanceTo(sidePoint);
 
-    private static NativeBoundsSnapshot SnapshotBounds(Extents3d extents) =>
-        new(
-            extents.MinPoint.X,
-            extents.MinPoint.Y,
-            extents.MinPoint.Z,
-            extents.MaxPoint.X,
-            extents.MaxPoint.Y,
-            extents.MaxPoint.Z);
-
-    private static bool BoundsEqual(NativeBoundsSnapshot left, NativeBoundsSnapshot right) =>
-        Math.Abs(left.MinX - right.MinX) <= 1e-6
-        && Math.Abs(left.MinY - right.MinY) <= 1e-6
-        && Math.Abs(left.MinZ - right.MinZ) <= 1e-6
-        && Math.Abs(left.MaxX - right.MaxX) <= 1e-6
-        && Math.Abs(left.MaxY - right.MaxY) <= 1e-6
-        && Math.Abs(left.MaxZ - right.MaxZ) <= 1e-6;
+    private static bool BoundsEqual(Extents3d left, Extents3d right) =>
+        Math.Abs(left.MinPoint.X - right.MinPoint.X) <= 1e-6
+        && Math.Abs(left.MinPoint.Y - right.MinPoint.Y) <= 1e-6
+        && Math.Abs(left.MinPoint.Z - right.MinPoint.Z) <= 1e-6
+        && Math.Abs(left.MaxPoint.X - right.MaxPoint.X) <= 1e-6
+        && Math.Abs(left.MaxPoint.Y - right.MaxPoint.Y) <= 1e-6
+        && Math.Abs(left.MaxPoint.Z - right.MaxPoint.Z) <= 1e-6;
 
     private static void DisposeTransientOffsetObjects(
         DBObjectCollection? objects,

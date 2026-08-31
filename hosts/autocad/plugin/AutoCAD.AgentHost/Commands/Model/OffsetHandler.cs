@@ -16,7 +16,7 @@ public sealed class OffsetHandler : HostCommandHandler
         if (command.TargetNativeRefs.Count != 1
             || string.IsNullOrWhiteSpace(command.TargetNativeRefs[0].NativeId))
         {
-            throw new ArgumentException("offset.v1 requires exactly one target native ref");
+            return InvalidArgument("offset.v1 requires exactly one target native ref");
         }
 
         if (command.Arguments is not JsonElement arguments
@@ -24,7 +24,7 @@ public sealed class OffsetHandler : HostCommandHandler
             || !TryReadMillimetreDistance(arguments, out var distanceMm)
             || !TryReadSidePoint(arguments, out var sideX, out var sideY, out var sideZ))
         {
-            throw new ArgumentException(
+            return InvalidArgument(
                 "offset.v1 requires positive finite arguments.distance in 'mm' and finite arguments.sidePoint coordinates in 'mm'");
         }
 
@@ -101,6 +101,19 @@ public sealed class OffsetHandler : HostCommandHandler
             Verification = verification.ToDto(),
         };
     }
+
+    private static HostCommandResult InvalidArgument(string message) =>
+        new()
+        {
+            Status = ResultStatus.ERROR,
+            Error = new ErrorShape
+            {
+                ErrorCode = "INVALID_ARGUMENT",
+                Category = ErrorCategory.EXECUTION,
+                Message = message,
+                Retryable = RetryPolicy.NEVER,
+            },
+        };
 
     private static bool TryReadMillimetreDistance(JsonElement arguments, out double distanceMm)
     {

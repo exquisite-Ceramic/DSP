@@ -33,7 +33,7 @@ public static class OffsetVerifier
             mismatches.Add("created entity ref must differ from source entity ref");
         }
 
-        if (!BoundsEqual(result.SourceBoundsBefore, result.SourceBoundsAfter))
+        if (!BoundsEqual(result))
         {
             mismatches.Add("source bounds changed during offset creation");
         }
@@ -61,11 +61,11 @@ public static class OffsetVerifier
         };
     }
 
-    private static bool BoundsEqual(NativeBoundsSnapshot left, NativeBoundsSnapshot right) =>
-        Math.Abs(left.MinX - right.MinX) <= 1e-6
-        && Math.Abs(left.MinY - right.MinY) <= 1e-6
-        && Math.Abs(left.MinZ - right.MinZ) <= 1e-6
-        && Math.Abs(left.MaxX - right.MaxX) <= 1e-6
-        && Math.Abs(left.MaxY - right.MaxY) <= 1e-6
-        && Math.Abs(left.MaxZ - right.MaxZ) <= 1e-6;
+    private static bool BoundsEqual(OffsetNativeResult result) =>
+        Math.Abs(result.SourceBoundsBefore.MinPoint.X - result.SourceBoundsAfter.MinPoint.X) <= 1e-6
+        && Math.Abs(result.SourceBoundsBefore.MinPoint.Y - result.SourceBoundsAfter.MinPoint.Y) <= 1e-6
+        && Math.Abs(result.SourceBoundsBefore.MinPoint.Z - result.SourceBoundsAfter.MinPoint.Z) <= 1e-6
+        && Math.Abs(result.SourceBoundsBefore.MaxPoint.X - result.SourceBoundsAfter.MaxPoint.X) <= 1e-6
+        && Math.Abs(result.SourceBoundsBefore.MaxPoint.Y - result.SourceBoundsAfter.MaxPoint.Y) <= 1e-6
+        && Math.Abs(result.SourceBoundsBefore.MaxPoint.Z - result.SourceBoundsAfter.MaxPoint.Z) <= 1e-6;
 }
