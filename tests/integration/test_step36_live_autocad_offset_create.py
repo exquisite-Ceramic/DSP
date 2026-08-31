@@ -5,7 +5,6 @@ import uuid
 from collections.abc import Mapping
 
 import pytest
-
 from autocad_live_host import live_autocad_host_adapter
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
 from design_fact_contracts import FactKind, NormalizedDesignFactBatch
@@ -175,7 +174,8 @@ async def test_live_autocad_offset_creates_one_awall_without_mutating_source() -
 
 
 @pytest.mark.asyncio
-async def test_live_autocad_offset_replay_returns_same_created_ref_without_second_mutation() -> None:
+async def test_live_autocad_offset_replay_returns_same_created_ref_without_second_mutation(
+) -> None:
     host = live_autocad_host_adapter()
 
     try:
@@ -262,7 +262,9 @@ async def test_live_autocad_offset_rejects_non_mm_document_before_mutation() -> 
         source_handle, revision_before, source_before = await _selected_source(dispatcher)
         source_bounds = _bounds(source_before)
         width_facts = _facts(source_before, FactKind.PROPERTY, "constant_width")
-        assert not width_facts, "set INSUNITS to a non-mm value before running this negative live test"
+        assert not width_facts, (
+            "set INSUNITS to a non-mm value before running this negative live test"
+        )
 
         result = await dispatcher.offset(
             [source_handle],
