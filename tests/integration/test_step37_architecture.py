@@ -1,4 +1,6 @@
+import importlib.util
 import inspect
+import sys
 from pathlib import Path
 
 from design_execution_coordination import (
@@ -13,13 +15,25 @@ from design_execution_reconciliation import (
     SliceReconciliationStatus,
 )
 
-from tests.execution_coordination.conftest import (
-    _build_authority_for_slice,
-    _build_three_slice_transaction,
-)
-
 CORE = Path("platform/execution_coordination/src/design_execution_coordination")
 STEP33 = Path("platform/execution_reconciliation/src/design_execution_reconciliation")
+FIXTURE_BUILDERS = Path(__file__).parents[1] / "execution_coordination" / "conftest.py"
+
+
+def _load_fixture_builders():
+    module_name = "_step37_fixture_builders"
+    spec = importlib.util.spec_from_file_location(module_name, FIXTURE_BUILDERS)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load Step37 fixture builders from {FIXTURE_BUILDERS}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_FIXTURE_BUILDERS_MODULE = _load_fixture_builders()
+_build_authority_for_slice = _FIXTURE_BUILDERS_MODULE._build_authority_for_slice
+_build_three_slice_transaction = _FIXTURE_BUILDERS_MODULE._build_three_slice_transaction
 
 
 def _source(root):
