@@ -39,6 +39,7 @@ pythonpath = [
     "platform/provider_binding/src",
     "platform/gateway_authorization/src",
     "platform/execution_reconciliation/src",
+    "tests/integration",
     "tests/provider_binding",
     "tests/gateway_authorization",
     "tests/execution_reconciliation",
