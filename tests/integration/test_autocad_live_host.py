@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from autocad_live_host import (
@@ -84,3 +86,15 @@ def test_retry_does_not_mask_multiple_pipe_ambiguity() -> None:
         )
 
     assert calls == 1
+
+
+def test_single_instance_host_waits_for_client_completion_before_reaccepting() -> None:
+    source = (
+        Path(__file__).parents[2]
+        / "hosts/autocad/plugin/AutoCAD.AgentHost/Ipc/NamedPipeServer.cs"
+    ).read_text(encoding="utf-8")
+
+    assert "maxNumberOfServerInstances: 1" in source
+    assert "await pipe.WaitForConnectionAsync(ct);" in source
+    assert "await HandleClientAsync(pipe, ct);" in source
+    assert "_ = Task.Run(() => HandleClientAsync(pipe, ct), ct);" not in source
