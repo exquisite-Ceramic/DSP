@@ -38,3 +38,6 @@ def test_explicit_override_accepts_full_pipe_path() -> None:
         )
         == "EnterpriseDesignAgent.MACHINE-5678"
     )
+
+
+# Task10 CI carrier: no runtime behavior; removed after offline collection.
