@@ -10,12 +10,13 @@ from .contracts import (
     ApprovalScopeError,
     ApprovalScopePlanRequest,
     CanonicalAspect,
+    CreationRule,
     DirectEntityEffect,
     EntitySelector,
     ExistingEntityRule,
     ScopeEffectRecipe,
 )
-from .hashing import compute_scope_body_hash
+from .hashing import compute_scope_body_hash, creation_rule_id
 
 
 def _stable_id(prefix: str, material: str) -> str:
@@ -56,6 +57,10 @@ def _aspect_values(values) -> set[str]:
     return result
 
 
+def _existence_values(values) -> set[str]:
+    return {str(getattr(value, "value", value)) for value in values}
+
+
 def _direct_effects(effects: tuple[DirectEntityEffect, ...]) -> dict[str, DirectEntityEffect]:
     result: dict[str, DirectEntityEffect] = {}
     for effect in effects:
@@ -77,6 +82,56 @@ def _recipes(recipes: tuple[ScopeEffectRecipe, ...]) -> dict[str, ScopeEffectRec
             )
         result[recipe.dependency_ref] = recipe
     return result
+
+
+def _admit_creation_rules(
+    request: ApprovalScopePlanRequest,
+    *,
+    impact: ImpactAnalysis,
+    canonical_existence: set[str],
+    intent_existence: set[str],
+) -> tuple[CreationRule, ...]:
+    if not request.requested_creation_rules:
+        return ()
+    if "CREATE" not in canonical_existence or "CREATE" not in intent_existence:
+        _error(
+            "SCOPE_RULE_INVALID",
+            "creation rules require CREATE authority in both canonical evidence and intent",
+        )
+
+    contract = request.canonical_effect_evidence.creation_contract
+    if contract is None:
+        _error("SCOPE_RULE_INVALID", "CREATE authority requires a canonical creation contract")
+
+    direct_targets = tuple(sorted(impact.direct_targets))
+    canonical_kinds = set(contract.entity_kinds)
+    admitted: dict[str, CreationRule] = {}
+    for rule in request.requested_creation_rules:
+        if rule.canonical_operation != request.canonical_effect_evidence.canonical_operation:
+            _error("SCOPE_RULE_INVALID", "creation rule operation exceeds canonical authority")
+        if rule.source_selector.predicate is not None or rule.source_selector.entities != direct_targets:
+            _error("SCOPE_RULE_INVALID", "creation rule source selector must equal direct targets")
+        if not set(rule.entity_kinds).issubset(canonical_kinds):
+            _error("SCOPE_RULE_INVALID", "creation rule entity kinds exceed canonical authority")
+        if rule.max_count is None or rule.max_count > contract.max_count:
+            _error("SCOPE_RULE_INVALID", "creation rule count exceeds canonical authority")
+        if rule.required_derivation != contract.required_derivation:
+            _error("SCOPE_RULE_INVALID", "creation rule derivation does not match canonical authority")
+
+        stable_id = creation_rule_id(rule)
+        rebuilt = CreationRule(
+            rule_id=stable_id,
+            canonical_operation=rule.canonical_operation,
+            source_selector=rule.source_selector,
+            entity_kinds=rule.entity_kinds,
+            max_count=rule.max_count,
+            required_derivation=rule.required_derivation,
+        )
+        if stable_id in admitted:
+            _error("SCOPE_RULE_INVALID", "creation rules must have unique semantic authority")
+        admitted[stable_id] = rebuilt
+
+    return tuple(admitted[rule_id] for rule_id in sorted(admitted))
 
 
 class ApprovalScopePlanner:
@@ -120,11 +175,34 @@ class ApprovalScopePlanner:
                 "SCOPE_EFFECT_CONTRACT_MISMATCH",
                 "intent effects exceed canonical action effect authority",
             )
-        if request.requested_creation_rules or request.requested_deletion_rules:
+
+        canonical_existence = _existence_values(evidence.allowed_existence_effects)
+        intent_existence = _existence_values(
+            getattr(intent, "allowed_existence_effects", ())
+        )
+        if (
+            "DELETE" in canonical_existence
+            or "DELETE" in intent_existence
+            or request.requested_deletion_rules
+        ):
             _error(
                 "SCOPE_EXISTENCE_EFFECT_UNSUPPORTED",
-                "Step28 v1 has no canonical existence-effect authority",
+                "DELETE existence effect is not supported by Step28",
             )
+        if not request.requested_creation_rules and not intent_existence.issubset(
+            canonical_existence
+        ):
+            _error(
+                "SCOPE_EFFECT_CONTRACT_MISMATCH",
+                "intent existence effects exceed canonical action authority",
+            )
+
+        creation_rules = _admit_creation_rules(
+            request,
+            impact=impact,
+            canonical_existence=canonical_existence,
+            intent_existence=intent_existence,
+        )
 
         existing_rules: list[ExistingEntityRule] = []
         direct_by_id = _direct_effects(request.direct_entity_effects)
@@ -135,15 +213,22 @@ class ApprovalScopePlanner:
                 "SCOPE_RULE_INVALID",
                 f"direct effect targets non-direct entities: {sorted(unknown_direct)}",
             )
-        missing_direct = direct_targets - set(direct_by_id)
-        if missing_direct:
-            _error(
-                "SCOPE_EFFECT_UNDEFINED",
-                f"direct effect scope undefined for: {sorted(missing_direct)}",
-            )
 
         allowed_upper = canonical_aspects & intent_aspects
-        for semantic_id in sorted(direct_targets):
+        if intent_aspects or not intent_existence:
+            missing_direct = direct_targets - set(direct_by_id)
+            if missing_direct:
+                _error(
+                    "SCOPE_EFFECT_UNDEFINED",
+                    f"direct effect scope undefined for: {sorted(missing_direct)}",
+                )
+        elif direct_by_id:
+            _error(
+                "SCOPE_RULE_INVALID",
+                "direct aspect effects cannot be admitted without intent aspect authority",
+            )
+
+        for semantic_id in sorted(direct_by_id):
             effect = direct_by_id[semantic_id]
             aspects = {aspect.value for aspect in effect.allowed_aspects}
             if not aspects.issubset(allowed_upper):
@@ -259,20 +344,29 @@ class ApprovalScopePlanner:
         if len(set(rule_ids)) != len(rule_ids):
             _error("SCOPE_RULE_INVALID", "derived existing rule ids must be unique")
         known_existing = set(rule_ids)
+        known_creation = {rule.rule_id for rule in creation_rules}
         slice_rules = tuple(request.execution_slice_scope_rules)
         covered_existing: set[str] = set()
+        covered_creation: set[str] = set()
         for slice_rule in slice_rules:
             unknown_existing = set(slice_rule.existing_rule_ids) - known_existing
-            if unknown_existing or slice_rule.creation_rule_ids or slice_rule.deletion_rule_ids:
+            unknown_creation = set(slice_rule.creation_rule_ids) - known_creation
+            if unknown_existing or unknown_creation or slice_rule.deletion_rule_ids:
                 _error(
                     "SCOPE_SLICE_RULE_INVALID",
                     "slice scope references unknown or unsupported rules",
                 )
             covered_existing.update(slice_rule.existing_rule_ids)
+            covered_creation.update(slice_rule.creation_rule_ids)
         if covered_existing != known_existing:
             _error(
                 "SCOPE_SLICE_RULE_INVALID",
                 "every admitted existing rule must be covered by a slice scope rule",
+            )
+        if covered_creation != known_creation:
+            _error(
+                "SCOPE_SLICE_RULE_INVALID",
+                "every admitted creation rule must be covered by a slice scope rule",
             )
 
         existing_tuple = tuple(sorted(existing_rules, key=lambda rule: rule.rule_id))
@@ -285,7 +379,7 @@ class ApprovalScopePlanner:
             snapshot_set_ref=impact.snapshot_set_ref,
             semantic_environment_ref=impact.semantic_environment_ref,
             existing_entity_rules=existing_tuple,
-            creation_rules=(),
+            creation_rules=creation_rules,
             deletion_rules=(),
             propagation_bundle_ids=admitted_bundles,
             execution_slice_scope_rules=slice_rules,
@@ -299,7 +393,7 @@ class ApprovalScopePlanner:
             snapshot_set_ref=impact.snapshot_set_ref,
             semantic_environment_ref=impact.semantic_environment_ref,
             existing_entity_rules=existing_tuple,
-            creation_rules=(),
+            creation_rules=creation_rules,
             deletion_rules=(),
             propagation_bundle_ids=admitted_bundles,
             execution_slice_scope_rules=slice_rules,
