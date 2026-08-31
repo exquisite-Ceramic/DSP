@@ -5,9 +5,8 @@ import uuid
 
 import pytest
 
-from autocad_sidecar.adapter.host_adapter import HostAdapter
+from autocad_live_host import live_autocad_host_adapter
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
-from autocad_sidecar.ipc.transport import PipeTransport
 from design_fact_contracts import FactKind
 
 pytestmark = [
@@ -17,32 +16,6 @@ pytestmark = [
         reason="requires live AutoCAD host (AGENT_HOST_TEST=1)",
     ),
 ]
-
-_PIPE_PREFIX = "EnterpriseDesignAgent."
-_PIPE_GLOB = rf"\\.\pipe\{_PIPE_PREFIX}*"
-
-
-def _discover_pipe_name() -> str:
-    if os.name != "nt":
-        pytest.skip("live AutoCAD named-pipe test requires Windows")
-
-    import win32api
-
-    entries = win32api.FindFiles(_PIPE_GLOB)
-    names = sorted(
-        {
-            str(entry[8])
-            for entry in entries
-            if len(entry) > 8 and str(entry[8]).startswith(_PIPE_PREFIX)
-        }
-    )
-    if not names:
-        raise AssertionError("no running AutoCAD AgentHost named pipe found")
-    if len(names) > 1:
-        raise AssertionError(
-            "multiple AutoCAD AgentHost named pipes found: " + ", ".join(names)
-        )
-    return names[0]
 
 
 async def _selected_fixture(dispatcher: CommandDispatcher) -> tuple[list[str], int]:
@@ -113,8 +86,7 @@ async def _selected_current_mm_fixture(
 
 @pytest.mark.asyncio
 async def test_live_wall_thickness_mutates_200_to_300_and_advances_revision() -> None:
-    pipe_name = _discover_pipe_name()
-    host = HostAdapter(pipe_name=pipe_name, transport=PipeTransport(pipe_name))
+    host = live_autocad_host_adapter()
 
     try:
         dispatcher = CommandDispatcher(host)
@@ -147,8 +119,7 @@ async def test_live_wall_thickness_mutates_200_to_300_and_advances_revision() ->
 
 @pytest.mark.asyncio
 async def test_live_wall_thickness_rejects_stale_revision_without_mutation() -> None:
-    pipe_name = _discover_pipe_name()
-    host = HostAdapter(pipe_name=pipe_name, transport=PipeTransport(pipe_name))
+    host = live_autocad_host_adapter()
 
     try:
         dispatcher = CommandDispatcher(host)
@@ -184,8 +155,7 @@ async def test_live_wall_thickness_rejects_stale_revision_without_mutation() -> 
 
 @pytest.mark.asyncio
 async def test_live_wall_thickness_rejects_unsupported_document_units_before_mutation() -> None:
-    pipe_name = _discover_pipe_name()
-    host = HostAdapter(pipe_name=pipe_name, transport=PipeTransport(pipe_name))
+    host = live_autocad_host_adapter()
 
     try:
         dispatcher = CommandDispatcher(host)
