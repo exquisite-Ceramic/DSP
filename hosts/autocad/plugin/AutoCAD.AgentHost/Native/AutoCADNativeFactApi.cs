@@ -17,6 +17,7 @@ public static class AutoCADNativeFactApi
         var doc = AutoCADDocumentApi.GetActiveDocument();
         var documentId = doc.Name;
         var revision = AcNative.ActiveDocumentRevision();
+        var documentUsesMillimetres = doc.Database.Insunits == UnitsValue.Millimeters;
 
         var normalizedHandles = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -67,6 +68,22 @@ public static class AutoCADNativeFactApi
                 ["nativeKind"] = nativeKind,
                 ["layer"] = entity.Layer,
             };
+
+            if (documentUsesMillimetres && entity is Polyline polyline)
+            {
+                var constantWidth = polyline.ConstantWidth;
+                if (double.IsFinite(constantWidth) && constantWidth > 0)
+                {
+                    snapshot["properties"] = new
+                    {
+                        constantWidth = new
+                        {
+                            value = constantWidth,
+                            unit = "mm",
+                        },
+                    };
+                }
+            }
 
             try
             {
