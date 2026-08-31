@@ -49,6 +49,10 @@ jobs:
       - name: Run approval scope regression
         run: python -m pytest tests/approval_scope -q
       - name: Run Step36 Task4 focused tests
-        run: python -m pytest tests/changeset/test_step36_creation_hashing.py -q
+        run: >-
+          python -m pytest
+          tests/changeset/test_step36_creation_hashing.py
+          tests/changeset/test_step36_creation_contracts.py
+          -q
       - name: Run changeset regression
         run: python -m pytest tests/changeset -q
