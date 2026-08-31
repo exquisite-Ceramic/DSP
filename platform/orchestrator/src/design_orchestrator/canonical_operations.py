@@ -31,6 +31,13 @@ class SlotBindingClass(str, Enum):
     PROVIDER = "PROVIDER"
 
 
+class CanonicalExistenceEffect(str, Enum):
+    """Platform-owned existence effects, separate from canonical aspects."""
+
+    CREATE = "CREATE"
+    DELETE = "DELETE"
+
+
 def _required_text(value: str, *, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
@@ -54,6 +61,34 @@ def _copy_mapping_sequence(
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalCreationContract:
+    """Closed canonical envelope for one CREATE-capable operation."""
+
+    entity_kinds: tuple[str, ...]
+    max_count: int
+    required_derivation: str
+
+    def __post_init__(self) -> None:
+        kinds = tuple(
+            sorted({_required_text(value, field_name="entity_kind") for value in self.entity_kinds})
+        )
+        if not kinds:
+            raise ValueError("entity_kinds requires at least one canonical kind")
+        if (
+            not isinstance(self.max_count, int)
+            or isinstance(self.max_count, bool)
+            or self.max_count <= 0
+        ):
+            raise ValueError("max_count must be a positive integer")
+        object.__setattr__(self, "entity_kinds", kinds)
+        object.__setattr__(
+            self,
+            "required_derivation",
+            _required_text(self.required_derivation, field_name="required_derivation"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalOperationDefinition:
     """Platform-owned contract for one canonical semantic operation."""
 
@@ -71,6 +106,8 @@ class CanonicalOperationDefinition:
     coverage_requirements: tuple[dict[str, Any], ...] = ()
     assurance_requirements: tuple[dict[str, Any], ...] = ()
     effects: tuple[Any, ...] = ()
+    existence_effects: tuple[CanonicalExistenceEffect | str, ...] = ()
+    creation_contract: CanonicalCreationContract | None = None
 
     def __post_init__(self) -> None:
         canonical_operation = _required_text(
@@ -130,6 +167,42 @@ class CanonicalOperationDefinition:
                 f"{unknown_policy}"
             )
 
+        existence_effects = tuple(
+            sorted(
+                {
+                    value
+                    if isinstance(value, CanonicalExistenceEffect)
+                    else CanonicalExistenceEffect(str(value))
+                    for value in self.existence_effects
+                },
+                key=lambda item: item.value,
+            )
+        )
+        creation_contract = self.creation_contract
+        if creation_contract is not None and not isinstance(
+            creation_contract, CanonicalCreationContract
+        ):
+            raise TypeError("creation_contract must be CanonicalCreationContract or None")
+        if self.category == "MODEL_OPERATION" and not self.effects and not existence_effects:
+            raise ValueError(
+                "MODEL_OPERATION requires a canonical aspect effect or existence effect"
+            )
+        if (
+            CanonicalExistenceEffect.CREATE in existence_effects
+            and creation_contract is None
+        ):
+            raise ValueError("CREATE existence effect requires creation_contract")
+        if (
+            creation_contract is not None
+            and CanonicalExistenceEffect.CREATE not in existence_effects
+        ):
+            raise ValueError("creation_contract requires CREATE existence effect")
+        if (
+            CanonicalExistenceEffect.DELETE in existence_effects
+            and creation_contract is not None
+        ):
+            raise ValueError("DELETE existence effect does not accept creation_contract")
+
         object.__setattr__(self, "canonical_operation", canonical_operation)
         object.__setattr__(self, "version", version)
         object.__setattr__(self, "title", title)
@@ -183,6 +256,8 @@ class CanonicalOperationDefinition:
             "effects",
             tuple(deepcopy(item) for item in self.effects),
         )
+        object.__setattr__(self, "existence_effects", existence_effects)
+        object.__setattr__(self, "creation_contract", creation_contract)
 
     def intent_input_schema(self) -> dict[str, Any]:
         """Project the canonical schema to only LLM/user intent-owned slots."""
@@ -297,7 +372,67 @@ SET_WALL_THICKNESS_V1 = CanonicalOperationDefinition(
 )
 
 
+OFFSET_V1 = CanonicalOperationDefinition(
+    canonical_operation="offset.v1",
+    version="1.0.0",
+    title="Offset wall",
+    description=(
+        "Create one wall-like entity offset from one source wall on the side "
+        "indicated by a canonical point."
+    ),
+    category="MODEL_OPERATION",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "targets": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 1,
+            },
+            "distance": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "number", "exclusiveMinimum": 0},
+                    "unit": {"const": "mm"},
+                },
+                "required": ["value", "unit"],
+                "additionalProperties": False,
+            },
+            "side_point": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "z": {"type": "number"},
+                    "unit": {"const": "mm"},
+                },
+                "required": ["x", "y", "z", "unit"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["targets", "distance", "side_point"],
+        "additionalProperties": False,
+    },
+    slot_binding_policy={
+        "targets": SlotBindingClass.CONTEXT,
+        "distance": SlotBindingClass.INTENT,
+        "side_point": SlotBindingClass.INTENT,
+    },
+    canonical_entity_constraints=("ifc:IfcWall",),
+    effects=(),
+    existence_effects=(CanonicalExistenceEffect.CREATE,),
+    creation_contract=CanonicalCreationContract(
+        entity_kinds=("ifc:IfcWall",),
+        max_count=1,
+        required_derivation="RULE-OFFSET-WALL",
+    ),
+    verification_contract={},
+)
+
+
 MVP_CANONICAL_OPERATIONS: tuple[CanonicalOperationDefinition, ...] = (
     MOVE_V1,
     SET_WALL_THICKNESS_V1,
+    OFFSET_V1,
 )
