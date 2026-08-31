@@ -20,6 +20,8 @@ from .contracts import (
     CoordinationResult,
     CoordinationStatus,
     HostCommitted,
+    HostFailed,
+    HostFailurePhase,
 )
 from .ports import (
     CoordinationClock,
@@ -123,6 +125,28 @@ class ExecutionSagaCoordinator:
             == execution_slice.host_runtime_ref.host_instance_id
         )
 
+    def _persist_precommit_failure(
+        self,
+        *,
+        stored,
+        execution_slice_hash: str,
+        failed_at: str,
+        failure_ref: str,
+    ) -> CoordinationResult:
+        stored = self._reconciliation.fail_slice_before_commit(
+            stored.definition.saga_id,
+            execution_slice_hash,
+            expected_revision=stored.saga_revision,
+            failed_at=failed_at,
+        )
+        terminal = self._terminal_result(stored, failure_ref)
+        if terminal is None:
+            raise CoordinationError(
+                "SAGA_INTEGRITY_INVALID",
+                "pre-commit failure did not produce a terminal Step33 Saga",
+            )
+        return terminal
+
     def execute(
         self,
         canonical_changeset: CanonicalChangeSet,
@@ -217,8 +241,11 @@ class ExecutionSagaCoordinator:
 
             authority = self._authority_port.admit(execution_slice)
             if isinstance(authority, AuthorityFailure):
-                raise NotImplementedError(
-                    "Step37 authority failure handling is implemented in Task5"
+                return self._persist_precommit_failure(
+                    stored=stored,
+                    execution_slice_hash=execution_slice_hash,
+                    failed_at=authority.failed_at,
+                    failure_ref=authority.failure_ref,
                 )
             if not isinstance(authority, AdmittedExecutionAuthority):
                 raise CoordinationError(
@@ -231,22 +258,12 @@ class ExecutionSagaCoordinator:
                 canonical_changeset,
                 approval_scope_boundary,
             ):
-                stored = self._reconciliation.fail_slice_before_commit(
-                    definition.saga_id,
-                    execution_slice_hash,
-                    expected_revision=stored.saga_revision,
+                return self._persist_precommit_failure(
+                    stored=stored,
+                    execution_slice_hash=execution_slice_hash,
                     failed_at=self._clock.now(),
+                    failure_ref="COORDINATION_AUTHORITY_MISMATCH",
                 )
-                terminal = self._terminal_result(
-                    stored,
-                    "COORDINATION_AUTHORITY_MISMATCH",
-                )
-                if terminal is None:
-                    raise CoordinationError(
-                        "SAGA_INTEGRITY_INVALID",
-                        "authority mismatch did not produce a terminal Step33 Saga",
-                    )
-                return terminal
             stored = self._reconciliation.confirm_slice_admitted(
                 definition.saga_id,
                 authority,
@@ -255,9 +272,21 @@ class ExecutionSagaCoordinator:
 
             host = self._host_registry.resolve(execution_slice.host_runtime_ref)
             host_result = host.execute(execution_slice, authority)
-            if not isinstance(host_result, HostCommitted):
+            if isinstance(host_result, HostFailed):
+                if host_result.phase is HostFailurePhase.BEFORE_COMMIT:
+                    return self._persist_precommit_failure(
+                        stored=stored,
+                        execution_slice_hash=execution_slice_hash,
+                        failed_at=host_result.failed_at,
+                        failure_ref=host_result.failure_ref,
+                    )
                 raise NotImplementedError(
-                    "Step37 Host failure handling is implemented in Task5"
+                    "Step37 ambiguous Host commit handling is implemented in Task7"
+                )
+            if not isinstance(host_result, HostCommitted):
+                raise CoordinationError(
+                    "HOST_RESULT_INVALID",
+                    "Host execution port returned an invalid result",
                 )
             delta = host_result.actual_delta
             stored = self._reconciliation.record_host_commit(
