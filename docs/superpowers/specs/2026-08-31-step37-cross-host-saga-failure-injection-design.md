@@ -6,144 +6,104 @@
 
 **Goal:** Add a provider-neutral execution coordinator above Step33 that can drive one immutable Saga across multiple `HostRuntimeRef` values, stop deterministically on failure, preserve durable partial-commit truth, and expose compensation evidence without inventing inverse Host commands.
 
-## 1. Why Step37 exists
+## 1. Current facts
 
-Step33 already defines and persists the execution Saga truth. It owns:
+Step33 already owns the durable Saga truth:
 
-- immutable `ExecutionSagaDefinition`;
-- canonical Slice ordering and dependencies;
-- per-Slice lifecycle state;
-- `FAILED_BEFORE_COMMIT`, `SCOPE_BREACH`, `VERIFY_FAILED`, and `BLOCKED`;
-- `PARTIALLY_COMMITTED`, `COMPENSATING`, `COMPENSATED`, and `COMPENSATION_FAILED`;
-- scope comparison, semantic verification, and compensation evidence.
+- immutable `ExecutionSagaDefinition` and canonical Slice order;
+- dependency gating and one-active-Slice persistence rules;
+- `FAILED_BEFORE_COMMIT`, `SCOPE_BREACH`, `VERIFY_FAILED`, `BLOCKED`;
+- `READY`, `EXECUTING`, `PARTIALLY_COMMITTED`, `SUCCEEDED`, `FAILED`;
+- compensation proposal/evidence and compensation lifecycle;
+- CAS/idempotent persistence of admission, Host commit, scope and verification evidence.
 
-Step36 proved a real AutoCAD Host can execute a governed CREATE and reconcile the resulting `ActualDelta` back into Step33.
+Its failure store already blocks later not-started Slices and determines `FAILED` versus `PARTIALLY_COMMITTED`. Step37 must drive these rules, not recreate them.
 
-What is still missing is the runtime layer that drives more than one Host-bound Slice in one Saga and behaves correctly when the second or later Slice fails.
+Step36 proved a real AutoCAD Host can produce a governed `ActualDelta` that Step33 reconciles. The remaining gap is runtime coordination across more than one Host-bound Slice when a later Slice fails.
 
-Step37 adds that runtime coordination layer. It does not replace or duplicate Step33.
+`HostRuntimeRef` is a Step30 provider-neutral contract defined by `design_execution_planning`; Step37 reuses it exactly.
 
 ## 2. Chosen architecture
 
-Create a new provider-neutral package:
+Create a new package:
 
 ```text
 platform/execution_coordination/
   src/design_execution_coordination/
 ```
 
-The primary component is:
+Primary component:
 
 ```python
 ExecutionSagaCoordinator
 ```
 
-It sits above Step33 and composes existing Step30–33 artifacts through narrow ports:
+Dependency direction:
 
 ```text
 Step29 CanonicalChangeSet
         ↓
-Step30 ExecutionPlan
+Step30 ExecutionPlan + HostRuntimeRef
         ↓
-Step31 ProviderBinding / runtime routing
+Step31/32 binding + admitted authority via port
         ↓
-Step32 AdmittedExecutionAuthority
+Step37 ExecutionSagaCoordinator
         ↓
-┌────────────────────────────────────┐
-│ Step37 ExecutionSagaCoordinator    │
-│                                    │
-│ - canonical Slice progression      │
-│ - dependency gating                │
-│ - exact HostRuntimeRef routing     │
-│ - failure classification           │
-│ - stop / no-retry decisions        │
-│ - invokes Step33 primitives        │
-└────────────────┬───────────────────┘
-                 │
-          HostExecutionPort
-          ┌──────┴───────┐
-          ↓              ↓
-       HOST-A          HOST-B
-          │              │
-          └──────┬───────┘
-                 ↓
-           ActualDelta / failure
-                 ↓
-            existing Step33
-      scope compare → verify → store
-                 ↓
-      SUCCEEDED / PARTIALLY_COMMITTED
-                 ↓
-         CompensationProposal
+exact HostExecutionPort selected by HostRuntimeRef
+        ↓
+ActualDelta / classified failure
+        ↓
+existing Step33 reconciliation service/store
 ```
+
+Step37 is an execution coordinator, not a second reconciliation layer and not a distributed transaction manager.
 
 ## 3. Frozen ownership boundaries
 
-### 3.1 Step33 remains source of truth
+### Step33 remains source of truth
 
-Step37 must not create a second Saga state machine.
+Step37 may read `StoredExecutionSaga` and invoke public Step33 service methods. It does not own or redefine:
 
-The following remain owned by `design_execution_reconciliation`:
-
-- Saga definition/hash/id;
-- Saga revision CAS;
+- Saga ids/hashes/revisions;
 - Slice lifecycle statuses;
 - failure-to-`BLOCKED` propagation;
 - `PARTIALLY_COMMITTED` determination;
-- scope comparison result persistence;
-- semantic verification result persistence;
-- compensation proposal construction and validation;
-- compensation lifecycle persistence.
+- scope/verification persistence;
+- compensation evidence or compensation terminal status.
 
-Step37 may read Step33 state and invoke public Step33 service methods only.
+### Step37 owns forward progression
 
-### 3.2 Step37 owns progression, not authority creation
+Step37 owns only:
 
-Step37 owns the decision to attempt the next canonical eligible Slice.
+- selecting the next Slice from Step33 `ordered_slice_hashes`;
+- exact routing to the Slice `HostRuntimeRef`;
+- obtaining exact Step32 authority through a port;
+- making one Host execution attempt;
+- classifying commit certainty;
+- invoking Step33 transitions in the correct order;
+- stopping when forward execution is unsafe.
 
-It does not implement Step31 binding or Step32 authorization rules. Those are exposed to Step37 through an authority port that returns a real `AdmittedExecutionAuthority` or an explicit failure.
+### Step31/32 remain authoritative
 
-### 3.3 Host implementations remain native
+Step37 does not implement ProviderBinding or GatewayAuthorization rules. `ExecutionAuthorityPort` returns either a real `AdmittedExecutionAuthority` or a pre-Host failure.
 
-Step37 must not know AutoCAD, Revit, Civil 3D, Rhino, IFC authoring APIs, or any native entity vocabulary.
+### Host implementations remain native
 
-No Step37 production file may contain or depend on mechanisms such as:
+Step37 production code must not import Host implementations or contain native mechanisms such as `Autodesk.AutoCAD`, `GetOffsetCurves`, `LWPOLYLINE`, Revit transaction APIs, or provider-specific entity vocabulary.
 
-- `Autodesk.AutoCAD`;
-- `GetOffsetCurves`;
-- `LWPOLYLINE`;
-- Revit `Transaction` APIs;
-- Host-specific command names used only to implement native mutation.
+### D5 evidence remains external
 
-The coordinator sees only provider-neutral execution artifacts and `HostRuntimeRef` routing identities.
+Step37 does not rebuild semantic snapshots/projections. A provider-neutral evidence port supplies a `VerificationEvidenceBundle`; Step37 passes it to the existing Step33 verifier.
 
-### 3.4 D5 / semantic evidence remains external
+### Compensation remains governed
 
-Step37 does not rebuild semantic snapshots or projections.
+Step37 never infers inverse Host commands. Recovery begins from a Step33 `CompensationProposal` based on durable evidence plus caller-supplied canonical recovery effects. Any recovery mutation is a new governed execution that re-enters the existing canonical authority chain before a Host is called.
 
-After Host commit, verification evidence is supplied through a provider-neutral evidence port. Step37 passes that evidence into the existing Step33 semantic verifier.
+## 4. Frozen provider-neutral interfaces
 
-### 3.5 Compensation remains governed
+Names and semantics below are frozen for the implementation plan.
 
-Step37 must never infer an inverse Host command.
-
-Examples of forbidden behavior:
-
-```text
-offset +300mm  -> silently execute offset -300mm
-move +5m       -> silently execute move -5m
-create entity  -> silently delete entity
-```
-
-The only allowed Step37 compensation action is to expose or request a Step33 `CompensationProposal` based on durable failure evidence plus caller-supplied canonical recovery effects.
-
-Executing recovery is a new governed execution and must re-enter the existing canonical authority chain. Step37 does not bypass Steps27–32 to call a Host directly for compensation.
-
-## 4. New provider-neutral contracts
-
-The implementation plan may refine names, but these semantics are frozen.
-
-### 4.1 Coordination result
+### Coordination status
 
 ```python
 class CoordinationStatus(str, Enum):
@@ -152,8 +112,6 @@ class CoordinationStatus(str, Enum):
     PARTIALLY_COMMITTED = "PARTIALLY_COMMITTED"
     RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
 ```
-
-`RECOVERY_REQUIRED` is reserved for an execution attempt whose Host commit state is unknown. It is intentionally not projected into a false Step33 terminal state.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -165,39 +123,46 @@ class CoordinationResult:
     failure_ref: str | None
 ```
 
-### 4.2 Authority port
+`RECOVERY_REQUIRED` means Step37 cannot safely continue without authoritative recovery of external facts. It is not projected into a fabricated Step33 terminal status.
+
+### Deterministic clock
+
+```python
+class CoordinationClock(Protocol):
+    def now(self) -> str: ...
+```
+
+All coordinator-generated `reserved_at`, local failure timestamps, and reconciliation timestamps come from this injected clock. Step37 production code must not call wall-clock APIs directly.
+
+### Authority port
+
+```python
+@dataclass(frozen=True, slots=True)
+class AuthorityFailure:
+    failure_ref: str
+    failed_at: str
+```
 
 ```python
 class ExecutionAuthorityPort(Protocol):
     def admit(
         self,
         execution_slice: ExecutionSlice,
-    ) -> AdmittedExecutionAuthority | AuthorityFailure:
-        ...
+    ) -> AdmittedExecutionAuthority | AuthorityFailure: ...
 ```
 
-`AuthorityFailure` means no Host mutation occurred. Once a Step33 admission reservation exists, Step37 records it as `FAILED_BEFORE_COMMIT`.
+An authority failure is pre-Host and therefore has confirmed no Host mutation.
 
-The returned authority must join exactly to:
+A returned authority must match exactly:
 
-- the requested `execution_slice_hash`;
-- the same ChangeSet hash;
-- the same approved scope hash;
-- the exact Slice `host_runtime_ref.host_instance_id`.
+- `execution_slice_hash`;
+- ChangeSet hash;
+- approved scope hash;
+- Slice `host_runtime_ref.host_instance_id`.
 
-Any mismatch is a coordination integrity failure before the Host is called.
+Mismatch is an integrity failure and the Host is not called.
 
-### 4.3 Host execution port
-
-```python
-class HostExecutionPort(Protocol):
-    def execute(
-        self,
-        execution_slice: ExecutionSlice,
-        authority: AdmittedExecutionAuthority,
-    ) -> HostExecutionResult:
-        ...
-```
+### Host execution port
 
 ```python
 class HostFailurePhase(str, Enum):
@@ -218,23 +183,29 @@ class HostFailed:
     failed_at: str
 ```
 
-`HostExecutionResult` is the closed union `HostCommitted | HostFailed`.
+`HostExecutionResult = HostCommitted | HostFailed`.
 
-A Host adapter may internally distinguish more detailed native failures, but Step37 only needs the commit-certainty boundary.
+```python
+class HostExecutionPort(Protocol):
+    def execute(
+        self,
+        execution_slice: ExecutionSlice,
+        authority: AdmittedExecutionAuthority,
+    ) -> HostExecutionResult: ...
+```
 
-### 4.4 Host routing
+Step37 needs only commit certainty. Native adapters may retain more detailed native errors internally.
+
+### Exact Host registry
 
 ```python
 class HostExecutionRegistry(Protocol):
-    def resolve(self, runtime_ref: HostRuntimeRef) -> HostExecutionPort:
-        ...
+    def resolve(self, runtime_ref: HostRuntimeRef) -> HostExecutionPort: ...
 ```
 
-Routing is by the exact `HostRuntimeRef` carried by the `ExecutionSlice`.
+No fallback between Host instances is allowed.
 
-The registry must not silently fall back from one Host instance to another.
-
-### 4.5 Verification evidence port
+### Verification evidence port
 
 ```python
 class VerificationEvidencePort(Protocol):
@@ -245,87 +216,101 @@ class VerificationEvidencePort(Protocol):
         actual_delta: ActualDelta,
         canonical_changeset: CanonicalChangeSet,
         approval_scope_boundary: ApprovalScopeBoundary,
-    ) -> VerificationEvidenceBundle:
-        ...
+    ) -> VerificationEvidenceBundle: ...
 ```
 
-The port is responsible only for supplying already-governed provider-neutral evidence. Step37 must not encode D5 storage/projection internals.
+The port returns provider-neutral evidence only. Step37 does not understand D5 projection/storage details.
 
-## 5. Deterministic coordinator algorithm
+## 5. Coordinator entry point
 
-Step37 executes sequentially. Parallel Slice execution is out of scope.
+The coordinator is constructed with:
+
+```text
+ExecutionReconciliationService
+ExecutionAuthorityPort
+HostExecutionRegistry
+VerificationEvidencePort
+CoordinationClock
+```
+
+Its forward-execution request contains the exact:
+
+```text
+CanonicalChangeSet
+ApprovalScopeBoundary
+ExecutionPlan
+```
+
+`ExecutionSagaCoordinator.execute(...)` creates or idempotently loads the Step33 Saga from those artifacts and returns `CoordinationResult`.
+
+It does not accept raw Host commands, native entity ids, inverse commands, or a caller-supplied alternative Slice order.
+
+## 6. Deterministic forward algorithm
 
 For one Saga:
 
-1. Create or load the Step33 Saga from the exact Step29/28/30 lineage.
-2. Read `definition.ordered_slice_hashes` from Step33.
-3. Resolve the next Slice by exact hash from the Step30 `ExecutionPlan`.
-4. Ask Step33 to `reserve_slice_admission(...)` using CAS.
-5. Ask `ExecutionAuthorityPort` for the exact Step32 authority.
-6. If authority acquisition fails, call `fail_slice_before_commit(...)` and stop.
-7. Validate the authority against the exact Slice and call Step33 `confirm_slice_admitted(...)`.
-8. Resolve the exact Host through `HostExecutionRegistry`.
-9. Call `HostExecutionPort.execute(...)` once.
-10. Handle the closed Host result:
-    - `HostFailed(BEFORE_COMMIT)`: call `fail_slice_before_commit(...)`; stop.
-    - `HostFailed(COMMIT_STATE_UNKNOWN)`: do not call `fail_slice_before_commit`, do not fabricate `ActualDelta`, do not retry, do not admit another Slice; return `RECOVERY_REQUIRED`.
-    - `HostCommitted`: validate and record the real `ActualDelta` with Step33.
-11. Call Step33 `begin_reconciliation(...)`.
-12. Build `ScopeComparisonRequest` from the exact authority, `ActualDelta`, boundary, and Slice.
-13. Call Step33 `compare_scope(...)` and `record_scope_result(...)`.
-14. If the result is `SCOPE_BREACH`, stop. Step33 owns `PARTIALLY_COMMITTED` and downstream `BLOCKED` transitions.
-15. Obtain the verification bundle through `VerificationEvidencePort`.
-16. Resolve exactly the validation tasks assigned by the immutable Saga definition.
-17. Build `SemanticVerificationRequest` and invoke Step33 verification.
-18. Persist the verification result.
-19. If verification fails or evidence is insufficient, stop. Step33 owns `VERIFY_FAILED`, `PARTIALLY_COMMITTED`, and downstream `BLOCKED` transitions.
-20. If the Slice succeeds, proceed to the next canonical eligible Slice.
-21. When every Slice succeeds, return `SUCCEEDED`.
+1. Create/load Step33 Saga from exact Step29/28/30 lineage.
+2. Read Step33 `definition.ordered_slice_hashes`.
+3. If Saga is `SUCCEEDED`, return `SUCCEEDED` without Host calls.
+4. If Saga is `FAILED`, return `FAILED` without Host calls.
+5. If Saga is `PARTIALLY_COMMITTED`, return `PARTIALLY_COMMITTED` without normal forward execution.
+6. If any Slice is already active (`ADMISSION_RESERVED`, `ADMITTED`, `HOST_COMMITTED`, or `RECONCILING`) at coordinator entry, do not re-run mutation; return `RECOVERY_REQUIRED` unless the implementation can complete only pure Step33 persistence from already supplied durable evidence. Step37 MVP does not invent missing external evidence.
+7. Resolve the next Slice by exact hash from the Step30 `ExecutionPlan`.
+8. Call Step33 `reserve_slice_admission(...)` using the injected clock and current Saga CAS revision.
+9. Call `ExecutionAuthorityPort.admit(...)`.
+10. If it returns `AuthorityFailure`, call Step33 `fail_slice_before_commit(...)` and stop.
+11. Validate exact authority lineage and Host instance; then call Step33 `confirm_slice_admitted(...)`.
+12. Resolve the exact Host through `HostExecutionRegistry`.
+13. Call `HostExecutionPort.execute(...)` exactly once.
+14. Handle the closed result:
+    - `HostFailed(BEFORE_COMMIT)`: call Step33 `fail_slice_before_commit(...)`; stop.
+    - `HostFailed(COMMIT_STATE_UNKNOWN)`: do not record a false failure, do not fabricate `ActualDelta`, do not retry, do not advance; return `RECOVERY_REQUIRED`.
+    - `HostCommitted`: record the real `ActualDelta` with Step33.
+15. Call Step33 `begin_reconciliation(...)`.
+16. Build `ScopeComparisonRequest` from exact authority, delta, boundary, and Slice.
+17. Run Step33 `compare_scope(...)` then `record_scope_result(...)`.
+18. On `SCOPE_BREACH`, stop; Step33 owns `PARTIALLY_COMMITTED` and later `BLOCKED` states.
+19. Build provider-neutral verification evidence through `VerificationEvidencePort`.
+20. Resolve exactly the validation task ids assigned to the Slice by the immutable Saga definition.
+21. Build `SemanticVerificationRequest`, run Step33 verification, and persist the result.
+22. On failed/insufficient verification, stop; Step33 owns `VERIFY_FAILED`, `PARTIALLY_COMMITTED`, and later `BLOCKED` states.
+23. On Slice success, continue with the next Step33-ordered eligible Slice.
+24. When all Slices succeed, return `SUCCEEDED`.
 
-The coordinator must never compute an alternative Slice order. Step33 order is authoritative.
+The coordinator never computes a different order and never bypasses Step33 CAS.
 
-## 6. Commit-state uncertainty rule
+## 7. Commit-state uncertainty is fail-closed
 
-`COMMIT_STATE_UNKNOWN` is the most important fail-closed rule in Step37.
-
-Example:
+`COMMIT_STATE_UNKNOWN` covers cases such as:
 
 ```text
 Step37 sends Host command
-Host commits transaction
-connection drops before response reaches Step37
+Host may commit
+transport drops before a trustworthy response arrives
 ```
 
-Step37 cannot know whether the model changed.
-
-Therefore it must not:
+Step37 must not:
 
 - mark `FAILED_BEFORE_COMMIT`;
 - create an empty/fake `ActualDelta`;
-- retry the command;
-- advance to the next Slice;
-- generate compensation as though commit evidence were known.
+- retry the Host command;
+- advance another Slice;
+- build compensation as though commit evidence were known.
 
-Instead:
+The Slice remains at its last durable active Step33 state, normally `ADMITTED`. Existing Step33 one-active-Slice rules then prevent forward admission. Step37 returns `RECOVERY_REQUIRED` with the Host-supplied `failure_ref`.
 
-- the Step33 Slice remains active at its last durable pre-commit state, normally `ADMITTED`;
-- the Saga therefore cannot admit another Slice under the existing one-active-Slice invariant;
-- Step37 returns `RECOVERY_REQUIRED` with a durable/external `failure_ref` supplied by the Host port;
-- later recovery must obtain authoritative Host facts and then either reconstruct real commit evidence or establish that no commit happened before execution can continue.
+A later run sees the unresolved active Slice and must not call the Host again automatically.
 
-Step37 does not add a fake Step33 `UNKNOWN` status just to make the coordinator look complete.
+Step37 does not add a convenience `UNKNOWN` Step33 status that would misstate model truth.
 
-## 7. Failure injection design
+## 8. Failure injection design
 
-Failure injection lives in test doubles implementing the same production ports.
+Failure injection exists only in deterministic test doubles implementing the production ports. No production Host gets a Step37 debug command or failure flag.
 
-There is no production `debug_failure_mode` flag and no special AutoCAD command for Step37 testing.
-
-The deterministic harness must support these injection points:
+Required injection cases:
 
 ```text
 AUTHORITY_BEFORE_ADMISSION
-AFTER_ADMISSION_BEFORE_HOST_CALL
 HOST_BEFORE_COMMIT
 HOST_COMMIT_STATE_UNKNOWN
 SCOPE_BREACH
@@ -333,21 +318,20 @@ VERIFY_FAILED
 COMPENSATION_FAILED
 ```
 
-Mapping:
+Mappings:
 
-- `AUTHORITY_BEFORE_ADMISSION` -> `AuthorityFailure` -> Step33 `FAILED_BEFORE_COMMIT`.
-- `AFTER_ADMISSION_BEFORE_HOST_CALL` -> `HostFailed(BEFORE_COMMIT)` before mutation.
-- `HOST_BEFORE_COMMIT` -> `HostFailed(BEFORE_COMMIT)` from the Host port.
-- `HOST_COMMIT_STATE_UNKNOWN` -> `HostFailed(COMMIT_STATE_UNKNOWN)` -> no Step33 failure fabrication.
-- `SCOPE_BREACH` -> real/synthetic provider-neutral `ActualDelta`, then a deterministic Step33 `ScopeComparisonResult(SCOPE_BREACH)`.
-- `VERIFY_FAILED` -> committed `ActualDelta`, within-scope result, then deterministic Step33 failed verification evidence/result.
-- `COMPENSATION_FAILED` -> Step33 compensation execution result with `succeeded=False`; no inverse Host command is generated by Step37.
+- authority failure -> `FAILED_BEFORE_COMMIT`;
+- Host confirmed pre-commit failure -> `FAILED_BEFORE_COMMIT`;
+- unknown commit state -> coordinator `RECOVERY_REQUIRED`, no fabricated Step33 failure;
+- scope breach after real/synthetic provider-neutral commit evidence -> Step33 `SCOPE_BREACH`;
+- failed verification after committed within-scope evidence -> Step33 `VERIFY_FAILED`;
+- compensation result `succeeded=False` -> existing Step33 `COMPENSATION_FAILED`.
 
-## 8. Required Step37 proof scenarios
+## 9. Required proof scenarios
 
-### Scenario A — two Host runtimes succeed
+### A. Two Host runtimes succeed
 
-One Saga contains at least two Slices with different `HostRuntimeRef` values.
+One Saga has at least two Slices with different `HostRuntimeRef` values.
 
 Expected:
 
@@ -357,18 +341,13 @@ Slice B -> Host B -> SUCCEEDED
 Saga -> SUCCEEDED
 ```
 
-Assertions:
+Each Host is called exactly once for its own Slice and never receives the other Host's Slice.
 
-- each Host port is called exactly once for its own Slice;
-- no Host receives the other Host's Slice;
-- actual deltas join the exact authority and Host instance;
-- execution follows Step33 canonical order.
-
-### Scenario B — second Host fails before commit
+### B. Later Host fails before commit
 
 ```text
-Slice A -> Host A -> committed/reconciled/SUCCEEDED
-Slice B -> Host B -> BEFORE_COMMIT failure
+Slice A -> SUCCEEDED
+Slice B -> BEFORE_COMMIT
 Slice C -> never called
 ```
 
@@ -381,13 +360,9 @@ Slice C = BLOCKED
 Saga    = PARTIALLY_COMMITTED
 ```
 
-The failed Slice has no `actual_delta_hash`.
+Slice B has no `actual_delta_hash`.
 
-### Scenario C — first Host fails before any commit
-
-```text
-Slice A -> BEFORE_COMMIT failure
-```
+### C. First Slice fails before any commit
 
 Expected:
 
@@ -397,66 +372,44 @@ later   = BLOCKED
 Saga    = FAILED
 ```
 
-No compensation proposal is valid because there is no prior durable Host commit.
+No Step33 compensation proposal is valid because the Saga is not partially committed.
 
-### Scenario D — second Host commits but breaches scope
-
-```text
-Slice A -> SUCCEEDED
-Slice B -> HOST_COMMITTED
-        -> SCOPE_BREACH
-Slice C -> BLOCKED
-```
+### D. Later Host commits then breaches scope
 
 Expected:
 
 ```text
-Saga = PARTIALLY_COMMITTED
+Slice A = SUCCEEDED
+Slice B = SCOPE_BREACH with real ActualDelta evidence
+later   = BLOCKED
+Saga    = PARTIALLY_COMMITTED
 ```
 
-The compensation proposal must include durable commit evidence from the committed Slices. No inverse native command is inferred.
-
-### Scenario E — second Host commits but semantic verification fails
-
-```text
-Slice A -> SUCCEEDED
-Slice B -> HOST_COMMITTED
-        -> WITHIN_SCOPE
-        -> VERIFY_FAILED
-Slice C -> BLOCKED
-```
+### E. Later Host commits then fails verification
 
 Expected:
 
 ```text
-Saga = PARTIALLY_COMMITTED
+Slice A = SUCCEEDED
+Slice B = VERIFY_FAILED with real ActualDelta + scope evidence
+later   = BLOCKED
+Saga    = PARTIALLY_COMMITTED
 ```
 
-The failed verification evidence is preserved and available to the compensation proposal.
-
-### Scenario F — commit state is unknown
-
-```text
-Slice A -> SUCCEEDED
-Slice B -> ADMITTED
-        -> COMMIT_STATE_UNKNOWN
-```
+### F. Host commit state is unknown
 
 Expected:
 
 ```text
 Coordinator = RECOVERY_REQUIRED
-Slice B     = remains at last durable active state
-Slice C     = NOT_STARTED but cannot be admitted
+active Slice remains at last durable Step33 state
+later Slices are not admitted
+Host is not retried on coordinator restart
 ```
 
-The Host command is not retried automatically.
+## 10. Compensation handoff
 
-A second coordinator run must detect the unresolved active Slice and return recovery-required again without calling the Host.
-
-## 9. Compensation handoff
-
-Step37 may expose a convenience method that delegates to Step33:
+Step37 may delegate creation of a Step33 `CompensationProposal`:
 
 ```python
 create_compensation_proposal(
@@ -466,177 +419,152 @@ create_compensation_proposal(
 )
 ```
 
-It must not execute recovery directly.
-
-The proposal remains based on:
+The proposal is derived only from durable Step33 evidence:
 
 - committed Slice hashes;
-- real `ActualDelta` hashes;
+- `ActualDelta` hashes;
 - verification failure refs;
 - scope breach refs;
-- caller-supplied canonical desired recovery effects.
+- caller-supplied canonical recovery effects.
 
-A subsequent recovery execution is a new canonical request/change set and must return through the existing authority pipeline before any Host mutation.
+Step37 has no API that accepts or generates an inverse Host command. Recovery execution is outside normal forward execution of the failed Saga and must re-enter the existing canonical authority pipeline before any Host mutation.
 
-Step37 tests must include an architecture assertion that the coordinator has no API accepting raw inverse Host commands.
+## 11. Idempotency and restart rules
 
-## 10. Idempotency and restart behavior
+- `SUCCEEDED` Slices are never re-executed.
+- `FAILED_BEFORE_COMMIT`, `SCOPE_BREACH`, `VERIFY_FAILED`, and `BLOCKED` Slices are never re-executed in the same Saga.
+- `PARTIALLY_COMMITTED` Sagas never resume ordinary forward execution.
+- an unresolved active Slice is not automatically replayed.
+- Step33 CAS conflicts stop coordination; Step37 does not retry a mutation to resolve persistence races.
+- Step33 idempotent evidence persistence does not imply Host mutation replay is safe.
 
-Step37 relies on Step33 CAS and idempotent evidence recording.
+## 12. Integrity checks before Host mutation
 
-Frozen rules:
-
-- a completed `SUCCEEDED` Slice is never re-executed;
-- a `FAILED_BEFORE_COMMIT`, `SCOPE_BREACH`, or `VERIFY_FAILED` Slice is never re-executed inside the same Saga;
-- a `BLOCKED` Slice is never admitted;
-- a Saga in `PARTIALLY_COMMITTED` does not resume normal forward execution;
-- an unresolved active Slice after `COMMIT_STATE_UNKNOWN` is never re-executed automatically;
-- CAS conflict from Step33 stops the coordinator and surfaces a coordination conflict instead of retrying mutation;
-- replaying pure Step33 persistence with identical evidence may use Step33's existing idempotency, but replaying a Host mutation is not inferred safe merely because persistence is idempotent.
-
-## 11. Data integrity checks performed by Step37
-
-Before a Host call, Step37 must validate:
+Step37 validates before calling a Host:
 
 - Saga ChangeSet hash == supplied ChangeSet hash;
 - Saga approved scope hash == supplied boundary hash;
 - Saga execution plan hash == supplied execution plan hash;
-- Slice hash is in the immutable Saga definition;
-- exact Step30 Slice exists once;
-- authority `execution_slice_hash` matches the Slice;
-- authority ChangeSet/scope lineage matches the Saga;
-- authority Host instance matches the Slice runtime ref;
-- Host registry resolution is exact.
+- Slice hash appears exactly once in the Step30 plan and belongs to the immutable Saga definition;
+- authority Slice hash, ChangeSet hash, approved scope hash, and Host instance all join exactly;
+- Host registry resolution matches the exact Step30 `HostRuntimeRef`.
 
-After a Host commit, Step33 remains responsible for validating `ActualDelta` integrity and authority lineage.
+After commit, Step33 remains responsible for `ActualDelta` hash/lineage validation. Step37 does not implement a second hashing scheme.
 
-Step37 must not weaken or duplicate those checks with a second hashing implementation.
+## 13. Dependency direction
 
-## 12. Package dependency direction
-
-Allowed production dependencies for `design_execution_coordination`:
+Allowed Step37 production dependencies:
 
 ```text
 design_approval_scope
 design_changeset
-design_execution_planning
+design_execution_planning  # includes HostRuntimeRef
 design_gateway_authorization
 design_execution_reconciliation
-host_contracts / provider-neutral HostRuntimeRef contract
 ```
 
-Forbidden production dependencies:
+Forbidden dependencies:
 
 ```text
 hosts.autocad.*
-AutoCAD .NET/native APIs
 future hosts.revit.*
+AutoCAD/Revit native APIs
 provider-specific native entity models
 ```
 
-`design_execution_reconciliation` must not import the new Step37 package. Dependency direction is one-way: Step37 -> Step33.
+`design_execution_reconciliation` must not import `design_execution_coordination`; dependency direction is Step37 -> Step33 only.
 
-## 13. Existing production code expected to remain unchanged
+## 14. Expected read-only production boundaries
 
-The first Step37 implementation should treat these as read-only unless a proven public-interface gap is found during TDD:
+Step37 MVP treats these as read-only unless TDD proves a genuine public-interface gap:
 
-- `platform/execution_reconciliation` state semantics;
+- Step33 state/failure semantics;
 - Step31 provider binding production code;
 - Step32 gateway authorization production code;
 - AutoCAD plugin production code;
 - AutoCAD sidecar production code.
 
-If implementation appears to require changing Step33 failure meanings or adding native Host vocabulary to core, stop and return to design review.
+If implementation appears to require changing Step33 failure meanings or inserting native vocabulary into Step37 core, implementation stops and returns to design review.
 
-## 14. Test strategy
+## 15. Test strategy
 
-### 14.1 Unit tests
+### Unit
 
-Create focused tests for:
+Prove:
 
-- exact Host routing;
-- authority mismatch rejection;
-- canonical Slice progression;
-- coordination status projection;
-- no retry after unknown commit state;
-- active Slice restart detection.
+- exact Host registry routing;
+- authority mismatch rejection before Host call;
+- Step33 order is the only progression order;
+- clock injection controls coordinator timestamps;
+- unresolved active Slice returns `RECOVERY_REQUIRED` without Host replay.
 
-### 14.2 Integration tests
+### Integration
 
-Build one provider-neutral three-Slice Saga with at least two distinct `HostRuntimeRef` values and deterministic fake ports.
+Use a provider-neutral three-Slice fixture with at least two distinct `HostRuntimeRef` values. Use real Step33 service/store components and deterministic fake authority/Host/evidence ports. Inject every required failure and assert exact persisted Step33 state.
 
-Use real Step33 store/service components rather than mocking the Saga state machine.
+### Architecture guard
 
-Inject each required failure and assert the exact persisted Step33 state.
+Prove:
 
-### 14.3 Regression tests
+- Step37 imports Step33, never the reverse;
+- no AutoCAD/Revit native vocabulary in Step37 production code;
+- failure injection helpers live only under tests;
+- no production failure-debug switch;
+- no inverse Host command API;
+- unknown commit state cannot call `fail_slice_before_commit`;
+- two distinct Host runtime identities are exercised.
 
-Step37 must keep green:
+### Regression
 
-- Step29 changeset tests;
-- Step30 execution planning tests;
-- Step31 provider binding tests;
-- Step32 gateway authorization tests;
-- all Step33 execution reconciliation tests;
-- Step34 AutoCAD wall-thickness integration tests;
-- Step36 AutoCAD OFFSET / CREATE / scope-breach tests;
-- full repository importlib regression.
+Keep green:
 
-### 14.4 Architecture guard
+- Step29 changeset;
+- Step30 execution planning;
+- Step31 provider binding;
+- Step32 gateway authorization;
+- all Step33 reconciliation tests;
+- Step34 AutoCAD wall-thickness offline integration;
+- Step36 AutoCAD OFFSET/CREATE/scope-breach offline integration;
+- full repository importlib suite.
 
-Add a Step37 architecture test that proves:
+## 16. Dedicated CI
 
-- `design_execution_coordination` imports Step33, never the reverse;
-- no AutoCAD/Revit native vocabulary appears in Step37 production code;
-- failure injection helpers exist only under tests;
-- no production failure-debug switch exists;
-- no inverse Host command API exists in the coordinator;
-- `COMMIT_STATE_UNKNOWN` cannot call `fail_slice_before_commit` in the coordinator path;
-- two distinct Host runtime identities are exercised by the cross-host integration fixture.
+Add a Step37 workflow covering:
 
-## 15. Dedicated CI
-
-Add a Step37 workflow covering paths for:
-
-- the Step37 spec and plan;
+- Step37 spec/plan;
 - `platform/execution_coordination/**`;
 - Step29–33 packages used by the coordinator;
-- Host contract/runtime identity packages;
 - Step37 tests;
-- Step34/36 regression tests relevant to Host execution contracts.
+- Step34/36 execution-contract regressions.
 
-The CI gate must run:
+Required gate:
 
 1. Step37 unit/integration/architecture tests;
 2. Step29–33 regressions;
 3. Step34/36 offline regressions;
-4. full importlib suite;
-5. Ruff no-new-diagnostics policy consistent with the current repository baseline;
+4. full importlib regression;
+5. Ruff no-new-diagnostics policy against current `main` baseline;
 6. `git diff --check main...HEAD`.
 
-No live AutoCAD requirement is introduced by Step37 itself because Step37 does not modify AutoCAD production code.
+Step37 itself adds no live AutoCAD requirement because the MVP does not change AutoCAD production code. If AutoCAD production code changes, live acceptance must be reopened explicitly.
 
-If AutoCAD production code is later changed as part of Step37, the live acceptance gate must be reopened explicitly.
-
-## 16. Non-goals
+## 17. Non-goals
 
 Step37 does not add:
 
 - parallel Slice execution;
 - distributed two-phase commit;
-- global rollback transactions across Hosts;
-- automatic Host retries after ambiguous failures;
+- global rollback transactions;
+- automatic retries after ambiguous Host failures;
 - automatic inverse-command generation;
 - a second real production Host implementation;
 - Revit support;
-- a new semantic identity protocol;
-- new Step33 Saga statuses merely for coordinator convenience;
-- provider-specific failure injection hooks in production Hosts;
-- automatic execution of compensation outside Steps27–32 authority.
+- new semantic identity protocols;
+- new Step33 statuses for coordinator convenience;
+- provider-specific production failure injection hooks;
+- automatic compensation Host execution outside Steps27–32 authority.
 
-## 17. Completion gate
-
-Step37 is complete only when all of the following are proven:
+## 18. Completion gate
 
 ```text
 two different HostRuntimeRefs participate in one Saga: PASS
@@ -650,7 +578,7 @@ committed predecessor remains durably committed after later failure: PASS
 post-commit scope breach -> PARTIALLY_COMMITTED + later BLOCKED: PASS
 post-commit verify failure -> PARTIALLY_COMMITTED + later BLOCKED: PASS
 COMMIT_STATE_UNKNOWN fails closed without retry or false failure state: PASS
-restart with unresolved active Slice does not re-execute Host mutation: PASS
+restart with unresolved active Slice does not replay Host mutation: PASS
 compensation proposal derives only from durable Step33 evidence: PASS
 coordinator never invents inverse Host commands: PASS
 compensation is handed back to the governed canonical authority chain: PASS
@@ -660,10 +588,6 @@ Step33/34/36 regressions remain green: PASS
 full offline regression/lint/diff gate: PASS
 ```
 
-## 18. Design decision summary
+## 19. Design decision
 
-Step37 is an execution coordinator, not a new reconciliation layer and not a distributed transaction manager.
-
-Its core rule is:
-
-> Progress only when the previous Slice has durable, reconciled success. When commit certainty is lost, stop. When a committed Slice fails scope or semantic verification, preserve the partial commit and require governed compensation. Never manufacture rollback truth.
+> Progress only when the prior Slice has durable reconciled success. When commit certainty is lost, stop. When a committed Slice breaches scope or fails semantic verification, preserve partial-commit truth and require governed compensation. Never manufacture rollback truth.
