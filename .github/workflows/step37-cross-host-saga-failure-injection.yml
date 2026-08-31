@@ -1,0 +1,51 @@
+name: Step37 cross-host Saga failure injection
+
+on:
+  push:
+    paths:
+      - ".github/workflows/step37-cross-host-saga-failure-injection.yml"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-31-step37-cross-host-saga-failure-injection-design.md"
+      - "docs/superpowers/plans/2026-08-31-step37-cross-host-saga-failure-injection.md"
+      - "platform/execution_coordination/**"
+      - "tests/execution_coordination/**"
+      - "tests/integration/test_step37_architecture.py"
+  pull_request:
+    paths:
+      - ".github/workflows/step37-cross-host-saga-failure-injection.yml"
+      - "pyproject.toml"
+      - "docs/superpowers/specs/2026-08-31-step37-cross-host-saga-failure-injection-design.md"
+      - "docs/superpowers/plans/2026-08-31-step37-cross-host-saga-failure-injection.md"
+      - "platform/execution_coordination/**"
+      - "tests/execution_coordination/**"
+      - "tests/integration/test_step37_architecture.py"
+  workflow_dispatch:
+
+jobs:
+  step37-tdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Step37 TDD stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e platform/changeset \
+            -e platform/execution_planning \
+            -e platform/provider_binding \
+            -e platform/semantic_runtime \
+            -e platform/gateway_authorization \
+            -e platform/execution_reconciliation
+      - name: Run Step37 TDD tests or baseline Step33
+        run: |
+          if [ -d tests/execution_coordination ]; then
+            python -m pytest tests/execution_coordination -q
+          else
+            python -m pytest tests/execution_reconciliation -q
+          fi
