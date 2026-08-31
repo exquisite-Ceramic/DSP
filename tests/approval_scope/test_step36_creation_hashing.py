@@ -206,13 +206,14 @@ def test_creation_rule_id_is_deterministic_and_excludes_request_rule_id() -> Non
 
     first = _creation_rule(rule_id="REQUEST-A")
     second = _creation_rule(rule_id="REQUEST-B")
-    expected = f"CR-{_sha({
-        'canonical_operation': 'offset.v1',
-        'source_selector': {'entities': ['WALL-001']},
-        'entity_kinds': ['ifc:IfcWall'],
-        'max_count': 1,
-        'required_derivation': 'RULE-OFFSET-WALL',
-    })[:12]}"
+    expected_payload = {
+        "canonical_operation": "offset.v1",
+        "source_selector": {"entities": ["WALL-001"]},
+        "entity_kinds": ["ifc:IfcWall"],
+        "max_count": 1,
+        "required_derivation": "RULE-OFFSET-WALL",
+    }
+    expected = f"CR-{_sha(expected_payload)[:12]}"
 
     assert helper(first) == expected
     assert helper(second) == expected
