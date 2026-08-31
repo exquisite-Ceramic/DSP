@@ -1,5 +1,4 @@
 import pytest
-
 from design_execution_coordination import (
     AuthorityFailure,
     CoordinationResult,
