@@ -12,6 +12,7 @@ from design_execution_reconciliation import (
     InMemoryExecutionSagaStore,
     SliceReconciliationStatus,
 )
+
 from tests.execution_coordination.conftest import (
     _build_authority_for_slice,
     _build_three_slice_transaction,
