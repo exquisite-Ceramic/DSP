@@ -12,8 +12,10 @@ from design_execution_reconciliation import (
     InMemoryExecutionSagaStore,
     SliceReconciliationStatus,
 )
-
-pytest_plugins = ("tests.execution_coordination.conftest",)
+from tests.execution_coordination.conftest import (
+    _build_authority_for_slice,
+    _build_three_slice_transaction,
+)
 
 CORE = Path("platform/execution_coordination/src/design_execution_coordination")
 STEP33 = Path("platform/execution_reconciliation/src/design_execution_reconciliation")
@@ -114,11 +116,8 @@ class _Clock:
         return "2026-08-31T13:39:00Z"
 
 
-def test_unknown_commit_never_persists_false_precommit_failure(
-    step37_three_slice_transaction,
-    build_authority_for_slice,
-):
-    transaction = step37_three_slice_transaction
+def test_unknown_commit_never_persists_false_precommit_failure():
+    transaction = _build_three_slice_transaction()
     reconciliation = ExecutionReconciliationService(
         store=InMemoryExecutionSagaStore()
     )
@@ -133,7 +132,7 @@ def test_unknown_commit_never_persists_false_precommit_failure(
         for item in transaction.execution_plan.execution_slices
         if item.execution_slice_hash == first_hash
     )
-    authority = build_authority_for_slice(transaction, first_slice)
+    authority = _build_authority_for_slice(transaction, first_slice)
     spy = _SpyReconciliation(reconciliation)
     authority_port = _AuthorityPort(authority)
     host = _UnknownCommitHost()
