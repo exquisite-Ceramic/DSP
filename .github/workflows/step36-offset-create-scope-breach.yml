@@ -38,6 +38,10 @@ jobs:
       - name: Run impact regression
         run: python -m pytest tests/impact -q
       - name: Run Step36 Task3 focused tests
-        run: python -m pytest tests/approval_scope/test_step36_creation_scope.py -q
+        run: >-
+          python -m pytest
+          tests/approval_scope/test_step36_creation_scope.py
+          tests/approval_scope/test_step36_creation_hashing.py
+          -q
       - name: Run approval scope regression
         run: python -m pytest tests/approval_scope -q
