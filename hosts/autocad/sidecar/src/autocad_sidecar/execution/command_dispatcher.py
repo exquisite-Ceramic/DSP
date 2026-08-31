@@ -136,9 +136,6 @@ class CommandDispatcher:
         if not document_id:
             raise RuntimeError("current_document response is missing documentId")
 
-        # Unlike model mutation retry, an interactive prompt is not automatically
-        # retried after an ambiguous transport failure: repeating GetPoint can show
-        # duplicate modal UI. Successful logical retries are replayed from the cache.
         result = await self._interaction.pick_point(
             document_id=document_id,
             idempotency_key=key,
@@ -255,3 +252,6 @@ class CommandDispatcher:
         if result.ok:
             await self._idempotency.complete(key, result)
         return result
+
+
+# Task8 CI carrier: no semantic behavior change.
