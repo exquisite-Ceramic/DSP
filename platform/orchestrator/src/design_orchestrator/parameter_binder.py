@@ -19,6 +19,7 @@ from jsonschema import SchemaError, ValidationError, validate
 from design_orchestrator.canonical_operations import (
     CanonicalOperationDefinition,
     MOVE_V1,
+    OFFSET_V1,
     SET_WALL_THICKNESS_V1,
     SlotBindingClass,
 )
@@ -628,7 +629,18 @@ SET_WALL_THICKNESS_V1_BINDING_RECIPE = OperationBindingRecipe(
     ),
 )
 
+OFFSET_V1_BINDING_RECIPE = OperationBindingRecipe(
+    canonical_operation=OFFSET_V1.canonical_operation,
+    slots=(
+        SlotBindingRecipe(
+            slot="targets",
+            resolver_kind=BindingResolverKind.CONTEXT_SELECTION,
+        ),
+    ),
+)
+
 MVP_BINDING_RECIPES: tuple[OperationBindingRecipe, ...] = (
     MOVE_V1_BINDING_RECIPE,
     SET_WALL_THICKNESS_V1_BINDING_RECIPE,
+    OFFSET_V1_BINDING_RECIPE,
 )
