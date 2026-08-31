@@ -42,10 +42,18 @@ jobs:
             -e platform/semantic_runtime \
             -e platform/gateway_authorization \
             -e platform/execution_reconciliation
+          if [ -d platform/execution_coordination ]; then
+            python -m pip install -e platform/execution_coordination
+          fi
       - name: Run Step37 TDD tests or baseline Step33
         run: |
           if [ -d tests/execution_coordination ]; then
             python -m pytest tests/execution_coordination -q
           else
             python -m pytest tests/execution_reconciliation -q
+          fi
+      - name: Run Step37 strict lint when present
+        run: |
+          if [ -d platform/execution_coordination ]; then
+            ruff check --select E,F,I platform/execution_coordination tests/execution_coordination
           fi
