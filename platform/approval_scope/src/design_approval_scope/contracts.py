@@ -6,11 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from design_orchestrator.canonical_operations import (
-    CanonicalCreationContract,
-    CanonicalExistenceEffect,
-)
-
 
 class ApprovalScopeError(ValueError):
     def __init__(self, code: str, message: str) -> None:
@@ -28,6 +23,11 @@ class CanonicalAspect(str, Enum):
     RELATIONSHIPS = "RELATIONSHIPS"
     CONSTRAINTS = "CONSTRAINTS"
     CLASSIFICATION = "CLASSIFICATION"
+
+
+class CanonicalExistenceEffect(str, Enum):
+    CREATE = "CREATE"
+    DELETE = "DELETE"
 
 
 class PredicateField(str, Enum):
@@ -97,6 +97,31 @@ def _existence_effects(values) -> tuple[CanonicalExistenceEffect, ...]:
             key=lambda v: v.value,
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalCreationContract:
+    entity_kinds: tuple[str, ...]
+    max_count: int
+    required_derivation: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "entity_kinds",
+            _texts(self.entity_kinds, "entity_kind", required=True),
+        )
+        if (
+            not isinstance(self.max_count, int)
+            or isinstance(self.max_count, bool)
+            or self.max_count <= 0
+        ):
+            raise ValueError("max_count must be a positive integer")
+        object.__setattr__(
+            self,
+            "required_derivation",
+            _text(self.required_derivation, "required_derivation"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
