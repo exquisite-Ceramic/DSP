@@ -186,3 +186,6 @@ def test_hash_helpers_do_not_accept_construction_ids() -> None:
         assert "execution_unit_id" not in parameters
         assert "execution_slice_id" not in parameters
         assert "execution_plan_id" not in parameters
+
+
+# Task6 CI carrier: no semantic behavior change.
