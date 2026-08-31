@@ -10,6 +10,7 @@ from .contracts import (
     HostFailed,
     HostFailurePhase,
 )
+from .coordinator import ExecutionSagaCoordinator
 from .ports import (
     CoordinationClock,
     ExecutionAuthorityPort,
@@ -25,6 +26,7 @@ __all__ = [
     "CoordinationResult",
     "CoordinationStatus",
     "ExecutionAuthorityPort",
+    "ExecutionSagaCoordinator",
     "HostCommitted",
     "HostExecutionPort",
     "HostExecutionRegistry",
