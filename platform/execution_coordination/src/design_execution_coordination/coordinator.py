@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from design_approval_scope import ApprovalScopeBoundary
 from design_changeset import CanonicalChangeSet
 from design_execution_planning import ExecutionPlan
 from design_execution_reconciliation import (
+    CompensationProposal,
+    CompensationProposalRequest,
     ExecutionReconciliationService,
     ExecutionSagaStatus,
     ScopeComparisonRequest,
@@ -69,6 +74,21 @@ class ExecutionSagaCoordinator:
         self._host_registry = host_registry
         self._evidence_port = evidence_port
         self._clock = clock
+
+    def create_compensation_proposal(
+        self,
+        *,
+        source_saga_id: str,
+        failed_slice_hash: str,
+        desired_recovery_effects: tuple[Mapping[str, Any], ...],
+    ) -> CompensationProposal:
+        return self._reconciliation.create_compensation_proposal(
+            CompensationProposalRequest(
+                source_saga_id=source_saga_id,
+                failed_slice_hash=failed_slice_hash,
+                desired_recovery_effects=desired_recovery_effects,
+            )
+        )
 
     @staticmethod
     def _terminal_result(stored, failure_ref=None) -> CoordinationResult | None:
