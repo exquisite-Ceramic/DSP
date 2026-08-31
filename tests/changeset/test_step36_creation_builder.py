@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from design_approval_scope import (
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalCreationContract,
     CanonicalEffectEvidence,
     CanonicalExistenceEffect,
@@ -14,8 +14,8 @@ from design_approval_scope import (
 from design_changeset import (
     BoundOperationEvidence,
     CanonicalOperationContractEvidence,
-    ChangeSetBuildRequest,
     ChangeSetBuilder,
+    ChangeSetBuildRequest,
     compute_bound_operation_evidence_fingerprint,
     compute_bound_operation_fingerprint,
     compute_contract_definition_fingerprint,
