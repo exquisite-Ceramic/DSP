@@ -10,7 +10,7 @@ from autocad_sidecar.ipc.transport import PipeTransport
 
 _PIPE_PREFIX = "EnterpriseDesignAgent."
 _PIPE_GLOB = rf"\\.\pipe\{_PIPE_PREFIX}*"
-_PIPE_PATH_PREFIX = r"\\.\pipe\"
+_PIPE_PATH_PREFIX = "\\\\.\\pipe\\"
 _PIPE_OVERRIDE_ENV = "AGENT_HOST_PIPE"
 
 
