@@ -1,8 +1,8 @@
 import pytest
 
-from design_approval_scope import CanonicalEffectEvidence
-from design_orchestrator.canonical_operations import (
+from design_approval_scope import (
     CanonicalCreationContract,
+    CanonicalEffectEvidence,
     CanonicalExistenceEffect,
 )
 
