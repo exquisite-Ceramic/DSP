@@ -5,8 +5,8 @@ from dataclasses import replace
 import pytest
 from design_approval_scope import (
     ApprovalScopeError,
-    ApprovalScopePlanner,
     ApprovalScopePlanRequest,
+    ApprovalScopePlanner,
     CanonicalAspect,
     CanonicalCreationContract,
     CanonicalEffectEvidence,
