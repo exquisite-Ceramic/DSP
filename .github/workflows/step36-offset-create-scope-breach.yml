@@ -33,3 +33,5 @@ jobs:
         run: python -m pytest tests/orchestrator -q
       - name: Run Step36 Task2 focused tests
         run: python -m pytest tests/impact/test_step36_creation_intent.py -q
+      - name: Run impact regression
+        run: python -m pytest tests/impact -q
