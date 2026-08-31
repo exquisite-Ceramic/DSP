@@ -7,8 +7,8 @@ from dataclasses import dataclass, replace
 import pytest
 from design_approval_scope import (
     ApprovalScopeBoundary,
-    ApprovalScopePlanRequest,
     ApprovalScopePlanner,
+    ApprovalScopePlanRequest,
     CanonicalAspect,
     CanonicalEffectEvidence,
     DirectEntityEffect,
@@ -22,8 +22,8 @@ from design_changeset import (
     BoundOperationEvidence,
     CanonicalChangeSet,
     CanonicalOperationContractEvidence,
-    ChangeSetBuildRequest,
     ChangeSetBuilder,
+    ChangeSetBuildRequest,
     DerivedOperationMaterialization,
     canonical_hash,
     compute_bound_operation_evidence_fingerprint,
