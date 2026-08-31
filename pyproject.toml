@@ -36,6 +36,7 @@ pythonpath = [
     "platform/approval_scope/src",
     "platform/changeset/src",
     "platform/execution_planning/src",
+    "platform/execution_coordination/src",
     "platform/provider_binding/src",
     "platform/gateway_authorization/src",
     "platform/execution_reconciliation/src",
