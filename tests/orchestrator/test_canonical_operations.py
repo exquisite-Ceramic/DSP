@@ -27,6 +27,7 @@ def make_definition(**overrides) -> CanonicalOperationDefinition:
         },
         "slot_binding_policy": {"value": SlotBindingClass.INTENT},
         "verification_contract": {"type": "NONE"},
+        "effects": ("PROPERTIES",),
     }
     values.update(overrides)
     return CanonicalOperationDefinition(**values)
