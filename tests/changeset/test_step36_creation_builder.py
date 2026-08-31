@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
 from design_approval_scope import (
     ApprovalScopePlanner,
     ApprovalScopePlanRequest,
@@ -16,6 +19,7 @@ from design_changeset import (
     CanonicalOperationContractEvidence,
     ChangeSetBuilder,
     ChangeSetBuildRequest,
+    ChangeSetError,
     compute_bound_operation_evidence_fingerprint,
     compute_bound_operation_fingerprint,
     compute_contract_definition_fingerprint,
@@ -232,3 +236,25 @@ def test_offset_create_binds_exact_creation_rule_into_root_operation() -> None:
     )
     assert changeset.root_operation.scope_rule_ids == (creation_rule.rule_id,)
     assert changeset.validation_tasks == ()
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_offset_create_rejects_equally_compatible_creation_rules(reverse: bool) -> None:
+    request = _request()
+    original = request.approval_scope_definition.creation_rules[0]
+    duplicate = CreationRule(
+        rule_id=f"{original.rule_id}-AMBIGUOUS",
+        canonical_operation=original.canonical_operation,
+        source_selector=original.source_selector,
+        entity_kinds=original.entity_kinds,
+        max_count=original.max_count,
+        required_derivation=original.required_derivation,
+    )
+    rules = (duplicate, original) if reverse else (original, duplicate)
+    ambiguous_scope = replace(request.approval_scope_definition, creation_rules=rules)
+    ambiguous_request = replace(request, approval_scope_definition=ambiguous_scope)
+
+    with pytest.raises(ChangeSetError) as exc_info:
+        ChangeSetBuilder().build(ambiguous_request)
+
+    assert exc_info.value.code == "CHANGESET_SCOPE_MEMBERSHIP_AMBIGUOUS"
