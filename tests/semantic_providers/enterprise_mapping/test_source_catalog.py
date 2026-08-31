@@ -19,6 +19,8 @@ EXPECTED_RULE_IDS = (
     "enterprise.autocad.layer.a-wall-prefix.v1",
     "enterprise.autocad.layer.a-wall.exact.v1",
     "enterprise.autocad.property.lwpolyline-constant-width.v1",
+    "enterprise.revit.builtin-category.ost-walls.v1",
+    "enterprise.revit.property.walltype-compound-structure-total-width.v1",
 )
 
 
@@ -33,6 +35,8 @@ def test_packaged_source_metadata_and_rule_ids_are_exact():
     assert tuple(rule.mapping_id for rule in catalog.rules) == EXPECTED_RULE_IDS
     assert [rule.match_type for rule in catalog.rules] == [
         MatchType.PREFIX,
+        MatchType.EXACT,
+        MatchType.EXACT,
         MatchType.EXACT,
         MatchType.EXACT,
     ]
