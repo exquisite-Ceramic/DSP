@@ -8,9 +8,11 @@ on:
       - 'platform/orchestrator/**'
       - 'platform/impact/**'
       - 'platform/approval_scope/**'
+      - 'platform/changeset/**'
       - 'tests/orchestrator/**'
       - 'tests/impact/**'
       - 'tests/approval_scope/**'
+      - 'tests/changeset/**'
       - '.github/workflows/step36-offset-create-scope-breach.yml'
   workflow_dispatch:
 
@@ -28,6 +30,7 @@ jobs:
           python -m pip install \
             -e contracts/python \
             -e hosts/autocad/sidecar \
+            -e platform/changeset \
             -e platform/semantic_runtime
       - name: Run Step36 Task1 focused tests
         run: python -m pytest tests/orchestrator/test_step36_offset_action.py -q
@@ -45,3 +48,7 @@ jobs:
           -q
       - name: Run approval scope regression
         run: python -m pytest tests/approval_scope -q
+      - name: Run Step36 Task4 focused tests
+        run: python -m pytest tests/changeset/test_step36_creation_hashing.py -q
+      - name: Run changeset regression
+        run: python -m pytest tests/changeset -q
