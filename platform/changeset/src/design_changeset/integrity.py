@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from design_approval_scope import ApprovalScopeBoundary, ExistingEntityRule
+from design_approval_scope import ApprovalScopeBoundary
 
 from .contracts import CanonicalChangeOperation, CanonicalChangeSet, ChangeSetError
 from .hashing import (
@@ -18,9 +18,13 @@ def _invalid(message: str) -> None:
     raise ChangeSetError("CHANGESET_INTEGRITY_INVALID", message)
 
 
-def _rules_by_id(boundary: ApprovalScopeBoundary) -> dict[str, ExistingEntityRule]:
-    rules: dict[str, ExistingEntityRule] = {}
-    for rule in boundary.existing_entity_rules:
+def _rules_by_id(boundary: ApprovalScopeBoundary) -> dict[str, object]:
+    rules: dict[str, object] = {}
+    for rule in (
+        *boundary.existing_entity_rules,
+        *boundary.creation_rules,
+        *boundary.deletion_rules,
+    ):
         if rule.rule_id in rules:
             _invalid(f"duplicate Step28 scope rule id: {rule.rule_id}")
         rules[rule.rule_id] = rule
@@ -29,7 +33,7 @@ def _rules_by_id(boundary: ApprovalScopeBoundary) -> dict[str, ExistingEntityRul
 
 def _operation_hash(
     operation: CanonicalChangeOperation,
-    rules_by_id: Mapping[str, ExistingEntityRule],
+    rules_by_id: Mapping[str, object],
 ) -> str:
     try:
         fingerprints = tuple(
@@ -51,6 +55,7 @@ def _operation_hash(
         expected_effects=operation.expected_effects,
         scope_rule_fingerprints=fingerprints,
         source_evidence=operation.source_evidence,
+        expected_existence_effects=operation.expected_existence_effects,
     )
     if operation.operation_id != f"COP-{operation_hash[:12]}":
         _invalid("operation id does not match semantic operation hash")
