@@ -47,4 +47,5 @@ jobs:
           tests/revit/test_revit_enterprise_mapping.py
           -q -vv
       - name: Verify Revit-free .NET core
+        if: ${{ always() }}
         run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
