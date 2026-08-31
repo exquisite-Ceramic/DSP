@@ -13,6 +13,8 @@ from design_execution_reconciliation import (
     SliceReconciliationStatus,
 )
 
+pytest_plugins = ("tests.execution_coordination.conftest",)
+
 CORE = Path("platform/execution_coordination/src/design_execution_coordination")
 STEP33 = Path("platform/execution_reconciliation/src/design_execution_reconciliation")
 
