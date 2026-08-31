@@ -114,7 +114,10 @@ def _admit_creation_rules(
     for rule in request.requested_creation_rules:
         if rule.canonical_operation != request.canonical_effect_evidence.canonical_operation:
             _error("SCOPE_RULE_INVALID", "creation rule operation exceeds canonical authority")
-        if rule.source_selector.predicate is not None or rule.source_selector.entities != direct_targets:
+        if (
+            rule.source_selector.predicate is not None
+            or rule.source_selector.entities != direct_targets
+        ):
             _error("SCOPE_RULE_INVALID", "creation rule source selector must equal direct targets")
         if not set(rule.entity_kinds).issubset(canonical_kinds):
             _error("SCOPE_RULE_INVALID", "creation rule entity kinds exceed canonical authority")
@@ -158,7 +161,10 @@ class ApprovalScopePlanner:
             _error("SCOPE_INPUT_INVALID", "PlanningSnapshot semantic environment mismatch")
         if impact.snapshot_set_ref.semantic_environment != impact.semantic_environment_ref:
             _error("SCOPE_INPUT_INVALID", "SnapshotSet semantic environment mismatch")
-        if impact.planning_snapshot_ref.snapshot_id not in impact.snapshot_set_ref.member_snapshot_ids:
+        if (
+            impact.planning_snapshot_ref.snapshot_id
+            not in impact.snapshot_set_ref.member_snapshot_ids
+        ):
             _error("SCOPE_INPUT_INVALID", "PlanningSnapshot is not a member of SnapshotSet")
 
         evidence = request.canonical_effect_evidence
