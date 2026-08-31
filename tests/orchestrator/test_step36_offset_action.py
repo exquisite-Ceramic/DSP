@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-
 from design_orchestrator.canonical_operations import (
     CanonicalCreationContract,
     CanonicalExistenceEffect,
