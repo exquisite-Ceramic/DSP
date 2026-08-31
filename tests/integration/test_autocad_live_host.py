@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from autocad_live_host import select_autocad_pipe_name
+from autocad_live_host import (
+    _select_autocad_pipe_name_with_retry,
+    select_autocad_pipe_name,
+)
 
 
 def test_selects_single_dynamic_pipe() -> None:
@@ -38,3 +41,46 @@ def test_explicit_override_accepts_full_pipe_path() -> None:
         )
         == "EnterpriseDesignAgent.MACHINE-5678"
     )
+
+
+def test_retries_transient_zero_pipe_discovery() -> None:
+    probes = iter(
+        [
+            [],
+            ["EnterpriseDesignAgent.MACHINE-1234"],
+        ]
+    )
+    sleeps: list[float] = []
+
+    assert (
+        _select_autocad_pipe_name_with_retry(
+            lambda: next(probes),
+            attempts=2,
+            delay_seconds=0.01,
+            sleep=lambda seconds: sleeps.append(seconds),
+        )
+        == "EnterpriseDesignAgent.MACHINE-1234"
+    )
+    assert sleeps == [0.01]
+
+
+def test_retry_does_not_mask_multiple_pipe_ambiguity() -> None:
+    calls = 0
+
+    def probe() -> list[str]:
+        nonlocal calls
+        calls += 1
+        return [
+            "EnterpriseDesignAgent.MACHINE-1234",
+            "EnterpriseDesignAgent.MACHINE-5678",
+        ]
+
+    with pytest.raises(AssertionError, match="AGENT_HOST_PIPE"):
+        _select_autocad_pipe_name_with_retry(
+            probe,
+            attempts=3,
+            delay_seconds=0.01,
+            sleep=lambda _: None,
+        )
+
+    assert calls == 1
