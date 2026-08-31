@@ -4,7 +4,6 @@ import json
 import math
 
 import pytest
-
 from autocad_sidecar.adapter.host_adapter import HostAdapter
 from autocad_sidecar.capability.profile import parse_design_capability
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
