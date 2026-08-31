@@ -67,6 +67,13 @@ def _creation_payload(rule: CreationRule) -> dict[str, object]:
     }
 
 
+def creation_rule_id(rule: CreationRule) -> str:
+    """Return the stable semantic id for one admitted creation rule."""
+    if not isinstance(rule, CreationRule):
+        raise TypeError("rule must be CreationRule")
+    return f"CR-{_sha256_json(_creation_payload(rule))[:12]}"
+
+
 def _deletion_payload(rule: DeletionRule) -> dict[str, object]:
     return {"selector": _selector_payload(rule.selector)}
 
@@ -118,21 +125,40 @@ def _snapshot_set_payload(snapshot_set) -> dict[str, object]:
 
 
 def _canonical_effect_payload(evidence: CanonicalEffectEvidence) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "canonical_operation": evidence.canonical_operation,
         "canonical_operation_version": evidence.canonical_operation_version,
         "allowed_aspects": [aspect.value for aspect in evidence.allowed_aspects],
     }
+    existence_effects = tuple(getattr(evidence, "allowed_existence_effects", ()))
+    if existence_effects:
+        payload["allowed_existence_effects"] = sorted(
+            str(_enum_value(value)) for value in existence_effects
+        )
+        contract = getattr(evidence, "creation_contract", None)
+        if contract is not None:
+            payload["creation_contract"] = {
+                "entity_kinds": list(contract.entity_kinds),
+                "max_count": contract.max_count,
+                "required_derivation": contract.required_derivation,
+            }
+    return payload
 
 
 def _intent_payload(intent) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "direct_targets": sorted(intent.direct_targets),
         "allowed_canonical_effects": sorted(
             str(_enum_value(value)) for value in intent.allowed_canonical_effects
         ),
         "allowed_derived_rule_refs": sorted(intent.allowed_derived_rule_refs),
     }
+    existence_effects = tuple(getattr(intent, "allowed_existence_effects", ()))
+    if existence_effects:
+        payload["allowed_existence_effects"] = sorted(
+            str(_enum_value(value)) for value in existence_effects
+        )
+    return payload
 
 
 def compute_scope_body_hash(
