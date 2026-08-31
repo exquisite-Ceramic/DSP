@@ -13,21 +13,41 @@ from design_changeset import (
 )
 
 
-def _transaction():
-    fixture_path = Path(__file__).with_name("test_step29_derived_builder.py")
-    spec = importlib.util.spec_from_file_location(
-        "_step29_derived_builder_fixture",
-        fixture_path,
-    )
+def _load_fixture(filename: str, module_name: str):
+    fixture_path = Path(__file__).with_name(filename)
+    spec = importlib.util.spec_from_file_location(module_name, fixture_path)
     assert spec is not None and spec.loader is not None
     fixtures = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixtures)
+    return fixtures
+
+
+def _transaction():
+    fixtures = _load_fixture(
+        "test_step29_derived_builder.py",
+        "_step29_derived_builder_fixture",
+    )
     request = fixtures._request()
     changeset = ChangeSetBuilder().build(request)
     boundary = bind_changeset(
         request.approval_scope_definition,
         changeset.changeset_hash,
         "SCOPE-29-INTEGRITY",
+    )
+    return changeset, boundary
+
+
+def _creation_transaction():
+    fixtures = _load_fixture(
+        "test_step36_creation_builder.py",
+        "_step36_creation_builder_fixture",
+    )
+    request = fixtures._request()
+    changeset = ChangeSetBuilder().build(request)
+    boundary = bind_changeset(
+        request.approval_scope_definition,
+        changeset.changeset_hash,
+        "SCOPE-29-CREATION-INTEGRITY",
     )
     return changeset, boundary
 
@@ -40,6 +60,11 @@ def _assert_invalid(changeset, boundary) -> None:
 
 def test_real_root_and_derived_changeset_passes_integrity():
     changeset, boundary = _transaction()
+    validate_changeset_integrity(changeset, boundary)
+
+
+def test_real_creation_changeset_passes_integrity():
+    changeset, boundary = _creation_transaction()
     validate_changeset_integrity(changeset, boundary)
 
 
