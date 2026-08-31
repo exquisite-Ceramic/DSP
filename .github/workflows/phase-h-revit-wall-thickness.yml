@@ -35,10 +35,16 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Install Python verification dependencies
-        run: python -m pip install pytest
+        run: python -m pip install pytest PyYAML==6.0.3
       - name: Verify Revit architecture boundary
         run: python -m pytest tests/revit/test_revit_architecture.py -q -vv
       - name: Verify Revit sidecar adapter
         run: python -m pytest hosts/revit/sidecar/tests/test_model_adapter.py -q -vv
+      - name: Verify Revit design facts and enterprise mappings
+        run: >-
+          python -m pytest
+          hosts/revit/sidecar/tests/test_design_fact_adapter.py
+          tests/revit/test_revit_enterprise_mapping.py
+          -q -vv
       - name: Verify Revit-free .NET core
         run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
