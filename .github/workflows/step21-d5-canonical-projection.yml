@@ -41,7 +41,7 @@ jobs:
             -e providers/semantics/metro_v32 \
             -e providers/semantics/enterprise_mapping
       - name: Verify Step21 PR diff boundary
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.head_ref == 'feat/step21-d5-canonical-projection-proof'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

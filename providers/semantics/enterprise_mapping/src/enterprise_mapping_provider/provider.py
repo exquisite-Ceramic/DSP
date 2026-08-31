@@ -35,11 +35,17 @@ class EnterpriseMappingProvider:
             provider_type=ProviderType.ENTERPRISE,
             version="1.0.0",
             content_hash=catalog.content_hash,
-            namespaces=("ifc",),
+            namespaces=("dsp", "ifc"),
             capabilities=frozenset({SemanticCapability.PROJECTION}),
-            authority=(NamespaceAuthority("ifc", AuthorityMode.EXTENSION),),
+            authority=(
+                NamespaceAuthority("dsp", AuthorityMode.EXTENSION),
+                NamespaceAuthority("ifc", AuthorityMode.EXTENSION),
+            ),
             compatibility=(FACT_PROJECTION_COMPATIBILITY,),
-            requires=(ProviderRef("buildingSMART.ifc43", "4.3.2.0"),),
+            requires=(
+                ProviderRef("buildingSMART.ifc43", "4.3.2.0"),
+                ProviderRef("dsp.core", "1.0"),
+            ),
         )
 
     @property

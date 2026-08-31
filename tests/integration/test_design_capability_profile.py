@@ -99,6 +99,7 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
         "view.fit",
         "interaction.pick_point",
         "cad.move",
+        "cad.set_wall_thickness",
     ]
 
     interaction_tool = next(tool for tool in tools if tool["name"] == "interaction.pick_point")
@@ -114,6 +115,19 @@ def test_default_mcp_surface_exposes_existing_host_capabilities_with_profile_met
     ]
     assert move_tool["_meta"]["com.company.design/preview"] is False
     assert move_tool["_meta"]["com.company.design/rollback"] is False
+
+    thickness_tool = next(tool for tool in tools if tool["name"] == "cad.set_wall_thickness")
+    assert thickness_tool["_meta"]["com.company.design/operation"] == "set_wall_thickness.v1"
+    assert thickness_tool["_meta"]["com.company.design/category"] == "MODEL_OPERATION"
+    assert thickness_tool["_meta"]["com.company.design/entities"] == ["LWPOLYLINE"]
+    assert thickness_tool["_meta"]["com.company.design/execution_freshness"] == [
+        {"aspect": "PROPERTIES", "required_state": "FRESH"}
+    ]
+    assert thickness_tool["_meta"]["com.company.design/effects"] == ["PROPERTIES"]
+    assert thickness_tool["_meta"]["com.company.design/idempotent"] is True
+    assert thickness_tool["_meta"]["com.company.design/verification"] == {
+        "type": "HOST_READ_BACK"
+    }
 
 
 @pytest.mark.asyncio
@@ -136,15 +150,22 @@ async def test_mcp_server_tools_list_preserves_design_profile_meta() -> None:
         async def move(self, handles, dx, dy, dz=0.0, **kwargs):  # pragma: no cover
             raise AssertionError("not called")
 
+        async def set_wall_thickness(self, handles, thickness_mm, **kwargs):  # pragma: no cover
+            raise AssertionError("not called")
+
     server = server_module.build_mcp_server(DispatcherStub())
     tools = await server.list_tools()
     interaction = next(tool for tool in tools if tool.name == "interaction.pick_point")
     move = next(tool for tool in tools if tool.name == "cad.move")
+    thickness = next(tool for tool in tools if tool.name == "cad.set_wall_thickness")
 
     assert interaction.meta["com.company.design/operation"] == "interaction.pick_point.v1"
     assert interaction.meta["com.company.design/category"] == "INTERACTION"
     assert move.meta["com.company.design/operation"] == "move.v1"
     assert move.meta["com.company.design/category"] == "MODEL_OPERATION"
+    assert thickness.meta["com.company.design/operation"] == "set_wall_thickness.v1"
+    assert thickness.meta["com.company.design/entities"] == ["LWPOLYLINE"]
+    assert thickness.meta["com.company.design/effects"] == ["PROPERTIES"]
 
 
 def test_mcp_cli_builds_runnable_sidecar_runtime_without_opening_host_transport() -> None:

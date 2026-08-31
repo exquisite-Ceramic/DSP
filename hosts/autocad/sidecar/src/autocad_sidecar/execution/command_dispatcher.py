@@ -137,3 +137,36 @@ class CommandDispatcher:
         if result.ok:
             await self._idempotency.complete(key, result)
         return result
+
+    async def set_wall_thickness(
+        self,
+        handles: list[str],
+        thickness_mm: float,
+        *,
+        idempotency_key: str | None = None,
+        revision: int | None = None,
+    ) -> HostCommandResult:
+        key = idempotency_key or str(uuid.uuid4())
+        if await self._idempotency.is_completed(key):
+            return await self._idempotency.recall(key)
+
+        document = await self._context.current_document()
+        if not document.ok:
+            return document
+        document_id = str((document.payload or {}).get("documentId") or "")
+        if not document_id:
+            raise RuntimeError("current_document response is missing documentId")
+
+        async def attempt() -> HostCommandResult:
+            return await self._model.set_wall_thickness(
+                handles,
+                thickness_mm,
+                document_id=document_id,
+                idempotency_key=key,
+                revision=revision,
+            )
+
+        result = await self._retry.run(attempt)
+        if result.ok:
+            await self._idempotency.complete(key, result)
+        return result

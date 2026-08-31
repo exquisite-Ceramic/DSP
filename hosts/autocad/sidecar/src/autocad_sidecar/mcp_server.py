@@ -123,6 +123,42 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                 verification={"type": "HOST_READ_BACK"},
             ),
         },
+        {
+            "name": "cad.set_wall_thickness",
+            "description": "Set wall thickness for bound AutoCAD wall polylines in millimetres.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "handles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
+                    "thickness_mm": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                    },
+                    "idempotency_key": {"type": ["string", "null"]},
+                    "revision": {"type": ["integer", "null"]},
+                },
+                "required": ["handles", "thickness_mm"],
+                "additionalProperties": False,
+            },
+            "_meta": _design_meta(
+                operation="set_wall_thickness.v1",
+                category="MODEL_OPERATION",
+                entities=["LWPOLYLINE"],
+                execution_freshness=[
+                    {"aspect": "PROPERTIES", "required_state": "FRESH"}
+                ],
+                effects=["PROPERTIES"],
+                risk="LOW",
+                preview=False,
+                rollback=False,
+                idempotent=True,
+                verification={"type": "HOST_READ_BACK"},
+            ),
+        },
     ]
 
 
@@ -198,6 +234,25 @@ def build_mcp_server(
             dx,
             dy,
             dz,
+            idempotency_key=idempotency_key,
+            revision=revision,
+        )
+        return result.to_dict()
+
+    @server.tool(
+        name="cad.set_wall_thickness",
+        description=definitions["cad.set_wall_thickness"]["description"],
+        meta=definitions["cad.set_wall_thickness"]["_meta"],
+    )
+    async def set_wall_thickness(
+        handles: list[str],
+        thickness_mm: float,
+        idempotency_key: str | None = None,
+        revision: int | None = None,
+    ) -> dict[str, Any]:
+        result = await dispatcher.set_wall_thickness(
+            handles,
+            thickness_mm,
             idempotency_key=idempotency_key,
             revision=revision,
         )

@@ -40,6 +40,9 @@ public static class AutoCADDocumentApi
         Application.DocumentManager.MdiActiveDocument
         ?? throw new InvalidOperationException("no active document.");
 
+    public static bool IsActiveDocumentMillimeters() =>
+        GetActiveDocument().Database.Insunits == UnitsValue.Millimeters;
+
     /// <summary>Locks the document for exclusive access; dispose to release.</summary>
     public static IDisposable LockDocument(string documentId)
     {

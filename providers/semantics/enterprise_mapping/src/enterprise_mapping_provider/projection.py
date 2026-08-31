@@ -39,7 +39,7 @@ def project_facts_for_catalog(
     derivations: list[tuple[str, str, str, SemanticClaim]] = []
 
     for fact in facts.facts:
-        if fact.fact_kind is not FactKind.CLASSIFICATION:
+        if fact.fact_kind not in {FactKind.CLASSIFICATION, FactKind.PROPERTY}:
             continue
         if fact.source_scheme is None or fact.source_code is None:
             continue
@@ -65,13 +65,22 @@ def project_facts_for_catalog(
                 f"{fact.fact_id}: {mapping_ids}"
             )
 
+        if fact.fact_kind is FactKind.CLASSIFICATION:
+            predicate = "classification"
+            value = None
+            unit = None
+        else:
+            predicate = "property"
+            value = fact.value
+            unit = fact.unit
+
         for rule in matching:
             claim = SemanticClaim(
                 subject=subject,
-                predicate="classification",
+                predicate=predicate,
                 canonical_term_id=rule.target_term_id,
-                value=None,
-                unit=None,
+                value=value,
+                unit=unit,
                 assurance=rule.assurance,
                 provenance=fact.provenance,
                 evidence=(

@@ -18,6 +18,7 @@ EXPECTED_METADATA = {
 EXPECTED_RULE_IDS = (
     "enterprise.autocad.layer.a-wall-prefix.v1",
     "enterprise.autocad.layer.a-wall.exact.v1",
+    "enterprise.autocad.property.lwpolyline-constant-width.v1",
 )
 
 
@@ -30,7 +31,11 @@ def test_packaged_source_metadata_and_rule_ids_are_exact():
     assert dict(payload["metadata"]) == EXPECTED_METADATA
     catalog = build_catalog(payload)
     assert tuple(rule.mapping_id for rule in catalog.rules) == EXPECTED_RULE_IDS
-    assert [rule.match_type for rule in catalog.rules] == [MatchType.PREFIX, MatchType.EXACT]
+    assert [rule.match_type for rule in catalog.rules] == [
+        MatchType.PREFIX,
+        MatchType.EXACT,
+        MatchType.EXACT,
+    ]
 
 
 def test_catalog_rules_are_immutable_and_sorted_by_mapping_id():

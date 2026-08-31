@@ -27,6 +27,7 @@ public sealed class HostCommandHandlerRegistry
         Register(new View.FitEntitiesHandler());
         Register(new Interaction.PickPointHandler());
         Register(new Model.MoveHandler());
+        Register(new Model.SetWallThicknessHandler());
     }
 
     public void Register(HostCommandHandler handler) => _handlers[handler.CommandType] = handler;
