@@ -19,6 +19,7 @@ on:
       - "tests/integration/test_move.py"
       - "tests/integration/test_step34_live_wall_thickness_read.py"
       - "tests/integration/test_step34_live_wall_thickness_mutation.py"
+      - "tests/integration/test_step34_live_end_to_end_acceptance.py"
       - "tests/integration/test_autocad_native_fact_command.py"
       - "tests/integration/test_design_capability_profile.py"
       - "tests/integration/test_step21_d5_canonical_projection.py"
@@ -42,6 +43,7 @@ on:
       - "tests/integration/test_move.py"
       - "tests/integration/test_step34_live_wall_thickness_read.py"
       - "tests/integration/test_step34_live_wall_thickness_mutation.py"
+      - "tests/integration/test_step34_live_end_to_end_acceptance.py"
       - "tests/integration/test_autocad_native_fact_command.py"
       - "tests/integration/test_design_capability_profile.py"
       - "tests/integration/test_step21_d5_canonical_projection.py"
@@ -112,6 +114,7 @@ jobs:
             tests/integration/test_move.py \
             tests/integration/test_step34_live_wall_thickness_read.py \
             tests/integration/test_step34_live_wall_thickness_mutation.py \
+            tests/integration/test_step34_live_end_to_end_acceptance.py \
             tests/orchestrator/test_step34_wall_thickness_action.py \
             tests/semantic_providers/enterprise_mapping/test_step34_property_projection.py \
             tests/integration/test_step34_autocad_wall_thickness_command.py \
