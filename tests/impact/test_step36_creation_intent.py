@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from hashlib import sha256
 import json
+from hashlib import sha256
 
 from design_impact import (
-    ImpactAnalyzer,
     ImpactAnalysisRequest,
+    ImpactAnalyzer,
     IntentBoundary,
     PlanningSnapshotBinding,
     SemanticEnvironmentBinding,
