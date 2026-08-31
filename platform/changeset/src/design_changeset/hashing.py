@@ -10,6 +10,8 @@ from enum import Enum
 from hashlib import sha256
 from typing import Any
 
+from design_approval_scope import CreationRule, DeletionRule, ExistingEntityRule
+
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
@@ -120,31 +122,52 @@ def compute_proposed_change_hash(change: Mapping[str, object]) -> str:
     return canonical_hash(change)
 
 
-def compute_scope_rule_fingerprint(rule: object) -> str:
-    selector = rule.selector
+def _selector_payload(selector: object) -> object:
     predicate = getattr(selector, "predicate", None)
     if predicate is None:
-        selector_payload: object = {"entities": list(selector.entities)}
-    else:
-        selector_payload = {
-            "predicate": [
-                {
-                    "field": term.field,
-                    "operator": term.operator,
-                    "values": list(term.values),
-                }
-                for term in predicate.all_of
-            ]
-        }
-    return canonical_hash(
-        {
-            "selector": selector_payload,
-            "allowed_aspects": sorted(
-                item.value if isinstance(item, Enum) else str(item)
-                for item in rule.allowed_aspects
-            ),
-        }
-    )
+        return {"entities": list(selector.entities)}
+    return {
+        "predicate": [
+            {
+                "field": term.field,
+                "operator": term.operator,
+                "values": list(term.values),
+            }
+            for term in predicate.all_of
+        ]
+    }
+
+
+def compute_scope_rule_fingerprint(rule: object) -> str:
+    if isinstance(rule, ExistingEntityRule):
+        return canonical_hash(
+            {
+                "selector": _selector_payload(rule.selector),
+                "allowed_aspects": sorted(
+                    item.value if isinstance(item, Enum) else str(item)
+                    for item in rule.allowed_aspects
+                ),
+            }
+        )
+    if isinstance(rule, CreationRule):
+        return canonical_hash(
+            {
+                "rule_kind": "CREATION",
+                "canonical_operation": rule.canonical_operation,
+                "source_selector": _selector_payload(rule.source_selector),
+                "entity_kinds": list(rule.entity_kinds),
+                "max_count": rule.max_count,
+                "required_derivation": rule.required_derivation,
+            }
+        )
+    if isinstance(rule, DeletionRule):
+        return canonical_hash(
+            {
+                "rule_kind": "DELETION",
+                "selector": _selector_payload(rule.selector),
+            }
+        )
+    raise TypeError("scope rule must be ExistingEntityRule, CreationRule, or DeletionRule")
 
 
 def compute_operation_semantic_hash(
