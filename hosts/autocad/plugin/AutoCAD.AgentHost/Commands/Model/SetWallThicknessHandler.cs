@@ -42,6 +42,21 @@ public sealed class SetWallThicknessHandler : HostCommandHandler
 
         using var _ = Execution.DocumentLockManager.Acquire(Native.AcNative.ActiveDocumentId());
 
+        if (!Native.AutoCADDocumentApi.IsActiveDocumentMillimeters())
+        {
+            return new HostCommandResult
+            {
+                Status = ResultStatus.ERROR,
+                Error = new ErrorShape
+                {
+                    ErrorCode = "UNSUPPORTED_DOCUMENT_UNITS",
+                    Category = ErrorCategory.EXECUTION,
+                    Message = "set_wall_thickness.v1 requires an AutoCAD document in millimetres",
+                    Retryable = RetryPolicy.NEVER,
+                },
+            };
+        }
+
         var (before, after) = Native.AutoCADEntityApi.SetConstantWidths(handles, targetWidth);
         var verification = Verification.WallThicknessVerifier.Verify(after, targetWidth);
         if (!verification.Ok)
