@@ -101,19 +101,27 @@ def compute_contract_definition_fingerprint(
     argument_schema: Mapping[str, Any],
     effects,
     verification_contract: Mapping[str, Any],
+    existence_effects=(),
+    creation_contract=None,
 ) -> str:
     normalized_effects = sorted(
         item.value if isinstance(item, Enum) else str(item) for item in effects
     )
-    return canonical_hash(
-        {
-            "canonical_operation": canonical_operation,
-            "canonical_operation_version": canonical_operation_version,
-            "argument_schema": argument_schema,
-            "effects": normalized_effects,
-            "verification_contract": verification_contract,
-        }
+    payload: dict[str, object] = {
+        "canonical_operation": canonical_operation,
+        "canonical_operation_version": canonical_operation_version,
+        "argument_schema": argument_schema,
+        "effects": normalized_effects,
+        "verification_contract": verification_contract,
+    }
+    normalized_existence = sorted(
+        item.value if isinstance(item, Enum) else str(item) for item in existence_effects
     )
+    if normalized_existence:
+        payload["existence_effects"] = normalized_existence
+    if creation_contract is not None:
+        payload["creation_contract"] = creation_contract
+    return canonical_hash(payload)
 
 
 def compute_proposed_change_hash(change: Mapping[str, object]) -> str:
@@ -181,23 +189,29 @@ def compute_operation_semantic_hash(
     expected_effects,
     scope_rule_fingerprints,
     source_evidence: object,
+    expected_existence_effects=(),
 ) -> str:
-    return canonical_hash(
-        {
-            "origin": origin,
-            "canonical_operation": canonical_operation,
-            "canonical_operation_version": canonical_operation_version,
-            "canonical_definition_fingerprint": canonical_definition_fingerprint,
-            "targets": sorted(set(targets)),
-            "arguments": arguments,
-            "expected_effects": sorted(
-                item.value if isinstance(item, Enum) else str(item)
-                for item in expected_effects
-            ),
-            "scope_rule_fingerprints": sorted(set(scope_rule_fingerprints)),
-            "source_evidence": source_evidence,
-        }
+    payload: dict[str, object] = {
+        "origin": origin,
+        "canonical_operation": canonical_operation,
+        "canonical_operation_version": canonical_operation_version,
+        "canonical_definition_fingerprint": canonical_definition_fingerprint,
+        "targets": sorted(set(targets)),
+        "arguments": arguments,
+        "expected_effects": sorted(
+            item.value if isinstance(item, Enum) else str(item)
+            for item in expected_effects
+        ),
+        "scope_rule_fingerprints": sorted(set(scope_rule_fingerprints)),
+        "source_evidence": source_evidence,
+    }
+    normalized_existence = sorted(
+        item.value if isinstance(item, Enum) else str(item)
+        for item in expected_existence_effects
     )
+    if normalized_existence:
+        payload["expected_existence_effects"] = normalized_existence
+    return canonical_hash(payload)
 
 
 def compute_changeset_hash(semantic_body: Mapping[str, Any]) -> str:
