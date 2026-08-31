@@ -314,7 +314,12 @@ class ExecutionSagaCoordinator:
                 scope_result,
                 expected_revision=stored.saga_revision,
             )
-            terminal = self._terminal_result(stored)
+            terminal = self._terminal_result(
+                stored,
+                scope_result.comparison_hash
+                if stored.status is ExecutionSagaStatus.PARTIALLY_COMMITTED
+                else None,
+            )
             if terminal is not None:
                 return terminal
 
@@ -347,7 +352,12 @@ class ExecutionSagaCoordinator:
                 expected_revision=stored.saga_revision,
                 reconciled_at=self._clock.now(),
             )
-            terminal = self._terminal_result(stored)
+            terminal = self._terminal_result(
+                stored,
+                verification.verification_hash
+                if stored.status is ExecutionSagaStatus.PARTIALLY_COMMITTED
+                else None,
+            )
             if terminal is not None:
                 return terminal
 
