@@ -170,3 +170,6 @@ class CommandDispatcher:
         if result.ok:
             await self._idempotency.complete(key, result)
         return result
+
+
+# Task7 CI carrier: no semantic behavior change.
