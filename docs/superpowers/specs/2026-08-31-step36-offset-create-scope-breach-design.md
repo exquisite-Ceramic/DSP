@@ -333,6 +333,8 @@ The source target remains `operation.targets` because ProviderBinding must bind 
 
 Step29 does not pre-assign the semantic identity of the created entity.
 
+For the Step36 MVP, one root `offset.v1` operation must resolve to **exactly one** admissible `CreationRule`. If zero rules match, authority is missing. If more than one distinct creation-rule semantic body could authorize the same operation, Step29 must fail closed rather than choose one by ordering or construction ID.
+
 ### Contract fingerprint
 
 `CanonicalOperationContractEvidence` must carry the new existence semantics. Its semantic fingerprint includes non-empty existence effects / creation contract for Step36 while leaving legacy operation fingerprints unchanged when the new fields are empty.
@@ -369,7 +371,7 @@ existing_rule_ids U creation_rule_ids U deletion_rule_ids
 
 Least-authority tie-breaking remains unchanged.
 
-For Step36 the selected slice contains the exact `CreationRule` ID in `creation_rule_ids` for the source document.
+For Step36, Step30 does not generate or relocate a `CreationRule`. It must select an existing Step28 `ExecutionSliceScopeRule` for the source document whose `creation_rule_ids` contains the exact creation rule already committed by Step29. The resulting `ExecutionSlice.approved_scope_ref` binds to that slice-scope rule.
 
 ### Runtime routing
 
@@ -670,8 +672,8 @@ Step36 is complete only when all of the following are proven:
 2. Legacy operations with no existence effects retain their frozen semantic hashes.
 3. Step27 carries explicit CREATE intent without widening existing intent semantics.
 4. Step28 admits exactly one narrow `CreationRule` for the approved source/kind/count/derivation and rejects broader requests.
-5. Step29 commits the creation rule into the immutable ChangeSet without requiring fake existing-entity mutation authority.
-6. Step30 carries that exact rule into `ExecutionSliceScopeRule.creation_rule_ids` and selects the least-authority slice correctly.
+5. Step29 commits the creation rule into the immutable ChangeSet without requiring fake existing-entity mutation authority, and ambiguous multiple matching rules fail closed.
+6. Step30 selects the least-authority Step28 slice-scope rule that already contains the exact creation rule in `creation_rule_ids`.
 7. Step31 binds only the existing source entity; no pre-created native identity is fabricated.
 8. Step32 admission remains exact and unchanged in responsibility.
 9. A real AutoCAD `offset.v1` happy path creates exactly one supported entity and advances revision only after commit.
