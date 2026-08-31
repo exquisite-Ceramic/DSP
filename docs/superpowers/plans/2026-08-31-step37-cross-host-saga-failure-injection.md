@@ -26,6 +26,7 @@
 - `SUCCEEDED`, `FAILED_BEFORE_COMMIT`, `SCOPE_BREACH`, `VERIFY_FAILED`, and `BLOCKED` Slices are never re-executed in the same Saga.
 - A `PARTIALLY_COMMITTED` Saga never resumes normal forward execution.
 - `COMPENSATING`, `COMPENSATED`, and `COMPENSATION_FAILED` are not forward-executable states; `execute()` fails closed with `CoordinationError("SAGA_NOT_FORWARD_EXECUTABLE", ...)` and makes no Host call.
+- Step33 CAS conflicts stop coordination immediately. Step37 never retries a Host mutation to heal a persistence race.
 - Step37 never infers inverse Host commands. Recovery derives from Step33 durable evidence plus caller-supplied canonical recovery effects and must re-enter Steps 27–32 before another Host mutation.
 - Coordinator-created timestamps come only from injected `CoordinationClock`; production Step37 does not call wall-clock APIs.
 - Failure injection helpers live only in `tests/`.
@@ -284,8 +285,6 @@ git commit -m "feat: add Step37 coordination contracts"
 
 - [ ] **Step 1: Freeze the canonical test contract in `conftest.py`**
 
-Use exactly:
-
 ```python
 _SEMANTIC_ASSERTIONS_SCHEMA = {
     "type": "object",
@@ -317,9 +316,9 @@ _SEMANTIC_ASSERTIONS_CONTRACT = {
 _SEMANTIC_ASSERTIONS_EFFECTS = (CanonicalAspect.PROPERTIES,)
 ```
 
-Compute the contract definition fingerprint with `compute_contract_definition_fingerprint(...)`, then construct `CanonicalOperationContractEvidence(canonical_operation="semantic.assertions.v1", canonical_operation_version="1.0.0", argument_schema=..., effects=..., verification_contract=..., definition_fingerprint=...)`.
+Compute the definition fingerprint with `compute_contract_definition_fingerprint(...)`, then construct `CanonicalOperationContractEvidence(canonical_operation="semantic.assertions.v1", canonical_operation_version="1.0.0", argument_schema=_SEMANTIC_ASSERTIONS_SCHEMA, effects=_SEMANTIC_ASSERTIONS_EFFECTS, verification_contract=_SEMANTIC_ASSERTIONS_CONTRACT, definition_fingerprint=fingerprint)`.
 
-- [ ] **Step 2: Build the root bound evidence explicitly**
+- [ ] **Step 2: Build root bound evidence without hard-coded semantic hashes**
 
 Construct `BoundOperationProposal` with:
 
@@ -337,11 +336,67 @@ context_snapshot_ref=ContextSnapshotRef(
 semantic_environment_ref="ENV-STEP37"
 ```
 
-Use `SlotBindingEvidence` for `targets` as `CONTEXT` and `assertions` as `INTENT`. Build `BoundOperationEvidence` by computing both `compute_bound_operation_fingerprint(...)` and `compute_bound_operation_evidence_fingerprint(...)`; do not use hard-coded operation hashes.
+Use `SlotBindingEvidence(slot="targets", binding_class=SlotBindingClass.CONTEXT, source="Step37Fixture.selection", source_ref="CS-STEP37")` and `SlotBindingEvidence(slot="assertions", binding_class=SlotBindingClass.INTENT, source="Step37Fixture.intent")`, with `PlanningRequirements()`.
+
+Build `BoundOperationEvidence` by computing:
+
+```python
+material_fingerprint = compute_bound_operation_fingerprint(
+    bound.operation.canonical_operation,
+    bound.operation.version,
+    dict(bound.arguments),
+)
+evidence_fingerprint = compute_bound_operation_evidence_fingerprint(
+    canonical_operation=bound.operation.canonical_operation,
+    canonical_operation_version=bound.operation.version,
+    arguments=dict(bound.arguments),
+    context_snapshot_id=bound.context_snapshot_ref.context_snapshot_id,
+    context_snapshot_hash=bound.context_snapshot_ref.context_snapshot_hash,
+    document_ref=bound.context_snapshot_ref.document_ref,
+    semantic_environment_id=bound.semantic_environment_ref,
+    planning_requirements={
+        "operation_freshness_requirements": (),
+        "coverage_requirements": (),
+        "assurance_requirements": (),
+    },
+    binding_evidence={
+        "targets": {
+            "binding_class": "CONTEXT",
+            "source": "Step37Fixture.selection",
+            "source_ref": "CS-STEP37",
+        },
+        "assertions": {
+            "binding_class": "INTENT",
+            "source": "Step37Fixture.intent",
+            "source_ref": None,
+        },
+    },
+)
+```
+
+Then construct `BoundOperationEvidence` with those exact fingerprints and the same arguments/context/planning/binding evidence.
 
 - [ ] **Step 3: Build Step27 impact with exactly two derived targets**
 
-Use one environment/planning/snapshot-set bound to `DOC-STEP37`. Freeze these edges:
+Use:
+
+```python
+environment = SemanticEnvironmentBinding("ENV-STEP37", "env-hash-step37")
+planning = PlanningSnapshotBinding(
+    "PS-STEP37",
+    "ps-hash-step37",
+    "DOC-STEP37",
+    environment,
+)
+snapshot_set = SnapshotSetBinding(
+    "PSS-STEP37",
+    "pss-hash-step37",
+    (planning.snapshot_id,),
+    environment,
+)
+```
+
+Edges:
 
 ```python
 edges = (
@@ -376,16 +431,18 @@ IntentBoundary(
 )
 ```
 
-Call `ImpactAnalyzer().analyze(...)` with both edges. Require exactly two `propagation_bundles`, index them as:
+Call `ImpactAnalyzer().analyze(...)` with both edges and require:
 
 ```python
+assert len(impact.propagation_bundles) == 2
 bundle_by_rule = {bundle.rule_ref: bundle for bundle in impact.propagation_bundles}
 assert set(bundle_by_rule) == {"RULE-STEP37-B", "RULE-STEP37-C"}
+assert all(len(bundle.proposed_changes) == 1 for bundle in impact.propagation_bundles)
 ```
 
-- [ ] **Step 4: Materialize exactly two Step29 derived operations**
+- [ ] **Step 4: Materialize exactly two derived Step29 operations**
 
-For each edge, create:
+For each edge:
 
 ```python
 bundle = bundle_by_rule[edge.rule_ref]
@@ -411,13 +468,19 @@ materialization = DerivedOperationMaterialization(
 )
 ```
 
-Build Step28 scope with one direct `PROPERTIES` rule for `WALL-001`, both recipes, and one `ExecutionSliceScopeRule("SLICE-SCOPE-STEP37", "DOC-STEP37", existing_rule_ids=(direct_rule_id, derived_rule_b, derived_rule_c))`.
+Build Step28 scope with one direct `PROPERTIES` rule for `WALL-001`, both recipes, and:
 
-Build `CanonicalChangeSet` with the exact canonical contract and both materializations, then bind its hash to the scope boundary.
+```python
+ExecutionSliceScopeRule(
+    "SLICE-SCOPE-STEP37",
+    "DOC-STEP37",
+    existing_rule_ids=(direct_rule_id, derived_rule_b, derived_rule_c),
+)
+```
 
-- [ ] **Step 5: Produce three Step30 Slices from three exact runtime identities**
+Build `CanonicalChangeSet` with `_SEMANTIC_ASSERTIONS_V1` and both materializations, then bind its hash to the scope boundary.
 
-Route:
+- [ ] **Step 5: Produce exactly three Step30 Slices**
 
 ```python
 routes = (
@@ -434,11 +497,16 @@ routes = (
         HostRuntimeRef("TEST_HOST", "HOST-STEP37-C", "DOC-STEP37"),
     ),
 )
+routing = RuntimeRoutingEvidence(
+    "RRS-STEP37",
+    routes,
+    compute_routing_snapshot_hash(routes),
+)
+plan = ExecutionPlanner().plan(ExecutionPlanningRequest(changeset, boundary, routing))
+assert len(plan.execution_slices) == 3
 ```
 
-Compute `RuntimeRoutingEvidence` with `compute_routing_snapshot_hash(routes)` and run `ExecutionPlanner().plan(...)`. Require `len(execution_slices) == 3`.
-
-- [ ] **Step 6: Write fixture characterization test**
+- [ ] **Step 6: Characterize the fixture**
 
 ```python
 def test_step37_fixture_is_real_three_slice_cross_host_lineage(
@@ -455,19 +523,11 @@ def test_step37_fixture_is_real_three_slice_cross_host_lineage(
     }
 ```
 
-- [ ] **Step 7: Build real Step32 authority for every Slice**
+- [ ] **Step 7: Build real Step32 authorities**
 
-For each Slice, construct a signed `ProviderBindingSet` using provider-neutral test values (`provider_server="step37.fixture.provider"`, `provider_tool="execute"`, `native_kind="TEST_ENTITY"`) and real `compute_host_binding_fingerprint`, `compute_binding_hash`, and `compute_binding_set_hash` functions. Then use a fresh `InMemoryGatewayAuthorizationStore` and:
+For each Slice, build signed `NativeTargetBindingEvidence`, `ProviderBinding`, and `ProviderBindingSet` using real `compute_host_binding_fingerprint`, `compute_binding_hash`, and `compute_binding_set_hash`, with test-only native values `native_kind="TEST_ENTITY"`, `provider_server="step37.fixture.provider"`, `provider_tool="execute"`. Use a fresh `InMemoryGatewayAuthorizationStore` and the exact public sequence `consume_approval -> issue_execution_grant -> admit_execution_grant`. Assert the resulting `AdmittedExecutionAuthority` joins that Slice's hash, ChangeSet hash, scope hash, and Host instance.
 
-```text
-GatewayAuthorizationService.consume_approval
-GatewayAuthorizationService.issue_execution_grant
-GatewayAuthorizationService.admit_execution_grant
-```
-
-Return the real `AdmittedExecutionAuthority`. Assert its `execution_slice_hash`, `changeset_hash`, `approved_scope_hash`, and `host_instance_id` equal the Slice lineage.
-
-- [ ] **Step 8: Add signed delta builders**
+- [ ] **Step 8: Add signed `ActualChange`/`ActualDelta` builders**
 
 ```python
 def signed_change(**values) -> ActualChange:
@@ -493,11 +553,11 @@ def signed_delta(execution_slice, authority, *changes) -> ActualDelta:
     return replace(draft, actual_delta_hash=compute_actual_delta_hash(draft))
 ```
 
-Normal success creates one `MODIFY` per target with `changed_aspects=(CanonicalAspect.PROPERTIES,)`. Scope-breach injection uses the same signed delta but `changed_aspects=(CanonicalAspect.GEOMETRY,)`.
+Normal success: one `MODIFY` per target with `changed_aspects=(CanonicalAspect.PROPERTIES,)`. Scope-breach injection: the same signed delta with `changed_aspects=(CanonicalAspect.GEOMETRY,)`.
 
-- [ ] **Step 9: Add an exact signed verification-bundle builder**
+- [ ] **Step 9: Add exact signed verification bundles**
 
-For a Slice with one target `target` and a real delta, build:
+For the sole target of a Slice and a real delta:
 
 ```python
 environment = SemanticEnvironmentRef(
@@ -561,17 +621,17 @@ draft = VerificationEvidenceBundle(
     baseline_subject_evidence=(),
     evidence_bundle_hash="0" * 64,
 )
-return replace(
+bundle = replace(
     draft,
     evidence_bundle_hash=compute_verification_evidence_bundle_hash(draft),
 )
 ```
 
-`property_value=300.0` is the pass case; `301.0` is the real-verifier fail case.
+`property_value=300.0` is passing evidence; `301.0` is real failed evidence.
 
 - [ ] **Step 10: Add deterministic test-only ports**
 
-Implement `FixedClock`, `DeterministicAuthorityPort`, `DeterministicHostPort`, `DeterministicHostRegistry`, and `DeterministicEvidencePort` with call logs. Each lookup is by exact `execution_slice_hash` or exact `HostRuntimeRef`. `DeterministicEvidencePort.build_bundle(...)` derives `target` from the sole execution unit/target in that Slice and calls the signed bundle builder with the configured property value.
+`FixedClock.now()` returns a configured RFC3339 string and increments a call counter. `DeterministicAuthorityPort` maps exact Slice hashes to authority/failure outcomes and logs calls. `DeterministicHostPort` maps exact Slice hashes to `HostExecutionResult` and logs `(slice_hash, host_instance_id)`. `DeterministicHostRegistry` maps exact `HostRuntimeRef` values to ports and logs resolutions. `DeterministicEvidencePort` maps exact Slice hashes to property values, derives the sole target from the Slice, calls the signed bundle builder, and logs calls.
 
 - [ ] **Step 11: Run fixture gate and commit**
 
@@ -582,18 +642,16 @@ git add tests/execution_coordination/conftest.py tests/execution_coordination/te
 git commit -m "test: add Step37 cross-host saga fixture"
 ```
 
-Expected: three-Slice fixture PASS and zero diagnostics.
-
 ---
 
-### Task 3: Add coordinator preflight, terminal projection, and active-Slice restart guard
+### Task 3: Add coordinator preflight and active-Slice restart guard
 
 **Files:**
 - Create: `platform/execution_coordination/src/design_execution_coordination/coordinator.py`
 - Modify: `platform/execution_coordination/src/design_execution_coordination/__init__.py`
 - Create: `tests/execution_coordination/test_step37_unknown_commit.py`
 
-**Interfaces:**
+**Interface:**
 
 ```python
 class ExecutionSagaCoordinator:
@@ -615,9 +673,9 @@ class ExecutionSagaCoordinator:
     ) -> CoordinationResult: ...
 ```
 
-- [ ] **Step 1: Write RED active-Slice restart test**
+- [ ] **Step 1: RED active-Slice restart**
 
-Use real Step33 to create a Saga, reserve the first Slice and confirm its real authority manually. Then call coordinator and assert `RECOVERY_REQUIRED`, exact active hash, and zero authority/Host calls from the coordinator.
+Use real Step33 to create a Saga, reserve the first Slice and confirm its real authority manually. Calling coordinator must return `RECOVERY_REQUIRED`, exact active hash, zero coordinator authority calls, zero Host calls.
 
 - [ ] **Step 2: Run RED**
 
@@ -625,11 +683,9 @@ Use real Step33 to create a Saga, reserve the first Slice and confirm its real a
 python -m pytest tests/execution_coordination/test_step37_unknown_commit.py::test_active_slice_at_entry_requires_recovery_without_host_replay -q
 ```
 
-Expected: import/name failure for `ExecutionSagaCoordinator`.
+Expected: `ExecutionSagaCoordinator` missing.
 
 - [ ] **Step 3: Implement preflight**
-
-Define:
 
 ```python
 _ACTIVE = frozenset({
@@ -640,7 +696,7 @@ _ACTIVE = frozenset({
 })
 ```
 
-`execute()` first calls `reconciliation.create_saga(...)`, validates definition ChangeSet/scope/plan hashes against supplied artifacts, requires every `ordered_slice_hash` to resolve exactly once in `execution_plan.execution_slices`, then applies these no-I/O gates:
+`execute()` calls `reconciliation.create_saga(...)`, validates definition ChangeSet/scope/plan hashes, requires every immutable ordered Slice hash to resolve exactly once in Step30, then applies no-I/O gates:
 
 ```text
 SUCCEEDED -> CoordinationStatus.SUCCEEDED
@@ -650,11 +706,11 @@ COMPENSATING / COMPENSATED / COMPENSATION_FAILED -> CoordinationError(SAGA_NOT_F
 any _ACTIVE Slice -> CoordinationStatus.RECOVERY_REQUIRED with active_slice_hash
 ```
 
-- [ ] **Step 4: Prove terminal states never replay**
+- [ ] **Step 4: Prove terminal no-replay**
 
-Use real Step33 failure methods to create `FAILED` and `PARTIALLY_COMMITTED` fixtures; call coordinator and assert no authority/Host calls.
+Create real Step33 `FAILED` and `PARTIALLY_COMMITTED` states with failure APIs; call coordinator and assert no authority/Host calls.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [ ] **Step 5: Run and commit**
 
 ```bash
 python -m pytest tests/execution_coordination/test_step37_unknown_commit.py -q
@@ -671,9 +727,9 @@ git commit -m "feat: guard Step37 saga restart state"
 - Modify: `platform/execution_coordination/src/design_execution_coordination/coordinator.py`
 - Create: `tests/execution_coordination/test_step37_success.py`
 
-- [ ] **Step 1: Write RED three-Host success test**
+- [ ] **Step 1: RED three-Host success**
 
-Configure every Slice with its real Step32 authority, exact Host registry entry, signed success `HostCommitted` delta, and `property_value=300.0` evidence. Assert final Step33 Saga/Slices are all `SUCCEEDED`, authority calls equal `ordered_slice_hashes`, registry resolutions equal the ordered Slices' exact `HostRuntimeRef` values, and each Host port is called exactly once for its own Slice/authority identity.
+Configure every Slice with real Step32 authority, exact Host registry entry, signed success `HostCommitted` delta, and `property_value=300.0` evidence. Assert final Step33 Saga/Slices `SUCCEEDED`; authority calls equal immutable Slice order; registry resolutions equal the ordered exact `HostRuntimeRef` values; each Host called exactly once for its own authority identity.
 
 - [ ] **Step 2: Run RED**
 
@@ -681,34 +737,24 @@ Configure every Slice with its real Step32 authority, exact Host registry entry,
 python -m pytest tests/execution_coordination/test_step37_success.py -q -vv
 ```
 
-Expected: FAIL at first unimplemented forward transition.
-
 - [ ] **Step 3: Implement one forward Slice attempt**
-
-For the first Step33-ordered `NOT_STARTED` Slice:
 
 ```text
 reserve_slice_admission(clock.now())
 authority_port.admit(slice)
-validate authority
+validate authority exact joins
 confirm_slice_admitted
 host_registry.resolve(slice.host_runtime_ref)
 host.execute(slice, authority) exactly once
 ```
 
-Require authority equality for `execution_slice_hash`, `changeset_hash`, `approved_scope_hash`, and `host_instance_id`.
+Require equality for authority `execution_slice_hash`, `changeset_hash`, `approved_scope_hash`, and `host_instance_id`.
 
-- [ ] **Step 4: Add a structurally valid authority mismatch test**
+- [ ] **Step 4: RED/implement authority mismatch**
 
-Do not mutate a real grant hash. Construct a new `AdmittedExecutionAuthority` using all fields from a real authority except:
+Construct a new structurally valid `AdmittedExecutionAuthority` using every field from a real authority except `host_instance_id="HOST-STEP37-WRONG"`. Step37 rejects before Host routing, calls Step33 `fail_slice_before_commit(...)` with `clock.now()`, returns `failure_ref="COORDINATION_AUTHORITY_MISMATCH"`, and leaves no `actual_delta_hash`.
 
-```python
-host_instance_id="HOST-STEP37-WRONG"
-```
-
-This remains structurally valid Step32 data but must be rejected by Step37 before Host routing. Because Host mutation has not started, call Step33 `fail_slice_before_commit(...)` with `clock.now()` and return `failure_ref="COORDINATION_AUTHORITY_MISMATCH"`. Assert failed Slice has no `actual_delta_hash` and Host call logs are empty.
-
-- [ ] **Step 5: Implement committed reconciliation path**
+- [ ] **Step 5: Implement committed reconciliation**
 
 For `HostCommitted`:
 
@@ -719,15 +765,13 @@ compare_scope(ScopeComparisonRequest(authority, delta, boundary, slice))
 record_scope_result
 ```
 
-If within scope, resolve the one `SliceValidationAssignment` for the Slice, map its ids to exact `canonical_changeset.validation_tasks`, call `evidence_port.build_bundle(...)`, create `SemanticVerificationRequest(..., verified_at=clock.now())`, call `verify_semantics`, then `record_verification_result(..., reconciled_at=clock.now())`.
-
-Step37 must not compute Step33 result hashes; Step33 does.
+If within scope, resolve the sole `SliceValidationAssignment`, map its ids to exact Step29 `validation_tasks`, call `evidence_port.build_bundle(...)`, build `SemanticVerificationRequest(..., verified_at=clock.now())`, call `verify_semantics`, then `record_verification_result(..., reconciled_at=clock.now())`. Step37 does not compute Step33 result hashes.
 
 - [ ] **Step 6: Loop only after durable success**
 
-After verification persistence, reload Step33. Continue only when current Slice is `SUCCEEDED`. Use `stored.definition.ordered_slice_hashes` on every iteration. Return `SUCCEEDED` only when Step33 Saga is `SUCCEEDED`.
+Reload Step33 after verification. Continue only when current Slice is `SUCCEEDED`; always use immutable `ordered_slice_hashes`. Return success only when Step33 Saga is `SUCCEEDED`.
 
-- [ ] **Step 7: Run GREEN and commit**
+- [ ] **Step 7: Run and commit**
 
 ```bash
 python -m pytest tests/execution_coordination/test_step37_success.py tests/execution_coordination/test_step37_unknown_commit.py -q
@@ -738,7 +782,7 @@ git commit -m "feat: coordinate cross-host saga success"
 
 ---
 
-### Task 5: Implement authority/Host pre-commit failure stop semantics
+### Task 5: Implement authority/Host pre-commit failure semantics
 
 **Files:**
 - Modify: `platform/execution_coordination/src/design_execution_coordination/coordinator.py`
@@ -746,15 +790,13 @@ git commit -m "feat: coordinate cross-host saga success"
 
 - [ ] **Step 1: RED first-Slice authority failure**
 
-Return `AuthorityFailure("AUTH-DENIED-STEP37", "2026-08-31T12:01:00Z")`. Assert first Slice `FAILED_BEFORE_COMMIT`, both later Slices `BLOCKED`, Saga `FAILED`, no `ActualDelta`, no Host call.
+Return `AuthorityFailure("AUTH-DENIED-STEP37", "2026-08-31T12:01:00Z")`. Assert first `FAILED_BEFORE_COMMIT`, both later `BLOCKED`, Saga `FAILED`, no delta, no Host call.
 
 - [ ] **Step 2: Implement AuthorityFailure branch**
 
-After reservation, call Step33 `fail_slice_before_commit(...)` with the failure's `failed_at`, then project resulting Step33 status to `FAILED` or `PARTIALLY_COMMITTED`; return the supplied `failure_ref`.
+After reservation, call Step33 `fail_slice_before_commit(...)` with supplied `failed_at`; project resulting Step33 Saga to `FAILED`/`PARTIALLY_COMMITTED`; return supplied `failure_ref`; no Host registry call.
 
 - [ ] **Step 3: RED/implement Host BEFORE_COMMIT**
-
-Return:
 
 ```python
 HostFailed(
@@ -764,11 +806,11 @@ HostFailed(
 )
 ```
 
-After real authority confirmation, call `fail_slice_before_commit`, stop, and never create/record an `ActualDelta`.
+After real authority confirmation, call Step33 `fail_slice_before_commit`; never create/record an `ActualDelta`.
 
-- [ ] **Step 4: Prove later failure preserves predecessor and blocks successor**
+- [ ] **Step 4: Prove later failure preserves prior commit and blocks successor**
 
-First Slice success, second `BEFORE_COMMIT`. Assert Slice0 `SUCCEEDED` with durable `actual_delta_hash`; Slice1 `FAILED_BEFORE_COMMIT` without delta; Slice2 `BLOCKED`; Saga `PARTIALLY_COMMITTED`; third Host never called.
+First Slice success, second `BEFORE_COMMIT`: Slice0 remains `SUCCEEDED` with durable delta; Slice1 `FAILED_BEFORE_COMMIT` without delta; Slice2 `BLOCKED`; Saga `PARTIALLY_COMMITTED`; third Host never called.
 
 - [ ] **Step 5: Run and commit**
 
@@ -787,21 +829,21 @@ git commit -m "feat: stop Step37 on precommit failures"
 - Modify: `platform/execution_coordination/src/design_execution_coordination/coordinator.py`
 - Create: `tests/execution_coordination/test_step37_postcommit_failures.py`
 
-- [ ] **Step 1: RED real scope breach after commit**
+- [ ] **Step 1: RED real scope breach**
 
-First Slice succeeds. Second returns a signed `HostCommitted` delta whose only `MODIFY` change has `changed_aspects=(CanonicalAspect.GEOMETRY,)` against the approved `PROPERTIES` rule. Assert second state `SCOPE_BREACH` with real `actual_delta_hash`, third `BLOCKED`, Saga `PARTIALLY_COMMITTED`, third Host never called.
+First Slice succeeds. Second returns signed `HostCommitted` delta with `MODIFY.changed_aspects=(CanonicalAspect.GEOMETRY,)` against approved `PROPERTIES`. Assert second `SCOPE_BREACH` with real delta, third `BLOCKED`, Saga `PARTIALLY_COMMITTED`, third Host never called.
 
-- [ ] **Step 2: Stop after persisted scope breach**
+- [ ] **Step 2: Stop immediately after persisted breach**
 
-After `record_scope_result`, if status is `SCOPE_BREACH`, return `CoordinationStatus.PARTIALLY_COMMITTED` with `failure_ref=scope_result.comparison_hash`. Do not call evidence port.
+After `record_scope_result`, if `SCOPE_BREACH`, return `PARTIALLY_COMMITTED` with `failure_ref=scope_result.comparison_hash`; do not call evidence port.
 
-- [ ] **Step 3: RED real semantic verification failure**
+- [ ] **Step 3: RED real verifier failure**
 
-First Slice succeeds. Second returns within-scope `PROPERTIES` delta. Configure evidence port with `property_value=301.0`; the real Step33 `SemanticVerifier` must return failed evidence against literal `300.0`. Assert second `VERIFY_FAILED` with persisted `verification_hash` and `actual_delta_hash`, third `BLOCKED`, Saga `PARTIALLY_COMMITTED`.
+First Slice succeeds. Second returns within-scope `PROPERTIES` delta. Evidence port returns `property_value=301.0`; real Step33 verifier must fail the literal-300 contract. Assert second `VERIFY_FAILED` with real verification/delta hashes, third `BLOCKED`, Saga `PARTIALLY_COMMITTED`.
 
 - [ ] **Step 4: Stop after failed/insufficient verification**
 
-Persist the real verification result. If Step33 marks the Slice `VERIFY_FAILED`, return `PARTIALLY_COMMITTED` with `failure_ref=verification_result.verification_hash`. `EVIDENCE_INSUFFICIENT` is also non-progressable and is persisted through the same Step33 failure state.
+Persist the real result. If Step33 marks `VERIFY_FAILED`, return `PARTIALLY_COMMITTED` with `failure_ref=verification_result.verification_hash`. `EVIDENCE_INSUFFICIENT` is also non-progressable and uses the same Step33 failure state.
 
 - [ ] **Step 5: Run and commit**
 
@@ -814,7 +856,7 @@ git commit -m "feat: stop Step37 after committed reconciliation failure"
 
 ---
 
-### Task 7: Implement ambiguous commit fail-closed and restart no-replay
+### Task 7: Implement ambiguous commit fail-closed, restart no-replay, and CAS conflict stop
 
 **Files:**
 - Modify: `platform/execution_coordination/src/design_execution_coordination/coordinator.py`
@@ -832,14 +874,12 @@ HostFailed(
 )
 ```
 
-Assert `RECOVERY_REQUIRED`, active hash is second Slice, second state remains `ADMITTED`, no `actual_delta_hash`, third remains `NOT_STARTED`, and no Step33 failure state is fabricated.
+Assert `RECOVERY_REQUIRED`, active second Slice, state remains `ADMITTED`, no delta, third `NOT_STARTED`, no false Step33 failure.
 
-- [ ] **Step 2: Implement exact branch**
-
-Return:
+- [ ] **Step 2: Implement exact unknown branch**
 
 ```python
-CoordinationResult(
+return CoordinationResult(
     saga_id=stored.definition.saga_id,
     saga_revision=stored.saga_revision,
     status=CoordinationStatus.RECOVERY_REQUIRED,
@@ -848,13 +888,17 @@ CoordinationResult(
 )
 ```
 
-Do not call any Step33 mutation after the ambiguous Host result.
+No Step33 mutation after the ambiguous Host result.
 
 - [ ] **Step 3: Prove restart no-replay**
 
-Call `execute(...)` again. The Task3 entry guard must fire before authority/Host. Assert second Host has exactly one historical call and authority port admitted second Slice exactly once.
+Call `execute(...)` again; entry guard fires before authority/Host. Assert second Host has exactly one historical call and authority port admitted second Slice once.
 
-- [ ] **Step 4: Run and commit**
+- [ ] **Step 4: Prove post-Host CAS conflict never replays mutation**
+
+Wrap the real reconciliation service in a test-only facade whose `record_host_commit(...)` raises `ReconciliationError("SAGA_CONFLICT", "injected CAS conflict")` after the Host port has returned `HostCommitted`; all earlier methods delegate to the real service/store. Assert first coordinator call raises that `ReconciliationError`, Host call count is exactly one, and underlying Step33 Slice remains `ADMITTED`. Then call a coordinator using the normal real service/store; the active-Slice entry guard returns `RECOVERY_REQUIRED` without a second Host call. Do not add a retry loop to production coordinator.
+
+- [ ] **Step 5: Run and commit**
 
 ```bash
 python -m pytest tests/execution_coordination/test_step37_unknown_commit.py -q
@@ -882,9 +926,23 @@ def create_compensation_proposal(
 ) -> CompensationProposal: ...
 ```
 
-- [ ] **Step 1: RED durable proposal test**
+- [ ] **Step 1: RED durable proposal**
 
-Drive a second-Slice scope breach, then call the method with one canonical recovery effect mapping. Assert `committed_slice_hashes`, `actual_delta_refs`, and `scope_breach_refs` equal durable Step33 state and no extra Host call occurs.
+Drive a second-Slice scope breach and call with exactly:
+
+```python
+desired_recovery_effects=(
+    {
+        "canonical_operation": "semantic.assertions.v1",
+        "targets": ["WALL-001"],
+        "arguments": {
+            "assertions": {"properties.thickness": 300.0},
+        },
+    },
+)
+```
+
+Assert proposal committed Slice hashes, actual-delta refs, and scope-breach refs equal durable Step33 state; no extra Host call occurs.
 
 - [ ] **Step 2: Implement thin Step33 delegation**
 
@@ -898,15 +956,15 @@ return self._reconciliation.create_compensation_proposal(
 )
 ```
 
-No Host/authority/evidence port call is allowed.
+No Host/authority/evidence calls.
 
 - [ ] **Step 3: Prove no-commit Saga cannot compensate**
 
-Drive first-Slice pre-commit failure (`FAILED`) and assert Step33 rejects proposal creation with `ReconciliationError`/compensation conflict. Do not add a Step37 bypass.
+Drive first-Slice pre-commit failure (`FAILED`) and assert Step33 rejects proposal creation with compensation conflict; no Step37 bypass.
 
-- [ ] **Step 4: Prove compensation failure remains Step33 truth**
+- [ ] **Step 4: Prove `COMPENSATION_FAILED` remains Step33 truth**
 
-For a real partially committed Saga, call Step33 `begin_compensation(...)`, then:
+For a real partially committed Saga, use Step33 `begin_compensation(...)`, then persist:
 
 ```python
 CompensationExecutionRef(
@@ -917,7 +975,7 @@ CompensationExecutionRef(
 )
 ```
 
-Persist through Step33 `record_compensation_result(...)` and assert source Saga `COMPENSATION_FAILED`. Coordinator exposes no inverse-command/recovery-execution method.
+Assert source Saga `COMPENSATION_FAILED`; coordinator exposes no inverse/recovery execution method.
 
 - [ ] **Step 5: Run and commit**
 
@@ -930,14 +988,12 @@ git commit -m "feat: hand Step37 recovery to governed compensation"
 
 ---
 
-### Task 9: Add architecture guard
+### Task 9: Add Step37 architecture guard
 
 **Files:**
 - Create: `tests/integration/test_step37_architecture.py`
 
-- [ ] **Step 1: Freeze dependency/native/failure boundaries**
-
-Implement these source assertions:
+- [ ] **Step 1: Freeze source boundaries**
 
 ```python
 CORE = Path("platform/execution_coordination/src/design_execution_coordination")
@@ -972,21 +1028,23 @@ def test_failure_injection_is_test_only():
 
 def test_coordinator_has_no_inverse_host_command_api():
     params = inspect.signature(ExecutionSagaCoordinator.execute).parameters
-    assert not {name for name in params if any(word in name for word in ("command", "inverse", "rollback"))}
+    assert not {
+        name
+        for name in params
+        if any(word in name for word in ("command", "inverse", "rollback"))
+    }
 ```
 
-- [ ] **Step 2: Add runtime unknown-commit safety assertion**
+- [ ] **Step 2: Add runtime unknown-commit safety**
 
-Use the real Task7 fixture plus a spy wrapper around `ExecutionReconciliationService.fail_slice_before_commit`; execute the `COMMIT_STATE_UNKNOWN` case and assert spy count remains zero. This runtime proof is required in addition to source scanning.
+Use Task7 fixture with a spy wrapper for `fail_slice_before_commit`; execute `COMMIT_STATE_UNKNOWN` and assert spy count zero.
 
-- [ ] **Step 3: Run architecture and strict Step37 lint**
+- [ ] **Step 3: Run architecture and strict lint**
 
 ```bash
 python -m pytest tests/integration/test_step37_architecture.py -q -vv
 ruff check --select E,F,I platform/execution_coordination tests/execution_coordination tests/integration/test_step37_architecture.py
 ```
-
-Expected: PASS and zero diagnostics.
 
 - [ ] **Step 4: Commit**
 
@@ -997,16 +1055,37 @@ git commit -m "test: guard Step37 coordination architecture"
 
 ---
 
-### Task 10: Add dedicated CI and run final offline gate
+### Task 10: Add dedicated Step37 CI and final offline verification
 
 **Files:**
 - Create: `.github/workflows/step37-cross-host-saga-failure-injection.yml`
 
-- [ ] **Step 1: Add push/PR path triggers**
+- [ ] **Step 1: Add exact push/PR path triggers**
 
-Cover exactly the Step37 workflow/spec/plan, `pyproject.toml`, `platform/execution_coordination/**`, Step29–33 packages, `tests/execution_coordination/**`, `tests/execution_reconciliation/**`, `tests/integration/test_step37_architecture.py`, and Step34/36 integration regression files. Do not add AutoCAD plugin/sidecar production paths unless those files actually change.
+Use this path list for both `push.paths` and `pull_request.paths`:
 
-- [ ] **Step 2: Install offline packages**
+```yaml
+- ".github/workflows/step37-cross-host-saga-failure-injection.yml"
+- "pyproject.toml"
+- "docs/superpowers/specs/2026-08-31-step37-cross-host-saga-failure-injection-design.md"
+- "docs/superpowers/plans/2026-08-31-step37-cross-host-saga-failure-injection.md"
+- "platform/execution_coordination/**"
+- "platform/changeset/**"
+- "platform/execution_planning/**"
+- "platform/provider_binding/**"
+- "platform/gateway_authorization/**"
+- "platform/execution_reconciliation/**"
+- "tests/execution_coordination/**"
+- "tests/execution_reconciliation/**"
+- "tests/integration/test_step37_architecture.py"
+- "tests/integration/test_step34_autocad_wall_thickness_command.py"
+- "tests/integration/test_step34_autocad_wall_thickness_reconciliation.py"
+- "tests/integration/test_step36_*.py"
+```
+
+Do not add AutoCAD plugin/sidecar production paths unless those files actually change.
+
+- [ ] **Step 2: Install exact offline stack**
 
 ```bash
 python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
@@ -1028,7 +1107,7 @@ python -m pip install \
   -e providers/semantics/enterprise_mapping
 ```
 
-- [ ] **Step 3: Add focused/upstream test commands**
+- [ ] **Step 3: Add focused/upstream tests**
 
 ```bash
 python -m pytest tests/execution_coordination -q
@@ -1040,7 +1119,7 @@ python -m pytest tests/gateway_authorization -q
 python -m pytest tests/execution_reconciliation -q
 ```
 
-- [ ] **Step 4: Add Step34/36 offline regression**
+- [ ] **Step 4: Add Step34/36 offline regressions**
 
 ```bash
 python -m pytest \
@@ -1052,23 +1131,58 @@ python -m pytest \
   -q
 ```
 
-No `AGENT_HOST_TEST=1` in CI.
+No `AGENT_HOST_TEST=1`.
 
-- [ ] **Step 5: Add full importlib regression**
+- [ ] **Step 5: Add full importlib regression and strict Step37 lint**
 
 ```bash
 python -m pytest --import-mode=importlib -q
-```
-
-- [ ] **Step 6: Add strict Step37 lint plus repository baseline-aware Ruff**
-
-Strict:
-
-```bash
 ruff check --select E,F,I platform/execution_coordination tests/execution_coordination tests/integration/test_step37_architecture.py
 ```
 
-Baseline-aware repository scan: create `/tmp/dsp-main` from `origin/main`, run identical JSON Ruff scans on `platform hosts/autocad/sidecar tests`, normalize filenames to repository-relative paths, compare `Counter[(filename, code, message)]`, print main/head/new counts, and fail if `head - main` is non-empty. Copy the already-green Step36 Counter algorithm rather than changing its semantics.
+- [ ] **Step 6: Add exact repository baseline-aware Ruff algorithm**
+
+Workflow shell:
+
+```bash
+git worktree add /tmp/dsp-main origin/main
+(
+  cd /tmp/dsp-main
+  ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/main-ruff.json || true
+)
+ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+python - <<'PY'
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+
+def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+    rows = json.loads(Path(path).read_text(encoding="utf-8"))
+    result: Counter[tuple[str, str, str]] = Counter()
+    for row in rows:
+        filename = str(row["filename"]).replace("\\", "/")
+        for marker in ("/platform/", "/hosts/", "/tests/"):
+            if marker in filename:
+                filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                break
+        result[(filename, row["code"], row["message"])] += 1
+    return result
+
+
+main = diagnostics("/tmp/main-ruff.json")
+head = diagnostics("/tmp/head-ruff.json")
+added = head - main
+print(f"main diagnostics: {sum(main.values())}")
+print(f"head diagnostics: {sum(head.values())}")
+print(f"new diagnostics: {sum(added.values())}")
+for item, count in sorted(added.items()):
+    print("NEW", count, item)
+if added:
+    sys.exit(1)
+PY
+```
 
 - [ ] **Step 7: Add whitespace/boundary checks**
 
@@ -1079,7 +1193,7 @@ git log --oneline origin/main..HEAD
 git diff --name-only origin/main...HEAD
 ```
 
-- [ ] **Step 8: Run final local/offline gate before claiming completion**
+- [ ] **Step 8: Run final local/offline gate before any completion claim**
 
 ```bash
 python -m pytest tests/execution_coordination -q
@@ -1097,7 +1211,7 @@ ruff check --select E,F,I platform/execution_coordination tests/execution_coordi
 git diff --check main...HEAD
 ```
 
-Then run the same repository-wide baseline-aware Ruff comparison as CI.
+Then run the exact Counter-based repository Ruff comparison from Step 6 locally or in the dedicated workflow.
 
 - [ ] **Step 9: Enforce final branch boundary**
 
@@ -1113,7 +1227,7 @@ docs/superpowers/specs/2026-08-31-step37-cross-host-saga-failure-injection-desig
 docs/superpowers/plans/2026-08-31-step37-cross-host-saga-failure-injection.md
 ```
 
-If Step31/32/33 or AutoCAD production files appear, stop and return to design review unless a previously proven public-interface gap explicitly requires the change.
+Any Step31/32/33 or AutoCAD production diff triggers design review unless a previously proven public-interface gap requires it.
 
 - [ ] **Step 10: Commit CI**
 
@@ -1141,6 +1255,7 @@ post-commit scope breach -> PARTIALLY_COMMITTED + later BLOCKED: PASS
 post-commit verify failure -> PARTIALLY_COMMITTED + later BLOCKED: PASS
 COMMIT_STATE_UNKNOWN fails closed without retry or false failure state: PASS
 restart with unresolved active Slice does not replay authority or Host mutation: PASS
+post-Host CAS conflict stops without Host replay: PASS
 compensation proposal derives only from durable Step33 evidence: PASS
 first-slice FAILED Saga cannot fabricate compensation: PASS
 COMPENSATION_FAILED remains Step33 durable truth: PASS
