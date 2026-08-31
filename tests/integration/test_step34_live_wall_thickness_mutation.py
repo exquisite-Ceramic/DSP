@@ -94,7 +94,7 @@ async def test_live_wall_thickness_mutates_200_to_300_and_advances_revision() ->
         )
         assert result.ok, result.error
         assert result.verification is not None
-        assert result.verification.ok
+        assert result.verification.get("ok") is True
         assert result.revision_after == revision_before + 1
 
         post = await dispatcher.extract_design_facts(handles)
