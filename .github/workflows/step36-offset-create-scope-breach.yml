@@ -19,7 +19,12 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python -m pip install pytest pytest-asyncio jsonschema
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime
       - name: Run Step36 Task1 focused tests
         run: python -m pytest tests/orchestrator/test_step36_offset_action.py -q
       - name: Run orchestrator regression
