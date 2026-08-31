@@ -32,3 +32,21 @@ rules:
       case_sensitive: true
     target_term_id: dsp:WallThickness
     assurance: RULE_DERIVED
+
+  - mapping_id: enterprise.revit.builtin-category.ost-walls.v1
+    source_scheme: revit.builtin_category
+    match:
+      type: EXACT
+      pattern: OST_Walls
+      case_sensitive: true
+    target_term_id: ifc:IfcWall
+    assurance: RULE_DERIVED
+
+  - mapping_id: enterprise.revit.property.walltype-compound-structure-total-width.v1
+    source_scheme: revit.property
+    match:
+      type: EXACT
+      pattern: WallType.CompoundStructure.TotalWidth
+      case_sensitive: true
+    target_term_id: dsp:WallThickness
+    assurance: RULE_DERIVED
