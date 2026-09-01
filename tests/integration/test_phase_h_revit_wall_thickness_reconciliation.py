@@ -280,7 +280,7 @@ def _build_binding_set(execution_slice: ExecutionSlice) -> ProviderBindingSet:
             "wall_unique_id": "wall-unique-id",
             "thickness": {"value": 300.0, "unit": "mm"},
         },
-        provider_preconditions=({"revision": 10},),
+        provider_preconditions=(),
         native_binding_metadata={"phase_h": "revit-wall-thickness"},
         verification_contract=SET_WALL_THICKNESS_V1.verification_contract,
         rollback_contract={"type": "NONE"},
