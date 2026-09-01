@@ -50,6 +50,12 @@ jobs:
           hosts/revit/sidecar/tests/test_design_fact_adapter.py
           tests/revit/test_revit_enterprise_mapping.py
           -q -vv
+      - name: Verify Revit and AutoCAD reconciliation parity
+        run: >-
+          python -m pytest
+          tests/integration/test_phase_h_revit_wall_thickness_reconciliation.py
+          tests/integration/test_step34_autocad_wall_thickness_reconciliation.py
+          -q -vv
       - name: Verify Revit-free .NET core
         if: ${{ always() }}
         run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
