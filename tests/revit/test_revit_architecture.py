@@ -148,3 +148,23 @@ def test_wall_isolation_probe_uses_actual_join_participants() -> None:
     assert "ElementsAtJoin(0)" in text
     assert "ElementsAtJoin(1)" in text
     assert "IsWallJoinAllowedAtEnd" not in text
+
+
+def test_wall_thickness_planning_uses_revit_units_and_candidate_validation() -> None:
+    source = NATIVE_SOURCE_ROOT / "Walls/RevitLengthUnitConverter.cs"
+    assert source.is_file()
+
+    text = source.read_text(encoding="utf-8")
+    for required in (
+        "UnitUtils.ConvertToInternalUnits",
+        "UnitUtils.ConvertFromInternalUnits",
+        "UnitTypeId.Millimeters",
+        "IsVerticallyCompound",
+        "GetLayers()",
+        "SetLayerWidth",
+        "GetWidth()",
+    ):
+        assert required in text
+
+    for forbidden_scale in ("304.8", "0.00328084", "3.28084"):
+        assert forbidden_scale not in text
