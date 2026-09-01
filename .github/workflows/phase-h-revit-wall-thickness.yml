@@ -39,7 +39,11 @@ jobs:
       - name: Verify Revit architecture boundary
         run: python -m pytest tests/revit/test_revit_architecture.py -q -vv
       - name: Verify Revit sidecar adapter
-        run: python -m pytest hosts/revit/sidecar/tests/test_model_adapter.py -q -vv
+        run: >-
+          python -m pytest
+          hosts/revit/sidecar/tests/test_model_adapter.py
+          hosts/revit/sidecar/tests/test_execution_result_adapter.py
+          -q -vv
       - name: Verify Revit design facts and enterprise mappings
         run: >-
           python -m pytest
