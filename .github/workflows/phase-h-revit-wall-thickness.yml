@@ -56,6 +56,10 @@ jobs:
           tests/integration/test_phase_h_revit_wall_thickness_reconciliation.py
           tests/integration/test_step34_autocad_wall_thickness_reconciliation.py
           -q -vv
+      - name: Verify live Revit gate remains external-only
+        env:
+          DSP_REVIT_LIVE: "0"
+        run: python -m pytest tests/integration/test_phase_h_revit_wall_thickness_live.py -q -vv
       - name: Verify Revit-free .NET core
         if: ${{ always() }}
         run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
