@@ -11,7 +11,8 @@ public interface IRevitRequestExecutor
     HostResultEnvelope Execute(
         Document document,
         HostCommandEnvelope command,
-        long revisionBefore);
+        long revisionBefore,
+        Func<long> readCurrentRevision);
 }
 
 public sealed class RevitExternalEventHandler : IExternalEventHandler
@@ -57,22 +58,22 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
         string documentKey = revisions.GetDocumentKey(document);
         long revisionBefore = revisions.Get(documentKey);
 
-        HostResultEnvelope result;
         try
         {
-            result = executor.Execute(document, command, revisionBefore);
+            return executor.Execute(
+                document,
+                command,
+                revisionBefore,
+                () => revisions.Get(documentKey));
         }
         catch (Exception exception)
         {
-            result = Error(
+            return Error(
                 command.CommandId,
                 "REVIT_REQUEST_EXECUTION_FAILED",
-                revisionBefore,
+                revisions.Get(documentKey),
                 exception.Message);
         }
-
-        long revisionAfter = revisions.Get(documentKey);
-        return result with { RevisionAfter = checked((int)revisionAfter) };
     }
 
     private static HostResultEnvelope Error(

@@ -1,11 +1,10 @@
-using System.Text.Json.Nodes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
-using Revit.AgentHost.Core.Contracts;
 using Revit.AgentHost.Ipc;
 using Revit.AgentHost.Native.ExternalEvents;
 using Revit.AgentHost.Native.Revision;
+using Revit.AgentHost.Native.Walls;
 
 namespace Revit.AgentHost.Native;
 
@@ -19,7 +18,7 @@ public sealed class PluginEntry : IExternalApplication
     {
         revisions = new DocumentRevisionTracker();
         var queue = new RevitRequestQueue();
-        var executor = new FailClosedRequestExecutor();
+        var executor = new RevitWallThicknessMutation();
         var handler = new RevitExternalEventHandler(queue, revisions, executor);
 
         externalEvent = ExternalEvent.Create(handler);
@@ -68,30 +67,6 @@ public sealed class PluginEntry : IExternalApplication
         public void Raise()
         {
             externalEvent.Raise();
-        }
-    }
-
-    private sealed class FailClosedRequestExecutor : IRevitRequestExecutor
-    {
-        public HostResultEnvelope Execute(
-            Document document,
-            HostCommandEnvelope command,
-            long revisionBefore)
-        {
-            ArgumentNullException.ThrowIfNull(document);
-            ArgumentNullException.ThrowIfNull(command);
-
-            return new HostResultEnvelope(
-                command.CommandId,
-                "ERROR",
-                null,
-                new JsonObject
-                {
-                    ["code"] = "REVIT_NATIVE_COMMAND_NOT_CONFIGURED",
-                },
-                checked((int)revisionBefore),
-                null,
-                false);
         }
     }
 }
