@@ -168,3 +168,22 @@ def test_wall_thickness_planning_uses_revit_units_and_candidate_validation() -> 
 
     for forbidden_scale in ("304.8", "0.00328084", "3.28084"):
         assert forbidden_scale not in text
+
+
+def test_wall_thickness_mutation_uses_one_transaction_and_mandatory_post_read() -> None:
+    mutation = NATIVE_SOURCE_ROOT / "Walls/RevitWallThicknessMutation.cs"
+    reader = NATIVE_SOURCE_ROOT / "Walls/RevitWallSnapshotReader.cs"
+    assert mutation.is_file()
+    assert reader.is_file()
+
+    mutation_text = mutation.read_text(encoding="utf-8")
+    reader_text = reader.read_text(encoding="utf-8")
+
+    assert mutation_text.count("new Transaction(") == 1
+    assert "SetCompoundStructure" in mutation_text
+    assert ".Commit()" in mutation_text
+    assert "OnDocumentChanged" not in mutation_text
+
+    assert "GetCompoundStructure()" in reader_text
+    assert "GetWidth()" in reader_text
+    assert "RevitLengthUnitConverter.InternalToMillimeters" in reader_text
