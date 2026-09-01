@@ -138,3 +138,13 @@ def test_command_handlers_never_increment_revision_independently() -> None:
         text = path.read_text(encoding="utf-8")
         assert revision_increment.search(text) is None
         assert ".OnDocumentChanged(" not in text
+
+
+def test_wall_isolation_probe_uses_actual_join_participants() -> None:
+    probe = NATIVE_SOURCE_ROOT / "Walls/RevitWallIsolationProbe.cs"
+    assert probe.is_file()
+
+    text = probe.read_text(encoding="utf-8")
+    assert "ElementsAtJoin(0)" in text
+    assert "ElementsAtJoin(1)" in text
+    assert "IsWallJoinAllowedAtEnd" not in text
