@@ -23,7 +23,7 @@ jobs:
   phase-h-offline:
     runs-on: ubuntu-latest
     env:
-      PYTHONPATH: contracts/python:hosts/revit/sidecar/src
+      PYTHONPATH: contracts/python:hosts/revit/sidecar/src:platform/semantic_runtime/src
     steps:
       - uses: actions/checkout@v4
         with:
