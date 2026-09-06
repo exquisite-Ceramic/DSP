@@ -391,30 +391,32 @@ Stop and return to design review instead of weakening the gate if any live run s
 
 ## 13. Execution evidence
 
-Append fresh execution evidence here only after the real-host run.
+Fresh real-host acceptance evidence captured on the pinned Windows acceptance machine:
 
 ```text
-Branch / HEAD:
-Revit product:
-Revit build:
-DSP_REVIT_VERSION:
-DSP_REVIT_TFM:
-DSP_REVIT_API_DIR:
-Native build:
-RVT fixture:
-RVT SHA-256:
-Named Pipe:
-Live pytest:
-Revision before:
-Revision after:
-Width after:
-Shared-type result:
-Insert result:
-Join result:
-Stale-revision result:
-Replay result:
-Conflict result:
-Scope result:
-Verification result:
-Saga result:
+Branch / HEAD: feat/phase-h-revit-wall-thickness-gap-closure @ c8b652f61d9b0aebc1c8d4c5938679b5855c71c3
+Revit product: Autodesk Revit 2027
+Revit build: 20260716_1515(x64), file version 27.2.0.39
+DSP_REVIT_VERSION: 2027
+DSP_REVIT_TFM: net10.0-windows
+DSP_REVIT_API_DIR: C:\Program Files\Autodesk\Revit 2027
+Native build: PASS — 0 errors; 3 accepted MSB3277 reference-version warnings from the Revit dependency graph
+RVT fixture: E:\DAPS\enterprise-design-agent\fixtures\PhaseH-Controlled.rvt
+RVT SHA-256: fa5eff66b976ce9be7a40658cc195217cce068f3a4989c1a36c3a0b8e6a109f1
+Named Pipe: EnterpriseDesignAgent.Revit.CHINAMI-A2TGTT8-38836
+Live pytest: PASS — tests/integration/test_phase_h_revit_wall_thickness_live.py, 1 passed in 1.19s
+Revision before: 0
+Revision after: 1
+Width after: 300 mm
+Shared-type result: SHARED_WALL_TYPE_OUTSIDE_SCOPE / BEFORE_COMMIT
+Insert result: WALL_INSERTS_OUTSIDE_MVP / BEFORE_COMMIT
+Join result: WALL_JOIN_OUTSIDE_MVP / BEFORE_COMMIT
+Stale-revision result: REVISION_CONFLICT / BEFORE_COMMIT
+Replay result: replayed = true; revision unchanged after replay
+Conflict result: IDEMPOTENCY_KEY_CONFLICT / BEFORE_COMMIT
+Transaction attempt count: 1
+Scope result: WITHIN_SCOPE
+Verification result: PASSED
+Saga result: SUCCEEDED
+Post-run fixture handling: acceptance mutation was not saved; canonical fixture was closed and reopened after the run
 ```
