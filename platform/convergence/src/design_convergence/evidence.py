@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Any
 
 from .contracts import (
     CanonicalFieldEvidence,
@@ -213,6 +212,7 @@ def _validate_local_verification(
     verification_evidence_bundle: object,
 ) -> None:
     """复用 Step33 owner hash，确认输入确实是同一份本地 PASS 证据。"""
+    from design_execution_planning import ExecutionSliceV2
     from design_execution_reconciliation import (
         ActualDelta,
         ReconciliationError,
@@ -224,7 +224,6 @@ def _validate_local_verification(
         validate_actual_delta_integrity,
         validate_verification_evidence_bundle_integrity,
     )
-    from design_execution_planning import ExecutionSliceV2
 
     if not isinstance(execution_slice, ExecutionSliceV2):
         raise TypeError("execution_slice must be ExecutionSliceV2")
