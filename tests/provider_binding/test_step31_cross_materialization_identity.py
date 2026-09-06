@@ -8,7 +8,6 @@ from design_provider_binding import (
     resolve_provider_bindings_v2,
     validate_cross_materialization_identity,
 )
-
 from test_step31_materialization_v2 import _phase_i_binding_inputs
 
 
