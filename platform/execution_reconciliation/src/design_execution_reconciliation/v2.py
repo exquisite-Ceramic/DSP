@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from design_approval_scope import (
     ApprovalScopeBoundaryV2,
@@ -20,36 +20,16 @@ from design_gateway_authorization import AdmittedExecutionAuthorityV2
 from design_materialization_planning import MaterializationPlan
 
 from .contracts import (
-    ActualChange,
-    ActualChangeKind,
     ActualDelta,
     ReconciliationError,
     ScopeComparisonResult,
-    ScopeComparisonStatus,
     SemanticVerificationResult,
     VerificationEvidenceBundle,
 )
-from .hashing import (
-    compute_scope_comparison_hash,
-    compute_semantic_verification_hash,
-    validate_actual_delta_integrity,
-    validate_verification_evidence_bundle_integrity,
-)
+from .hashing import validate_actual_delta_integrity
 from .saga_v2 import ExecutionSagaControllerV2
-from .scope_comparator import (
-    _authorized_rules,
-    _compare_creations,
-    _compare_delete,
-    _compare_modify,
-    _rule_index,
-)
-from .verifier import (
-    _aggregate,
-    _result_for_task,
-    _validate_bundle_lineage,
-    _validate_post_snapshot_lineage,
-    _validate_requested_tasks,
-)
+from .scope_comparator import _evaluate_scope_effects
+from .verifier import _evaluate_semantic_verification
 
 
 def _lineage_error(message: str) -> None:
@@ -178,63 +158,18 @@ def _evaluate_scope(
     execution_slice: ExecutionSliceV2,
     actual_delta: ActualDelta,
 ) -> ScopeComparisonResult:
-    """复用既有 provider-neutral rule evaluator，只替换 V2 lineage 外壳。"""
-    slice_scope = _resolve_slice_scope(boundary, execution_slice)
-    existing_rules = _authorized_rules(
-        slice_scope.existing_rule_ids,
-        _rule_index(boundary.existing_entity_rules),
-    )
-    creation_rules = _authorized_rules(
-        slice_scope.creation_rule_ids,
-        _rule_index(boundary.creation_rules),
-    )
-    deletion_rules = _authorized_rules(
-        slice_scope.deletion_rule_ids,
-        _rule_index(boundary.deletion_rules),
-    )
-
-    matches = []
-    violations = []
-    creates: list[ActualChange] = []
-    for change in sorted(actual_delta.changes, key=lambda item: item.actual_change_hash):
-        if change.change_kind is ActualChangeKind.MODIFY:
-            change_matches, change_violations = _compare_modify(change, existing_rules)
-        elif change.change_kind is ActualChangeKind.DELETE:
-            change_matches, change_violations = _compare_delete(change, deletion_rules)
-        else:
-            creates.append(change)
-            continue
-        matches.extend(change_matches)
-        violations.extend(change_violations)
-    creation_matches, creation_violations = _compare_creations(
-        tuple(creates),
-        creation_rules,
-    )
-    matches.extend(creation_matches)
-    violations.extend(creation_violations)
-
-    draft = ScopeComparisonResult(
-        status=(
-            ScopeComparisonStatus.SCOPE_BREACH
-            if violations
-            else ScopeComparisonStatus.WITHIN_SCOPE
-        ),
-        actual_delta_hash=actual_delta.actual_delta_hash,
-        approved_scope_hash=boundary.scope_hash,
-        execution_slice_hash=execution_slice.execution_slice_hash,
-        matched_changes=tuple(matches),
-        violations=tuple(violations),
-        comparison_hash="0" * 64,
-    )
-    return replace(
-        draft,
-        comparison_hash=compute_scope_comparison_hash(draft),
+    """调用 V1/V2 共享的 provider-neutral scope 效果判断。"""
+    return _evaluate_scope_effects(
+        boundary=boundary,
+        execution_slice=execution_slice,
+        actual_delta=actual_delta,
+        slice_scope=_resolve_slice_scope(boundary, execution_slice),
     )
 
 
 @dataclass(frozen=True, slots=True)
 class _VerificationContextV2:
-    """只承载既有 semantic evaluator 需要的 provider-neutral 字段。"""
+    """只承载共享 semantic evaluator 需要的 provider-neutral 字段。"""
 
     admitted_execution_authority: AdmittedExecutionAuthorityV2
     approval_scope_boundary: ApprovalScopeBoundaryV2
@@ -246,32 +181,8 @@ class _VerificationContextV2:
 
 
 def _evaluate_semantics(context: _VerificationContextV2) -> SemanticVerificationResult:
-    """复用既有 assertion evaluator，并保留 evidence/task 完整性约束。"""
-    _validate_requested_tasks(context)
-    validate_verification_evidence_bundle_integrity(
-        context.verification_evidence_bundle
-    )
-    _validate_bundle_lineage(context)
-    _validate_post_snapshot_lineage(context)
-    task_results = tuple(
-        _result_for_task(context, task) for task in context.validation_tasks
-    )
-    draft = SemanticVerificationResult(
-        verification_id="SVR-V2-DRAFT",
-        changeset_hash=context.canonical_changeset.changeset_hash,
-        execution_slice_hash=context.admitted_execution_authority.execution_slice_hash,
-        actual_delta_hash=context.actual_delta.actual_delta_hash,
-        evidence_bundle_hash=context.verification_evidence_bundle.evidence_bundle_hash,
-        task_results=task_results,
-        status=_aggregate(task_results),
-        verification_hash="0" * 64,
-    )
-    verification_hash = compute_semantic_verification_hash(draft)
-    return replace(
-        draft,
-        verification_id=f"SVR-{verification_hash[:12]}",
-        verification_hash=verification_hash,
-    )
+    """调用 V1/V2 共享的 provider-neutral semantic evaluator。"""
+    return _evaluate_semantic_verification(context)
 
 
 class ExecutionReconciliationServiceV2:

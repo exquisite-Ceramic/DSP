@@ -593,6 +593,36 @@ def _aggregate(task_results: tuple[ValidationTaskResult, ...]) -> VerificationSt
     return VerificationStatus.PASSED
 
 
+def _evaluate_semantic_verification(request) -> SemanticVerificationResult:
+    """在版本专属 lineage 已验证后执行唯一的 provider-neutral 语义验证。"""
+    _validate_requested_tasks(request)
+    validate_verification_evidence_bundle_integrity(
+        request.verification_evidence_bundle
+    )
+    _validate_bundle_lineage(request)
+    _validate_post_snapshot_lineage(request)
+
+    task_results = tuple(
+        _result_for_task(request, task) for task in request.validation_tasks
+    )
+    draft = SemanticVerificationResult(
+        verification_id="SVR-DRAFT",
+        changeset_hash=request.canonical_changeset.changeset_hash,
+        execution_slice_hash=request.admitted_execution_authority.execution_slice_hash,
+        actual_delta_hash=request.actual_delta.actual_delta_hash,
+        evidence_bundle_hash=request.verification_evidence_bundle.evidence_bundle_hash,
+        task_results=task_results,
+        status=_aggregate(task_results),
+        verification_hash="0" * 64,
+    )
+    verification_hash = compute_semantic_verification_hash(draft)
+    return replace(
+        draft,
+        verification_id=f"SVR-{verification_hash[:12]}",
+        verification_hash=verification_hash,
+    )
+
+
 class SemanticVerifier:
     """Evaluate exact Step29 validation tasks over exact snapshot-bound evidence."""
 
@@ -608,34 +638,7 @@ class SemanticVerifier:
         _validate_authority_delta(request)
         _validate_boundary(request)
         _validate_changeset(request)
-        _validate_requested_tasks(request)
-        validate_verification_evidence_bundle_integrity(
-            request.verification_evidence_bundle
-        )
-        _validate_bundle_lineage(request)
-        _validate_post_snapshot_lineage(request)
-
-        task_results = tuple(
-            _result_for_task(request, task) for task in request.validation_tasks
-        )
-        status = _aggregate(task_results)
-        bundle = request.verification_evidence_bundle
-        draft = SemanticVerificationResult(
-            verification_id="SVR-DRAFT",
-            changeset_hash=request.canonical_changeset.changeset_hash,
-            execution_slice_hash=request.admitted_execution_authority.execution_slice_hash,
-            actual_delta_hash=request.actual_delta.actual_delta_hash,
-            evidence_bundle_hash=bundle.evidence_bundle_hash,
-            task_results=task_results,
-            status=status,
-            verification_hash="0" * 64,
-        )
-        verification_hash = compute_semantic_verification_hash(draft)
-        return replace(
-            draft,
-            verification_id=f"SVR-{verification_hash[:12]}",
-            verification_hash=verification_hash,
-        )
+        return _evaluate_semantic_verification(request)
 
 
 __all__ = ["SemanticVerifier"]

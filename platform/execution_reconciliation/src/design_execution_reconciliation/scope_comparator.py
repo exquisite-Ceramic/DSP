@@ -386,6 +386,76 @@ def _compare_creations(
     return list(allocation), violations
 
 
+def _evaluate_scope_effects(
+    *,
+    boundary,
+    execution_slice,
+    actual_delta,
+    slice_scope,
+) -> ScopeComparisonResult:
+    """在 lineage 已验证后执行唯一的 provider-neutral scope 效果判断。"""
+    existing_rules = _authorized_rules(
+        slice_scope.existing_rule_ids,
+        _rule_index(boundary.existing_entity_rules),
+    )
+    creation_rules = _authorized_rules(
+        slice_scope.creation_rule_ids,
+        _rule_index(boundary.creation_rules),
+    )
+    deletion_rules = _authorized_rules(
+        slice_scope.deletion_rule_ids,
+        _rule_index(boundary.deletion_rules),
+    )
+
+    matches: list[ScopeMatch] = []
+    violations: list[ScopeViolation] = []
+    creates: list[ActualChange] = []
+    for change in sorted(
+        actual_delta.changes,
+        key=lambda item: item.actual_change_hash,
+    ):
+        if change.change_kind is ActualChangeKind.MODIFY:
+            change_matches, change_violations = _compare_modify(
+                change,
+                existing_rules,
+            )
+        elif change.change_kind is ActualChangeKind.DELETE:
+            change_matches, change_violations = _compare_delete(
+                change,
+                deletion_rules,
+            )
+        else:
+            creates.append(change)
+            continue
+        matches.extend(change_matches)
+        violations.extend(change_violations)
+
+    creation_matches, creation_violations = _compare_creations(
+        tuple(creates),
+        creation_rules,
+    )
+    matches.extend(creation_matches)
+    violations.extend(creation_violations)
+
+    draft = ScopeComparisonResult(
+        status=(
+            ScopeComparisonStatus.SCOPE_BREACH
+            if violations
+            else ScopeComparisonStatus.WITHIN_SCOPE
+        ),
+        actual_delta_hash=actual_delta.actual_delta_hash,
+        approved_scope_hash=boundary.scope_hash,
+        execution_slice_hash=execution_slice.execution_slice_hash,
+        matched_changes=tuple(matches),
+        violations=tuple(violations),
+        comparison_hash="0" * 64,
+    )
+    return replace(
+        draft,
+        comparison_hash=compute_scope_comparison_hash(draft),
+    )
+
+
 class ScopeComparator:
     """Compare normalized actual side effects to exact Step28/Step30 authority."""
 
@@ -401,72 +471,11 @@ class ScopeComparator:
         _validate_boundary(request)
         _validate_slice(request)
         _validate_host_and_provenance(request)
-        slice_scope = _resolve_slice_scope(request)
-
-        boundary = request.approval_scope_boundary
-        existing_by_id = _rule_index(boundary.existing_entity_rules)
-        creation_by_id = _rule_index(boundary.creation_rules)
-        deletion_by_id = _rule_index(boundary.deletion_rules)
-        existing_rules = _authorized_rules(
-            slice_scope.existing_rule_ids,
-            existing_by_id,
-        )
-        creation_rules = _authorized_rules(
-            slice_scope.creation_rule_ids,
-            creation_by_id,
-        )
-        deletion_rules = _authorized_rules(
-            slice_scope.deletion_rule_ids,
-            deletion_by_id,
-        )
-
-        matches: list[ScopeMatch] = []
-        violations: list[ScopeViolation] = []
-        creates: list[ActualChange] = []
-        for change in sorted(
-            request.actual_delta.changes,
-            key=lambda item: item.actual_change_hash,
-        ):
-            if change.change_kind is ActualChangeKind.MODIFY:
-                change_matches, change_violations = _compare_modify(
-                    change,
-                    existing_rules,
-                )
-            elif change.change_kind is ActualChangeKind.DELETE:
-                change_matches, change_violations = _compare_delete(
-                    change,
-                    deletion_rules,
-                )
-            else:
-                creates.append(change)
-                continue
-            matches.extend(change_matches)
-            violations.extend(change_violations)
-
-        creation_matches, creation_violations = _compare_creations(
-            tuple(creates),
-            creation_rules,
-        )
-        matches.extend(creation_matches)
-        violations.extend(creation_violations)
-
-        status = (
-            ScopeComparisonStatus.SCOPE_BREACH
-            if violations
-            else ScopeComparisonStatus.WITHIN_SCOPE
-        )
-        draft = ScopeComparisonResult(
-            status=status,
-            actual_delta_hash=request.actual_delta.actual_delta_hash,
-            approved_scope_hash=boundary.scope_hash,
-            execution_slice_hash=request.execution_slice.execution_slice_hash,
-            matched_changes=tuple(matches),
-            violations=tuple(violations),
-            comparison_hash="0" * 64,
-        )
-        return replace(
-            draft,
-            comparison_hash=compute_scope_comparison_hash(draft),
+        return _evaluate_scope_effects(
+            boundary=request.approval_scope_boundary,
+            execution_slice=request.execution_slice,
+            actual_delta=request.actual_delta,
+            slice_scope=_resolve_slice_scope(request),
         )
 
 
