@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
+from dataclasses import replace
+from pathlib import Path
+
+from design_approval_scope import bind_topology_snapshot_v2
+from design_changeset import ChangeSetBuilder
 
 
 def test_canonical_hash_is_mapping_order_independent() -> None:
@@ -66,3 +72,25 @@ def test_operation_semantic_hash_has_no_construction_id_parameter() -> None:
     ]
     assert "operation_id" not in parameters
     assert "scope_rule_ids" not in parameters
+
+
+def _load_builder_fixture():
+    fixture_path = Path(__file__).with_name("test_step29_builder.py")
+    spec = importlib.util.spec_from_file_location("_step29_builder_v2_fixture", fixture_path)
+    assert spec is not None and spec.loader is not None
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    return fixture
+
+
+def test_topology_bound_v2_scope_uses_existing_changeset_hash_pipeline() -> None:
+    fixture = _load_builder_fixture()
+    request = fixture._request()
+    scope_v2 = bind_topology_snapshot_v2(
+        request.approval_scope_definition,
+        topology_snapshot_hash="a" * 64,
+    )
+    changeset = ChangeSetBuilder().build(
+        replace(request, approval_scope_definition=scope_v2)
+    )
+    assert changeset.approval_scope_definition_ref.scope_body_hash == scope_v2.scope_body_hash
