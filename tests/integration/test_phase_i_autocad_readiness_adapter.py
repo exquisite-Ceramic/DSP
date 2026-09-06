@@ -279,9 +279,9 @@ def test_width_unit_revision_and_positive_value_are_revalidated() -> None:
     assert receipt.failure_code == "AUTOCAD_READINESS_REVISION_MISMATCH"
 
 
-def test_non_lwpolyline_binding_is_not_ready_before_fact_extraction() -> None:
+def test_non_lwpolyline_binding_is_not_ready_with_real_observed_revision() -> None:
     ctx = _autocad_inputs(native_kind="AcDbPolyline")
-    dispatcher = FakeDispatcher(_batch(ctx, native_kind="AcDbPolyline"))
+    dispatcher = FakeDispatcher(_batch(ctx, native_kind="AcDbPolyline", revision=21))
     receipt = AutoCadWallThicknessReadinessPort(dispatcher).check(
         ctx.execution_slice,
         ctx.authority,
@@ -289,7 +289,8 @@ def test_non_lwpolyline_binding_is_not_ready_before_fact_extraction() -> None:
     )
     assert receipt.status is ReadinessStatus.NOT_READY
     assert receipt.failure_code == "AUTOCAD_READINESS_NATIVE_KIND_UNSUPPORTED"
-    assert dispatcher.extract_calls == []
+    assert receipt.observed_revision == 21
+    assert dispatcher.extract_calls == [("ACAD-HANDLE-001",)]
 
 
 def test_lineage_substitution_fails_closed_before_fact_extraction() -> None:
