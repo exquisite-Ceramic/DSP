@@ -223,3 +223,49 @@ def test_wall_thickness_mutation_uses_one_transaction_and_mandatory_post_read() 
     assert "GetCompoundStructure()" in reader_text
     assert "GetWidth()" in reader_text
     assert "RevitLengthUnitConverter.InternalToMillimeters" in reader_text
+
+
+def test_phase_i_revit_readiness_reuses_wall_primitives_without_mutation() -> None:
+    readiness = NATIVE_SOURCE_ROOT / "Walls/RevitWallThicknessReadiness.cs"
+    assert readiness.is_file()
+    text = readiness.read_text(encoding="utf-8")
+
+    for required in (
+        "RevitWallTargetResolver",
+        "RevitWallIsolationProbe",
+        "WallIsolationDecision.Evaluate",
+        "RevitWallThicknessPlanBuilder",
+        "RevitWallSnapshotReader",
+        "wall.UniqueId",
+        '"check_wall_thickness_readiness"',
+        '"READ"',
+    ):
+        assert required in text
+
+    for forbidden in (
+        "new Transaction(",
+        ".Commit()",
+        "SetCompoundStructure",
+        "IdempotencyStore",
+    ):
+        assert forbidden not in text
+
+
+def test_phase_i_revit_request_router_has_exact_read_and_execute_routes() -> None:
+    router = NATIVE_SOURCE_ROOT / "ExternalEvents/RevitRequestExecutorRouter.cs"
+    plugin = NATIVE_SOURCE_ROOT / "PluginEntry.cs"
+    assert router.is_file()
+    assert plugin.is_file()
+
+    router_text = router.read_text(encoding="utf-8")
+    plugin_text = plugin.read_text(encoding="utf-8")
+    assert '"READ"' in router_text
+    assert '"check_wall_thickness_readiness"' in router_text
+    assert '"EXECUTE"' in router_text
+    assert '"set_wall_thickness"' in router_text
+    assert "readiness.Execute(" in router_text
+    assert "mutation.Execute(" in router_text
+    assert "REVIT_REQUEST_UNSUPPORTED" in router_text
+    assert "new RevitRequestExecutorRouter(" in plugin_text
+    assert "new RevitWallThicknessReadiness()" in plugin_text
+    assert "new RevitWallThicknessMutation()" in plugin_text
