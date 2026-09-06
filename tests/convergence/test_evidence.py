@@ -90,12 +90,19 @@ def test_convergence_evidence_set_has_exact_frozen_lineage_fields() -> None:
 def test_verified_wall_projection_builds_one_exact_mm_field() -> None:
     ctx, evidence = _local_evidence(0)
     execution_slice = ctx.execution_plan.execution_slices[0]
+    expected_environment = ctx.case.changeset.semantic_environment_ref
 
     assert evidence.materialization_id == execution_slice.materialization_id
     assert evidence.semantic_id == "WALL-001"
     assert evidence.execution_slice_hash == execution_slice.execution_slice_hash
     assert evidence.canonical_kind == "ifc:IfcWall"
-    assert evidence.semantic_environment_ref == ctx.case.changeset.semantic_environment_ref
+    assert (
+        evidence.semantic_environment_ref.environment_id,
+        evidence.semantic_environment_ref.content_hash,
+    ) == (
+        expected_environment.environment_id,
+        expected_environment.content_hash,
+    )
     assert len(evidence.verified_fields) == 1
     field = evidence.verified_fields[0]
     assert isinstance(field, CanonicalFieldEvidence)
