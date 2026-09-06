@@ -18,7 +18,9 @@ public sealed class PluginEntry : IExternalApplication
     {
         revisions = new DocumentRevisionTracker();
         var queue = new RevitRequestQueue();
-        var executor = new RevitWallThicknessMutation();
+        var executor = new RevitRequestExecutorRouter(
+            new RevitWallThicknessReadiness(),
+            new RevitWallThicknessMutation());
         var handler = new RevitExternalEventHandler(queue, revisions, executor);
 
         externalEvent = ExternalEvent.Create(handler);
