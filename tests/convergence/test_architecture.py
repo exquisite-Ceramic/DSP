@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 _PACKAGE_ROOT = Path("platform/convergence/src/design_convergence")
 _FORBIDDEN_NATIVE_TERMS = (
     "AutoCAD",
