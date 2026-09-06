@@ -219,7 +219,7 @@ class RevitWallThicknessReadinessPort:
             )
         try:
             response = self._transport.request(command)
-        except Exception as exc:
+        except (ConnectionError, OSError, TypeError, ValueError) as exc:
             _error("READINESS_FAILED", f"Revit readiness transport failed: {exc}")
         response = _mapping(response, "response")
         observed_revision = _revision(response)
