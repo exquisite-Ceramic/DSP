@@ -1,0 +1,151 @@
+name: Phase I real cross-host materialization saga
+
+on:
+  push:
+    paths:
+      - ".github/workflows/phase-i-real-cross-host-materialization-saga.yml"
+      - "tests/integration/phase_i_live_host.py"
+      - "tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py"
+      - "docs/runbooks/phase-i-real-cross-host-wall-thickness.md"
+      - "hosts/autocad/**"
+      - "hosts/revit/**"
+      - "platform/approval_scope/**"
+      - "platform/changeset/**"
+      - "platform/materialization_topology/**"
+      - "platform/materialization_planning/**"
+      - "platform/execution_planning/**"
+      - "platform/provider_binding/**"
+      - "platform/gateway_authorization/**"
+      - "platform/execution_reconciliation/**"
+      - "platform/execution_coordination/**"
+      - "platform/convergence/**"
+  pull_request:
+    paths:
+      - ".github/workflows/phase-i-real-cross-host-materialization-saga.yml"
+      - "tests/integration/phase_i_live_host.py"
+      - "tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py"
+      - "docs/runbooks/phase-i-real-cross-host-wall-thickness.md"
+      - "hosts/autocad/**"
+      - "hosts/revit/**"
+      - "platform/approval_scope/**"
+      - "platform/changeset/**"
+      - "platform/materialization_topology/**"
+      - "platform/materialization_planning/**"
+      - "platform/execution_planning/**"
+      - "platform/provider_binding/**"
+      - "platform/gateway_authorization/**"
+      - "platform/execution_reconciliation/**"
+      - "platform/execution_coordination/**"
+      - "platform/convergence/**"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Run exactly one restored real dual-Host scenario"
+        required: true
+        type: choice
+        options:
+          - positive
+          - partial_commit
+
+jobs:
+  phase-i-offline:
+    runs-on: ubuntu-latest
+    env:
+      DSP_PHASE_I_LIVE: "0"
+      DSP_REVIT_LIVE: "0"
+      PYTHONPATH: ${{ github.workspace }}/contracts/python:${{ github.workspace }}/hosts/autocad/sidecar/src:${{ github.workspace }}/hosts/revit/sidecar/src:${{ github.workspace }}/platform/approval_scope/src:${{ github.workspace }}/platform/changeset/src:${{ github.workspace }}/platform/materialization_topology/src:${{ github.workspace }}/platform/materialization_planning/src:${{ github.workspace }}/platform/execution_planning/src:${{ github.workspace }}/platform/provider_binding/src:${{ github.workspace }}/platform/gateway_authorization/src:${{ github.workspace }}/platform/execution_reconciliation/src:${{ github.workspace }}/platform/execution_coordination/src:${{ github.workspace }}/platform/convergence/src:${{ github.workspace }}/platform/semantic_runtime/src:${{ github.workspace }}/platform/semantic_service/src:${{ github.workspace }}/platform/orchestrator/src:${{ github.workspace }}/platform/impact/src:${{ github.workspace }}/platform/interaction/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install offline verification dependencies
+        run: python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+      - name: Verify Task16 live harness contracts remain offline-safe
+        run: |
+          python -m compileall tests/integration/phase_i_live_host.py
+          ruff check tests/integration/phase_i_live_host.py tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py
+          python -m pytest tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py -q -vv
+      - name: Verify Phase I package regressions in isolated pytest processes
+        run: |
+          python -m pytest tests/materialization_topology -q -vv
+          python -m pytest tests/materialization_planning -q -vv
+          python -m pytest tests/convergence -q -vv
+          python -m pytest tests/approval_scope -q -vv
+          python -m pytest tests/changeset -q -vv
+          python -m pytest tests/execution_planning -q -vv
+          python -m pytest tests/provider_binding -q -vv
+          python -m pytest tests/gateway_authorization -q -vv
+          python -m pytest tests/execution_reconciliation -q -vv
+          python -m pytest tests/execution_coordination -q -vv
+      - name: Verify Phase I integration and legacy Host regressions
+        run: |
+          python -m pytest \
+            tests/integration/test_phase_i_materialization_pipeline.py \
+            tests/integration/test_phase_i_convergence_divergence.py \
+            tests/integration/test_phase_i_readiness_fail_closed.py \
+            tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py \
+            tests/integration/test_step34_autocad_wall_thickness_reconciliation.py \
+            tests/integration/test_phase_h_revit_wall_thickness_reconciliation.py \
+            tests/integration/test_phase_h_revit_wall_thickness_live.py \
+            tests/architecture/test_phase_i_materialization_architecture.py \
+            -q -vv
+      - name: Verify Revit Core regression
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
+
+  phase-i-real-dual-host:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on:
+      - self-hosted
+      - Windows
+      - dsp-phase-i-dual-host
+    env:
+      DSP_PHASE_I_LIVE: "1"
+      DSP_AUTOCAD_ENDPOINT: ${{ vars.DSP_AUTOCAD_ENDPOINT }}
+      DSP_AUTOCAD_DOCUMENT_REF: ${{ vars.DSP_AUTOCAD_DOCUMENT_REF }}
+      DSP_AUTOCAD_FIXTURE_PATH: ${{ vars.DSP_AUTOCAD_FIXTURE_PATH }}
+      DSP_AUTOCAD_FIXTURE_SHA256: ${{ vars.DSP_AUTOCAD_FIXTURE_SHA256 }}
+      DSP_AUTOCAD_NATIVE_ID: ${{ vars.DSP_AUTOCAD_NATIVE_ID }}
+      DSP_AUTOCAD_HOST_INSTANCE_ID: ${{ vars.DSP_AUTOCAD_HOST_INSTANCE_ID }}
+      DSP_REVIT_LIVE_PIPE: ${{ vars.DSP_REVIT_LIVE_PIPE }}
+      DSP_REVIT_LIVE_DOCUMENT_REF: ${{ vars.DSP_REVIT_LIVE_DOCUMENT_REF }}
+      DSP_REVIT_LIVE_FIXTURE_PATH: ${{ vars.DSP_REVIT_LIVE_FIXTURE_PATH }}
+      DSP_REVIT_LIVE_FIXTURE_SHA256: ${{ vars.DSP_REVIT_LIVE_FIXTURE_SHA256 }}
+      DSP_REVIT_LIVE_WALL_UNIQUE_ID: ${{ vars.DSP_REVIT_LIVE_WALL_UNIQUE_ID }}
+      DSP_REVIT_LIVE_HOST_INSTANCE_ID: ${{ vars.DSP_REVIT_LIVE_HOST_INSTANCE_ID }}
+      DSP_REVIT_LIVE_VERSION: ${{ vars.DSP_REVIT_LIVE_VERSION }}
+      DSP_REVIT_LIVE_TFM: ${{ vars.DSP_REVIT_LIVE_TFM }}
+      DSP_REVIT_LIVE_API_DIR: ${{ vars.DSP_REVIT_LIVE_API_DIR }}
+      DSP_PHASE_I_SEMANTIC_ID: ${{ vars.DSP_PHASE_I_SEMANTIC_ID }}
+      PYTHONPATH: ${{ github.workspace }}\contracts\python;${{ github.workspace }}\hosts\autocad\sidecar\src;${{ github.workspace }}\hosts\revit\sidecar\src;${{ github.workspace }}\platform\approval_scope\src;${{ github.workspace }}\platform\changeset\src;${{ github.workspace }}\platform\materialization_topology\src;${{ github.workspace }}\platform\materialization_planning\src;${{ github.workspace }}\platform\execution_planning\src;${{ github.workspace }}\platform\provider_binding\src;${{ github.workspace }}\platform\gateway_authorization\src;${{ github.workspace }}\platform\execution_reconciliation\src;${{ github.workspace }}\platform\execution_coordination\src;${{ github.workspace }}\platform\convergence\src;${{ github.workspace }}\platform\semantic_runtime\src;${{ github.workspace }}\platform\semantic_service\src;${{ github.workspace }}\platform\orchestrator\src;${{ github.workspace }}\platform\impact\src;${{ github.workspace }}\platform\interaction\src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install live verification dependencies
+        shell: powershell
+        run: python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 pywin32
+      - name: Verify controlled fixture hashes before mutation
+        shell: powershell
+        run: |
+          Get-FileHash -Algorithm SHA256 $env:DSP_AUTOCAD_FIXTURE_PATH
+          Get-FileHash -Algorithm SHA256 $env:DSP_REVIT_LIVE_FIXTURE_PATH
+      - name: Run exactly one restored real dual-Host scenario
+        shell: powershell
+        run: |
+          $env:DSP_PHASE_I_SCENARIO = "${{ inputs.scenario }}"
+          if ($env:DSP_PHASE_I_SCENARIO -eq "positive") {
+            python -m pytest tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py -k "real_positive_wall_thickness_acceptance" -q -vv -s
+          } elseif ($env:DSP_PHASE_I_SCENARIO -eq "partial_commit") {
+            python -m pytest tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py -k "real_revit_post_readiness_race_is_partial_commit" -q -vv -s
+          } else {
+            throw "Unsupported DSP_PHASE_I_SCENARIO: $env:DSP_PHASE_I_SCENARIO"
+          }
