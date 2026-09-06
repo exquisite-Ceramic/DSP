@@ -32,6 +32,15 @@ from .hashing import (
     validate_provider_binding_set_hash,
 )
 from .resolver import ProviderResolver
+from .v2 import (
+    ProviderBindingSetV2,
+    ProviderBindingV2,
+    ProviderExecutionSnapshotV2,
+    compute_provider_snapshot_hash_v2,
+    resolve_provider_bindings_v2,
+    validate_cross_materialization_identity,
+    validate_provider_binding_set_v2,
+)
 
 __all__ = [
     "EligibilityState",
@@ -45,8 +54,11 @@ __all__ = [
     "ProviderBindingMaterial",
     "ProviderBindingRequest",
     "ProviderBindingSet",
+    "ProviderBindingSetV2",
+    "ProviderBindingV2",
     "ProviderExecutionCandidate",
     "ProviderExecutionSnapshot",
+    "ProviderExecutionSnapshotV2",
     "ProviderPreconditionBinding",
     "ProviderResolver",
     "compute_binding_hash",
@@ -55,9 +67,13 @@ __all__ = [
     "compute_host_binding_fingerprint",
     "compute_precondition_fingerprint",
     "compute_provider_snapshot_hash",
+    "compute_provider_snapshot_hash_v2",
     "native_constraints_satisfied",
+    "resolve_provider_bindings_v2",
+    "validate_cross_materialization_identity",
     "validate_native_constraints",
     "validate_provider_binding",
     "validate_provider_binding_set",
     "validate_provider_binding_set_hash",
+    "validate_provider_binding_set_v2",
 ]
