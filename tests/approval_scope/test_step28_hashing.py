@@ -90,6 +90,10 @@ def test_material_scope_change_changes_body_hash():
     assert body_hash() != body_hash(fingerprint="other-impact")
 
 
+def test_v1_scope_body_hash_remains_byte_for_byte_stable():
+    assert body_hash() == "ec160f2bcdc0bc8cc8df763ad15adba44af2bcaf90ab50c99dc80d8974835281"
+
+
 def definition():
     env, planning, snapshot_set, evidence, intent, rule, slice_rule = fixtures()
     return ApprovalScopeDefinition(
