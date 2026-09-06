@@ -222,8 +222,7 @@ def test_materialized_success_runs_hosts_once_in_frozen_order_then_converges() -
     assert result.convergence_result_hash is not None
     assert fixture.reconciliation.create_calls == 1
     assert tuple(
-        item.host_runtime_ref.host_type
-        for item in fixture.host_registry.resolutions
+        item.host_type for item in fixture.host_registry.resolutions
     ) == ("autocad", "revit")
     assert all(len(port.calls) == 1 for port in fixture.host_registry.ports.values())
     assert len(fixture.convergence_verifier.calls) == 1
