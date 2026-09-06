@@ -159,12 +159,15 @@ def test_wall_thickness_planning_uses_revit_units_and_candidate_validation() -> 
         "UnitUtils.ConvertToInternalUnits",
         "UnitUtils.ConvertFromInternalUnits",
         "UnitTypeId.Millimeters",
-        "IsVerticallyCompound",
+        "IsVerticallyHomogeneous()",
         "GetLayers()",
         "SetLayerWidth",
         "GetWidth()",
     ):
         assert required in text
+
+    assert "if (structure.IsVerticallyCompound)" not in text
+    assert "Vertically non-homogeneous walls are outside the supported MVP." in text
 
     for forbidden_scale in ("304.8", "0.00328084", "3.28084"):
         assert forbidden_scale not in text
