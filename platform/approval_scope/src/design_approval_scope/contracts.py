@@ -374,3 +374,116 @@ class ApprovalScopeBoundary:
         for name in ("existing_entity_rules", "creation_rules", "deletion_rules", "execution_slice_scopes"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
         object.__setattr__(self, "propagation_bundle_ids", _texts(self.propagation_bundle_ids, "propagation_bundle_id"))
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalScopeDefinitionV2:
+    """绑定物化拓扑快照后的 Step28 V2 不可变定义。"""
+
+    scope_definition_id: str
+    impact_analysis_fingerprint: str
+    canonical_effect_evidence: CanonicalEffectEvidence
+    intent_boundary: Any
+    planning_snapshot_ref: Any
+    snapshot_set_ref: Any
+    semantic_environment_ref: Any
+    topology_snapshot_hash: str
+    existing_entity_rules: tuple[ExistingEntityRule, ...]
+    creation_rules: tuple[CreationRule, ...]
+    deletion_rules: tuple[DeletionRule, ...]
+    propagation_bundle_ids: tuple[str, ...]
+    execution_slice_scope_rules: tuple[ExecutionSliceScopeRule, ...]
+    scope_body_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "scope_definition_id",
+            _text(self.scope_definition_id, "scope_definition_id"),
+        )
+        object.__setattr__(
+            self,
+            "impact_analysis_fingerprint",
+            _text(self.impact_analysis_fingerprint, "impact_analysis_fingerprint"),
+        )
+        if not isinstance(self.canonical_effect_evidence, CanonicalEffectEvidence):
+            raise TypeError("canonical_effect_evidence must be CanonicalEffectEvidence")
+        object.__setattr__(
+            self,
+            "topology_snapshot_hash",
+            _digest(self.topology_snapshot_hash, "topology_snapshot_hash"),
+        )
+        object.__setattr__(
+            self,
+            "scope_body_hash",
+            _digest(self.scope_body_hash, "scope_body_hash"),
+        )
+        for name in (
+            "existing_entity_rules",
+            "creation_rules",
+            "deletion_rules",
+            "execution_slice_scope_rules",
+        ):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(
+            self,
+            "propagation_bundle_ids",
+            _texts(self.propagation_bundle_ids, "propagation_bundle_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalScopeBoundaryV2:
+    """绑定 ChangeSet 后的 Step28 V2 最终授权边界。"""
+
+    scope_id: str
+    scope_definition_id: str
+    impact_analysis_fingerprint: str
+    canonical_effect_evidence: CanonicalEffectEvidence
+    intent_boundary: Any
+    planning_snapshot_ref: Any
+    snapshot_set_ref: Any
+    semantic_environment_ref: Any
+    topology_snapshot_hash: str
+    changeset_hash: str
+    scope_body_hash: str
+    existing_entity_rules: tuple[ExistingEntityRule, ...]
+    creation_rules: tuple[CreationRule, ...]
+    deletion_rules: tuple[DeletionRule, ...]
+    propagation_bundle_ids: tuple[str, ...]
+    execution_slice_scopes: tuple[ExecutionSliceScopeRule, ...]
+    scope_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "scope_id", _text(self.scope_id, "scope_id"))
+        object.__setattr__(
+            self,
+            "scope_definition_id",
+            _text(self.scope_definition_id, "scope_definition_id"),
+        )
+        object.__setattr__(
+            self,
+            "impact_analysis_fingerprint",
+            _text(self.impact_analysis_fingerprint, "impact_analysis_fingerprint"),
+        )
+        if not isinstance(self.canonical_effect_evidence, CanonicalEffectEvidence):
+            raise TypeError("canonical_effect_evidence must be CanonicalEffectEvidence")
+        for name in (
+            "topology_snapshot_hash",
+            "changeset_hash",
+            "scope_body_hash",
+            "scope_hash",
+        ):
+            object.__setattr__(self, name, _digest(getattr(self, name), name))
+        for name in (
+            "existing_entity_rules",
+            "creation_rules",
+            "deletion_rules",
+            "execution_slice_scopes",
+        ):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(
+            self,
+            "propagation_bundle_ids",
+            _texts(self.propagation_bundle_ids, "propagation_bundle_id"),
+        )

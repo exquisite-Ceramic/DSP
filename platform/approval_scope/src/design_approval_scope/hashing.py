@@ -7,7 +7,9 @@ import re
 
 from .contracts import (
     ApprovalScopeBoundary,
+    ApprovalScopeBoundaryV2,
     ApprovalScopeDefinition,
+    ApprovalScopeDefinitionV2,
     ApprovalScopeError,
     CanonicalEffectEvidence,
     CreationRule,
@@ -161,7 +163,7 @@ def _intent_payload(intent) -> dict[str, object]:
     return payload
 
 
-def compute_scope_body_hash(
+def _scope_body_payload(
     *,
     impact_analysis_fingerprint: str,
     canonical_effect_evidence: CanonicalEffectEvidence,
@@ -174,7 +176,7 @@ def compute_scope_body_hash(
     deletion_rules: tuple[DeletionRule, ...],
     propagation_bundle_ids: tuple[str, ...],
     execution_slice_scope_rules: tuple[ExecutionSliceScopeRule, ...],
-) -> str:
+) -> dict[str, object]:
     existing_map, creation_map, deletion_map = _semantic_rule_maps(
         existing_entity_rules,
         creation_rules,
@@ -184,7 +186,7 @@ def compute_scope_body_hash(
         _slice_payload(rule, existing_map, creation_map, deletion_map)
         for rule in execution_slice_scope_rules
     ]
-    payload = {
+    return {
         "impact_analysis_fingerprint": impact_analysis_fingerprint,
         "canonical_effect_evidence": _canonical_effect_payload(canonical_effect_evidence),
         "intent_boundary": _intent_payload(intent_boundary),
@@ -200,7 +202,160 @@ def compute_scope_body_hash(
             key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
         ),
     }
-    return _sha256_json(payload)
+
+
+def compute_scope_body_hash(
+    *,
+    impact_analysis_fingerprint: str,
+    canonical_effect_evidence: CanonicalEffectEvidence,
+    intent_boundary,
+    planning_snapshot_ref,
+    snapshot_set_ref,
+    semantic_environment_ref,
+    existing_entity_rules: tuple[ExistingEntityRule, ...],
+    creation_rules: tuple[CreationRule, ...],
+    deletion_rules: tuple[DeletionRule, ...],
+    propagation_bundle_ids: tuple[str, ...],
+    execution_slice_scope_rules: tuple[ExecutionSliceScopeRule, ...],
+) -> str:
+    return _sha256_json(
+        _scope_body_payload(
+            impact_analysis_fingerprint=impact_analysis_fingerprint,
+            canonical_effect_evidence=canonical_effect_evidence,
+            intent_boundary=intent_boundary,
+            planning_snapshot_ref=planning_snapshot_ref,
+            snapshot_set_ref=snapshot_set_ref,
+            semantic_environment_ref=semantic_environment_ref,
+            existing_entity_rules=existing_entity_rules,
+            creation_rules=creation_rules,
+            deletion_rules=deletion_rules,
+            propagation_bundle_ids=propagation_bundle_ids,
+            execution_slice_scope_rules=execution_slice_scope_rules,
+        )
+    )
+
+
+def _require_digest(value: str, *, field_name: str, code: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ApprovalScopeError(
+            code,
+            f"{field_name} must be a lowercase 64-hex SHA-256 digest",
+        )
+    return value
+
+
+def _compute_scope_body_hash_v2_from_fields(
+    *,
+    impact_analysis_fingerprint: str,
+    canonical_effect_evidence: CanonicalEffectEvidence,
+    intent_boundary,
+    planning_snapshot_ref,
+    snapshot_set_ref,
+    semantic_environment_ref,
+    topology_snapshot_hash: str,
+    existing_entity_rules: tuple[ExistingEntityRule, ...],
+    creation_rules: tuple[CreationRule, ...],
+    deletion_rules: tuple[DeletionRule, ...],
+    propagation_bundle_ids: tuple[str, ...],
+    execution_slice_scope_rules: tuple[ExecutionSliceScopeRule, ...],
+) -> str:
+    topology_hash = _require_digest(
+        topology_snapshot_hash,
+        field_name="topology_snapshot_hash",
+        code="TOPOLOGY_SNAPSHOT_HASH_INVALID",
+    )
+    return _sha256_json(
+        {
+            "version": "APPROVAL_SCOPE_V2",
+            "scope_body": _scope_body_payload(
+                impact_analysis_fingerprint=impact_analysis_fingerprint,
+                canonical_effect_evidence=canonical_effect_evidence,
+                intent_boundary=intent_boundary,
+                planning_snapshot_ref=planning_snapshot_ref,
+                snapshot_set_ref=snapshot_set_ref,
+                semantic_environment_ref=semantic_environment_ref,
+                existing_entity_rules=existing_entity_rules,
+                creation_rules=creation_rules,
+                deletion_rules=deletion_rules,
+                propagation_bundle_ids=propagation_bundle_ids,
+                execution_slice_scope_rules=execution_slice_scope_rules,
+            ),
+            "topology_snapshot_hash": topology_hash,
+        }
+    )
+
+
+def compute_scope_body_hash_v2(
+    definition: ApprovalScopeDefinition,
+    topology_snapshot_hash: str,
+) -> str:
+    """从完整 V1 语义体与拓扑快照生成 Step28 V2 内容哈希。"""
+    if not isinstance(definition, ApprovalScopeDefinition):
+        raise TypeError("definition must be ApprovalScopeDefinition")
+    return _compute_scope_body_hash_v2_from_fields(
+        impact_analysis_fingerprint=definition.impact_analysis_fingerprint,
+        canonical_effect_evidence=definition.canonical_effect_evidence,
+        intent_boundary=definition.intent_boundary,
+        planning_snapshot_ref=definition.planning_snapshot_ref,
+        snapshot_set_ref=definition.snapshot_set_ref,
+        semantic_environment_ref=definition.semantic_environment_ref,
+        topology_snapshot_hash=topology_snapshot_hash,
+        existing_entity_rules=definition.existing_entity_rules,
+        creation_rules=definition.creation_rules,
+        deletion_rules=definition.deletion_rules,
+        propagation_bundle_ids=definition.propagation_bundle_ids,
+        execution_slice_scope_rules=definition.execution_slice_scope_rules,
+    )
+
+
+def bind_topology_snapshot_v2(
+    definition: ApprovalScopeDefinition,
+    topology_snapshot_hash: str,
+) -> ApprovalScopeDefinitionV2:
+    """把不可变拓扑快照绑定进新的 Step28 V2 定义身份。"""
+    body_hash = compute_scope_body_hash_v2(definition, topology_snapshot_hash)
+    return ApprovalScopeDefinitionV2(
+        scope_definition_id=f"ASD-{body_hash[:12]}",
+        impact_analysis_fingerprint=definition.impact_analysis_fingerprint,
+        canonical_effect_evidence=definition.canonical_effect_evidence,
+        intent_boundary=definition.intent_boundary,
+        planning_snapshot_ref=definition.planning_snapshot_ref,
+        snapshot_set_ref=definition.snapshot_set_ref,
+        semantic_environment_ref=definition.semantic_environment_ref,
+        topology_snapshot_hash=topology_snapshot_hash,
+        existing_entity_rules=definition.existing_entity_rules,
+        creation_rules=definition.creation_rules,
+        deletion_rules=definition.deletion_rules,
+        propagation_bundle_ids=definition.propagation_bundle_ids,
+        execution_slice_scope_rules=definition.execution_slice_scope_rules,
+        scope_body_hash=body_hash,
+    )
+
+
+def validate_approval_scope_definition_v2(value: ApprovalScopeDefinitionV2) -> None:
+    """重算并验证 Step28 V2 定义的内容寻址身份。"""
+    if not isinstance(value, ApprovalScopeDefinitionV2):
+        raise TypeError("value must be ApprovalScopeDefinitionV2")
+    expected_body = _compute_scope_body_hash_v2_from_fields(
+        impact_analysis_fingerprint=value.impact_analysis_fingerprint,
+        canonical_effect_evidence=value.canonical_effect_evidence,
+        intent_boundary=value.intent_boundary,
+        planning_snapshot_ref=value.planning_snapshot_ref,
+        snapshot_set_ref=value.snapshot_set_ref,
+        semantic_environment_ref=value.semantic_environment_ref,
+        topology_snapshot_hash=value.topology_snapshot_hash,
+        existing_entity_rules=value.existing_entity_rules,
+        creation_rules=value.creation_rules,
+        deletion_rules=value.deletion_rules,
+        propagation_bundle_ids=value.propagation_bundle_ids,
+        execution_slice_scope_rules=value.execution_slice_scope_rules,
+    )
+    expected_id = f"ASD-{expected_body[:12]}"
+    if value.scope_body_hash != expected_body or value.scope_definition_id != expected_id:
+        raise ApprovalScopeError(
+            "SCOPE_INTEGRITY_INVALID",
+            "approval scope definition v2 integrity mismatch",
+        )
 
 
 def bind_changeset(
@@ -239,6 +394,53 @@ def bind_changeset(
     )
 
 
+def _compute_scope_hash_v2(scope_body_hash: str, changeset_hash: str) -> str:
+    return _sha256_json(
+        {
+            "version": "APPROVAL_SCOPE_BOUNDARY_V2",
+            "scope_body_hash": scope_body_hash,
+            "changeset_hash": changeset_hash,
+        }
+    )
+
+
+def bind_changeset_v2(
+    definition: ApprovalScopeDefinitionV2,
+    changeset_hash: str,
+    scope_id: str,
+) -> ApprovalScopeBoundaryV2:
+    """把 ChangeSet 精确绑定到一个已验证的 Step28 V2 定义。"""
+    validate_approval_scope_definition_v2(definition)
+    normalized_changeset_hash = _require_digest(
+        changeset_hash,
+        field_name="changeset_hash",
+        code="CHANGESET_HASH_INVALID",
+    )
+    scope_hash = _compute_scope_hash_v2(
+        definition.scope_body_hash,
+        normalized_changeset_hash,
+    )
+    return ApprovalScopeBoundaryV2(
+        scope_id=scope_id,
+        scope_definition_id=definition.scope_definition_id,
+        impact_analysis_fingerprint=definition.impact_analysis_fingerprint,
+        canonical_effect_evidence=definition.canonical_effect_evidence,
+        intent_boundary=definition.intent_boundary,
+        planning_snapshot_ref=definition.planning_snapshot_ref,
+        snapshot_set_ref=definition.snapshot_set_ref,
+        semantic_environment_ref=definition.semantic_environment_ref,
+        topology_snapshot_hash=definition.topology_snapshot_hash,
+        changeset_hash=normalized_changeset_hash,
+        scope_body_hash=definition.scope_body_hash,
+        existing_entity_rules=definition.existing_entity_rules,
+        creation_rules=definition.creation_rules,
+        deletion_rules=definition.deletion_rules,
+        propagation_bundle_ids=definition.propagation_bundle_ids,
+        execution_slice_scopes=definition.execution_slice_scope_rules,
+        scope_hash=scope_hash,
+    )
+
+
 def validate_approval_scope_boundary(boundary: ApprovalScopeBoundary) -> None:
     """Recompute and validate the exact final Step28 commitment chain."""
     if not isinstance(boundary, ApprovalScopeBoundary):
@@ -267,4 +469,36 @@ def validate_approval_scope_boundary(boundary: ApprovalScopeBoundary) -> None:
         raise ApprovalScopeError(
             "SCOPE_INTEGRITY_INVALID",
             "approval scope integrity mismatch",
+        )
+
+
+def validate_approval_scope_boundary_v2(boundary: ApprovalScopeBoundaryV2) -> None:
+    """重算并验证最终 Step28 V2 拓扑与 ChangeSet 承诺链。"""
+    if not isinstance(boundary, ApprovalScopeBoundaryV2):
+        raise TypeError("boundary must be ApprovalScopeBoundaryV2")
+
+    expected_body = _compute_scope_body_hash_v2_from_fields(
+        impact_analysis_fingerprint=boundary.impact_analysis_fingerprint,
+        canonical_effect_evidence=boundary.canonical_effect_evidence,
+        intent_boundary=boundary.intent_boundary,
+        planning_snapshot_ref=boundary.planning_snapshot_ref,
+        snapshot_set_ref=boundary.snapshot_set_ref,
+        semantic_environment_ref=boundary.semantic_environment_ref,
+        topology_snapshot_hash=boundary.topology_snapshot_hash,
+        existing_entity_rules=boundary.existing_entity_rules,
+        creation_rules=boundary.creation_rules,
+        deletion_rules=boundary.deletion_rules,
+        propagation_bundle_ids=boundary.propagation_bundle_ids,
+        execution_slice_scope_rules=boundary.execution_slice_scopes,
+    )
+    expected_scope = _compute_scope_hash_v2(expected_body, boundary.changeset_hash)
+    expected_id = f"ASD-{expected_body[:12]}"
+    if (
+        expected_body != boundary.scope_body_hash
+        or expected_scope != boundary.scope_hash
+        or expected_id != boundary.scope_definition_id
+    ):
+        raise ApprovalScopeError(
+            "SCOPE_INTEGRITY_INVALID",
+            "approval scope boundary v2 integrity mismatch",
         )
