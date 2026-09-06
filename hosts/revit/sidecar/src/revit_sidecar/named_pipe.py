@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 from typing import Any
 
 from host_contracts.command import HostCommand
@@ -10,6 +11,9 @@ from .models import PipeEndpoint
 
 MAX_FRAME_BYTES = 1024 * 1024
 _HEADER = struct.Struct("<I")
+_CONNECT_RETRY_ERROR_CODES = frozenset({2, 231})
+_CONNECT_RETRY_ATTEMPTS = 40
+_CONNECT_RETRY_DELAY_SECONDS = 0.05
 
 
 class WindowsNamedPipeEndpoint:
@@ -23,18 +27,35 @@ class WindowsNamedPipeEndpoint:
         return rf"\\.\pipe\{self.pipe_name}"
 
     def exchange(self, packet: bytes) -> bytes:
+        import pywintypes
         import win32con
         import win32file
 
-        handle = win32file.CreateFile(
-            self.full_name,
-            win32con.GENERIC_READ | win32con.GENERIC_WRITE,
-            0,
-            None,
-            win32con.OPEN_EXISTING,
-            win32con.FILE_ATTRIBUTE_NORMAL,
-            None,
-        )
+        handle = None
+        for attempt in range(_CONNECT_RETRY_ATTEMPTS):
+            try:
+                handle = win32file.CreateFile(
+                    self.full_name,
+                    win32con.GENERIC_READ | win32con.GENERIC_WRITE,
+                    0,
+                    None,
+                    win32con.OPEN_EXISTING,
+                    win32con.FILE_ATTRIBUTE_NORMAL,
+                    None,
+                )
+                break
+            except pywintypes.error as exc:
+                error_code = getattr(exc, "winerror", exc.args[0] if exc.args else None)
+                if (
+                    error_code not in _CONNECT_RETRY_ERROR_CODES
+                    or attempt == _CONNECT_RETRY_ATTEMPTS - 1
+                ):
+                    raise
+                time.sleep(_CONNECT_RETRY_DELAY_SECONDS)
+
+        if handle is None:
+            raise ConnectionError("named pipe handle was not acquired")
+
         try:
             win32file.WriteFile(handle, packet)
             header = self._read_exact(handle, _HEADER.size, win32file)
