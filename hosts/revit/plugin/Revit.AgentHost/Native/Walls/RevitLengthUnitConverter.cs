@@ -71,11 +71,11 @@ public sealed class RevitWallThicknessPlanBuilder
 
         try
         {
-            if (structure.IsVerticallyCompound)
+            if (!structure.IsVerticallyHomogeneous())
             {
                 throw new WallThicknessPlanningException(
                     WallThicknessPlanner.VerticallyCompoundWallUnsupported,
-                    "Vertically compound walls are outside the supported MVP.");
+                    "Vertically non-homogeneous walls are outside the supported MVP.");
             }
 
             IReadOnlyList<WallLayerSnapshot> snapshots = structure
