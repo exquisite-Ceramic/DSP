@@ -7,6 +7,7 @@ from design_execution_reconciliation import (
     ExecutionSagaBuilder,
     ExecutionSagaBuilderV2,
     ExecutionSagaDefinition,
+    ExecutionSagaDefinitionV2,
     ExecutionSagaStatus,
     ExecutionSagaStatusV2,
     InMemoryExecutionSagaStore,
@@ -38,11 +39,13 @@ def test_v2_status_is_a_separate_type() -> None:
     assert ExecutionSagaStatusV2 is not ExecutionSagaStatus
     assert StoredExecutionSagaV2 is not StoredExecutionSaga
     assert {
-        "materialization_plan_hash",
-        "required_set_hash",
         "convergence_outcome",
         "convergence_result_hash",
     }.issubset({field.name for field in fields(StoredExecutionSagaV2)})
+    assert {
+        "materialization_plan_hash",
+        "required_set_hash",
+    }.issubset({field.name for field in fields(ExecutionSagaDefinitionV2)})
     assert "convergence_result_hash" not in {
         field.name for field in fields(StoredExecutionSaga)
     }

@@ -216,8 +216,13 @@ def test_v2_binding_substitution_fails_before_semantic_verification() -> None:
     ctx = _phase_i_context()
     execution_slice = ctx.execution_plan.execution_slices[0]
     authority = ctx.authorities[0]
-    delta = replace(_signed_delta(ctx), binding_set_hash="f" * 64)
-    bundle = _signed_bundle(ctx, _signed_delta(ctx))
+    original_delta = _signed_delta(ctx)
+    tampered_delta = replace(original_delta, binding_set_hash="f" * 64)
+    delta = replace(
+        tampered_delta,
+        actual_delta_hash=compute_actual_delta_hash(tampered_delta),
+    )
+    bundle = _signed_bundle(ctx, original_delta)
 
     with pytest.raises(ReconciliationError) as exc:
         _service().verify_semantics(
