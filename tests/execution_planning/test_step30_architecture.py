@@ -9,10 +9,16 @@ from design_execution_planning import (
     ApprovedExecutionScopeRef,
     ExecutionDependency,
     ExecutionPlan,
+    ExecutionPlanV2,
     ExecutionPlanningRequest,
+    ExecutionPlanningRequestV2,
     ExecutionSlice,
+    ExecutionSliceV2,
     ExecutionUnit,
+    ExecutionUnitV2,
     HostRuntimeRef,
+    MaterializationRoutingEvidence,
+    MaterializationRuntimeRoute,
     RuntimeEntityRoute,
     RuntimeRoutingEvidence,
 )
@@ -62,6 +68,29 @@ def test_step30_fields_keep_runtime_state_and_caller_authority_out() -> None:
     }.isdisjoint(request_fields)
 
 
+def test_v2_request_is_materialization_explicit_and_authority_free() -> None:
+    request_fields = set(ExecutionPlanningRequestV2.__dataclass_fields__)
+    assert request_fields == {
+        "canonical_changeset",
+        "approval_scope_boundary",
+        "materialization_plan",
+        "topology_snapshot",
+        "runtime_routing_evidence",
+    }
+    assert {
+        "provider_id",
+        "provider_tool",
+        "binding_set_hash",
+        "approval_id",
+        "execution_grant",
+        "availability",
+    }.isdisjoint(request_fields)
+    assert set(MaterializationRuntimeRoute.__dataclass_fields__) == {
+        "materialization_id",
+        "host_runtime_ref",
+    }
+
+
 def test_public_value_contracts_are_frozen_dataclasses() -> None:
     for value in (
         HostRuntimeRef,
@@ -74,9 +103,22 @@ def test_public_value_contracts_are_frozen_dataclasses() -> None:
         ExecutionDependency,
         ExecutionPlan,
         ExecutionPlanningRequest,
+        MaterializationRuntimeRoute,
+        MaterializationRoutingEvidence,
+        ExecutionUnitV2,
+        ExecutionSliceV2,
+        ExecutionPlanV2,
+        ExecutionPlanningRequestV2,
     ):
         assert is_dataclass(value)
         assert value.__dataclass_params__.frozen is True
+
+
+def test_v1_and_v2_contracts_remain_type_separated() -> None:
+    assert ExecutionUnitV2 is not ExecutionUnit
+    assert ExecutionSliceV2 is not ExecutionSlice
+    assert ExecutionPlanV2 is not ExecutionPlan
+    assert ExecutionPlanningRequestV2 is not ExecutionPlanningRequest
 
 
 def test_public_api_is_explicit_unique_and_non_private() -> None:
