@@ -55,8 +55,7 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
         }
 
         Document document = uiDocument.Document;
-        string documentKey = revisions.GetDocumentKey(document);
-        long revisionBefore = revisions.Get(documentKey);
+        long revisionBefore = revisions.Get(document);
 
         try
         {
@@ -64,14 +63,14 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
                 document,
                 command,
                 revisionBefore,
-                () => revisions.Get(documentKey));
+                () => revisions.Get(document));
         }
         catch (Exception exception)
         {
             return Error(
                 command.CommandId,
                 "REVIT_REQUEST_EXECUTION_FAILED",
-                revisions.Get(documentKey),
+                revisions.Get(document),
                 exception.Message);
         }
     }
