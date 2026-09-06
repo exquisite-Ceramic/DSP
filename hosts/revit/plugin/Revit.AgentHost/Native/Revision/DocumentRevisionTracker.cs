@@ -1,47 +1,30 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using Autodesk.Revit.DB;
 
 namespace Revit.AgentHost.Native.Revision;
 
 public sealed class DocumentRevisionTracker
 {
-    private sealed record DocumentKeyHolder(string Value);
+    private readonly ConcurrentDictionary<Document, long> revisions = new();
 
-    private readonly ConcurrentDictionary<string, long> revisions =
-        new(StringComparer.Ordinal);
-    private readonly ConditionalWeakTable<Document, DocumentKeyHolder> documentKeys = new();
-
-    public string GetDocumentKey(Document document)
+    public long Get(Document document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        DocumentKeyHolder holder = documentKeys.GetValue(
-            document,
-            static _ => new DocumentKeyHolder(Guid.NewGuid().ToString("N")));
-        revisions.TryAdd(holder.Value, 0L);
-        return holder.Value;
+        return revisions.GetOrAdd(document, 0L);
     }
 
-    public long Get(string documentKey)
+    public long OnDocumentChanged(Document document)
     {
-        ValidateDocumentKey(documentKey);
-        return revisions.TryGetValue(documentKey, out long revision) ? revision : 0L;
-    }
-
-    public long OnDocumentChanged(string documentKey)
-    {
-        ValidateDocumentKey(documentKey);
+        ArgumentNullException.ThrowIfNull(document);
         return revisions.AddOrUpdate(
-            documentKey,
+            document,
             1L,
             static (_, current) => checked(current + 1L));
     }
 
-    private static void ValidateDocumentKey(string documentKey)
+    public void OnDocumentClosing(Document document)
     {
-        if (string.IsNullOrWhiteSpace(documentKey))
-        {
-            throw new ArgumentException("Document key is required.", nameof(documentKey));
-        }
+        ArgumentNullException.ThrowIfNull(document);
+        revisions.TryRemove(document, out _);
     }
 }
