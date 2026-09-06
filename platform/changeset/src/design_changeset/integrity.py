@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from design_approval_scope import ApprovalScopeBoundary
+from design_approval_scope import ApprovalScopeBoundary, ApprovalScopeBoundaryV2
 
 from .contracts import CanonicalChangeOperation, CanonicalChangeSet, ChangeSetError
 from .hashing import (
@@ -18,7 +18,9 @@ def _invalid(message: str) -> None:
     raise ChangeSetError("CHANGESET_INTEGRITY_INVALID", message)
 
 
-def _rules_by_id(boundary: ApprovalScopeBoundary) -> dict[str, object]:
+def _rules_by_id(
+    boundary: ApprovalScopeBoundary | ApprovalScopeBoundaryV2,
+) -> dict[str, object]:
     rules: dict[str, object] = {}
     for rule in (
         *boundary.existing_entity_rules,
@@ -75,16 +77,11 @@ def _validation_task_payloads(changeset: CanonicalChangeSet) -> list[dict[str, o
     ]
 
 
-def validate_changeset_integrity(
+def _validate_changeset_integrity_body(
     changeset: CanonicalChangeSet,
-    approval_scope_boundary: ApprovalScopeBoundary,
+    approval_scope_boundary: ApprovalScopeBoundary | ApprovalScopeBoundaryV2,
 ) -> None:
-    """Reconstruct the exact Step29 semantic body against one final Step28 Boundary."""
-    if not isinstance(changeset, CanonicalChangeSet):
-        raise TypeError("changeset must be CanonicalChangeSet")
-    if not isinstance(approval_scope_boundary, ApprovalScopeBoundary):
-        raise TypeError("approval_scope_boundary must be ApprovalScopeBoundary")
-
+    """在版本化边界类型门禁之后重建同一份 Step29 语义体。"""
     if changeset.changeset_hash != approval_scope_boundary.changeset_hash:
         _invalid("ChangeSet hash does not match final Step28 Boundary")
     if (
@@ -143,6 +140,19 @@ def validate_changeset_integrity(
     expected = compute_changeset_hash(semantic_body)
     if expected != changeset.changeset_hash:
         _invalid("ChangeSet hash does not match reconstructed semantic body")
+
+
+def validate_changeset_integrity(
+    changeset: CanonicalChangeSet,
+    approval_scope_boundary: ApprovalScopeBoundary,
+) -> None:
+    """Reconstruct the exact Step29 semantic body against one final Step28 Boundary."""
+    if not isinstance(changeset, CanonicalChangeSet):
+        raise TypeError("changeset must be CanonicalChangeSet")
+    if not isinstance(approval_scope_boundary, ApprovalScopeBoundary):
+        raise TypeError("approval_scope_boundary must be ApprovalScopeBoundary")
+
+    _validate_changeset_integrity_body(changeset, approval_scope_boundary)
 
 
 __all__ = ["validate_changeset_integrity"]

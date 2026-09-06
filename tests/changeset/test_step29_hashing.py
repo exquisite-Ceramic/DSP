@@ -5,8 +5,8 @@ import importlib.util
 from dataclasses import replace
 from pathlib import Path
 
-from design_approval_scope import bind_topology_snapshot_v2
-from design_changeset import ChangeSetBuilder
+from design_approval_scope import bind_changeset_v2, bind_topology_snapshot_v2
+from design_changeset import ChangeSetBuilder, validate_changeset_integrity_v2
 
 
 def test_canonical_hash_is_mapping_order_independent() -> None:
@@ -94,3 +94,10 @@ def test_topology_bound_v2_scope_uses_existing_changeset_hash_pipeline() -> None
         replace(request, approval_scope_definition=scope_v2)
     )
     assert changeset.approval_scope_definition_ref.scope_body_hash == scope_v2.scope_body_hash
+
+    boundary_v2 = bind_changeset_v2(
+        scope_v2,
+        changeset.changeset_hash,
+        "SCOPE-29-HASHING-V2",
+    )
+    validate_changeset_integrity_v2(changeset, boundary_v2)
