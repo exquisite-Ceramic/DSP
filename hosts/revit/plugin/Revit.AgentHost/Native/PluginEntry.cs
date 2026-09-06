@@ -28,6 +28,7 @@ public sealed class PluginEntry : IExternalApplication
         pipeServer = new NamedPipeServer(dispatcher);
 
         application.ControlledApplication.DocumentChanged += OnDocumentChanged;
+        application.ControlledApplication.DocumentClosing += OnDocumentClosing;
         pipeServer.Start();
         return Result.Succeeded;
     }
@@ -35,6 +36,7 @@ public sealed class PluginEntry : IExternalApplication
     public Result OnShutdown(UIControlledApplication application)
     {
         application.ControlledApplication.DocumentChanged -= OnDocumentChanged;
+        application.ControlledApplication.DocumentClosing -= OnDocumentClosing;
         pipeServer?.Dispose();
         pipeServer = null;
         externalEvent?.Dispose();
@@ -50,9 +52,17 @@ public sealed class PluginEntry : IExternalApplication
             return;
         }
 
-        Document document = args.GetDocument();
-        string documentKey = revisions.GetDocumentKey(document);
-        revisions.OnDocumentChanged(documentKey);
+        revisions.OnDocumentChanged(args.GetDocument());
+    }
+
+    private void OnDocumentClosing(object? sender, DocumentClosingEventArgs args)
+    {
+        if (revisions is null)
+        {
+            return;
+        }
+
+        revisions.OnDocumentClosing(args.GetDocument());
     }
 
     private sealed class ExternalEventSignal : IExternalEventSignal
