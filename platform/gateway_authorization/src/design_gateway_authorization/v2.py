@@ -17,8 +17,8 @@ from design_changeset import (
     validate_changeset_integrity_v2,
 )
 from design_execution_planning import (
-    ExecutionPlanV2,
     ExecutionPlanningError,
+    ExecutionPlanV2,
     ExecutionSliceV2,
     validate_execution_plan_v2,
 )

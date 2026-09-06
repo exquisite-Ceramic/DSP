@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from design_gateway_authorization import GatewayAuthorizationError
-
 from test_step32_materialization_grants import _authorization_case
 
 

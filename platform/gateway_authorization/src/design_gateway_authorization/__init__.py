@@ -22,6 +22,7 @@ from .hashing import (
 )
 from .service import GatewayAuthorizationService
 from .store import GatewayAuthorizationStore, InMemoryGatewayAuthorizationStore
+from .store_v2 import InMemoryGatewayAuthorizationStoreV2
 from .v2 import (
     AdmittedExecutionAuthorityV2,
     ApprovalConsumptionRequestV2,
@@ -30,7 +31,6 @@ from .v2 import (
     GatewayAuthorizationServiceV2,
     compute_grant_hash_v2,
 )
-from .store_v2 import InMemoryGatewayAuthorizationStoreV2
 
 __all__ = [
     "AdmittedExecutionAuthority",

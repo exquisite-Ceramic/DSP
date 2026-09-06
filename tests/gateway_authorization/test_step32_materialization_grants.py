@@ -12,10 +12,10 @@ from design_gateway_authorization import (
     InMemoryGatewayAuthorizationStoreV2,
 )
 from design_provider_binding import resolve_provider_bindings_v2
+from test_step32_materialization_approval import _approval_request_v2
+
 from tests.execution_planning.test_step30_materialization_v2 import _phase_i_inputs
 from tests.provider_binding.test_step31_materialization_v2 import _snapshot
-
-from test_step32_materialization_approval import _approval_request_v2
 
 
 def _native_identity(host_type: str) -> tuple[str, str]:

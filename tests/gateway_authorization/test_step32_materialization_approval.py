@@ -13,6 +13,7 @@ from design_gateway_authorization import (
     InMemoryGatewayAuthorizationStoreV2,
     compute_admission_fingerprint,
 )
+
 from tests.materialization_planning.conftest import build_case
 
 
