@@ -1,7 +1,7 @@
 [project]
 name = "design-execution-reconciliation"
 version = "0.1.0"
-description = "Provider-neutral execution reconciliation, verification, and Saga contracts for DSP."
+description = "Provider-neutral execution reconciliation, verification, and materialization-aware Saga V2 contracts for DSP."
 requires-python = ">=3.11"
 dependencies = []
 
