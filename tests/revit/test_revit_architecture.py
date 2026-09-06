@@ -121,6 +121,39 @@ def test_document_changed_subscription_has_one_native_wiring_owner() -> None:
     assert "OnDocumentChanged" in tracker.read_text(encoding="utf-8")
 
 
+def test_document_revision_identity_uses_revit_document_equality_and_cleans_up_on_close() -> None:
+    tracker = NATIVE_SOURCE_ROOT / "Revision/DocumentRevisionTracker.cs"
+    plugin_entry = NATIVE_SOURCE_ROOT / "PluginEntry.cs"
+    handler = NATIVE_SOURCE_ROOT / "ExternalEvents/RevitExternalEventHandler.cs"
+    assert tracker.is_file()
+    assert plugin_entry.is_file()
+    assert handler.is_file()
+
+    tracker_text = tracker.read_text(encoding="utf-8")
+    plugin_text = plugin_entry.read_text(encoding="utf-8")
+    handler_text = handler.read_text(encoding="utf-8")
+
+    # Revit can expose equivalent CLR wrappers for the same open Document. Revision identity
+    # must therefore use Document.Equals/GetHashCode semantics rather than wrapper identity.
+    assert "ConditionalWeakTable" not in tracker_text
+    assert "ConcurrentDictionary<Document, long>" in tracker_text
+    assert "GetDocumentKey(" not in tracker_text
+    assert "Get(Document document)" in tracker_text
+    assert "OnDocumentChanged(Document document)" in tracker_text
+    assert "OnDocumentClosing(Document document)" in tracker_text
+    assert "TryRemove(document" in tracker_text
+
+    # DocumentChanged remains the sole revision increment owner; DocumentClosing only releases
+    # the strong Document key retained by the session-scoped tracker.
+    assert ".DocumentClosing += OnDocumentClosing" in plugin_text
+    assert ".DocumentClosing -= OnDocumentClosing" in plugin_text
+    assert "revisions.OnDocumentChanged(args.GetDocument())" in plugin_text
+    assert "revisions.OnDocumentClosing(args.GetDocument())" in plugin_text
+
+    assert "revisions.Get(document)" in handler_text
+    assert "GetDocumentKey(" not in handler_text
+
+
 def test_command_handlers_never_increment_revision_independently() -> None:
     handlers = (
         IPC_ROOT / "NamedPipeServer.cs",
