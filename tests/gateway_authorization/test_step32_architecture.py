@@ -89,6 +89,12 @@ FROZEN_PATH_BOUNDARY = {
     "tests/changeset/**",
     "platform/execution_planning/**",
     "tests/execution_planning/**",
+    "platform/provider_binding/**",
+    "tests/provider_binding/**",
+    "platform/materialization_topology/**",
+    "tests/materialization_topology/**",
+    "platform/materialization_planning/**",
+    "tests/materialization_planning/**",
     "pyproject.toml",
 }
 FINAL_TEST_COMMANDS = (

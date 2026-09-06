@@ -19,6 +19,14 @@ _FROZEN_PATHS = [
     "tests/execution_reconciliation/**",
     "platform/execution_planning/**",
     "tests/execution_planning/**",
+    "platform/approval_scope/**",
+    "tests/approval_scope/**",
+    "platform/changeset/**",
+    "tests/changeset/**",
+    "platform/gateway_authorization/**",
+    "tests/gateway_authorization/**",
+    "platform/materialization_planning/**",
+    "tests/materialization_planning/**",
     "pyproject.toml",
 ]
 
