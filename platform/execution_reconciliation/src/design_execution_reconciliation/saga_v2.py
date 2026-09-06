@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from design_approval_scope import (
     ApprovalScopeBoundaryV2,
     ApprovalScopeError,
@@ -21,7 +23,12 @@ from design_materialization_planning import (
 )
 from semantic_runtime import SemanticEnvironmentRef
 
-from .contracts import ActualDelta, ReconciliationError, ScopeComparisonResult, SemanticVerificationResult
+from .contracts import (
+    ActualDelta,
+    ReconciliationError,
+    ScopeComparisonResult,
+    SemanticVerificationResult,
+)
 from .saga_contracts import SliceDependency, SliceValidationAssignment
 from .saga_contracts_v2 import (
     ExecutionSagaDefinitionV2,
@@ -260,7 +267,7 @@ def _dependencies(execution_plan: ExecutionPlanV2) -> tuple[SliceDependency, ...
             successor_slice_hash=successor,
             reason_refs=("MATERIALIZATION_ORDER",),
         )
-        for predecessor, successor in zip(hashes, hashes[1:], strict=False)
+        for predecessor, successor in pairwise(hashes)
     )
 
 
