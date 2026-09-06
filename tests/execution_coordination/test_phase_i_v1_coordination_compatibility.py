@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 
 from design_execution_coordination import (
     CoordinationResult,
     CoordinationStatus,
+    MaterializedCoordinationResult,
+    MaterializedCoordinationStatus,
     ReadinessBarrierResult,
     ReadinessBarrierStatus,
 )
@@ -21,6 +24,20 @@ def test_v1_coordination_status_enum_is_byte_for_byte_unchanged() -> None:
         "PARTIALLY_COMMITTED",
         "RECOVERY_REQUIRED",
     )
+    assert {field.name for field in fields(CoordinationResult)} == {
+        "saga_id",
+        "saga_revision",
+        "status",
+        "active_slice_hash",
+        "failure_ref",
+    }
+
+
+def test_materialized_coordination_surface_is_independent_from_v1() -> None:
+    assert MaterializedCoordinationStatus is not CoordinationStatus
+    assert MaterializedCoordinationResult is not CoordinationResult
+    assert "READINESS_FAILED" not in {item.value for item in CoordinationStatus}
+    assert "DIVERGED" not in {item.value for item in CoordinationStatus}
 
 
 def test_readiness_result_is_not_a_v1_coordination_result() -> None:
