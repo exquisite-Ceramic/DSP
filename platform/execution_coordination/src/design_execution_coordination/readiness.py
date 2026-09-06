@@ -222,27 +222,13 @@ class CrossHostReadinessBarrier:
             materialization_id = execution_slice.materialization_id
             binding_set = bindings[materialization_id]
             authority = admitted[materialization_id]
-            try:
-                port = self._registry.resolve(execution_slice.host_runtime_ref)
-            except Exception as exc:
-                _error(
-                    "READINESS_FAILED",
-                    f"readiness port resolution failed for {materialization_id}: {exc}",
-                )
+            port = self._registry.resolve(execution_slice.host_runtime_ref)
             if port is None or not callable(getattr(port, "check", None)):
                 _error(
                     "READINESS_FAILED",
                     f"readiness port is unavailable for {materialization_id}",
                 )
-            try:
-                receipt = port.check(execution_slice, authority, binding_set)
-            except ReadinessError:
-                raise
-            except Exception as exc:
-                _error(
-                    "READINESS_FAILED",
-                    f"Host readiness check failed for {materialization_id}: {exc}",
-                )
+            receipt = port.check(execution_slice, authority, binding_set)
             _validate_receipt(receipt, execution_slice, authority, binding_set)
             receipts.append(receipt)
 

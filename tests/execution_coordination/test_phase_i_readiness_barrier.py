@@ -22,6 +22,7 @@ from design_gateway_authorization import (
     compute_admission_fingerprint,
 )
 from design_provider_binding import resolve_provider_bindings_v2
+
 from tests.execution_planning.test_step30_materialization_v2 import _phase_i_inputs
 from tests.provider_binding.test_step31_materialization_v2 import _snapshot
 
