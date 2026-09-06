@@ -62,7 +62,7 @@ public sealed class PluginEntry : IExternalApplication
             return;
         }
 
-        revisions.OnDocumentClosing(args.GetDocument());
+        revisions.OnDocumentClosing(args.Document);
     }
 
     private sealed class ExternalEventSignal : IExternalEventSignal
