@@ -1,7 +1,7 @@
 [project]
 name = "design-execution-coordination"
-version = "0.1.0"
-description = "Provider-neutral cross-host execution Saga coordination for DSP."
+version = "0.2.0"
+description = "Provider-neutral cross-host execution Saga coordination and readiness for DSP."
 requires-python = ">=3.11"
 dependencies = []
 

@@ -6,11 +6,20 @@ from typing import Protocol
 
 from design_approval_scope import ApprovalScopeBoundary
 from design_changeset import CanonicalChangeSet
-from design_execution_planning import ExecutionSlice, HostRuntimeRef
+from design_execution_planning import (
+    ExecutionSlice,
+    ExecutionSliceV2,
+    HostRuntimeRef,
+)
 from design_execution_reconciliation import ActualDelta, VerificationEvidenceBundle
-from design_gateway_authorization import AdmittedExecutionAuthority
+from design_gateway_authorization import (
+    AdmittedExecutionAuthority,
+    AdmittedExecutionAuthorityV2,
+)
+from design_provider_binding import ProviderBindingSetV2
 
 from .contracts import AuthorityFailure, HostExecutionResult
+from .readiness_contracts import HostReadinessReceipt
 
 
 class CoordinationClock(Protocol):
@@ -47,10 +56,29 @@ class VerificationEvidencePort(Protocol):
     ) -> VerificationEvidenceBundle: ...
 
 
+class HostReadinessPort(Protocol):
+    """Host 边界内只读 readiness 检查的统一端口。"""
+
+    def check(
+        self,
+        execution_slice: ExecutionSliceV2,
+        authority: AdmittedExecutionAuthorityV2,
+        binding_set: ProviderBindingSetV2,
+    ) -> HostReadinessReceipt: ...
+
+
+class HostReadinessRegistry(Protocol):
+    """按 exact HostRuntimeRef 解析 readiness 端口的注册表。"""
+
+    def resolve(self, runtime_ref: HostRuntimeRef) -> HostReadinessPort: ...
+
+
 __all__ = [
     "CoordinationClock",
     "ExecutionAuthorityPort",
     "HostExecutionPort",
     "HostExecutionRegistry",
+    "HostReadinessPort",
+    "HostReadinessRegistry",
     "VerificationEvidencePort",
 ]
