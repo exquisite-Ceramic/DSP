@@ -25,8 +25,8 @@ from .integrity import (
 )
 from .planner import ExecutionPlanner
 from .v2 import (
-    ExecutionPlanV2,
     ExecutionPlanningRequestV2,
+    ExecutionPlanV2,
     ExecutionSliceV2,
     ExecutionUnitV2,
     MaterializationRoutingEvidence,

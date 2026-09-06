@@ -11,7 +11,6 @@ from design_execution_planning import (
     plan_materialized_execution,
     validate_execution_plan_v2,
 )
-
 from test_step30_materialization_v2 import _phase_i_inputs
 
 

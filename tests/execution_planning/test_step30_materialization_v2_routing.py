@@ -11,7 +11,6 @@ from design_execution_planning import (
     compute_materialization_routing_hash,
     plan_materialized_execution,
 )
-
 from test_step30_materialization_v2 import _phase_i_inputs
 
 

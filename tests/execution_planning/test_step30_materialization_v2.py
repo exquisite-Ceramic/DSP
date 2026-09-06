@@ -15,6 +15,7 @@ from design_materialization_planning import (
     MaterializationPlanner,
     MaterializationPlanningRequest,
 )
+
 from tests.materialization_planning.conftest import build_case
 
 
