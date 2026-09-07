@@ -9,14 +9,16 @@ import math
 import os
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import yaml
 from autocad_sidecar.adapter.host_adapter import HostAdapter as AutoCadHostAdapter
-from autocad_sidecar.execution.command_dispatcher import CommandDispatcher as AutoCadCommandDispatcher
+from autocad_sidecar.execution.command_dispatcher import (
+    CommandDispatcher as AutoCadCommandDispatcher,
+)
 from autocad_sidecar.execution.readiness import AutoCadWallThicknessReadinessPort
 from autocad_sidecar.ipc.transport import PipeTransport as AutoCadPipeTransport
 from design_approval_scope import CanonicalAspect
@@ -29,7 +31,6 @@ from design_execution_coordination import (
     CrossHostReadinessBarrier,
     HostCommitted,
     HostFailed,
-    HostFailurePhase,
     MaterializedExecutionSagaCoordinator,
     ReadinessStatus,
 )
@@ -159,7 +160,7 @@ class PhaseILiveConfig:
         return _REQUIRED_ENVIRONMENT
 
     @classmethod
-    def from_environment(cls) -> "PhaseILiveConfig":
+    def from_environment(cls) -> PhaseILiveConfig:
         """从进程环境构造配置，并在任何 Host I/O 前校验 fixture 哈希。"""
         values: dict[str, str] = {}
         missing: list[str] = []
@@ -231,12 +232,12 @@ def verify_fixture_sha256(path: Path, expected_sha256: str) -> str:
 
 def _utc_now() -> str:
     """生成测试证据使用的规范 UTC RFC3339 时间。"""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _utc_after(seconds: int) -> str:
     """生成相对当前时刻的规范 UTC RFC3339 时间。"""
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat().replace(
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat().replace(
         "+00:00", "Z"
     )
 
@@ -267,9 +268,7 @@ def _resolve_enterprise_terms(batch) -> dict[str, tuple[Any, str | None]]:
             if not match["case_sensitive"]:
                 pattern = pattern.casefold()
                 candidate = candidate.casefold()
-            if match["type"] == "EXACT" and candidate == pattern:
-                matches.append(rule["target_term_id"])
-            elif match["type"] == "PREFIX" and candidate.startswith(pattern):
+            if match["type"] == "EXACT" and candidate == pattern or match["type"] == "PREFIX" and candidate.startswith(pattern):
                 matches.append(rule["target_term_id"])
         if matches:
             if len(set(matches)) != 1:
