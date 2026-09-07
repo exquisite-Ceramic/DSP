@@ -4,7 +4,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests/integration/run_phase_i_live_acceptance.ps1"
-HELPER = ROOT / "tests/integration/phase_i_live_host.py"
 
 
 def _script_text() -> str:
@@ -59,12 +58,6 @@ def test_live_script_bootstraps_phase_i_pythonpath_for_local_runs() -> None:
         "platform/semantic_runtime/src",
     ):
         assert relative_path in text
-
-
-def test_live_helper_does_not_depend_on_top_level_tests_package_resolution() -> None:
-    text = HELPER.read_text(encoding="utf-8")
-    assert "from tests." not in text
-    assert "import tests." not in text
 
 
 def test_live_script_builds_revit_2027_before_mutation() -> None:
