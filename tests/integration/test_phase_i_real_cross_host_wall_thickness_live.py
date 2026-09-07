@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
+import importlib.util
 import os
+import sys
 from dataclasses import is_dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/phase-i-real-cross-host-materialization-saga.yml"
 RUNBOOK = ROOT / "docs/runbooks/phase-i-real-cross-host-wall-thickness.md"
+HELPER = ROOT / "tests/integration/phase_i_live_host.py"
 
 EXPECTED_ENVIRONMENT = {
     "DSP_AUTOCAD_ENDPOINT",
@@ -47,7 +49,13 @@ EXPECTED_HELPER_SURFACE = {
 
 
 def _helper():
-    return importlib.import_module("tests.integration.phase_i_live_host")
+    spec = importlib.util.spec_from_file_location("dsp_phase_i_live_host", HELPER)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _require_live() -> None:
