@@ -77,3 +77,9 @@ def test_discovery_script_marks_unreliable_semantic_identity_as_manual() -> None
         "DSP_PHASE_I_SEMANTIC_ID",
     ):
         assert f'Add-ManualValue -Name "{name}"' in text
+
+
+def test_discovery_script_uses_powershell_elseif_for_api_directory_fallback() -> None:
+    text = _script_text()
+    assert "\nelif (" not in text
+    assert "\nelseif (" in text
