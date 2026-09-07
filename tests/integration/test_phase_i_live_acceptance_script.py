@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests/integration/run_phase_i_live_acceptance.ps1"
+HELPER = ROOT / "tests/integration/phase_i_live_host.py"
 
 
 def _script_text() -> str:
@@ -43,6 +44,27 @@ def test_live_preflight_requires_exact_environment_and_fixture_hashes() -> None:
     assert "SHA256" in text
     assert "FIXTURE_HASH_MISMATCH" in text
     assert "DSP_PHASE_I_LIVE" in text
+
+
+def test_live_script_bootstraps_phase_i_pythonpath_for_local_runs() -> None:
+    text = _script_text()
+    assert "PYTHONPATH" in text
+    for relative_path in (
+        "contracts/python",
+        "hosts/autocad/sidecar/src",
+        "hosts/revit/sidecar/src",
+        "platform/materialization_topology/src",
+        "platform/materialization_planning/src",
+        "platform/convergence/src",
+        "platform/semantic_runtime/src",
+    ):
+        assert relative_path in text
+
+
+def test_live_helper_does_not_depend_on_top_level_tests_package_resolution() -> None:
+    text = HELPER.read_text(encoding="utf-8")
+    assert "from tests." not in text
+    assert "import tests." not in text
 
 
 def test_live_script_builds_revit_2027_before_mutation() -> None:
