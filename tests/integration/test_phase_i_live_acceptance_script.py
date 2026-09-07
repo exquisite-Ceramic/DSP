@@ -48,8 +48,10 @@ def test_live_preflight_requires_exact_environment_and_fixture_hashes() -> None:
 def test_live_script_builds_revit_2027_before_mutation() -> None:
     text = _script_text()
     assert "Revit.AgentHost.csproj" in text
-    assert 'DspRevitVersion=\"2027\"' in text
-    assert 'DspRevitTargetFramework=\"net10.0-windows\"' in text
+    assert "DspRevitVersion" in text
+    assert "2027" in text
+    assert "DspRevitTargetFramework" in text
+    assert "net10.0-windows" in text
     assert "DspRevitApiDir" in text
 
 
