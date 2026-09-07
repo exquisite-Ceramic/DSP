@@ -276,7 +276,7 @@ if (-not [string]::IsNullOrWhiteSpace($existingRevitApiDir) -and (Test-Path -Lit
         -Value (Resolve-Path -LiteralPath $existingRevitApiDir).Path `
         -Source "当前进程环境"
 }
-elif (Test-Path -LiteralPath $defaultRevitApiDir -PathType Container) {
+elseif (Test-Path -LiteralPath $defaultRevitApiDir -PathType Container) {
     Add-DetectedValue `
         -Name "DSP_REVIT_LIVE_API_DIR" `
         -Value (Resolve-Path -LiteralPath $defaultRevitApiDir).Path `
