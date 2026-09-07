@@ -11,6 +11,40 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 
+function Initialize-PhaseIPythonPath {
+    # 本地验收不依赖 CI 注入路径；始终从当前仓库解析 Phase I 所需 Python 包。
+    $relativePaths = @(
+        "contracts/python",
+        "hosts/autocad/sidecar/src",
+        "hosts/revit/sidecar/src",
+        "platform/approval_scope/src",
+        "platform/changeset/src",
+        "platform/materialization_topology/src",
+        "platform/materialization_planning/src",
+        "platform/execution_planning/src",
+        "platform/provider_binding/src",
+        "platform/gateway_authorization/src",
+        "platform/execution_reconciliation/src",
+        "platform/execution_coordination/src",
+        "platform/convergence/src",
+        "platform/semantic_runtime/src",
+        "platform/semantic_service/src",
+        "platform/orchestrator/src",
+        "platform/impact/src",
+        "platform/interaction/src"
+    )
+
+    $resolvedPaths = foreach ($relativePath in $relativePaths) {
+        Join-Path $RepoRoot $relativePath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+        $resolvedPaths += $env:PYTHONPATH
+    }
+
+    $env:PYTHONPATH = $resolvedPaths -join [IO.Path]::PathSeparator
+}
+
 function Invoke-CheckedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -179,6 +213,7 @@ function Invoke-PartialCommitScenario {
     Write-Host "partial_commit 完成后同样关闭受控文档并选择 DO NOT SAVE。"
 }
 
+Initialize-PhaseIPythonPath
 Push-Location $RepoRoot
 try {
     if ($Scenario -eq "offline") {
