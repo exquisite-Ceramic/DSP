@@ -88,9 +88,11 @@ function Add-PipeValue {
         [string]$Name,
 
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [object[]]$Processes,
 
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [string[]]$PipeNames,
 
         [Parameter(Mandatory = $true)]
