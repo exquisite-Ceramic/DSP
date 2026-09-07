@@ -17,7 +17,7 @@ def test_discovery_script_is_read_only_and_emits_copyable_commands() -> None:
     assert "[Environment]::SetEnvironmentVariable" not in text
     assert "MANUAL_REQUIRED" in text
     assert "COPYABLE_ENV_COMMANDS" in text
-    assert 'Write-Output ("$env:{0}=' in text
+    assert "'$env:{0}=''{1}'''" in text
 
 
 def test_discovery_script_covers_the_complete_task16_environment_contract() -> None:
