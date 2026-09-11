@@ -59,7 +59,7 @@ def test_revit_external_event_routes_ui_document_to_read_only_context_operation(
     assert "executor.Execute(" in handler
     assert "uiDocument" in handler
     assert "RevitContextIdentityReader" in router
-    assert '"context.current_selection"' in router
+    assert "RevitContextIdentityReader.Operation" in router
 
 
 def test_environment_discovery_consumes_identity_probe_and_stays_read_only() -> None:
