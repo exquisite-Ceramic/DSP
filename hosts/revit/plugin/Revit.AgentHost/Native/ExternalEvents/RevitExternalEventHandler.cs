@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Revit.AgentHost.Core.Contracts;
 using Revit.AgentHost.Native.Revision;
@@ -9,7 +8,7 @@ namespace Revit.AgentHost.Native.ExternalEvents;
 public interface IRevitRequestExecutor
 {
     HostResultEnvelope Execute(
-        Document document,
+        UIDocument uiDocument,
         HostCommandEnvelope command,
         long revisionBefore,
         Func<long> readCurrentRevision);
@@ -54,23 +53,22 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
             return Error(command.CommandId, "REVIT_ACTIVE_DOCUMENT_UNAVAILABLE", 0L, null);
         }
 
-        Document document = uiDocument.Document;
-        long revisionBefore = revisions.Get(document);
+        long revisionBefore = revisions.Get(uiDocument.Document);
 
         try
         {
             return executor.Execute(
-                document,
+                uiDocument,
                 command,
                 revisionBefore,
-                () => revisions.Get(document));
+                () => revisions.Get(uiDocument.Document));
         }
         catch (Exception exception)
         {
             return Error(
                 command.CommandId,
                 "REVIT_REQUEST_EXECUTION_FAILED",
-                revisions.Get(document),
+                revisions.Get(uiDocument.Document),
                 exception.Message);
         }
     }
