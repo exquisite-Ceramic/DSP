@@ -161,7 +161,9 @@ def test_real_revit_post_readiness_race_is_partial_commit() -> None:
     assert evidence["revit_failure_ref"] == "REVISION_CONFLICT"
     assert evidence["revit_failure_phase"] == "BEFORE_COMMIT"
     assert evidence["revit_actual_delta_hash"] is None
-    assert evidence["race_wall_thickness"] == {"value": 201.0, "unit": "mm"}
+    assert evidence["race_wall_thickness"] is not None
+    assert evidence["race_wall_thickness"]["unit"] == "mm"
+    assert evidence["race_wall_thickness"]["value"] == pytest.approx(201.0, abs=1e-9)
     assert evidence["convergence_status"] is None
     assert evidence["saga_status"] == "PARTIALLY_COMMITTED"
     assert evidence["materialized_status"] == "PARTIALLY_COMMITTED"
