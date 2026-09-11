@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Revit.AgentHost.Core.Contracts;
 using Revit.AgentHost.Native.Revision;
@@ -6,6 +7,15 @@ using Revit.AgentHost.Native.Revision;
 namespace Revit.AgentHost.Native.ExternalEvents;
 
 public interface IRevitRequestExecutor
+{
+    HostResultEnvelope Execute(
+        Document document,
+        HostCommandEnvelope command,
+        long revisionBefore,
+        Func<long> readCurrentRevision);
+}
+
+public interface IRevitUiRequestExecutor
 {
     HostResultEnvelope Execute(
         UIDocument uiDocument,
@@ -18,12 +28,12 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
 {
     private readonly RevitRequestQueue queue;
     private readonly DocumentRevisionTracker revisions;
-    private readonly IRevitRequestExecutor executor;
+    private readonly IRevitUiRequestExecutor executor;
 
     public RevitExternalEventHandler(
         RevitRequestQueue queue,
         DocumentRevisionTracker revisions,
-        IRevitRequestExecutor executor)
+        IRevitUiRequestExecutor executor)
     {
         this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
         this.revisions = revisions ?? throw new ArgumentNullException(nameof(revisions));
