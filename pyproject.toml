@@ -28,18 +28,26 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "contracts/python/tests"]
 pythonpath = [
+    # 保持本地 pytest 与 Phase I workflow 的 Python 模块解析边界一致。
+    # 这样从仓库根目录执行 runbook 中的离线门时，不需要额外手工拼接 PYTHONPATH。
     "contracts/python",
     "hosts/autocad/sidecar/src",
+    "hosts/revit/sidecar/src",
     "platform/orchestrator/src",
     "platform/interaction/src",
     "platform/impact/src",
     "platform/approval_scope/src",
     "platform/changeset/src",
+    "platform/materialization_topology/src",
+    "platform/materialization_planning/src",
     "platform/execution_planning/src",
     "platform/execution_coordination/src",
     "platform/provider_binding/src",
     "platform/gateway_authorization/src",
     "platform/execution_reconciliation/src",
+    "platform/convergence/src",
+    "platform/semantic_runtime/src",
+    "platform/semantic_service/src",
     "tests/integration",
     "tests/provider_binding",
     "tests/gateway_authorization",
