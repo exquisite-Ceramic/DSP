@@ -65,8 +65,9 @@ def test_discovery_script_hashes_only_explicit_or_existing_fixture_paths() -> No
     assert "Test-Path" in text
 
 
-def test_discovery_script_marks_unreliable_semantic_identity_as_manual() -> None:
+def test_discovery_script_delegates_host_identity_to_read_only_probe() -> None:
     text = _script_text()
+    assert "probe_phase_i_live_identity.py" in text
     for name in (
         "DSP_AUTOCAD_DOCUMENT_REF",
         "DSP_AUTOCAD_NATIVE_ID",
@@ -74,9 +75,9 @@ def test_discovery_script_marks_unreliable_semantic_identity_as_manual() -> None
         "DSP_REVIT_LIVE_DOCUMENT_REF",
         "DSP_REVIT_LIVE_WALL_UNIQUE_ID",
         "DSP_REVIT_LIVE_HOST_INSTANCE_ID",
-        "DSP_PHASE_I_SEMANTIC_ID",
     ):
-        assert f'Add-ManualValue -Name "{name}"' in text
+        assert f'Add-ManualValue -Name "{name}"' not in text
+    assert 'Add-ManualValue -Name "DSP_PHASE_I_SEMANTIC_ID"' in text
 
 
 def test_discovery_script_uses_powershell_elseif_for_api_directory_fallback() -> None:
