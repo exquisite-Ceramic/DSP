@@ -116,7 +116,7 @@ async def _probe_autocad(endpoint: str) -> dict[str, Any]:
                 "DSP_AUTOCAD_HOST_INSTANCE_ID": host_instance_id,
             },
         }
-    except (ConnectionError, OSError, RuntimeError, TypeError, ValueError) as exc:
+    except (ConnectionError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         return _failure("AUTOCAD_IDENTITY_PROBE_FAILED", str(exc))
     finally:
         await host.close()
@@ -137,7 +137,7 @@ def _probe_revit(pipe_name: str) -> dict[str, Any]:
     )
     try:
         response = transport.request(command)
-    except (ConnectionError, OSError, RuntimeError, TypeError, ValueError) as exc:
+    except (ConnectionError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         return _failure("REVIT_IDENTITY_PROBE_FAILED", str(exc))
     if response.get("status") != "OK":
         error = response.get("error") or {}
@@ -196,7 +196,7 @@ def main() -> int:
     if args.revit_pipe.strip():
         result["revit"] = _probe_revit(args.revit_pipe.strip())
 
-    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(result, ensure_ascii=True, sort_keys=True))
     return 0
 
 
