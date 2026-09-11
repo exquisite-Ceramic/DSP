@@ -83,3 +83,11 @@ def test_environment_discovery_consumes_identity_probe_and_stays_read_only() -> 
     assert "DSP_REVIT_LIVE_WALL_UNIQUE_ID" in text
     assert "DSP_REVIT_LIVE_HOST_INSTANCE_ID" in text
     assert "SetEnvironmentVariable" not in text
+
+
+def test_environment_discovery_hashes_open_host_fixtures_with_shared_read_access() -> None:
+    """Host 打开 fixture 时，探测脚本仍应以只读共享方式计算 SHA-256。"""
+    text = DISCOVERY.read_text(encoding="utf-8")
+    assert "[System.IO.FileShare]::ReadWrite" in text
+    assert "[System.Security.Cryptography.SHA256]::Create()" in text
+    assert "Get-FileHash" not in text
