@@ -1,33 +1,48 @@
 using System.Text.Json.Nodes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 using Revit.AgentHost.Core.Contracts;
+using Revit.AgentHost.Native.Context;
 using Revit.AgentHost.Native.Walls;
 
 namespace Revit.AgentHost.Native.ExternalEvents;
 
 public sealed class RevitRequestExecutorRouter : IRevitRequestExecutor
 {
+    private readonly RevitContextIdentityReader contextIdentityReader;
     private readonly RevitWallThicknessReadiness readiness;
     private readonly RevitWallThicknessMutation mutation;
 
     public RevitRequestExecutorRouter(
         RevitWallThicknessReadiness readiness,
-        RevitWallThicknessMutation mutation)
+        RevitWallThicknessMutation mutation,
+        RevitContextIdentityReader? contextIdentityReader = null)
     {
         this.readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
         this.mutation = mutation ?? throw new ArgumentNullException(nameof(mutation));
+        this.contextIdentityReader = contextIdentityReader ?? new RevitContextIdentityReader();
     }
 
     public HostResultEnvelope Execute(
-        Document document,
+        UIDocument uiDocument,
         HostCommandEnvelope command,
         long revisionBefore,
         Func<long> readCurrentRevision)
     {
-        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(uiDocument);
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(readCurrentRevision);
 
+        if (string.Equals(command.Mode, "READ", StringComparison.Ordinal)
+            && string.Equals(
+                command.Operation,
+                RevitContextIdentityReader.Operation,
+                StringComparison.Ordinal))
+        {
+            return contextIdentityReader.Execute(uiDocument, command, revisionBefore);
+        }
+
+        Document document = uiDocument.Document;
         if (string.Equals(command.Mode, "READ", StringComparison.Ordinal)
             && string.Equals(
                 command.Operation,
