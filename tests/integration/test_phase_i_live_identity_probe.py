@@ -62,6 +62,17 @@ def test_revit_external_event_routes_ui_document_to_read_only_context_operation(
     assert "RevitContextIdentityReader.Operation" in router
 
 
+def test_revit_keeps_ui_and_document_executor_contracts_separate() -> None:
+    handler = REVIT_HANDLER.read_text(encoding="utf-8")
+    router = REVIT_ROUTER.read_text(encoding="utf-8")
+    assert "interface IRevitRequestExecutor" in handler
+    assert "Document document" in handler
+    assert "interface IRevitUiRequestExecutor" in handler
+    assert "UIDocument uiDocument" in handler
+    assert "IRevitUiRequestExecutor executor" in handler
+    assert "RevitRequestExecutorRouter : IRevitUiRequestExecutor" in router
+
+
 def test_environment_discovery_consumes_identity_probe_and_stays_read_only() -> None:
     text = DISCOVERY.read_text(encoding="utf-8")
     assert "probe_phase_i_live_identity.py" in text
