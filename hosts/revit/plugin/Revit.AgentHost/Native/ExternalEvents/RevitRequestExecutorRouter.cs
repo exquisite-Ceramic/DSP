@@ -7,7 +7,7 @@ using Revit.AgentHost.Native.Walls;
 
 namespace Revit.AgentHost.Native.ExternalEvents;
 
-public sealed class RevitRequestExecutorRouter : IRevitRequestExecutor
+public sealed class RevitRequestExecutorRouter : IRevitUiRequestExecutor
 {
     private readonly RevitContextIdentityReader contextIdentityReader;
     private readonly RevitWallThicknessReadiness readiness;
