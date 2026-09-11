@@ -153,6 +153,35 @@ function Add-PipeValue {
         -Note "没有发现与活动 $HostLabel 进程匹配的 AgentHost pipe；请确认插件已加载。"
 }
 
+function Get-SharedReadSha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # AutoCAD/Revit 打开受控 fixture 时可能持有写共享锁。
+    # 探测只读取文件字节，因此显式允许 ReadWrite 共享，不请求任何写权限。
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::ReadWrite
+    )
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $sha256.ComputeHash($stream)
+            return ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
+        }
+        finally {
+            $sha256.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 function Add-FixtureValues {
     param(
         [Parameter(Mandatory = $true)]
@@ -208,7 +237,7 @@ function Add-FixtureValues {
     }
 
     $resolved = (Resolve-Path -LiteralPath $candidate).Path
-    $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolved).Hash.ToLowerInvariant()
+    $digest = Get-SharedReadSha256 -Path $resolved
     Add-DetectedValue -Name $PathName -Value $resolved -Source $source
     Add-DetectedValue -Name $HashName -Value $digest -Source "$HostLabel fixture 实际字节 SHA-256"
 }
