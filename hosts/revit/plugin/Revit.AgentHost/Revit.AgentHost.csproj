@@ -13,6 +13,13 @@
   </Target>
 
   <ItemGroup>
+    <!--
+      Revit 2027 运行在完整的 .NET 10 Windows Desktop runtime 上。
+      显式引用 WindowsDesktop framework，确保构建时解析到与 RevitAPI / RevitAPIUI
+      一致的桌面程序集版本，避免 Microsoft.VisualBasic 等框架程序集出现 MSB3277 冲突。
+    -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+
     <ProjectReference Include="..\Revit.AgentHost.Core\Revit.AgentHost.Core.csproj" />
     <Reference Include="RevitAPI">
       <HintPath>$(DspRevitApiDir)\RevitAPI.dll</HintPath>
