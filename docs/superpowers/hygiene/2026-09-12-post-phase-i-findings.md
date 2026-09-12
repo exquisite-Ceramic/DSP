@@ -1,8 +1,8 @@
 # Post-Phase-I Engineering Hygiene Findings
 
-**Baseline:** `main@d2d1621b30f87506c62adb2d12f73d387821ef78`  
-**Design:** `docs/superpowers/specs/2026-09-12-post-phase-i-engineering-hygiene-design.md`  
-**Plan:** `docs/superpowers/plans/2026-09-12-post-phase-i-engineering-hygiene.md`  
+**Baseline:** `main@d2d1621b30f87506c62adb2d12f73d387821ef78`
+**Design:** `docs/superpowers/specs/2026-09-12-post-phase-i-engineering-hygiene-design.md`
+**Plan:** `docs/superpowers/plans/2026-09-12-post-phase-i-engineering-hygiene.md`
 **Date:** 2026-09-12
 
 ## Classification contract
