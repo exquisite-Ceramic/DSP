@@ -13,13 +13,13 @@ pytestmark = [
     ),
 ]
 
-from autocad_sidecar.adapter.host_adapter import HostAdapter  # noqa: E402
+from autocad_live_host import live_autocad_host_adapter  # noqa: E402
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher  # noqa: E402
 
 
 @pytest.mark.asyncio
 async def test_move_is_idempotent_with_same_key():
-    host = HostAdapter()
+    host = live_autocad_host_adapter()
     try:
         dispatcher = CommandDispatcher(host=host)
         selection = await dispatcher.current_selection()
