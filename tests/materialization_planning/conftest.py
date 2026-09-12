@@ -1,6 +1,6 @@
 import pytest
 
-from tests.materialization_planning._support import build_case
+from tests.materialization_planning._support import build_case, slot
 
 
 @pytest.fixture
