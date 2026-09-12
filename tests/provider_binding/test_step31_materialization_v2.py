@@ -23,7 +23,10 @@ def test_v2_binding_preserves_exact_materialization_slice_and_host_lineage() -> 
         binding_set = resolve_provider_bindings_v2(execution_slice, provider_snapshot)
 
         assert provider_snapshot.materialization_id == execution_slice.materialization_id
-        assert provider_snapshot.materialization_plan_hash == execution_slice.materialization_plan_hash
+        assert (
+            provider_snapshot.materialization_plan_hash
+            == execution_slice.materialization_plan_hash
+        )
         assert provider_snapshot.execution_slice_hash == execution_slice.execution_slice_hash
         assert provider_snapshot.host_runtime_ref == execution_slice.host_runtime_ref
         assert binding_set.materialization_id == execution_slice.materialization_id

@@ -42,11 +42,11 @@ from design_materialization_topology import (
 )
 from design_orchestrator.canonical_operations import SET_WALL_THICKNESS_V1
 from design_orchestrator.parameter_binder import (
-    SET_WALL_THICKNESS_V1_BINDING_RECIPE,
     BoundOperationProposal,
     OperationProposal,
     ParameterBinder,
     ParameterBindingContext,
+    SET_WALL_THICKNESS_V1_BINDING_RECIPE,
 )
 
 
