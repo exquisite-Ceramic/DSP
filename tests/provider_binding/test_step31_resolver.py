@@ -1,14 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from tests.provider_binding.conftest import (
-    FakeBindingAdapter,
-    digest,
-    make_candidate,
-    make_native_binding,
-    make_request,
-    make_snapshot,
-)
 from design_execution_planning import (
     ExecutionSlice,
     ExecutionUnit,
@@ -23,6 +15,15 @@ from design_provider_binding import (
     ProviderResolver,
     compute_precondition_fingerprint,
     validate_provider_binding,
+)
+
+from tests.provider_binding.conftest import (
+    FakeBindingAdapter,
+    digest,
+    make_candidate,
+    make_native_binding,
+    make_request,
+    make_snapshot,
 )
 
 
