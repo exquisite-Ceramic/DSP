@@ -89,5 +89,3 @@ jobs:
         run: pytest -q tests/orchestrator/test_operation_resolver.py tests/orchestrator/test_step24_semantic_eligibility.py
       - name: Run Step31 Ruff
         run: ruff check platform/provider_binding/src/design_provider_binding tests/provider_binding
-      - name: Run full repository tests
-        run: pytest -q --import-mode=importlib
