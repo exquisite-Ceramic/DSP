@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import (
+from tests.provider_binding.conftest import (
     FakeBindingAdapter,
     digest,
     make_candidate,

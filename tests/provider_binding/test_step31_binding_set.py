@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from conftest import (
+from tests.provider_binding.conftest import (
     FakeBindingAdapter,
     default_native_bindings,
     digest,
