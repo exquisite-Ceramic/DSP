@@ -17,6 +17,10 @@ from tests.execution_reconciliation._support import (
     signed_delta,
 )
 
+_service = service
+_signed_bundle = signed_bundle
+_signed_delta = signed_delta
+
 
 def test_v2_scope_comparison_reuses_provider_neutral_semantics_after_lineage_validation() -> None:
     ctx = phase_i_context()
