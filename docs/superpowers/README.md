@@ -5,7 +5,7 @@
 ## 当前仓库状态
 
 - Phase I — latest completed capability phase
-- Engineering Hygiene / Stabilization — current engineering activity
+- Modernization Planning — current engineering activity
 - Next capability phase — NOT YET DEFINED
 
 ## 主规格 authority
@@ -17,7 +17,7 @@
 
 生命周期状态：
 
-- `CURRENT`：当前正在执行或维护的工程阶段 artifact。
+- `CURRENT`：当前正在执行、维护或评审的工程阶段 artifact。
 - `COMPLETED`：该阶段已经实施完成；文档作为历史工程记录保留。
 - `SUPERSEDED`：已被更高版本 authority 取代，但仍保留审计历史。
 - `ABANDONED`：明确停止且未完成的工程方向；当前索引没有此类 artifact。
@@ -53,7 +53,8 @@
 | [`2026-09-01-phase-h-revit-wall-thickness-gap-closure-design.md`](specs/2026-09-01-phase-h-revit-wall-thickness-gap-closure-design.md) | COMPLETED |
 | [`2026-09-06-phase-h-revit-vertical-homogeneity-amendment.md`](specs/2026-09-06-phase-h-revit-vertical-homogeneity-amendment.md) | COMPLETED |
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga-design.md`](specs/2026-09-06-phase-i-real-cross-host-materialization-saga-design.md) | COMPLETED |
-| [`2026-09-12-post-phase-i-engineering-hygiene-design.md`](specs/2026-09-12-post-phase-i-engineering-hygiene-design.md) | CURRENT |
+| [`2026-09-12-post-phase-i-engineering-hygiene-design.md`](specs/2026-09-12-post-phase-i-engineering-hygiene-design.md) | COMPLETED |
+| [`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -87,10 +88,11 @@
 | [`2026-08-31-step37-cross-host-saga-failure-injection.md`](plans/2026-08-31-step37-cross-host-saga-failure-injection.md) | COMPLETED |
 | [`2026-09-01-phase-h-revit-wall-thickness-gap-closure.md`](plans/2026-09-01-phase-h-revit-wall-thickness-gap-closure.md) | COMPLETED |
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga.md`](plans/2026-09-06-phase-i-real-cross-host-materialization-saga.md) | COMPLETED |
-| [`2026-09-12-post-phase-i-engineering-hygiene.md`](plans/2026-09-12-post-phase-i-engineering-hygiene.md) | CURRENT |
+| [`2026-09-12-post-phase-i-engineering-hygiene.md`](plans/2026-09-12-post-phase-i-engineering-hygiene.md) | COMPLETED |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- 新能力阶段只有在其 Design Spec 正式冻结后才命名；当前下一能力阶段保持 `NOT YET DEFINED`。
+- 当前 Modernization Design 是工程规划 artifact，不是新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。
+- 新能力阶段只有在其 Design Spec 正式冻结后才命名。
