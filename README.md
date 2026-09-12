@@ -5,9 +5,10 @@
 ## 当前状态
 
 - **Latest completed capability phase:** Phase I
-- **Current engineering activity:** Engineering Hygiene / Stabilization
+- **Current engineering activity:** Modernization Planning
 - **Next capability phase:** NOT YET DEFINED
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
+- 当前 Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)
 - v0.5 已由 v0.6 取代，保留为历史规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md)
 
 ## 系统边界
@@ -45,6 +46,7 @@ Host-specific API 继续被限制在各 Host 的 native/plugin 边界内；平�
 | 文档 | 用途 |
 | --- | --- |
 | [`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md) | 当前系统级 contract authority |
+| [`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md) | 当前 Modernization Planning Design |
 | [`docs/superpowers/README.md`](docs/superpowers/README.md) | Design Spec / Implementation Plan 生命周期与历史导航 |
 | [`docs/runbooks/phase-i-real-cross-host-wall-thickness.md`](docs/runbooks/phase-i-real-cross-host-wall-thickness.md) | Phase I 真实 AutoCAD + Revit 双 Host 验收 |
 | [`docs/runbooks/autocad-grpc-smoke.md`](docs/runbooks/autocad-grpc-smoke.md) | AutoCAD gRPC rollout / real-host gate |
