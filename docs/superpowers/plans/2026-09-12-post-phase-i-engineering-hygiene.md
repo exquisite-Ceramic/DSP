@@ -30,7 +30,7 @@
 
 ## File Structure Map
 
-- `docs/superpowers/hygiene/`: new findings ledger; records evidence, classification, permitted action, verification, and final resolution.
+- `docs/superpowers/hygiene/`: findings ledger with evidence, classification, permitted action, verification, and final resolution.
 - `tests/materialization_planning/_support.py`: reusable Phase I materialization test builders currently living in `conftest.py`.
 - `tests/execution_planning/_support.py`: reusable Step30 V2 Phase I execution inputs currently living in a sibling test module.
 - `tests/integration/test_phase_i_environment_discovery_script.py`: source-contract test for the read-only Phase I discovery script.
@@ -51,8 +51,6 @@
 - Create: `docs/superpowers/hygiene/2026-09-12-post-phase-i-findings.md`
 
 - [ ] **Step 1: Capture current broad-tail workflow evidence**
-
-Run from the repository root:
 
 ```powershell
 rg -n "full repository|relevant full Python|--import-mode=importlib" .github/workflows
@@ -170,18 +168,67 @@ def phase_i_case():
 
 Update `tests/materialization_planning/test_planner.py` and `tests/execution_planning/test_step30_materialization_v2_scope_resolution.py` to import helpers from `tests.materialization_planning._support`.
 
-- [ ] **Step 3: Extract execution-planning reusable Phase I inputs**
+- [ ] **Step 3: Extract execution-planning reusable Phase I inputs with the exact existing body**
 
-Create `tests/execution_planning/_support.py` with:
+Create `tests/execution_planning/_support.py` with these imports and function:
 
 ```python
+from design_execution_planning import (
+    ExecutionPlanningRequestV2,
+    HostRuntimeRef,
+    MaterializationRoutingEvidence,
+    MaterializationRuntimeRoute,
+    compute_materialization_routing_hash,
+)
+from design_materialization_planning import (
+    MaterializationPlanner,
+    MaterializationPlanningRequest,
+)
+
+from tests.materialization_planning._support import build_case
+
+
 def build_phase_i_execution_inputs():
-    ...
+    case = build_case()
+    materialization_plan = MaterializationPlanner().plan(
+        MaterializationPlanningRequest(
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            topology_snapshot=case.topology,
+            convergence_profile=case.profile,
+        )
+    )
+    slot_by_id = {
+        slot.materialization_slot_id: slot
+        for slot in case.topology.slots
+    }
+    routes = tuple(
+        MaterializationRuntimeRoute(
+            materialization_id=intent.materialization_id,
+            host_runtime_ref=HostRuntimeRef(
+                host_type=intent.required_host_type,
+                host_instance_id=f"{intent.required_host_type.upper()}-01",
+                document_ref=slot_by_id[intent.materialization_slot_id].document_ref,
+            ),
+        )
+        for intent in materialization_plan.intents
+    )
+    routing = MaterializationRoutingEvidence(
+        routing_snapshot_id="MRS-PHASE-I",
+        routes=routes,
+        routing_snapshot_hash=compute_materialization_routing_hash(routes),
+    )
+    request = ExecutionPlanningRequestV2(
+        canonical_changeset=case.changeset,
+        approval_scope_boundary=case.boundary_v2,
+        materialization_plan=materialization_plan,
+        topology_snapshot=case.topology,
+        runtime_routing_evidence=routing,
+    )
+    return case, materialization_plan, routing, request
 ```
 
-Its body is the existing `_phase_i_inputs()` logic from `test_step30_materialization_v2.py`: build the case, create `MaterializationPlan`, create deterministic runtime routes, construct `MaterializationRoutingEvidence`, and construct `ExecutionPlanningRequestV2`.
-
-Update `test_step30_materialization_v2.py`, `test_step30_materialization_v2_hashing.py`, and `test_step30_materialization_v2_routing.py` to import `build_phase_i_execution_inputs` from `tests.execution_planning._support`. Do not change assertions or production APIs.
+Update `test_step30_materialization_v2.py`, `test_step30_materialization_v2_hashing.py`, and `test_step30_materialization_v2_routing.py` to import `build_phase_i_execution_inputs` from `tests.execution_planning._support` and replace calls to `_phase_i_inputs()` with `build_phase_i_execution_inputs()`. Do not change assertions or production APIs.
 
 - [ ] **Step 4: Prove forbidden test imports are gone**
 
@@ -522,11 +569,27 @@ Expected: RED for both files on the baseline.
 
 - [ ] **Step 2: Switch only test harness construction**
 
-In `test_move_idempotency.py` and `test_revision_conflict.py`, replace the direct production adapter import/constructor with:
+In both `test_move_idempotency.py` and `test_revision_conflict.py`, replace the direct import:
+
+```python
+from autocad_sidecar.adapter.host_adapter import HostAdapter  # noqa: E402
+```
+
+with:
 
 ```python
 from autocad_live_host import live_autocad_host_adapter  # noqa: E402
-...
+```
+
+and replace:
+
+```python
+host = HostAdapter()
+```
+
+with:
+
+```python
 host = live_autocad_host_adapter()
 ```
 
@@ -568,7 +631,7 @@ Record the collected-test count in the findings ledger or implementation notes f
 
 - [ ] **Step 2: Update comments/marker descriptions only**
 
-In `pyproject.toml`, keep the `pythonpath` list byte-for-byte unchanged. Replace the Phase-I-specific comment with durable wording:
+In `pyproject.toml`, keep the `pythonpath` list byte-for-byte unchanged. Replace the Phase-I-specific comment with:
 
 ```toml
 # 统一仓库根目录、本地测试与 CI 的 Python 模块解析边界。
@@ -583,7 +646,7 @@ Change only the integration marker description to:
 
 Do not add runtime dependencies and do not convert/remove the commented uv workspace block in this Task.
 
-Update `tests/__init__.py` to remove the Phase I-specific rationale while retaining package-resolution purpose:
+Update `tests/__init__.py` to:
 
 ```python
 """DSP 测试包。
@@ -626,13 +689,14 @@ git commit -m "chore: generalize repository test metadata"
 
 1. enumerate every `*.md` filename in `docs/superpowers/specs/` and `docs/superpowers/plans/`;
 2. require every filename to appear in `docs/superpowers/README.md`;
-3. require explicit v0.6 `CURRENT` and v0.5 `SUPERSEDED` entries;
-4. require explicit statements equivalent to:
+3. require `Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` and `CURRENT` on the same authority-table row;
+4. require `Enterprise_Collaborative_Design_Agent_Spec_v0.5.md` and `SUPERSEDED` on the same authority-table row;
+5. require these exact lifecycle summary strings:
 
 ```text
-Phase I = latest completed capability phase
-Engineering Hygiene / Stabilization = current engineering activity
-Next capability phase = NOT YET DEFINED
+Phase I — latest completed capability phase
+Engineering Hygiene / Stabilization — current engineering activity
+Next capability phase — NOT YET DEFINED
 ```
 
 Run:
@@ -674,14 +738,14 @@ dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.T
 
 Define status meanings `CURRENT`, `COMPLETED`, `SUPERSEDED`, `ABANDONED`.
 
-Separate authority/version status from stage-history status:
+Create an authority table containing:
 
 ```text
-Enterprise_Collaborative_Design_Agent_Spec_v0.6.md = CURRENT
-Enterprise_Collaborative_Design_Agent_Spec_v0.5.md = SUPERSEDED
+Enterprise_Collaborative_Design_Agent_Spec_v0.6.md | CURRENT
+Enterprise_Collaborative_Design_Agent_Spec_v0.5.md | SUPERSEDED
 ```
 
-Represent the existing design/plan chain chronologically and link every current filename discovered in `docs/superpowers/specs/` and `docs/superpowers/plans/`. Mark implemented stages through Phase I as `COMPLETED`; mark the 2026-09-12 hygiene Design and Plan as `CURRENT` while this work is active.
+Create the lifecycle summary with the exact strings required by Step 1. Represent the existing design/plan chain chronologically and link every current filename discovered in `docs/superpowers/specs/` and `docs/superpowers/plans/`. Mark implemented stages through Phase I as `COMPLETED`; mark the 2026-09-12 hygiene Design and Plan as `CURRENT` while this work is active.
 
 Do not edit old Design Spec or Plan bodies to inject statuses.
 
