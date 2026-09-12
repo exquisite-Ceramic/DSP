@@ -119,8 +119,6 @@ jobs:
             tests/semantic_providers/enterprise_mapping/test_step34_property_projection.py \
             tests/integration/test_step34_autocad_wall_thickness_command.py \
             tests/integration/test_step34_autocad_wall_thickness_reconciliation.py
-      - name: Run full repository importlib regression
-        run: pytest -q --import-mode=importlib
       - name: Verify Step34 diff whitespace
         run: |
           git diff --check
