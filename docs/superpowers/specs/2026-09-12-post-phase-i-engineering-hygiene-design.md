@@ -1,8 +1,8 @@
 # Post-Phase-I Engineering Hygiene and Stabilization Design
 
-**Status:** CURRENT  
-**Design baseline:** `main@d2d1621b30f87506c62adb2d12f73d387821ef78`  
-**Date:** 2026-09-12  
+**Status:** CURRENT
+**Design baseline:** `main@d2d1621b30f87506c62adb2d12f73d387821ef78`
+**Date:** 2026-09-12
 **Scope:** repository hygiene and stabilization only; no product capability expansion
 
 ## 1. Purpose
