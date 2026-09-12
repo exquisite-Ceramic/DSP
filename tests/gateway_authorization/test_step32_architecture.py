@@ -106,7 +106,6 @@ FINAL_TEST_COMMANDS = (
     "pytest -q tests/changeset",
     "pytest -q tests/execution_planning",
     "pytest -q tests/provider_binding",
-    "pytest -q --import-mode=importlib",
 )
 STEP31_INSTALL_EDITABLES = (
     "-e contracts/python",
