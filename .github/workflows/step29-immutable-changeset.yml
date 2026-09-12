@@ -97,5 +97,3 @@ jobs:
         run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
       - name: Run Ruff on Step29 Python changes
         run: ruff check platform/changeset/src/design_changeset platform/impact/src/design_impact/__init__.py platform/impact/src/design_impact/bound_analysis.py tests/changeset
-      - name: Run full repository Python test suite
-        run: pytest -q --import-mode=importlib

@@ -113,8 +113,6 @@ jobs:
             -q
       - name: Verify Step33 reconciliation regressions
         run: python -m pytest tests/execution_reconciliation -q
-      - name: Run full repository importlib regression
-        run: python -m pytest --import-mode=importlib -q
       - name: Enforce no new Step36 Ruff diagnostics
         run: |
           git worktree add /tmp/dsp-main origin/main

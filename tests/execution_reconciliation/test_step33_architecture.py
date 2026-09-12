@@ -90,7 +90,6 @@ _REQUIRED_TEST_COMMANDS = (
     "pytest -q tests/execution_planning",
     "pytest -q tests/provider_binding",
     "pytest -q tests/gateway_authorization",
-    "pytest -q --import-mode=importlib",
 )
 _FINAL_SESSION_COMMANDS = (
     "pytest -q tests/approval_scope",
@@ -100,7 +99,6 @@ _FINAL_SESSION_COMMANDS = (
     "pytest -q tests/gateway_authorization",
     "pytest -q tests/execution_reconciliation",
     "ruff check",
-    "pytest -q --import-mode=importlib",
     "git diff --check",
     f"git diff --name-only {_BASE_SHA}...HEAD",
 )

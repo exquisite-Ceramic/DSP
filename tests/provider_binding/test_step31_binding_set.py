@@ -3,20 +3,21 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from conftest import (
-    FakeBindingAdapter,
-    default_native_bindings,
-    digest,
-    make_candidate,
-    make_request,
-    make_snapshot,
-)
 from design_provider_binding import (
     ProviderBindingAdapterRegistry,
     ProviderBindingError,
     ProviderResolver,
     compute_binding_set_hash,
     validate_provider_binding_set,
+)
+
+from tests.provider_binding.conftest import (
+    FakeBindingAdapter,
+    default_native_bindings,
+    digest,
+    make_candidate,
+    make_request,
+    make_snapshot,
 )
 
 

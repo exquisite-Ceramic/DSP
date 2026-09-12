@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import pytest
 from design_gateway_authorization import GatewayAuthorizationError
-from test_step32_materialization_grants import _authorization_case
+
+from tests.gateway_authorization._support import authorization_case
 
 
 def test_admitted_authority_preserves_exact_materialization_lineage() -> None:
-    ctx = _authorization_case("revit")
+    ctx = authorization_case("revit")
     grant = ctx.service.issue_execution_grant(ctx.request)
     authority = ctx.service.admit_execution_grant(
         grant.grant_hash,
@@ -26,7 +27,7 @@ def test_admitted_authority_preserves_exact_materialization_lineage() -> None:
 
 
 def test_repeated_admission_is_idempotent() -> None:
-    ctx = _authorization_case("autocad")
+    ctx = authorization_case("autocad")
     grant = ctx.service.issue_execution_grant(ctx.request)
     first = ctx.service.admit_execution_grant(
         grant.grant_hash,
@@ -41,7 +42,7 @@ def test_repeated_admission_is_idempotent() -> None:
 
 
 def test_unknown_or_expired_grant_cannot_be_admitted() -> None:
-    ctx = _authorization_case("revit")
+    ctx = authorization_case("revit")
     with pytest.raises(GatewayAuthorizationError) as exc:
         ctx.service.admit_execution_grant("f" * 64, "2026-09-06T11:10:00Z")
     assert exc.value.code == "EXECUTION_GRANT_CONFLICT"

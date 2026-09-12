@@ -96,5 +96,3 @@ jobs:
         run: pytest -q tests/impact
       - name: Run Ruff on Step30 Python changes
         run: ruff check platform/execution_planning/src/design_execution_planning tests/execution_planning
-      - name: Run full repository Python test suite
-        run: pytest -q --import-mode=importlib

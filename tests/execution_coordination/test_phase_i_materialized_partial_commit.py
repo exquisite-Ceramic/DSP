@@ -10,10 +10,7 @@ from design_execution_reconciliation import (
     SliceReconciliationStatusV2,
 )
 
-from tests.execution_coordination.test_phase_i_materialized_success import (
-    _execute,
-    _materialized_fixture,
-)
+from tests.execution_coordination._materialized_support import execute, materialized_fixture
 
 
 def test_revit_before_commit_after_autocad_success_is_partially_committed() -> None:
@@ -22,9 +19,9 @@ def test_revit_before_commit_after_autocad_success_is_partially_committed() -> N
         failure_ref="REVIT_REVISION_CONFLICT",
         failed_at="2026-09-06T14:03:00Z",
     )
-    fixture = _materialized_fixture(host_failures={"revit": failure})
+    fixture = materialized_fixture(host_failures={"revit": failure})
 
-    result = _execute(fixture)
+    result = execute(fixture)
 
     assert result.status is MaterializedCoordinationStatus.PARTIALLY_COMMITTED
     assert result.failure_ref == "REVIT_REVISION_CONFLICT"

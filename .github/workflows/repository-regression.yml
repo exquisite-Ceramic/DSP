@@ -1,0 +1,95 @@
+name: Repository regression
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  AGENT_HOST_TEST: "0"
+  DSP_PHASE_I_LIVE: "0"
+  DSP_REVIT_LIVE: "0"
+
+jobs:
+  python-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack
+        run: |
+          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
+          python -m pip install \
+            -e contracts/python \
+            -e hosts/autocad/sidecar \
+            -e platform/semantic_runtime \
+            -e platform/semantic_service \
+            -e platform/semantic_mcp \
+            -e providers/semantics/dsp_core \
+            -e providers/semantics/ifc43 \
+            -e providers/semantics/metro_v32 \
+            -e providers/semantics/enterprise_mapping
+      - name: Run repository importlib regression
+        run: python -m pytest --import-mode=importlib -q
+      - name: Run repository local-parity regression
+        run: python -m pytest -q
+      - name: Enforce no new repository Ruff diagnostics
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+          else
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          git worktree add /tmp/dsp-base "$BASE_SHA"
+          (
+            cd /tmp/dsp-base
+            ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
+          )
+          ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+          python - <<'PY'
+          import json
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+          def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+              rows = json.loads(Path(path).read_text(encoding="utf-8"))
+              result: Counter[tuple[str, str, str]] = Counter()
+              for row in rows:
+                  filename = str(row["filename"]).replace("\\", "/")
+                  for marker in ("/platform/", "/hosts/", "/tests/"):
+                      if marker in filename:
+                          filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                          break
+                  result[(filename, row["code"], row["message"])] += 1
+              return result
+
+          base = diagnostics("/tmp/base-ruff.json")
+          head = diagnostics("/tmp/head-ruff.json")
+          added = head - base
+          print(f"base diagnostics: {sum(base.values())}")
+          print(f"head diagnostics: {sum(head.values())}")
+          print(f"new diagnostics: {sum(added.values())}")
+          for item, count in sorted(added.items()):
+              print("NEW", count, item)
+          if added:
+              sys.exit(1)
+          PY
+
+  revit-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Run Revit AgentHost Core regression
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj

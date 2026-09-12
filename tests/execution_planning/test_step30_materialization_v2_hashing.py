@@ -11,18 +11,19 @@ from design_execution_planning import (
     plan_materialized_execution,
     validate_execution_plan_v2,
 )
-from test_step30_materialization_v2 import _phase_i_inputs
+
+from tests.execution_planning._support import build_phase_i_execution_inputs
 
 
 def test_materialization_routing_hash_is_order_independent() -> None:
-    _, _, routing, _ = _phase_i_inputs()
+    _, _, routing, _ = build_phase_i_execution_inputs()
     assert compute_materialization_routing_hash(routing.routes) == (
         compute_materialization_routing_hash(tuple(reversed(routing.routes)))
     )
 
 
 def test_runtime_change_changes_routing_and_execution_plan_hashes() -> None:
-    case, _, routing, request = _phase_i_inputs()
+    case, _, routing, request = build_phase_i_execution_inputs()
     baseline = plan_materialized_execution(request)
     changed_routes = (
         replace(
@@ -50,7 +51,7 @@ def test_runtime_change_changes_routing_and_execution_plan_hashes() -> None:
 
 
 def test_v2_slice_hashes_bind_distinct_materialization_lineage() -> None:
-    _, materialization_plan, _, request = _phase_i_inputs()
+    _, materialization_plan, _, request = build_phase_i_execution_inputs()
     execution_plan = plan_materialized_execution(request)
 
     assert len({item.execution_slice_hash for item in execution_plan.execution_slices}) == 2
@@ -61,7 +62,7 @@ def test_v2_slice_hashes_bind_distinct_materialization_lineage() -> None:
 
 
 def test_plan_integrity_rejects_required_set_hash_substitution() -> None:
-    case, _, _, request = _phase_i_inputs()
+    case, _, _, request = build_phase_i_execution_inputs()
     execution_plan = plan_materialized_execution(request)
 
     with pytest.raises(ExecutionPlanningError) as exc:

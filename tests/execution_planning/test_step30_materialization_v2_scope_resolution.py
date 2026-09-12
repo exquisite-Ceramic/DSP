@@ -7,7 +7,7 @@ from design_approval_scope import ExecutionSliceScopeRule
 from design_execution_planning import ExecutionPlanningError
 from design_execution_planning.v2 import _resolve_exact_execution_slice_scope
 
-from tests.materialization_planning.conftest import build_case
+from tests.materialization_planning._support import build_case
 
 
 def _boundary_with(case, *rules):

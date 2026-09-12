@@ -80,5 +80,3 @@ jobs:
         run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
       - name: Run Ruff on Step28 Python changes
         run: ruff check platform/approval_scope/src/design_approval_scope tests/approval_scope
-      - name: Run full repository Python test suite
-        run: pytest -q --import-mode=importlib

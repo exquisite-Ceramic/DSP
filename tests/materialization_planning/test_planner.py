@@ -10,7 +10,7 @@ from design_materialization_planning import (
 )
 from design_materialization_topology import MaterializationSlot
 
-from conftest import build_case, slot, topology
+from tests.materialization_planning._support import build_case, slot, topology
 
 
 def _request(case, **overrides):

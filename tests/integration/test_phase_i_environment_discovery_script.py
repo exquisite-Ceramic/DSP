@@ -60,9 +60,11 @@ def test_discovery_script_hashes_only_explicit_or_existing_fixture_paths() -> No
     assert "RevitFixturePath" in text
     assert "DSP_AUTOCAD_FIXTURE_PATH" in text
     assert "DSP_REVIT_LIVE_FIXTURE_PATH" in text
-    assert "Get-FileHash" in text
-    assert "SHA256" in text
+    assert "Get-SharedReadSha256" in text
+    assert "[System.Security.Cryptography.SHA256]::Create()" in text
+    assert "[System.IO.FileShare]::ReadWrite" in text
     assert "Test-Path" in text
+    assert "Get-FileHash" not in text
 
 
 def test_discovery_script_delegates_host_identity_to_read_only_probe() -> None:

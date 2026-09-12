@@ -71,7 +71,7 @@ def test_registry_same_adapter_registration_is_idempotent(fake_adapter):
 def test_registry_conflicting_adapter_fails_closed(fake_adapter):
     registry = ProviderBindingAdapterRegistry()
     registry.register("provider.revit", fake_adapter)
-    from conftest import FakeBindingAdapter
+    from tests.provider_binding.conftest import FakeBindingAdapter
 
     with pytest.raises(ProviderBindingError) as exc:
         registry.register("provider.revit", FakeBindingAdapter())
@@ -97,7 +97,7 @@ def test_registry_rejects_blank_provider_server(fake_adapter):
 
 
 def test_registry_lookup_is_independent_of_registration_order():
-    from conftest import FakeBindingAdapter
+    from tests.provider_binding.conftest import FakeBindingAdapter
 
     first_a = FakeBindingAdapter(adapter_version="1.0.0")
     first_b = FakeBindingAdapter(adapter_version="2.0.0")

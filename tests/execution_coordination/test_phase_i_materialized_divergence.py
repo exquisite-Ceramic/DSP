@@ -7,16 +7,13 @@ from design_execution_reconciliation import (
     SliceReconciliationStatusV2,
 )
 
-from tests.execution_coordination.test_phase_i_materialized_success import (
-    _execute,
-    _materialized_fixture,
-)
+from tests.execution_coordination._materialized_support import execute, materialized_fixture
 
 
 def test_all_local_success_plus_canonical_mismatch_ends_diverged_without_rewriting_slices() -> None:
-    fixture = _materialized_fixture(divergent_host="revit")
+    fixture = materialized_fixture(divergent_host="revit")
 
-    result = _execute(fixture)
+    result = execute(fixture)
 
     assert result.status is MaterializedCoordinationStatus.DIVERGED
     assert result.failure_ref == "CONVERGENCE_DIVERGED"

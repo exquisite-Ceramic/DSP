@@ -34,5 +34,3 @@ jobs:
             -e platform/semantic_runtime
       - name: Run D4 operation resolver tests
         run: pytest -q tests/orchestrator/test_operation_resolver.py
-      - name: Run full Python regression tests
-        run: pytest -q contracts/python/tests tests/contracts tests/integration tests/orchestrator

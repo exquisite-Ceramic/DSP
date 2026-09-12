@@ -1,68 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
-from types import SimpleNamespace
 
 import pytest
-from design_execution_planning import HostRuntimeRef, plan_materialized_execution
+from design_execution_planning import HostRuntimeRef
 from design_gateway_authorization import (
     ExecutionGrantRequestV2,
     GatewayAuthorizationError,
-    GatewayAuthorizationServiceV2,
-    InMemoryGatewayAuthorizationStoreV2,
 )
-from design_provider_binding import resolve_provider_bindings_v2
-from test_step32_materialization_approval import _approval_request_v2
 
-from tests.execution_planning.test_step30_materialization_v2 import _phase_i_inputs
-from tests.provider_binding.test_step31_materialization_v2 import _snapshot
-
-
-def _native_identity(host_type: str) -> tuple[str, str]:
-    if host_type == "autocad":
-        return "ACAD-HANDLE-001", "AcDbPolyline"
-    return "REVIT-UNIQUE-ID-001", "Wall"
-
-
-def _authorization_case(host_type: str = "autocad"):
-    case, materialization_plan, _, execution_request = _phase_i_inputs()
-    execution_plan = plan_materialized_execution(execution_request)
-    execution_slice = next(
-        item
-        for item in execution_plan.execution_slices
-        if item.host_runtime_ref.host_type == host_type
-    )
-    native_id, native_kind = _native_identity(host_type)
-    snapshot = _snapshot(
-        execution_slice,
-        native_id=native_id,
-        native_kind=native_kind,
-    )
-    binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
-    store = InMemoryGatewayAuthorizationStoreV2()
-    service = GatewayAuthorizationServiceV2(store)
-    approval = service.consume_approval(_approval_request_v2(case))
-    request = ExecutionGrantRequestV2(
-        approval_id=approval.approval_id,
-        execution_plan=execution_plan,
-        execution_slice=execution_slice,
-        provider_binding_set=binding_set,
-        materialization_plan=materialization_plan,
-        topology_snapshot=case.topology,
-        approval_scope_boundary=case.boundary_v2,
-        issued_at="2026-09-06T11:00:00Z",
-    )
-    return SimpleNamespace(
-        case=case,
-        materialization_plan=materialization_plan,
-        execution_plan=execution_plan,
-        execution_slice=execution_slice,
-        binding_set=binding_set,
-        store=store,
-        service=service,
-        approval=approval,
-        request=request,
-    )
+from tests.gateway_authorization._support import authorization_case
 
 
 def _assert_error(code: str, operation, *, upstream_code: str | None = None) -> None:
@@ -87,7 +34,7 @@ def test_v2_grant_request_carries_exact_owner_validation_evidence() -> None:
 
 
 def test_valid_grant_binds_exact_materialization_authority() -> None:
-    ctx = _authorization_case("autocad")
+    ctx = authorization_case("autocad")
     grant = ctx.service.issue_execution_grant(ctx.request)
 
     assert grant.approval_id == ctx.approval.approval_id
@@ -106,8 +53,8 @@ def test_valid_grant_binds_exact_materialization_authority() -> None:
 
 
 def test_autocad_and_revit_receive_distinct_materialization_grants() -> None:
-    autocad = _authorization_case("autocad")
-    revit = _authorization_case("revit")
+    autocad = authorization_case("autocad")
+    revit = authorization_case("revit")
     autocad_grant = autocad.service.issue_execution_grant(autocad.request)
     revit_grant = revit.service.issue_execution_grant(revit.request)
 
@@ -119,7 +66,7 @@ def test_autocad_and_revit_receive_distinct_materialization_grants() -> None:
 
 @pytest.mark.parametrize("mutation", ("plan", "materialization", "binding", "slice", "host"))
 def test_materialization_plan_binding_slice_or_host_substitution_fails_closed(mutation) -> None:
-    ctx = _authorization_case("autocad")
+    ctx = authorization_case("autocad")
     request = ctx.request
 
     if mutation == "plan":
@@ -175,7 +122,7 @@ def test_materialization_plan_binding_slice_or_host_substitution_fails_closed(mu
 
 
 def test_tampered_execution_plan_is_rejected_through_step30_owner_validator() -> None:
-    ctx = _authorization_case("autocad")
+    ctx = authorization_case("autocad")
     bad_plan = replace(ctx.execution_plan, execution_plan_hash="f" * 64)
 
     _assert_error(
@@ -188,7 +135,7 @@ def test_tampered_execution_plan_is_rejected_through_step30_owner_validator() ->
 
 
 def test_same_active_lineage_and_binding_remains_idempotent() -> None:
-    ctx = _authorization_case("autocad")
+    ctx = authorization_case("autocad")
     first = ctx.service.issue_execution_grant(ctx.request)
     second = ctx.service.issue_execution_grant(
         replace(ctx.request, issued_at="2026-09-06T11:05:00Z")

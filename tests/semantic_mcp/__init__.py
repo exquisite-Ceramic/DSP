@@ -1,0 +1,1 @@
+"""Semantic MCP test package."""

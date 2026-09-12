@@ -8,11 +8,12 @@ from design_provider_binding import (
     resolve_provider_bindings_v2,
     validate_cross_materialization_identity,
 )
-from test_step31_materialization_v2 import _phase_i_binding_inputs
+
+from tests.provider_binding._support import build_phase_i_binding_inputs
 
 
 def _binding_sets():
-    materialization_plan, slices, snapshots = _phase_i_binding_inputs()
+    materialization_plan, slices, snapshots = build_phase_i_binding_inputs()
     sets = tuple(
         resolve_provider_bindings_v2(slices[host_type], snapshots[host_type])
         for host_type in ("autocad", "revit")
@@ -55,25 +56,25 @@ def test_missing_or_extra_materialization_fails_closed() -> None:
 
 
 def test_missing_native_target_fails_identity_binding_unresolved() -> None:
-    _, slices, snapshots = _phase_i_binding_inputs()
+    _, slices, snapshots = build_phase_i_binding_inputs()
     execution_slice = slices["autocad"]
-    snapshot = replace(snapshots["autocad"], native_target_bindings=())
+    provider_snapshot = replace(snapshots["autocad"], native_target_bindings=())
 
     _assert_code(
         "IDENTITY_BINDING_UNRESOLVED",
-        lambda: resolve_provider_bindings_v2(execution_slice, snapshot),
+        lambda: resolve_provider_bindings_v2(execution_slice, provider_snapshot),
     )
 
 
 def test_duplicate_or_conflicting_native_target_fails_identity_binding_conflict() -> None:
-    _, slices, snapshots = _phase_i_binding_inputs()
+    _, slices, snapshots = build_phase_i_binding_inputs()
     execution_slice = slices["revit"]
-    snapshot = snapshots["revit"]
+    provider_snapshot = snapshots["revit"]
     duplicated = replace(
-        snapshot,
+        provider_snapshot,
         native_target_bindings=(
-            snapshot.native_target_bindings[0],
-            snapshot.native_target_bindings[0],
+            provider_snapshot.native_target_bindings[0],
+            provider_snapshot.native_target_bindings[0],
         ),
     )
 
@@ -84,10 +85,10 @@ def test_duplicate_or_conflicting_native_target_fails_identity_binding_conflict(
 
 
 def test_semantic_host_or_document_mismatch_fails_materialization_binding_mismatch() -> None:
-    _, slices, snapshots = _phase_i_binding_inputs()
+    _, slices, snapshots = build_phase_i_binding_inputs()
     execution_slice = slices["revit"]
-    snapshot = snapshots["revit"]
-    target = snapshot.native_target_bindings[0]
+    provider_snapshot = snapshots["revit"]
+    target = provider_snapshot.native_target_bindings[0]
 
     for changed in (
         replace(target, semantic_id="WALL-OTHER"),
@@ -98,7 +99,7 @@ def test_semantic_host_or_document_mismatch_fails_materialization_binding_mismat
             "MATERIALIZATION_BINDING_MISMATCH",
             lambda changed=changed: resolve_provider_bindings_v2(
                 execution_slice,
-                replace(snapshot, native_target_bindings=(changed,)),
+                replace(provider_snapshot, native_target_bindings=(changed,)),
             ),
         )
 
