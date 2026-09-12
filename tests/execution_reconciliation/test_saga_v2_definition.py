@@ -9,7 +9,10 @@ from design_execution_reconciliation import (
     SagaConvergenceOutcome,
 )
 
-from tests.execution_reconciliation._support import definition
+from tests.execution_reconciliation._support import definition, phase_i_context
+
+_definition = definition
+_phase_i_context = phase_i_context
 
 
 def test_v2_status_and_convergence_enums_are_exact() -> None:
