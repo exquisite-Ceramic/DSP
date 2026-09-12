@@ -4,9 +4,7 @@ from dataclasses import replace
 
 import pytest
 from design_gateway_authorization import (
-    ApprovalAdmission,
     ApprovalConsumptionRequest,
-    ApprovalConsumptionRequestV2,
     GatewayAuthorizationError,
     GatewayAuthorizationService,
     GatewayAuthorizationServiceV2,
@@ -14,33 +12,7 @@ from design_gateway_authorization import (
     compute_admission_fingerprint,
 )
 
-from tests.materialization_planning.conftest import build_case
-
-
-def _approval_request_v2(case=None) -> ApprovalConsumptionRequestV2:
-    case = case or build_case()
-    draft = ApprovalAdmission(
-        admission_id="ADM-PHASE-I-V2",
-        changeset_hash=case.changeset.changeset_hash,
-        approved_scope_hash=case.boundary_v2.scope_hash,
-        semantic_environment_ref=case.changeset.semantic_environment_ref,
-        approver="user:phase-i-approver",
-        policy_snapshot_hash="a" * 64,
-        policy_allowed_operations=("set_wall_thickness.v1",),
-        approved_at="2026-09-06T09:00:00Z",
-        expires_at="2026-09-06T17:00:00Z",
-        admission_fingerprint="0" * 64,
-    )
-    admission = replace(
-        draft,
-        admission_fingerprint=compute_admission_fingerprint(draft),
-    )
-    return ApprovalConsumptionRequestV2(
-        admission=admission,
-        canonical_changeset=case.changeset,
-        approval_scope_boundary=case.boundary_v2,
-        consumed_at="2026-09-06T10:00:00Z",
-    )
+from tests.gateway_authorization._support import approval_request_v2
 
 
 def _assert_error(code: str, operation, *, upstream_code: str | None = None) -> None:
@@ -52,7 +24,7 @@ def _assert_error(code: str, operation, *, upstream_code: str | None = None) -> 
 
 
 def test_v2_approval_consumes_exact_boundary_and_persists_existing_record_shape() -> None:
-    request = _approval_request_v2()
+    request = approval_request_v2()
     store = InMemoryGatewayAuthorizationStoreV2()
     record = GatewayAuthorizationServiceV2(store).consume_approval(request)
 
@@ -64,7 +36,7 @@ def test_v2_approval_consumes_exact_boundary_and_persists_existing_record_shape(
 
 
 def test_v2_approval_preserves_one_time_admission_consumption() -> None:
-    request = _approval_request_v2()
+    request = approval_request_v2()
     service = GatewayAuthorizationServiceV2(InMemoryGatewayAuthorizationStoreV2())
     service.consume_approval(request)
 
@@ -75,7 +47,7 @@ def test_v2_approval_preserves_one_time_admission_consumption() -> None:
 
 
 def test_v2_scope_or_changeset_integrity_failure_maps_owner_error() -> None:
-    request = _approval_request_v2()
+    request = approval_request_v2()
     service = GatewayAuthorizationServiceV2(InMemoryGatewayAuthorizationStoreV2())
 
     _assert_error(
@@ -107,7 +79,7 @@ def test_v2_scope_or_changeset_integrity_failure_maps_owner_error() -> None:
 
 
 def test_v2_approval_requires_exact_three_way_changeset_and_scope_join() -> None:
-    request = _approval_request_v2()
+    request = approval_request_v2()
     service = GatewayAuthorizationServiceV2(InMemoryGatewayAuthorizationStoreV2())
     admission = replace(
         request.admission,
@@ -126,7 +98,7 @@ def test_v2_approval_requires_exact_three_way_changeset_and_scope_join() -> None
 
 
 def test_v1_service_still_rejects_v2_boundary_object() -> None:
-    request = _approval_request_v2()
+    request = approval_request_v2()
     v1_request = ApprovalConsumptionRequest(
         admission=request.admission,
         canonical_changeset=request.canonical_changeset,
