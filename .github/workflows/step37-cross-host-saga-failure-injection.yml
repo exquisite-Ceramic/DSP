@@ -148,6 +148,7 @@ jobs:
           git diff --check
           git diff --check origin/main...HEAD
       - name: Enforce Step37 branch boundary
+        if: github.ref_name == 'feat/step37-cross-host-saga-failure-injection' || github.head_ref == 'feat/step37-cross-host-saga-failure-injection'
         run: |
           python - <<'PY'
           import fnmatch
