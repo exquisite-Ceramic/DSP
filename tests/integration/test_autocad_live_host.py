@@ -88,6 +88,17 @@ def test_retry_does_not_mask_multiple_pipe_ambiguity() -> None:
     assert calls == 1
 
 
+@pytest.mark.parametrize(
+    "filename",
+    ("test_move_idempotency.py", "test_revision_conflict.py"),
+)
+def test_legacy_live_tests_use_shared_pipe_discovery(filename: str) -> None:
+    source = Path(__file__).with_name(filename).read_text(encoding="utf-8")
+
+    assert "live_autocad_host_adapter()" in source
+    assert "HostAdapter()" not in source
+
+
 def test_single_instance_host_waits_for_client_completion_before_reaccepting() -> None:
     source = (
         Path(__file__).parents[2]
