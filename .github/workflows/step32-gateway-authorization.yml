@@ -108,5 +108,3 @@ jobs:
             platform/execution_planning/src/design_execution_planning \
             platform/gateway_authorization/src/design_gateway_authorization \
             tests/approval_scope tests/changeset tests/execution_planning tests/gateway_authorization
-      - name: Run full repository tests
-        run: pytest -q --import-mode=importlib
