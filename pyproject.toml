@@ -28,8 +28,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "contracts/python/tests"]
 pythonpath = [
-    # 保持本地 pytest 与 Phase I workflow 的 Python 模块解析边界一致。
-    # 这样从仓库根目录执行 runbook 中的离线门时，不需要额外手工拼接 PYTHONPATH。
+    # 统一仓库根目录、本地测试与 CI 的 Python 模块解析边界。
+    # 从仓库根目录执行离线回归时不需要额外手工拼接 PYTHONPATH。
     "contracts/python",
     "hosts/autocad/sidecar/src",
     "hosts/revit/sidecar/src",
@@ -55,7 +55,7 @@ pythonpath = [
 ]
 addopts = "-ra --strict-markers"
 markers = [
-    "integration: 需要真实宿主（AutoCAD + sidecar）的测试",
+    "integration: 需要真实宿主（AutoCAD 和/或 Revit）的测试",
     "conformance: 契约一致性测试",
     "asyncio: 异步测试标记 (pytest-asyncio)",
 ]
