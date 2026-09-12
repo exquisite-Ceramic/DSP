@@ -10,6 +10,8 @@ from design_execution_planning import (
 
 from tests.execution_planning._support import build_phase_i_execution_inputs
 
+_phase_i_inputs = build_phase_i_execution_inputs
+
 
 def test_v2_request_has_exact_frozen_inputs() -> None:
     assert {field.name for field in fields(ExecutionPlanningRequestV2)} == {
