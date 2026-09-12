@@ -95,7 +95,7 @@ from semantic_runtime import (
     SnapshotKind,
 )
 
-from tests.materialization_planning.conftest import build_case, slot
+from tests.materialization_planning._support import build_case, slot
 
 ROOT = Path(__file__).resolve().parents[2]
 _ENTERPRISE_MAPPING = (
@@ -759,7 +759,10 @@ class PhaseIConvergenceEvidencePort:
             ),
             document_ref=actual_delta.document_ref,
             base_host_revision=str(actual_delta.revision_after),
-            coverage=Coverage(actual_delta.document_ref, tuple(execution_slice.execution_units[0].targets)),
+            coverage=Coverage(
+                actual_delta.document_ref,
+                tuple(execution_slice.execution_units[0].targets),
+            ),
             projection_ref=projection,
             semantic_environment_ref=environment,
             aspect_guarantees=(),
