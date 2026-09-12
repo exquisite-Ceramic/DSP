@@ -20,6 +20,13 @@ HISTORICAL_STEP_WORKFLOWS = (
     "step37-cross-host-saga-failure-injection.yml",
 )
 
+ADDITIONAL_LEGACY_BROAD_TAIL_WORKFLOWS = (
+    "operation-resolver.yml",
+    "semantic-mcp.yml",
+    "semantic-service.yml",
+    "ifc43-semantic-provider.yml",
+)
+
 
 def _text(name: str) -> str:
     path = WORKFLOWS / name
@@ -34,6 +41,31 @@ def test_historical_step_workflows_no_longer_own_importlib_full_repo_regression(
         if "--import-mode=importlib" in _text(name)
     ]
     assert offenders == []
+
+
+def test_additional_legacy_domain_workflows_no_longer_own_full_repo_regression() -> None:
+    offenders = [
+        name
+        for name in ADDITIONAL_LEGACY_BROAD_TAIL_WORKFLOWS
+        if "Run full Python regression tests" in _text(name)
+    ]
+    assert offenders == []
+
+
+def test_additional_legacy_domain_focused_gates_remain_present() -> None:
+    expected_by_workflow = {
+        "operation-resolver.yml": ("Run D4 operation resolver tests",),
+        "semantic-mcp.yml": (
+            "Run Semantic MCP architecture guard",
+            "Run Semantic MCP tests",
+        ),
+        "semantic-service.yml": ("Run Semantic Service tests",),
+        "ifc43-semantic-provider.yml": ("Run IFC4.3 provider tests",),
+    }
+    for name, expected_steps in expected_by_workflow.items():
+        text = _text(name)
+        for expected in expected_steps:
+            assert expected in text
 
 
 def test_phase_h_focused_acceptance_proofs_remain_present() -> None:
