@@ -150,7 +150,8 @@ def test_document_revision_identity_uses_revit_document_equality_and_cleans_up_o
     assert "revisions.OnDocumentChanged(args.GetDocument())" in plugin_text
     assert "revisions.OnDocumentClosing(args.Document)" in plugin_text
 
-    assert "revisions.Get(document)" in handler_text
+    assert "revisions.Get(uiDocument.Document)" in handler_text
+    assert "() => revisions.Get(uiDocument.Document)" in handler_text
     assert "GetDocumentKey(" not in handler_text
 
 
