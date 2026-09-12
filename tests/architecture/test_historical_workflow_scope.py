@@ -62,5 +62,7 @@ def test_step36_and_step37_ruff_delta_guards_remain_present() -> None:
     ):
         text = _text(name)
         assert "Ruff" in text
-        assert "baseline" in text.lower()
         assert "ruff check" in text
+        assert "/tmp/main-ruff.json" in text
+        assert "/tmp/head-ruff.json" in text
+        assert "new diagnostics" in text
