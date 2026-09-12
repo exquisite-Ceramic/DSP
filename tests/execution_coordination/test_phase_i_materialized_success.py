@@ -9,6 +9,9 @@ from design_execution_reconciliation import (
 
 from tests.execution_coordination._materialized_support import execute, materialized_fixture
 
+_execute = execute
+_materialized_fixture = materialized_fixture
+
 
 def test_materialized_success_runs_hosts_once_in_frozen_order_then_converges() -> None:
     fixture = materialized_fixture()
