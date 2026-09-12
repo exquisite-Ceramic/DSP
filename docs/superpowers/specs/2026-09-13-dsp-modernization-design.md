@@ -122,30 +122,30 @@ The rejected alternatives are:
 
 ## 6. Target technology stack
 
-The following target stack is a design direction. Exact version cutovers are validated by M0/M2 evidence before becoming canonical.
+The following target stack is a design direction. Exact version cutovers are validated by M0/M2 evidence before becoming canonical. The **Direction** column is not the modernization-ledger decision field defined later.
 
-| Area | Current direction | Modernized direction | Decision |
+| Area | Current direction | Modernized direction | Direction |
 | --- | --- | --- | --- |
-| Platform runtime | Python `>=3.11` | Python 3.14 as candidate future canonical baseline after dual-run parity | UPGRADE |
-| Python workspace | multiple `pyproject.toml`, procedural install | `uv` workspace with explicit first-party graph | UPGRADE |
-| Python lock | no single repository lock | one committed root `uv.lock` | UPGRADE |
-| Python build backend | setuptools | retain setuptools unless M0 finds a concrete blocker | KEEP |
-| Tests | pytest / pytest-asyncio | retain | KEEP |
-| Lint | Ruff | retain; only tighten rules through separate evidence | KEEP |
-| Static typing | existing Python typing | optionally evaluate Pyright or mypy as advisory only; no new gate without approval | EVALUATE |
-| Canonical schema | JSON Schema | retain JSON Schema | KEEP |
-| Python schema resolution | `jsonschema`, deferred `RefResolver` debt | modern `referencing.Registry` path after characterization | UPGRADE |
-| Boundary DTOs | Pydantic v2 where already used | retain Pydantic v2 at transport/application boundaries | KEEP |
-| Agent protocol | MCP SDK v2 line | retain and keep supported | KEEP / REFRESH |
-| Host transport | gRPC + Protobuf | retain | KEEP / REFRESH |
-| AutoCAD sidecar | Python + MCP + gRPC | same architecture on modernized locked Python stack | UPGRADE TOOLCHAIN |
-| AutoCAD plugin | C# / Host-constrained .NET | Host-version-defined supported TFM | MATRIX |
-| Revit plugin | C# / dynamic Host TFM | preserve Host-version-defined TFM | MATRIX |
-| Host-neutral .NET Core | .NET 8 | prove .NET 10 compatibility where valid; cut over only when consumers allow | EVALUATE / UPGRADE |
-| .NET tests | xUnit | retain | KEEP |
-| CI | GitHub Actions | current supported Action majors + reproducible bootstrap | UPGRADE |
-| Dependency automation | manual updates | Dependabot for supported ecosystems, governed by compatibility policy | UPGRADE |
-| Real Host acceptance | manual/self-hosted Windows | retain as hardware/Host-specific gate | KEEP |
+| Platform runtime | Python `>=3.11` | Python 3.14 as candidate future canonical baseline after dual-run parity | upgrade candidate |
+| Python workspace | multiple `pyproject.toml`, procedural install | `uv` workspace with explicit first-party graph | upgrade |
+| Python lock | no single repository lock | one committed root `uv.lock` | upgrade |
+| Python build backend | setuptools | retain setuptools unless M0 finds a concrete blocker | keep |
+| Tests | pytest / pytest-asyncio | retain | keep |
+| Lint | Ruff | retain; only tighten rules through separate evidence | keep |
+| Static typing | existing Python typing | optionally evaluate Pyright or mypy as advisory only; no new gate without approval | defer unless justified |
+| Canonical schema | JSON Schema | retain JSON Schema | keep |
+| Python schema resolution | `jsonschema`, deferred `RefResolver` debt | modern `referencing.Registry` path after characterization | upgrade candidate |
+| Boundary DTOs | Pydantic v2 where already used | retain Pydantic v2 at transport/application boundaries | keep |
+| Agent protocol | MCP SDK v2 line | retain and keep supported | keep / refresh within v2 |
+| Host transport | gRPC + Protobuf | retain | keep / refresh tooling |
+| AutoCAD sidecar | Python + MCP + gRPC | same architecture on modernized locked Python stack | upgrade toolchain |
+| AutoCAD plugin | C# / Host-constrained .NET | Host-version-defined supported TFM | keep Host matrix |
+| Revit plugin | C# / dynamic Host TFM | preserve Host-version-defined TFM | keep Host matrix |
+| Host-neutral .NET Core | .NET 8 | prove .NET 10 compatibility where valid; cut over only when consumers allow | upgrade candidate |
+| .NET tests | xUnit | retain | keep |
+| CI | GitHub Actions | current supported Action majors + reproducible bootstrap | upgrade |
+| Dependency automation | manual updates | Dependabot for supported ecosystems, governed by compatibility policy | upgrade |
+| Real Host acceptance | manual/self-hosted Windows | retain as hardware/Host-specific gate | keep |
 
 ### 6.1 Python 3.14 is a candidate, not an immediate floor change
 
@@ -253,7 +253,7 @@ prove parity
    ↓
 switch canonical ownership
    ↓
-observe stability
+observe merge-result / Host evidence
    ↓
 remove old path
 ```
@@ -267,6 +267,8 @@ fix whatever breaks
 ```
 
 A compatibility path is not removed in the same step that first introduces its replacement unless equivalence is already independently proven and the risk class permits it.
+
+For T2/T3 cutovers, the minimum post-switch observation is a fresh successful canonical run on the merged `main` result plus any real-Host evidence required by the item's risk class. A longer time-based observation window is used only when that ledger item explicitly justifies one.
 
 ## 9. Program waves
 
@@ -890,7 +892,7 @@ An old path can be removed only when the ledger identifies:
 - proof that the replacement owns the same required behavior;
 - all known consumers;
 - rollback implications;
-- required observation window or release evidence;
+- required observation evidence;
 - final regression/Host evidence.
 
 ### 19.3 Examples of possible retirement candidates
@@ -977,7 +979,7 @@ parity proven
         ↓
 canonical switches
         ↓
-short stabilization/observation
+merged-main verification + required Host evidence
         ↓
 old path retired in M6
 ```
@@ -1004,7 +1006,7 @@ Modernization creates new current engineering artifacts without rewriting histor
 
 Rules:
 
-- this Design Spec is `CURRENT` only after review/approval;
+- this Design Spec is the current Modernization Planning artifact while it is under review; explicit approval freezes its technical body as the execution design;
 - once an implementation plan exists, both design and plan are `CURRENT` during execution;
 - completed hygiene design/plan move to `COMPLETED` in the lifecycle index;
 - historical Design Specs and Plans remain immutable engineering records;
@@ -1060,25 +1062,25 @@ It is:
 
 ## 27. Initial M0 candidate ledger seed
 
-The following rows seed M0 discovery. They are not implementation authorization and exact target versions must be verified when M0 executes.
+The following rows seed M0 discovery. They are not implementation authorization. `Initial decision` uses only the ledger decision vocabulary; M0 may change a seed decision after it produces evidence.
 
-| ID | Area | Current | Candidate direction | Risk | Initial disposition |
+| ID | Area | Current | Candidate direction | Risk | Initial decision |
 | --- | --- | --- | --- | --- | --- |
 | MOD-001 | Python runtime | 3.11 canonical | prove Python 3.14 compatibility | T2 | UPGRADE |
 | MOD-002 | Python workspace | procedural editable installs | root `uv` workspace | T1 | UPGRADE |
 | MOD-003 | Python resolution | no repository-wide lock | committed `uv.lock` | T1 | UPGRADE |
-| MOD-004 | Python build backend | setuptools | setuptools | T0 | KEEP |
+| MOD-004 | Python build backend | setuptools | keep setuptools | T0 | KEEP |
 | MOD-005 | JSON Schema resolver | deprecated resolver path documented by hygiene | `referencing.Registry` after characterization | T1 | UPGRADE |
-| MOD-006 | MCP SDK | v2 dependency line | supported v2 line | T1 | KEEP / REFRESH |
-| MOD-007 | gRPC/Protobuf | current Python/.NET runtime + tooling versions | supported compatible toolchain | T1/T2 | REFRESH / EVALUATE |
+| MOD-006 | MCP SDK | v2 dependency line | remain on supported v2 line | T1 | KEEP |
+| MOD-007 | gRPC/Protobuf | current Python/.NET runtime + tooling versions | refresh to a proven compatible supported toolchain | T1/T2 | UPGRADE |
 | MOD-008 | GitHub Actions | older canonical Action majors | current supported majors compatible with runners | T0 | UPGRADE |
-| MOD-009 | Revit Core | net8.0 | prove net10 compatibility where consumer-safe | T2 | EVALUATE |
-| MOD-010 | Revit native plugin | Host-defined TFM input | Host version matrix | T3 | KEEP / MATRIX |
-| MOD-011 | AutoCAD native plugin | net8.0-windows for current target | Host version matrix | T3 | KEEP / MATRIX |
+| MOD-009 | Revit Core | net8.0 | prove net10 compatibility where consumer-safe | T2 | UPGRADE |
+| MOD-010 | Revit native plugin | Host-defined TFM input | preserve Host-defined TFM and build version matrix | T3 | KEEP |
+| MOD-011 | AutoCAD native plugin | net8.0-windows for current target | preserve Host-defined runtime matrix | T3 | KEEP |
 | MOD-012 | .NET SDK selection | workflow/project-driven | explicit repository SDK governance | T1/T2 | UPGRADE |
-| MOD-013 | NuGet governance | project-local versions | centralize only where duplication/drift justifies it | T1 | EVALUATE |
+| MOD-013 | NuGet governance | project-local versions | centralize only if inventory proves duplication/drift | T1 | KEEP |
 | MOD-014 | Dependency automation | manual / partial | Dependabot for supported ecosystems | T0/T1 | UPGRADE |
-| MOD-015 | Python typing gate | current typing only | evaluate advisory Pyright/mypy value | T0/T1 | EVALUATE |
+| MOD-015 | Python typing gate | current typing only | evaluate advisory Pyright/mypy value separately | T0/T1 | DEFER |
 | MOD-016 | V1/V2 compatibility bridges | active current paths | architecture review only | T4 | DEFER |
 
 ## 28. External support facts recorded at design time
