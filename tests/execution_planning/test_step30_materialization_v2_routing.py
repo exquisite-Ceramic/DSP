@@ -11,7 +11,8 @@ from design_execution_planning import (
     compute_materialization_routing_hash,
     plan_materialized_execution,
 )
-from test_step30_materialization_v2 import _phase_i_inputs
+
+from tests.execution_planning._support import build_phase_i_execution_inputs
 
 
 def _with_routes(request, routes):
@@ -37,7 +38,7 @@ def test_routing_is_keyed_by_materialization_id_not_semantic_id() -> None:
 
 
 def test_missing_required_materialization_route_fails_closed() -> None:
-    _, _, routing, request = _phase_i_inputs()
+    _, _, routing, request = build_phase_i_execution_inputs()
     _assert_code(
         "MATERIALIZATION_ROUTE_UNRESOLVED",
         lambda: plan_materialized_execution(
@@ -47,7 +48,7 @@ def test_missing_required_materialization_route_fails_closed() -> None:
 
 
 def test_extraneous_materialization_route_fails_closed() -> None:
-    _, _, routing, request = _phase_i_inputs()
+    _, _, routing, request = build_phase_i_execution_inputs()
     extra = MaterializationRuntimeRoute(
         materialization_id="MAT-EXTRA",
         host_runtime_ref=HostRuntimeRef("autocad", "AUTOCAD-X", "DOC-AUTOCAD"),
@@ -61,7 +62,7 @@ def test_extraneous_materialization_route_fails_closed() -> None:
 
 
 def test_conflicting_duplicate_materialization_route_fails_closed() -> None:
-    _, _, routing, request = _phase_i_inputs()
+    _, _, routing, request = build_phase_i_execution_inputs()
     duplicate = replace(
         routing.routes[0],
         host_runtime_ref=HostRuntimeRef(
@@ -79,7 +80,7 @@ def test_conflicting_duplicate_materialization_route_fails_closed() -> None:
 
 
 def test_host_or_document_substitution_fails_materialization_route_match() -> None:
-    _, _, routing, request = _phase_i_inputs()
+    _, _, routing, request = build_phase_i_execution_inputs()
     wrong = replace(
         routing.routes[1],
         host_runtime_ref=HostRuntimeRef(
