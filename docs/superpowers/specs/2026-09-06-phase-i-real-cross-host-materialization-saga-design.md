@@ -1,8 +1,8 @@
 # Phase I — Real Cross-Host Materialization Saga Design
 
-**Status:** FROZEN DESIGN — user approved on 2026-09-06  
-**Base:** `main@44621cc065872282c2beed6217ed48e1c5f1b0cc`  
-**Phase:** I  
+**Status:** FROZEN DESIGN — user approved on 2026-09-06
+**Base:** `main@44621cc065872282c2beed6217ed48e1c5f1b0cc`
+**Phase:** I
 **Primary goal:** Prove one canonical wall-thickness change can be materialized, executed, reconciled, and converged across real AutoCAD and real Revit within one governed Saga without inventing distributed transaction semantics.
 
 ---
