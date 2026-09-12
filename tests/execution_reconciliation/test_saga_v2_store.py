@@ -67,7 +67,7 @@ def test_v2_controller_builds_and_persists_one_definition() -> None:
 def test_reservation_is_evidence_replay_safe_and_strict_cas() -> None:
     _, definition = _v2_definition()
     store = InMemoryExecutionSagaStoreV2()
-    stored = store.create_saga(definition)
+    store.create_saga(definition)
     first_hash = definition.ordered_slice_hashes[0]
 
     reserved = store.reserve_slice_admission(
