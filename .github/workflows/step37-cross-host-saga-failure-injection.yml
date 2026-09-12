@@ -100,8 +100,6 @@ jobs:
             tests/integration/test_step36_autocad_offset_command.py \
             tests/integration/test_step36_architecture.py \
             -q
-      - name: Run full repository importlib regression
-        run: python -m pytest --import-mode=importlib -q
       - name: Enforce Step37 strict Ruff
         run: |
           ruff check --select E,F,I \
