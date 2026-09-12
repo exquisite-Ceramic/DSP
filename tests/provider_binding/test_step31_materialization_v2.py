@@ -11,6 +11,8 @@ from design_provider_binding import (
 
 from tests.provider_binding._support import build_phase_i_binding_inputs, snapshot
 
+_snapshot = snapshot
+
 
 def test_v2_binding_preserves_exact_materialization_slice_and_host_lineage() -> None:
     _, slices, snapshots = build_phase_i_binding_inputs()
