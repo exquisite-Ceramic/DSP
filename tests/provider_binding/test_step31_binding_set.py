@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from design_provider_binding import (
+    ProviderBindingAdapterRegistry,
+    ProviderBindingError,
+    ProviderResolver,
+    compute_binding_set_hash,
+    validate_provider_binding_set,
+)
+
 from tests.provider_binding.conftest import (
     FakeBindingAdapter,
     default_native_bindings,
@@ -10,13 +18,6 @@ from tests.provider_binding.conftest import (
     make_candidate,
     make_request,
     make_snapshot,
-)
-from design_provider_binding import (
-    ProviderBindingAdapterRegistry,
-    ProviderBindingError,
-    ProviderResolver,
-    compute_binding_set_hash,
-    validate_provider_binding_set,
 )
 
 
