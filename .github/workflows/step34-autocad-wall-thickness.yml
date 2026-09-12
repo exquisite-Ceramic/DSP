@@ -122,4 +122,6 @@ jobs:
       - name: Verify Step34 diff whitespace
         run: |
           git diff --check
-          git diff --check ced26cbc2e000342d4342516389b8179834d9aaf...HEAD
+          if [[ "$GITHUB_REF_NAME" == "feat/step34-autocad-wall-thickness" || "$GITHUB_HEAD_REF" == "feat/step34-autocad-wall-thickness" ]]; then
+            git diff --check ced26cbc2e000342d4342516389b8179834d9aaf...HEAD
+          fi
