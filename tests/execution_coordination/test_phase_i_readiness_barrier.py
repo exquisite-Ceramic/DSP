@@ -11,6 +11,9 @@ from design_execution_coordination import (
 
 from tests.execution_coordination._support import barrier, phase_i_readiness_inputs
 
+_barrier = barrier
+_phase_i_readiness_inputs = phase_i_readiness_inputs
+
 
 def _assert_code(code: str, operation) -> None:
     with pytest.raises(ReadinessError) as exc:
