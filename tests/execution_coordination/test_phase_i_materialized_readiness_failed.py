@@ -5,21 +5,18 @@ from design_execution_coordination import (
     ReadinessStatus,
 )
 
-from tests.execution_coordination.test_phase_i_materialized_success import (
-    _execute,
-    _materialized_fixture,
-)
+from tests.execution_coordination._materialized_support import execute, materialized_fixture
 
 
 def test_not_ready_returns_readiness_failed_before_saga_or_host_mutation() -> None:
-    fixture = _materialized_fixture(
+    fixture = materialized_fixture(
         readiness_statuses={
             "autocad": ReadinessStatus.READY,
             "revit": ReadinessStatus.NOT_READY,
         }
     )
 
-    result = _execute(fixture)
+    result = execute(fixture)
 
     assert result.status is MaterializedCoordinationStatus.READINESS_FAILED
     assert result.saga_id == "NOT_CREATED"
