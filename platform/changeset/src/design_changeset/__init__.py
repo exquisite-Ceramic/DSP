@@ -1,6 +1,6 @@
 """Public API for the provider-neutral immutable Step29 ChangeSet."""
 
-from .builder import ChangeSetBuilder
+from .builder_v2 import ChangeSetBuilder
 from .contracts import (
     ApprovalScopeDefinitionRef,
     BoundOperationEvidence,
@@ -32,6 +32,7 @@ from .hashing import (
     compute_scope_rule_fingerprint,
 )
 from .integrity import validate_changeset_integrity
+from .integrity_v2 import validate_changeset_integrity_v2
 
 __all__ = [
     "ApprovalScopeDefinitionRef",
@@ -62,4 +63,5 @@ __all__ = [
     "compute_proposed_change_hash",
     "compute_scope_rule_fingerprint",
     "validate_changeset_integrity",
+    "validate_changeset_integrity_v2",
 ]

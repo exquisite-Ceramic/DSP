@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 from design_provider_binding import (
     ProviderBinding,
     ProviderBindingMaterial,
     ProviderBindingRequest,
+    ProviderBindingSetV2,
+    ProviderBindingV2,
+    ProviderExecutionSnapshotV2,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -99,3 +102,28 @@ def test_adapter_material_cannot_supply_canonical_or_provider_identity():
         "provider_preconditions",
         "native_binding_metadata",
     }
+
+
+def test_v2_value_contracts_are_frozen_and_authority_free():
+    for value in (
+        ProviderExecutionSnapshotV2,
+        ProviderBindingV2,
+        ProviderBindingSetV2,
+    ):
+        assert is_dataclass(value)
+        assert value.__dataclass_params__.frozen is True
+        assert {
+            field.name for field in fields(value)
+        }.isdisjoint(FORBIDDEN_ENVELOPE_FIELDS)
+
+
+def test_v2_never_constructs_fake_v1_execution_slice_or_unit():
+    path = PRODUCTION_ROOT / "v2.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    constructed = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "ExecutionSlice" not in constructed
+    assert "ExecutionUnit" not in constructed

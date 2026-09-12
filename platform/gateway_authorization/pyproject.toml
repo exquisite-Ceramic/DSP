@@ -1,7 +1,7 @@
 [project]
 name = "design-gateway-authorization"
 version = "0.1.0"
-description = "Provider-neutral durable Gateway authorization contracts for DSP."
+description = "Provider-neutral durable Gateway authorization contracts for DSP, including materialization-aware V2 grants."
 requires-python = ">=3.11"
 dependencies = []
 

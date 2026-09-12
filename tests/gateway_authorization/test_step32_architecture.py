@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import fields, is_dataclass
 from pathlib import Path
+
+from design_gateway_authorization import (
+    AdmittedExecutionAuthorityV2,
+    ApprovalConsumptionRequestV2,
+    ExecutionGrantRequestV2,
+    ExecutionGrantV2,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_ROOT = ROOT / "platform/gateway_authorization/src/design_gateway_authorization"
 SERVICE_PATH = PRODUCTION_ROOT / "service.py"
+V2_SERVICE_PATH = PRODUCTION_ROOT / "v2.py"
 WORKFLOW_PATH = ROOT / ".github/workflows/step32-gateway-authorization.yml"
 
 FORBIDDEN_SYMBOLS = {
@@ -50,14 +59,23 @@ FORBIDDEN_CONSTANTS = {
 PRIVATE_IMPORT_PREFIXES = (
     "design_approval_scope.hashing",
     "design_changeset.builder",
+    "design_changeset.integrity_v2",
     "design_execution_planning.planner",
+    "design_execution_planning.v2",
     "design_provider_binding.hashing",
+    "design_provider_binding.v2",
 )
 PUBLIC_VALIDATOR_IMPORTS = {
     ("design_approval_scope", "validate_approval_scope_boundary"),
     ("design_changeset", "validate_changeset_integrity"),
     ("design_execution_planning", "validate_execution_slice_integrity"),
     ("design_provider_binding", "validate_provider_binding_set"),
+}
+PUBLIC_V2_VALIDATOR_IMPORTS = {
+    ("design_approval_scope", "validate_approval_scope_boundary_v2"),
+    ("design_changeset", "validate_changeset_integrity_v2"),
+    ("design_execution_planning", "validate_execution_plan_v2"),
+    ("design_provider_binding", "validate_provider_binding_set_v2"),
 }
 FROZEN_PATH_BOUNDARY = {
     ".github/workflows/step32-gateway-authorization.yml",
@@ -71,6 +89,12 @@ FROZEN_PATH_BOUNDARY = {
     "tests/changeset/**",
     "platform/execution_planning/**",
     "tests/execution_planning/**",
+    "platform/provider_binding/**",
+    "tests/provider_binding/**",
+    "platform/materialization_topology/**",
+    "tests/materialization_topology/**",
+    "platform/materialization_planning/**",
+    "tests/materialization_planning/**",
     "pyproject.toml",
 }
 FINAL_TEST_COMMANDS = (
@@ -126,6 +150,20 @@ def _import_parts(node: ast.AST) -> set[str]:
     return parts
 
 
+def _imports_for(path: Path) -> tuple[set[tuple[str, str]], list[str]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports: set[tuple[str, str]] = set()
+    private_imports: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        if node.module.startswith(PRIVATE_IMPORT_PREFIXES):
+            private_imports.append(node.module)
+        for alias in node.names:
+            imports.add((node.module, alias.name))
+    return imports, private_imports
+
+
 def test_production_has_no_host_product_or_database_vendor_coupling():
     violations: list[str] = []
     for path, tree in _production_trees():
@@ -171,22 +209,38 @@ def test_production_has_no_direct_wall_clock_reads():
 
 
 def test_service_consumes_only_public_owner_integrity_validators():
-    tree = ast.parse(
-        SERVICE_PATH.read_text(encoding="utf-8"),
-        filename=str(SERVICE_PATH),
-    )
-    imports: set[tuple[str, str]] = set()
-    private_imports: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.module is None:
-            continue
-        if node.module.startswith(PRIVATE_IMPORT_PREFIXES):
-            private_imports.append(node.module)
-        for alias in node.names:
-            imports.add((node.module, alias.name))
-
+    imports, private_imports = _imports_for(SERVICE_PATH)
     assert PUBLIC_VALIDATOR_IMPORTS <= imports
     assert private_imports == []
+
+
+def test_v2_service_consumes_only_public_owner_integrity_validators():
+    imports, private_imports = _imports_for(V2_SERVICE_PATH)
+    assert PUBLIC_V2_VALIDATOR_IMPORTS <= imports
+    assert private_imports == []
+
+
+def test_v2_authority_contracts_are_frozen_and_materialization_explicit():
+    for value in (
+        ApprovalConsumptionRequestV2,
+        ExecutionGrantRequestV2,
+        ExecutionGrantV2,
+        AdmittedExecutionAuthorityV2,
+    ):
+        assert is_dataclass(value)
+        assert value.__dataclass_params__.frozen is True
+
+    grant_fields = {field.name for field in fields(ExecutionGrantV2)}
+    authority_fields = {field.name for field in fields(AdmittedExecutionAuthorityV2)}
+    required = {
+        "materialization_plan_hash",
+        "materialization_id",
+        "execution_slice_hash",
+        "binding_set_hash",
+        "host_instance_id",
+    }
+    assert required <= grant_fields
+    assert required <= authority_fields
 
 
 def test_workflow_path_filters_match_frozen_implementation_boundary():

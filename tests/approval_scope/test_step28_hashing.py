@@ -8,7 +8,12 @@ from design_approval_scope import (
     ExecutionSliceScopeRule,
     ExistingEntityRule,
     bind_changeset,
+    bind_changeset_v2,
+    bind_topology_snapshot_v2,
     compute_scope_body_hash,
+    validate_approval_scope_boundary,
+    validate_approval_scope_boundary_v2,
+    validate_approval_scope_definition_v2,
 )
 from design_impact import (
     IntentBoundary,
@@ -90,6 +95,10 @@ def test_material_scope_change_changes_body_hash():
     assert body_hash() != body_hash(fingerprint="other-impact")
 
 
+def test_v1_scope_body_hash_remains_byte_for_byte_stable():
+    assert body_hash() == "ec160f2bcdc0bc8cc8df763ad15adba44af2bcaf90ab50c99dc80d8974835281"
+
+
 def definition():
     env, planning, snapshot_set, evidence, intent, rule, slice_rule = fixtures()
     return ApprovalScopeDefinition(
@@ -103,7 +112,7 @@ def definition():
         (rule,),
         (),
         (),
-        ("PB-1",),
+        ("PB-2", "PB-1"),
         (slice_rule,),
         body_hash(),
     )
@@ -123,3 +132,41 @@ def test_different_changeset_hash_changes_scope_hash_and_preserves_body():
     assert first.scope_hash != second.scope_hash
     assert first.existing_entity_rules == frozen.existing_entity_rules
     assert first.execution_slice_scopes == frozen.execution_slice_scope_rules
+
+
+def test_v2_topology_binding_rekeys_content_addressed_definition():
+    frozen = definition()
+    first = bind_topology_snapshot_v2(frozen, topology_snapshot_hash="a" * 64)
+    second = bind_topology_snapshot_v2(frozen, topology_snapshot_hash="b" * 64)
+
+    assert first.scope_body_hash != frozen.scope_body_hash
+    assert first.scope_body_hash != second.scope_body_hash
+    assert first.scope_definition_id == f"ASD-{first.scope_body_hash[:12]}"
+    assert second.scope_definition_id == f"ASD-{second.scope_body_hash[:12]}"
+    assert first.scope_definition_id != frozen.scope_definition_id
+    validate_approval_scope_definition_v2(first)
+    validate_approval_scope_definition_v2(second)
+
+
+def test_v2_topology_binding_requires_lowercase_sha256_hash():
+    for bad in ("TBD", "A" * 64, "abc"):
+        with pytest.raises(ValueError):
+            bind_topology_snapshot_v2(definition(), topology_snapshot_hash=bad)
+
+
+def test_v2_boundary_is_integrity_checked_and_type_separated_from_v1():
+    frozen = definition()
+    v1_boundary = bind_changeset(frozen, "0" * 64, "SCOPE-V1")
+    v2_definition = bind_topology_snapshot_v2(
+        frozen,
+        topology_snapshot_hash="a" * 64,
+    )
+    v2_boundary = bind_changeset_v2(v2_definition, "0" * 64, "SCOPE-V2")
+
+    validate_approval_scope_boundary(v1_boundary)
+    validate_approval_scope_boundary_v2(v2_boundary)
+
+    with pytest.raises(TypeError):
+        validate_approval_scope_boundary(v2_boundary)
+    with pytest.raises(TypeError):
+        validate_approval_scope_boundary_v2(v1_boundary)

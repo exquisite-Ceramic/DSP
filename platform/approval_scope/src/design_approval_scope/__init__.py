@@ -2,7 +2,9 @@
 
 from .contracts import (
     ApprovalScopeBoundary,
+    ApprovalScopeBoundaryV2,
     ApprovalScopeDefinition,
+    ApprovalScopeDefinitionV2,
     ApprovalScopeError,
     ApprovalScopePlanRequest,
     CanonicalAspect,
@@ -23,15 +25,22 @@ from .contracts import (
 )
 from .hashing import (
     bind_changeset,
+    bind_changeset_v2,
+    bind_topology_snapshot_v2,
     compute_scope_body_hash,
+    compute_scope_body_hash_v2,
     creation_rule_id,
     validate_approval_scope_boundary,
+    validate_approval_scope_boundary_v2,
+    validate_approval_scope_definition_v2,
 )
 from .planner import ApprovalScopePlanner, direct_existing_rule_id, recipe_existing_rule_id
 
 __all__ = [
     "ApprovalScopeBoundary",
+    "ApprovalScopeBoundaryV2",
     "ApprovalScopeDefinition",
+    "ApprovalScopeDefinitionV2",
     "ApprovalScopeError",
     "ApprovalScopePlanRequest",
     "ApprovalScopePlanner",
@@ -51,9 +60,14 @@ __all__ = [
     "PredicateTerm",
     "ScopeEffectRecipe",
     "bind_changeset",
+    "bind_changeset_v2",
+    "bind_topology_snapshot_v2",
     "compute_scope_body_hash",
+    "compute_scope_body_hash_v2",
     "creation_rule_id",
     "direct_existing_rule_id",
     "recipe_existing_rule_id",
     "validate_approval_scope_boundary",
+    "validate_approval_scope_boundary_v2",
+    "validate_approval_scope_definition_v2",
 ]

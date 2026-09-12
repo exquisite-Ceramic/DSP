@@ -15,16 +15,25 @@ public interface IRevitRequestExecutor
         Func<long> readCurrentRevision);
 }
 
+public interface IRevitUiRequestExecutor
+{
+    HostResultEnvelope Execute(
+        UIDocument uiDocument,
+        HostCommandEnvelope command,
+        long revisionBefore,
+        Func<long> readCurrentRevision);
+}
+
 public sealed class RevitExternalEventHandler : IExternalEventHandler
 {
     private readonly RevitRequestQueue queue;
     private readonly DocumentRevisionTracker revisions;
-    private readonly IRevitRequestExecutor executor;
+    private readonly IRevitUiRequestExecutor executor;
 
     public RevitExternalEventHandler(
         RevitRequestQueue queue,
         DocumentRevisionTracker revisions,
-        IRevitRequestExecutor executor)
+        IRevitUiRequestExecutor executor)
     {
         this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
         this.revisions = revisions ?? throw new ArgumentNullException(nameof(revisions));
@@ -54,23 +63,22 @@ public sealed class RevitExternalEventHandler : IExternalEventHandler
             return Error(command.CommandId, "REVIT_ACTIVE_DOCUMENT_UNAVAILABLE", 0L, null);
         }
 
-        Document document = uiDocument.Document;
-        long revisionBefore = revisions.Get(document);
+        long revisionBefore = revisions.Get(uiDocument.Document);
 
         try
         {
             return executor.Execute(
-                document,
+                uiDocument,
                 command,
                 revisionBefore,
-                () => revisions.Get(document));
+                () => revisions.Get(uiDocument.Document));
         }
         catch (Exception exception)
         {
             return Error(
                 command.CommandId,
                 "REVIT_REQUEST_EXECUTION_FAILED",
-                revisions.Get(document),
+                revisions.Get(uiDocument.Document),
                 exception.Message);
         }
     }

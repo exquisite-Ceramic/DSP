@@ -5,6 +5,10 @@ on:
     paths:
       - "platform/provider_binding/**"
       - "tests/provider_binding/**"
+      - "platform/execution_planning/**"
+      - "tests/execution_planning/**"
+      - "platform/materialization_planning/**"
+      - "tests/materialization_planning/**"
       - "pyproject.toml"
       - "docs/superpowers/specs/2026-08-30-step31-provider-binding-design.md"
       - "docs/superpowers/plans/2026-08-30-step31-provider-binding.md"
@@ -13,6 +17,10 @@ on:
     paths:
       - "platform/provider_binding/**"
       - "tests/provider_binding/**"
+      - "platform/execution_planning/**"
+      - "tests/execution_planning/**"
+      - "platform/materialization_planning/**"
+      - "tests/materialization_planning/**"
       - "pyproject.toml"
       - "docs/superpowers/specs/2026-08-30-step31-provider-binding-design.md"
       - "docs/superpowers/plans/2026-08-30-step31-provider-binding.md"

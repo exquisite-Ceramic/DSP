@@ -1,7 +1,7 @@
 [project]
 name = "design-execution-planning"
 version = "0.1.0"
-description = "Provider-neutral immutable execution partitioning contracts for DSP."
+description = "Provider-neutral immutable execution partitioning contracts, including materialization-aware V2, for DSP."
 requires-python = ">=3.11"
 dependencies = []
 
