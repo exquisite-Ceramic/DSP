@@ -25,7 +25,10 @@ def test_revit_unknown_commit_requires_recovery_without_retry_or_convergence() -
 
     assert result.status is MaterializedCoordinationStatus.RECOVERY_REQUIRED
     assert result.failure_ref == "REVIT_COMMIT_STATE_UNKNOWN"
-    assert result.active_slice_hash == fixture.ctx.execution_plan.execution_slices[1].execution_slice_hash
+    assert (
+        result.active_slice_hash
+        == fixture.ctx.execution_plan.execution_slices[1].execution_slice_hash
+    )
     assert result.convergence_result_hash is None
     assert fixture.convergence_verifier.calls == []
     assert len(fixture.host_registry.ports["autocad"].calls) == 1
