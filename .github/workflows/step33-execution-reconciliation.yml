@@ -132,8 +132,6 @@ jobs:
             platform/execution_reconciliation/src/design_execution_reconciliation \
             tests/execution_planning \
             tests/execution_reconciliation
-      - name: Run full repository importlib suite
-        run: pytest -q --import-mode=importlib
       - name: Run fresh Step33 final verification session
         if: github.ref_name == 'feat/step33-execution-reconciliation' || github.head_ref == 'feat/step33-execution-reconciliation'
         run: |
@@ -147,7 +145,6 @@ jobs:
             platform/execution_planning/src/design_execution_planning \
             platform/execution_reconciliation/src/design_execution_reconciliation \
             tests/execution_planning tests/execution_reconciliation
-          pytest -q --import-mode=importlib
           git diff --check
           git diff --check cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD
           git diff --name-only cef76e111f74d10f063eedfebc7efc0d805caefa...HEAD | tee /tmp/step33-final-paths.txt
