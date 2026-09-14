@@ -531,9 +531,10 @@ Expected: PASS; no `RefResolver` production usage remains; outcomes match charac
 
 - [ ] **Step 6: Commit**
 
+Stage the exact resolver implementation file path(s) already frozen under MOD-005 in `dependency-inventory.md`, plus the characterization/architecture tests and modernization ledger. Use those literal M0-recorded paths; do not rediscover them with `git grep` after the migration because a successful migration removes the searched token.
+
 ```bash
-git add contracts/python tests/architecture docs/superpowers/modernization
-git add $(git grep -l RefResolver -- ':!docs/**' || true)
+git add contracts/python/tests/test_normalized_design_fact_schema.py tests/architecture docs/superpowers/modernization
 git commit -m "refactor: migrate schema reference resolution"
 ```
 
