@@ -89,10 +89,11 @@
 | [`2026-09-01-phase-h-revit-wall-thickness-gap-closure.md`](plans/2026-09-01-phase-h-revit-wall-thickness-gap-closure.md) | COMPLETED |
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga.md`](plans/2026-09-06-phase-i-real-cross-host-materialization-saga.md) | COMPLETED |
 | [`2026-09-12-post-phase-i-engineering-hygiene.md`](plans/2026-09-12-post-phase-i-engineering-hygiene.md) | COMPLETED |
+| [`2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | CURRENT |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- 当前 Modernization Design 是工程规划 artifact，不是新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。
+- 当前 Modernization Design 与 Implementation Plan 是工程规划 artifacts，不是新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。
 - 新能力阶段只有在其 Design Spec 正式冻结后才命名。
