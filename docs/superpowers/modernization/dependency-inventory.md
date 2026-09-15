@@ -1,6 +1,6 @@
 # DSP Modernization Dependency Inventory
 
-**Record state:** M0 Task 2 factual inventory complete; no execution authorization  
+**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized  
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
 **Observed:** 2026-09-15
@@ -56,6 +56,23 @@ The frozen Git tree and canonical CI install graph are the authorities for works
 | `hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj` | native Revit plugin; `$(DspRevitTargetFramework)` supplied per Host build |
 
 `global.json` pins SDK `8.0.100`, `rollForward: latestFeature`, `allowPrerelease: false`. This is explicit SDK governance already present; MOD-012 is therefore about assessing whether the governed SDK family must evolve, not creating governance from nothing.
+
+### M1 .NET SDK, NuGet and code-generation ownership
+
+Task 6 does not upgrade the SDK, NuGet packages, generator, proto semantics, or native Host target frameworks. It freezes the already-proven M0 values into machine-verifiable owners so later compatibility work has a deterministic baseline.
+
+| Concern | Authoritative owner | Frozen value / role |
+| --- | --- | --- |
+| .NET SDK selection | `global.json` | SDK `8.0.100`; `latestFeature`; `allowPrerelease: false` |
+| Google.Protobuf | `hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj` → `DspGoogleProtobufVersion` | `3.29.3` |
+| Grpc.AspNetCore | same transport project → `DspGrpcAspNetCoreVersion` | `2.70.0` |
+| Grpc.Tools | same transport project → `DspGrpcToolsVersion` | `2.70.0`; `PrivateAssets="All"` |
+| System.IO.FileSystem.AccessControl | same transport project → `DspSystemIOFileSystemAccessControlVersion` | `5.0.0` |
+| Host transport proto / .NET code generation | same transport project → `DspHostTransportProto` | resolves to canonical `contracts/proto/host_transport_v1.proto`; `GrpcServices="Server"` |
+| AutoCAD native TFM | `hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj` | remains Host-defined baseline `net8.0-windows` |
+| Revit native TFM | `hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj` | remains dynamic `$(DspRevitTargetFramework)` |
+
+`Directory.Packages.props` remains absent because MOD-013 is `KEEP`: package-version ownership stays project-local unless later evidence separately approves central package management.
 
 ## A3 Deprecation
 
