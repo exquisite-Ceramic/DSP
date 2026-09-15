@@ -11,6 +11,10 @@ GLOBAL_JSON = ROOT / "global.json"
 TRANSPORT = ROOT / (
     "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
 )
+TRANSPORT_TESTS = ROOT / (
+    "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/"
+    "AutoCAD.AgentHost.Grpc.Tests.csproj"
+)
 AUTOCAD_NATIVE = ROOT / "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj"
 REVIT_CORE = ROOT / "hosts/revit/plugin/Revit.AgentHost.Core/Revit.AgentHost.Core.csproj"
 REVIT_CORE_TESTS = ROOT / (
@@ -97,6 +101,13 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
         assert references[package].attrib.get("Version") == f"$({property_name})"
 
     assert references["Grpc.Tools"].attrib.get("PrivateAssets") == "All"
+
+
+def test_transport_tests_share_refreshed_grpc_client_family() -> None:
+    """测试 consumer 不得把 Grpc.Net.Client 钉回旧版本形成 NU1605 downgrade。"""
+
+    references = _package_references(_xml_root(TRANSPORT_TESTS))
+    assert references["Grpc.Net.Client"].attrib.get("Version") == "2.83.0"
 
 
 def test_transport_proto_codegen_owner_is_explicit_and_semantics_unchanged() -> None:
