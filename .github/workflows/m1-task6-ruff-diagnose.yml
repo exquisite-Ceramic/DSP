@@ -5,7 +5,7 @@ on:
     branches:
       - feat/technology-modernization-m1
 
-# 临时诊断：只定位 Task 6 新结构测试带来的绝对 Ruff 诊断，定位后立即删除。
+# 临时诊断：展示 Ruff 对 import block 的确定性修复 diff；定位后立即删除。
 permissions:
   contents: read
 
@@ -21,5 +21,7 @@ jobs:
           python-version: "3.11"
       - name: Install the same Ruff version pinned by uv.lock
         run: python -m pip install ruff==0.16.7
-      - name: Show Task 6 diagnostics
-        run: ruff check --select E,F,I tests/architecture/test_modernization_dotnet_toolchain.py
+      - name: Show deterministic import fix
+        run: ruff check --select I --fix --diff tests/architecture/test_modernization_dotnet_toolchain.py
+      - name: Show remaining E/F diagnostics
+        run: ruff check --select E,F tests/architecture/test_modernization_dotnet_toolchain.py
