@@ -57,79 +57,58 @@ jobs:
           import subprocess
           import sys
 
+          from google.protobuf import descriptor_pb2
           from autocad_sidecar.ipc.generated import host_transport_v1_pb2 as committed
+
+          def shape(serialized: bytes) -> dict:
+              file_proto = descriptor_pb2.FileDescriptorProto()
+              file_proto.ParseFromString(serialized)
+              return {
+                  "name": file_proto.name,
+                  "package": file_proto.package,
+                  "syntax": file_proto.syntax,
+                  "csharp_namespace": file_proto.options.csharp_namespace,
+                  "messages": {
+                      message.name: [
+                          [field.name, field.number, field.type, field.label]
+                          for field in message.field
+                      ]
+                      for message in file_proto.message_type
+                  },
+                  "services": {
+                      service.name: [
+                          [
+                              method.name,
+                              method.input_type,
+                              method.output_type,
+                              method.client_streaming,
+                              method.server_streaming,
+                          ]
+                          for method in service.method
+                      ]
+                      for service in file_proto.service
+                  },
+                  "serialized_sha256": hashlib.sha256(serialized).hexdigest(),
+              }
 
           generated_dir = os.environ["GENERATED"]
           probe = """
-          import hashlib
-          import json
+          import base64
           import host_transport_v1_pb2 as pb
-
-          descriptor = pb.DESCRIPTOR
-          shape = {
-              "package": descriptor.package,
-              "syntax": descriptor.syntax,
-              "messages": {
-                  name: [
-                      [field.name, field.number, field.type, field.label]
-                      for field in message.fields
-                  ]
-                  for name, message in descriptor.message_types_by_name.items()
-              },
-              "services": {
-                  name: [
-                      [
-                          method.name,
-                          method.input_type.full_name,
-                          method.output_type.full_name,
-                          method.client_streaming,
-                          method.server_streaming,
-                      ]
-                      for method in service.methods
-                  ]
-                  for name, service in descriptor.services_by_name.items()
-              },
-              "serialized_sha256": hashlib.sha256(descriptor.serialized_pb).hexdigest(),
-          }
-          print(json.dumps(shape, sort_keys=True))
+          print(base64.b64encode(pb.DESCRIPTOR.serialized_pb).decode())
           """
           env = dict(os.environ)
           env["PYTHONPATH"] = generated_dir
-          generated_shape = json.loads(
+          generated_serialized = __import__("base64").b64decode(
               subprocess.check_output(
                   [sys.executable, "-c", probe],
                   text=True,
                   env=env,
                   cwd="/tmp",
-              )
+              ).strip()
           )
-
-          descriptor = committed.DESCRIPTOR
-          committed_shape = {
-              "package": descriptor.package,
-              "syntax": descriptor.syntax,
-              "messages": {
-                  name: [
-                      [field.name, field.number, field.type, field.label]
-                      for field in message.fields
-                  ]
-                  for name, message in descriptor.message_types_by_name.items()
-              },
-              "services": {
-                  name: [
-                      [
-                          method.name,
-                          method.input_type.full_name,
-                          method.output_type.full_name,
-                          method.client_streaming,
-                          method.server_streaming,
-                      ]
-                      for method in service.methods
-                  ]
-                  for name, service in descriptor.services_by_name.items()
-              },
-              "serialized_sha256": hashlib.sha256(descriptor.serialized_pb).hexdigest(),
-          }
+          generated_shape = shape(generated_serialized)
+          committed_shape = shape(committed.DESCRIPTOR.serialized_pb)
           assert generated_shape == committed_shape, (
               "temporary regeneration changed protobuf descriptor/service wire shape"
           )
@@ -140,7 +119,11 @@ jobs:
           import os
           from pathlib import Path
 
-          generated = Path(os.environ["RUNNER_TEMP"]) / "dsp-proto-generated" / "host_transport_v1_pb2_grpc.py"
+          generated = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "dsp-proto-generated"
+              / "host_transport_v1_pb2_grpc.py"
+          )
           committed = Path(
               "hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py"
           )
