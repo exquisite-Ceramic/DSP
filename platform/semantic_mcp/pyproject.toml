@@ -9,6 +9,10 @@ dependencies = [
     "pydantic>=2,<3",
 ]
 
+# M1 将已声明的第一方依赖显式绑定到 workspace member，避免依赖源码暴露或安装顺序。
+[tool.uv.sources]
+semantic-service = { workspace = true }
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
