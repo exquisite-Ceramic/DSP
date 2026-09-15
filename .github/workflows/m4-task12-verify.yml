@@ -15,9 +15,157 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
       - name: Rebuild locked workspace
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
       - name: Run proto codegen reproducibility contract
         run: uv run python -m pytest tests/architecture/test_proto_codegen_reproducibility.py -q
+      - name: Install the locked Python generator only
+        run: |
+          uv sync --locked --package autocad-sidecar --extra grpc-build
+          uv run python - <<'PY'
+          from importlib.metadata import version
+
+          assert version("grpcio-tools") == "1.70.0"
+          print("grpcio-tools", version("grpcio-tools"))
+          print("protobuf-runtime", version("protobuf"))
+          print("grpcio-runtime", version("grpcio"))
+          PY
+          uv run python -m grpc_tools.protoc --version
+      - name: Regenerate in a temporary tree and prove descriptor parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          GENERATED="$RUNNER_TEMP/dsp-proto-generated"
+          rm -rf "$GENERATED"
+          mkdir -p "$GENERATED"
+
+          uv run python -m grpc_tools.protoc \
+            -I contracts/proto \
+            --python_out="$GENERATED" \
+            --grpc_python_out="$GENERATED" \
+            contracts/proto/host_transport_v1.proto
+
+          GENERATED="$GENERATED" uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import sys
+
+          from autocad_sidecar.ipc.generated import host_transport_v1_pb2 as committed
+
+          generated_dir = os.environ["GENERATED"]
+          probe = """
+          import hashlib
+          import json
+          import host_transport_v1_pb2 as pb
+
+          descriptor = pb.DESCRIPTOR
+          shape = {
+              "package": descriptor.package,
+              "syntax": descriptor.syntax,
+              "messages": {
+                  name: [
+                      [field.name, field.number, field.type, field.label]
+                      for field in message.fields
+                  ]
+                  for name, message in descriptor.message_types_by_name.items()
+              },
+              "services": {
+                  name: [
+                      [
+                          method.name,
+                          method.input_type.full_name,
+                          method.output_type.full_name,
+                          method.client_streaming,
+                          method.server_streaming,
+                      ]
+                      for method in service.methods
+                  ]
+                  for name, service in descriptor.services_by_name.items()
+              },
+              "serialized_sha256": hashlib.sha256(descriptor.serialized_pb).hexdigest(),
+          }
+          print(json.dumps(shape, sort_keys=True))
+          """
+          env = dict(os.environ)
+          env["PYTHONPATH"] = generated_dir
+          generated_shape = json.loads(
+              subprocess.check_output(
+                  [sys.executable, "-c", probe],
+                  text=True,
+                  env=env,
+                  cwd="/tmp",
+              )
+          )
+
+          descriptor = committed.DESCRIPTOR
+          committed_shape = {
+              "package": descriptor.package,
+              "syntax": descriptor.syntax,
+              "messages": {
+                  name: [
+                      [field.name, field.number, field.type, field.label]
+                      for field in message.fields
+                  ]
+                  for name, message in descriptor.message_types_by_name.items()
+              },
+              "services": {
+                  name: [
+                      [
+                          method.name,
+                          method.input_type.full_name,
+                          method.output_type.full_name,
+                          method.client_streaming,
+                          method.server_streaming,
+                      ]
+                      for method in service.methods
+                  ]
+                  for name, service in descriptor.services_by_name.items()
+              },
+              "serialized_sha256": hashlib.sha256(descriptor.serialized_pb).hexdigest(),
+          }
+          assert generated_shape == committed_shape, (
+              "temporary regeneration changed protobuf descriptor/service wire shape"
+          )
+          print(json.dumps(committed_shape, sort_keys=True, indent=2))
+          PY
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          generated = Path(os.environ["RUNNER_TEMP"]) / "dsp-proto-generated" / "host_transport_v1_pb2_grpc.py"
+          committed = Path(
+              "hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py"
+          )
+          method_paths = (
+              "/dsp.host.transport.v1.AutoCadHost/Ping",
+              "/dsp.host.transport.v1.AutoCadHost/Dispatch",
+          )
+          generated_text = generated.read_text(encoding="utf-8")
+          committed_text = committed.read_text(encoding="utf-8")
+          for path in method_paths:
+              assert path in generated_text
+              assert path in committed_text
+          print("gRPC method paths preserved:", ", ".join(method_paths))
+          PY
+
+          git diff --exit-code -- \
+            contracts/proto/host_transport_v1.proto \
+            hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
+      - name: Restore canonical locked workspace
+        run: uv sync --locked --all-packages
+      - name: Run Python transport conformance
+        run: uv run python -m pytest tests -q -k 'grpc or transport'
+      - name: Run AutoCAD .NET gRPC transport tests
+        run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj
+      - name: Re-run architecture contract and absolute Ruff
+        run: |
+          uv run python -m pytest tests/architecture/test_proto_codegen_reproducibility.py -q
+          uv run ruff check --select E,F,I tests/architecture/test_proto_codegen_reproducibility.py
