@@ -1,6 +1,6 @@
 # DSP Modernization Dependency Inventory
 
-**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized; M3 Task 11 hosted Action and bounded dependency automation verified
+**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized; M3 Task 11 Action/dependency automation verified; M4 Task 12 code-generation reproducibility and wire parity verified
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
 **Observed:** 2026-09-16
@@ -15,7 +15,7 @@ This record inventories the frozen baseline. It does not authorize an upgrade, m
 | --- | --- | --- |
 | `pyproject.toml` | root project; Python `>=3.11`; `jsonschema>=4.20`; dev pytest/pytest-asyncio/jsonschema; 22 pytest `pythonpath` entries; Ruff `py311` | Platform / repository tooling |
 | `contracts/python/pyproject.toml` | first-party Python contracts distribution | Contracts |
-| `hosts/autocad/sidecar/pyproject.toml` | `host-contracts`, `grpcio>=1.70,<2`, `protobuf>=5.29,<7`, `mcp>=2,<3`; `grpcio-tools==1.70.0` build extra | AutoCAD Host |
+| `hosts/autocad/sidecar/pyproject.toml` | `host-contracts`, `grpcio>=1.70,<2`, `protobuf>=5.29,<7`, `mcp>=2,<3`; `grpcio-tools==1.70.0` build extra; `[tool.dsp.proto-codegen]` freezes canonical proto source, existing generated-package output, and regeneration command | AutoCAD Host |
 | `hosts/revit/sidecar/pyproject.toml` | Revit Python sidecar distribution | Revit Host |
 | `platform/changeset/pyproject.toml` | first-party platform distribution | Platform |
 | `platform/convergence/pyproject.toml` | first-party platform distribution | Platform |
@@ -69,6 +69,7 @@ Task 6 does not upgrade the SDK, NuGet packages, generator, proto semantics, or 
 | Grpc.Tools | same transport project → `DspGrpcToolsVersion` | `2.70.0`; `PrivateAssets="All"` |
 | System.IO.FileSystem.AccessControl | same transport project → `DspSystemIOFileSystemAccessControlVersion` | `5.0.0` |
 | Host transport proto / .NET code generation | same transport project → `DspHostTransportProto` | resolves to canonical `contracts/proto/host_transport_v1.proto`; `GrpcServices="Server"` |
+| Python Host transport code generation | `hosts/autocad/sidecar/pyproject.toml` → `grpc-build` + `[tool.dsp.proto-codegen]` | `grpcio-tools==1.70.0` resolved from committed `uv.lock`; canonical source `contracts/proto/host_transport_v1.proto`; output `src/autocad_sidecar/ipc/generated`; regeneration uses `python -m grpc_tools.protoc` |
 | AutoCAD native TFM | `hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj` | remains Host-defined baseline `net8.0-windows` |
 | Revit native TFM | `hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj` | remains dynamic `$(DspRevitTargetFramework)` |
 
@@ -97,13 +98,13 @@ No warning is normalized away by M0. A warning becomes an execution item only af
 | Source / generated path | Role | Ownership |
 | --- | --- | --- |
 | `contracts/proto/host_transport_v1.proto` | canonical Host transport proto source | Contracts / Host transport |
-| `hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2.py` | committed Python generated transport artifact | AutoCAD Host transport |
-| `hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py` | committed Python gRPC generated artifact | AutoCAD Host transport |
+| `hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2.py` | committed Python generated transport artifact; generator provenance records Protobuf Python 5.29.0 | AutoCAD Host transport |
+| `hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py` | committed Python gRPC generated artifact; generator provenance records gRPC 1.70.0 | AutoCAD Host transport |
 | AutoCAD `.csproj` Protobuf item | .NET server code generation from the same proto | AutoCAD Host transport |
 | root `jsonschema>=4.20` + resolver usage | JSON Schema validation implementation | Schema tooling / MOD-005 |
 | `platform/semantic_mcp/pyproject.toml` and AutoCAD sidecar manifest | MCP v2 dependency line (`mcp>=2,<3`) | Semantic transport / AutoCAD sidecar |
 
-M0 freezes the proto/schema semantics. Generator/runtime changes are implementation-tooling candidates only; source-of-truth contract semantics are not modernization targets.
+Task 12 preserves the M0 proto/schema semantic freeze and makes the existing code-generation graph reproducible. The sidecar manifest declares the canonical source `contracts/proto/host_transport_v1.proto`, output package `src/autocad_sidecar/ipc/generated`, and `python -m grpc_tools.protoc` regeneration command; the generator remains `grpcio-tools==1.70.0` from the committed `uv.lock`, while .NET `Grpc.Tools` remains project-local at `2.70.0`. Verifier `35034932261` regenerated into a temporary tree and proved descriptor SHA-256 `0940b1ded0cd508794556cd7cbcc229c20e042275094702dbba5c7aed246418c`, message/service shape, and Ping/Dispatch method-path parity without changing the canonical proto or committed generated artifacts. Runtime/tooling version refreshes remain separate governed dependency-family changes.
 
 ## A7 CI & Toolchain
 
