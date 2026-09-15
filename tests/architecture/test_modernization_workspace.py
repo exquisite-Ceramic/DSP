@@ -59,7 +59,7 @@ def test_uv_workspace_matches_m0_package_manifest_inventory() -> None:
 
 
 def test_workspace_preserves_python_floor_and_ruff_target() -> None:
-    """Task 4 只建立解析/锁定基础设施，不提高 Python 支持下限。"""
+    """M1 只建立解析/锁定与 CI 消费机制，不提高 Python 支持下限。"""
 
     pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
 
@@ -68,17 +68,18 @@ def test_workspace_preserves_python_floor_and_ruff_target() -> None:
 
 
 def test_workspace_declares_default_dev_tooling_for_locked_verification() -> None:
-    """默认 locked sync 必须安装计划规定的 pytest 验证工具链。"""
+    """默认 locked sync 必须安装 canonical Python 验证工具链。"""
 
     pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
     dev_group = set(pyproject.get("dependency-groups", {}).get("dev", []))
 
     # uv 默认同步 dependency-groups.dev，而不会默认同步 project.optional-dependencies extras。
-    # Task 4 的冻结验证命令没有 --extra dev，因此这些工具必须属于默认 dev group。
+    # Task 5 canonical CI 不能再额外漂移安装 pytest 或 Ruff，因此这些工具必须进入共享 lock。
     assert {
         "pytest>=8.0",
         "pytest-asyncio>=0.23",
         "jsonschema>=4.20",
+        "ruff",
     }.issubset(dev_group)
 
 
