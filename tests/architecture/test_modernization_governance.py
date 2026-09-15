@@ -84,8 +84,17 @@ def test_m0_decisions_are_complete_and_executable_boundary_is_frozen() -> None:
     allowed_decisions = {"KEEP", "PIN_LOCK", "UPGRADE", "MIGRATE", "DEFER_ARCHITECTURE"}
     allowed_execution_states = {"APPROVED", "DEFERRED", "REJECTED"}
 
+    required_fields = (
+        "Risk",
+        "Decision",
+        "Owner",
+        "Consumers",
+        "Execution state",
+        "Evidence",
+        "Rollback",
+    )
     for row in rows:
-        for field in ("Risk", "Decision", "Owner", "Consumers", "Execution state", "Evidence", "Rollback"):
+        for field in required_fields:
             assert row[field], f"{row['ID']} missing {field}"
         assert row["Decision"] in allowed_decisions, f"{row['ID']} invalid decision"
         assert row["Execution state"] in allowed_execution_states, f"{row['ID']} not frozen"
