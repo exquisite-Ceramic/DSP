@@ -1,0 +1,26 @@
+name: M1 Task 7 Ruff verify
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+jobs:
+  absolute-ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rebuild locked verification environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Check Task 7 architecture tests absolutely
+        run: |
+          .venv/bin/ruff check --select E,F,I \
+            tests/architecture/test_modernization_runtime_matrix.py \
+            tests/architecture/test_repository_regression_workflow.py
