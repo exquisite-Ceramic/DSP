@@ -12,7 +12,16 @@ env:
 
 jobs:
   python-regression:
+    name: Python ${{ matrix.python-version }} (${{ matrix.lane }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.11"
+            lane: canonical
+          - python-version: "3.14"
+            lane: compatibility
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,10 +29,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install repository verification stack from committed lock
         run: |
-          # uv 本身是 bootstrap 工具；仓库内 Python 包与验证工具统一由 committed uv.lock 重建。
+          # uv 本身是 bootstrap 工具；两个 Python lane 都从同一份 committed uv.lock 重建 workspace。
           python -m pip install uv
           uv sync --locked --all-packages
       - name: Run repository importlib regression
@@ -31,6 +40,8 @@ jobs:
       - name: Run repository local-parity regression
         run: uv run python -m pytest -q
       - name: Enforce no new repository Ruff diagnostics
+        # Python 3.11 仍是 canonical lane；3.14 只证明运行时兼容性，不复制 Ruff baseline ownership。
+        if: matrix.lane == 'canonical'
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
