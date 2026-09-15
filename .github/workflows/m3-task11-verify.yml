@@ -5,19 +5,13 @@ on:
     branches:
       - feat/technology-modernization-m1
 
-permissions:
-  contents: write
-
 jobs:
   action-governance:
     runs-on: ubuntu-latest
-    env:
-      MIGRATE_FAMILY: setup-dotnet
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -25,74 +19,7 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Migrate exactly one hosted Action family
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          root = Path('.github/workflows')
-          verifier = root / 'm3-task11-verify.yml'
-          phase_i = root / 'phase-i-real-cross-host-materialization-saga.yml'
-          marker = '\n  phase-i-real-dual-host:\n'
-          replacements = {
-              'checkout': ('actions/checkout@v4', 'actions/checkout@v7'),
-              'setup-python': ('actions/setup-python@v5', 'actions/setup-python@v7'),
-              'setup-dotnet': ('actions/setup-dotnet@v4', 'actions/setup-dotnet@v6'),
-          }
-          family = os.environ['MIGRATE_FAMILY']
-          old, new = replacements[family]
-          changed = []
-          for path in sorted((*root.glob('*.yml'), *root.glob('*.yaml'))):
-              if path == verifier:
-                  continue
-              text = path.read_text(encoding='utf-8')
-              if path == phase_i:
-                  hosted, self_hosted = text.split(marker, 1)
-                  updated = hosted.replace(old, new) + marker + self_hosted
-              else:
-                  updated = text.replace(old, new)
-              if updated != text:
-                  path.write_text(updated, encoding='utf-8')
-                  changed.append(str(path))
-          print(f'{family} changed files: {len(changed)}')
-          for path in changed:
-              print(path)
-          if not changed:
-              raise SystemExit(f'no hosted refs changed for {family}')
-          PY
-      - name: Verify migrated family boundary
-        shell: bash
-        run: |
-          case "$MIGRATE_FAMILY" in
-            checkout)
-              uv run python -m pytest \
-                tests/architecture/test_modernization_actions.py::test_hosted_checkout_uses_supported_node24_major \
-                tests/architecture/test_modernization_actions.py::test_real_dual_host_job_is_the_only_deferred_action_compatibility_exception \
-                -q
-              ;;
-            setup-python)
-              uv run python -m pytest \
-                tests/architecture/test_modernization_actions.py::test_hosted_setup_python_uses_supported_node24_major \
-                tests/architecture/test_modernization_actions.py::test_real_dual_host_job_is_the_only_deferred_action_compatibility_exception \
-                -q
-              ;;
-            setup-dotnet)
-              uv run python -m pytest \
-                tests/architecture/test_modernization_actions.py::test_hosted_setup_dotnet_uses_supported_node24_major \
-                tests/architecture/test_modernization_actions.py::test_real_dual_host_job_is_the_only_deferred_action_compatibility_exception \
-                -q
-              ;;
-          esac
-      - name: Create verified local family commit
-        shell: bash
-        run: |
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows
-          git diff --cached --stat
-          git commit -m "ci: upgrade ${MIGRATE_FAMILY} action family"
-          echo "VERIFIED_LOCAL_COMMIT=$(git rev-parse HEAD)"
-          git push origin HEAD:feat/technology-modernization-m1
+      - name: Verify Task 11 governance contract
+        run: uv run python -m pytest tests/architecture/test_modernization_actions.py -q
+      - name: Verify Task 11 architecture test style
+        run: uv run ruff check --select E,F,I tests/architecture/test_modernization_actions.py
