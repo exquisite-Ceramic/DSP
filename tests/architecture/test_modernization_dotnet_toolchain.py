@@ -1,4 +1,4 @@
-"""M1 Task 6、M2 Task 8 与 M3 Task 10 的 .NET toolchain / compatibility 契约。"""
+"""M1 Task 6 与 M2 Task 8 的 .NET toolchain / compatibility 契约。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,6 @@ ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_JSON = ROOT / "global.json"
 TRANSPORT = ROOT / (
     "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
-)
-TRANSPORT_TESTS = ROOT / (
-    "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/"
-    "AutoCAD.AgentHost.Grpc.Tests.csproj"
 )
 AUTOCAD_NATIVE = ROOT / "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj"
 REVIT_CORE = ROOT / "hosts/revit/plugin/Revit.AgentHost.Core/Revit.AgentHost.Core.csproj"
@@ -87,9 +83,9 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
     properties = _property_values(project)
     references = _package_references(project)
     expected_owners = {
-        "Google.Protobuf": ("DspGoogleProtobufVersion", "3.36.1"),
-        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.83.0"),
-        "Grpc.Tools": ("DspGrpcToolsVersion", "2.83.0"),
+        "Google.Protobuf": ("DspGoogleProtobufVersion", "3.29.3"),
+        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.70.0"),
+        "Grpc.Tools": ("DspGrpcToolsVersion", "2.70.0"),
         "System.IO.FileSystem.AccessControl": (
             "DspSystemIOFileSystemAccessControlVersion",
             "5.0.0",
@@ -103,15 +99,8 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
     assert references["Grpc.Tools"].attrib.get("PrivateAssets") == "All"
 
 
-def test_transport_tests_share_refreshed_grpc_client_family() -> None:
-    """测试 consumer 不得把 Grpc.Net.Client 钉回旧版本形成 NU1605 downgrade。"""
-
-    references = _package_references(_xml_root(TRANSPORT_TESTS))
-    assert references["Grpc.Net.Client"].attrib.get("Version") == "2.83.0"
-
-
 def test_transport_proto_codegen_owner_is_explicit_and_semantics_unchanged() -> None:
-    """proto 仍是唯一 source-of-truth，Task 10 只刷新已批准的 toolchain family。"""
+    """proto 仍是唯一 source-of-truth，Task 6 只显式化它的项目内 owner。"""
 
     project = _xml_root(TRANSPORT)
     properties = _property_values(project)
