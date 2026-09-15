@@ -1,4 +1,4 @@
-"""M1 Task 6 的 .NET SDK、NuGet 与代码生成所有权契约。"""
+"""M1 Task 6 与 M2 Task 8 的 .NET toolchain / compatibility 契约。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,12 @@ TRANSPORT = ROOT / (
     "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
 )
 AUTOCAD_NATIVE = ROOT / "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj"
+REVIT_CORE = ROOT / "hosts/revit/plugin/Revit.AgentHost.Core/Revit.AgentHost.Core.csproj"
+REVIT_CORE_TESTS = ROOT / (
+    "hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj"
+)
 REVIT_NATIVE = ROOT / "hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj"
+WORKFLOW = ROOT / ".github/workflows/repository-regression.yml"
 INVENTORY = ROOT / "docs/superpowers/modernization/dependency-inventory.md"
 CENTRAL_PACKAGES = ROOT / "Directory.Packages.props"
 
@@ -46,7 +51,7 @@ def _package_references(project: ET.Element) -> dict[str, ET.Element]:
 
 
 def test_global_json_preserves_m0_sdk_policy() -> None:
-    """Task 6 只冻结当前 SDK ownership，不提前执行 .NET 10 cutover。"""
+    """Task 8 兼容性证明不得把 repository SDK policy 提前切到 .NET 10。"""
 
     data = json.loads(GLOBAL_JSON.read_text(encoding="utf-8"))
     assert data["sdk"] == {
@@ -97,13 +102,38 @@ def test_transport_proto_codegen_owner_is_explicit_and_semantics_unchanged() -> 
 
 
 def test_native_host_target_frameworks_remain_host_defined() -> None:
-    """M1 不得把 Host-neutral SDK 治理误写成 Autodesk native TFM cutover。"""
+    """Host-neutral .NET 10 compatibility 不得变成 Autodesk native TFM cutover。"""
 
     autocad = _property_values(_xml_root(AUTOCAD_NATIVE))
     revit = _property_values(_xml_root(REVIT_NATIVE))
 
     assert autocad["TargetFramework"] == "net8.0-windows"
     assert revit["TargetFramework"] == "$(DspRevitTargetFramework)"
+
+
+def test_revit_core_declares_only_host_neutral_net8_net10_compatibility() -> None:
+    """MOD-009 只允许 Core/Core.Tests 双目标，不扩展 native Host 支持声明。"""
+
+    core = _property_values(_xml_root(REVIT_CORE))
+    core_tests = _property_values(_xml_root(REVIT_CORE_TESTS))
+
+    assert core.get("TargetFrameworks") == "net8.0;net10.0"
+    assert core_tests.get("TargetFrameworks") == "net8.0;net10.0"
+    assert "TargetFramework" not in core
+    assert "TargetFramework" not in core_tests
+
+
+def test_repository_regression_has_host_neutral_dotnet10_compatibility_lane() -> None:
+    """canonical net8 与 candidate net10 必须分离，且 candidate 只测试 Core.Tests。"""
+
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "dotnet10-compat:" in workflow
+    assert 'dotnet-version: "10.0.x"' in workflow
+    assert (
+        "dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/"
+        "Revit.AgentHost.Core.Tests.csproj -f net8.0"
+    ) in workflow
+    assert "Revit.AgentHost.Core.Tests.csproj\" -f net10.0" in workflow
 
 
 def test_inventory_freezes_dotnet_package_and_codegen_ownership() -> None:
