@@ -83,3 +83,7 @@ def test_repository_regression_uses_one_locked_ruff_for_base_and_head() -> None:
     assert 'git worktree add /tmp/dsp-base "$BASE_SHA"' in text
     assert "Counter" in text
     assert "head - base" in text
+
+    # Task 7 只增加 3.14 兼容性证明；Ruff baseline 的 canonical ownership 仍属于 3.11 lane。
+    ruff_step = text.split("- name: Enforce no new repository Ruff diagnostics", 1)[1]
+    assert "if: matrix.lane == 'canonical'" in ruff_step.split("run: |", 1)[0]
