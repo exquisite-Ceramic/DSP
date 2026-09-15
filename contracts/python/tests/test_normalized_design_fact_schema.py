@@ -5,6 +5,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+from referencing import Registry, Resource
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -19,19 +20,19 @@ def _load(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _legacy_batch_resolver(fact_schema: dict):
-    """Task 9 characterization baseline; migration step replaces only this mechanism."""
+def _registry_for(schema: dict) -> Registry:
+    """Register the existing canonical resource by its declared $id."""
 
-    return jsonschema.RefResolver.from_schema(fact_schema)
+    return Registry().with_resource(schema["$id"], Resource.from_contents(schema))
 
 
-def _validate_batch_with_legacy_resolver(payload: dict) -> None:
+def _validate_batch_with_registry(payload: dict) -> None:
     batch_schema = _load(BATCH_SCHEMA)
     fact_schema = _load(FACT_SCHEMA)
     jsonschema.validate(
         payload,
         batch_schema,
-        resolver=_legacy_batch_resolver(fact_schema),
+        registry=_registry_for(fact_schema),
     )
 
 
@@ -58,7 +59,7 @@ def test_valid_fact_vectors_conform_to_schema():
 
 
 def test_valid_empty_batch_conforms_to_schema():
-    _validate_batch_with_legacy_resolver(_load(VECTOR_DIR / "valid_empty_batch.json"))
+    _validate_batch_with_registry(_load(VECTOR_DIR / "valid_empty_batch.json"))
 
 
 def test_fact_schema_local_ref_success_is_characterized():
@@ -70,9 +71,7 @@ def test_fact_schema_local_ref_success_is_characterized():
 def test_batch_external_then_local_nested_ref_success_is_characterized():
     """Batch -> fact schema -> local definitions must remain resolvable after migration."""
 
-    _validate_batch_with_legacy_resolver(
-        {"facts": [_load(VECTOR_DIR / "valid_property.json")]}
-    )
+    _validate_batch_with_registry({"facts": [_load(VECTOR_DIR / "valid_property.json")]})
 
 
 def test_missing_ref_failure_shape_is_characterized():
@@ -84,10 +83,9 @@ def test_missing_ref_failure_shape_is_characterized():
         "definitions": {},
         "$ref": "#/definitions/missing",
     }
-    resolver = jsonschema.RefResolver.from_schema(schema)
 
     with pytest.raises(Exception) as exc_info:
-        jsonschema.validate({}, schema, resolver=resolver)
+        jsonschema.validate({}, schema, registry=_registry_for(schema))
 
     error = exc_info.value
     assert not isinstance(error, (jsonschema.ValidationError, jsonschema.SchemaError))
@@ -98,7 +96,7 @@ def test_invalid_instance_through_external_ref_keeps_validation_error_shape():
     """Resolver migration must preserve the public ValidationError path/keyword shape."""
 
     with pytest.raises(jsonschema.ValidationError) as exc_info:
-        _validate_batch_with_legacy_resolver(
+        _validate_batch_with_registry(
             {"facts": [_load(VECTOR_DIR / "invalid_source_pair.json")]}
         )
 
