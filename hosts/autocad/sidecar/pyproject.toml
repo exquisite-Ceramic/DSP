@@ -23,6 +23,13 @@ autocad-sidecar-mcp = "autocad_sidecar.mcp_main:main"
 pipe = ["pywin32>=306"]
 grpc-build = ["grpcio-tools==1.70.0"]
 
+# M4 Task 12：canonical proto 仍是唯一 source-of-truth；生成器由 grpc-build exact pin +
+# committed uv.lock 固定。命令以 sidecar 目录为工作目录，并直接指向现有 generated package。
+[tool.dsp.proto-codegen]
+source = "../../../../contracts/proto/host_transport_v1.proto"
+output = "src/autocad_sidecar/ipc/generated"
+command = "python -m grpc_tools.protoc -I ../../../../contracts/proto --python_out=src/autocad_sidecar/ipc/generated --grpc_python_out=src/autocad_sidecar/ipc/generated ../../../../contracts/proto/host_transport_v1.proto"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
