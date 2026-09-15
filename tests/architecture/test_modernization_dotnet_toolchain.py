@@ -6,10 +6,11 @@ import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_JSON = ROOT / "global.json"
-TRANSPORT = ROOT / "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
+TRANSPORT = ROOT / (
+    "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
+)
 AUTOCAD_NATIVE = ROOT / "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj"
 REVIT_NATIVE = ROOT / "hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj"
 INVENTORY = ROOT / "docs/superpowers/modernization/dependency-inventory.md"
