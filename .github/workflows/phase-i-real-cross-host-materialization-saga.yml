@@ -55,7 +55,7 @@ jobs:
       DSP_REVIT_LIVE: "0"
       PYTHONPATH: ${{ github.workspace }}/contracts/python:${{ github.workspace }}/hosts/autocad/sidecar/src:${{ github.workspace }}/hosts/revit/sidecar/src:${{ github.workspace }}/platform/approval_scope/src:${{ github.workspace }}/platform/changeset/src:${{ github.workspace }}/platform/materialization_topology/src:${{ github.workspace }}/platform/materialization_planning/src:${{ github.workspace }}/platform/execution_planning/src:${{ github.workspace }}/platform/provider_binding/src:${{ github.workspace }}/platform/gateway_authorization/src:${{ github.workspace }}/platform/execution_reconciliation/src:${{ github.workspace }}/platform/execution_coordination/src:${{ github.workspace }}/platform/convergence/src:${{ github.workspace }}/platform/semantic_runtime/src:${{ github.workspace }}/platform/semantic_service/src:${{ github.workspace }}/platform/orchestrator/src:${{ github.workspace }}/platform/impact/src:${{ github.workspace }}/platform/interaction/src
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
