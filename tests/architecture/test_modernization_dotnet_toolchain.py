@@ -20,6 +20,7 @@ REVIT_NATIVE = ROOT / "hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj
 WORKFLOW = ROOT / ".github/workflows/repository-regression.yml"
 INVENTORY = ROOT / "docs/superpowers/modernization/dependency-inventory.md"
 CENTRAL_PACKAGES = ROOT / "Directory.Packages.props"
+NET10_OPT_IN = "'$(DspEnableNet10Compatibility)' == 'true'"
 
 
 def _xml_root(path: Path) -> ET.Element:
@@ -29,14 +30,26 @@ def _xml_root(path: Path) -> ET.Element:
 
 
 def _property_values(project: ET.Element) -> dict[str, str]:
-    """把项目级属性折叠成名称到文本值，便于验证唯一 owner。"""
+    """把无条件项目级属性折叠成名称到文本值，便于验证唯一 owner。"""
 
     values: dict[str, str] = {}
     for group in project.findall("PropertyGroup"):
         for child in group:
+            if child.attrib.get("Condition"):
+                continue
             assert child.tag not in values, f"重复的项目属性 owner: {child.tag}"
             values[child.tag] = (child.text or "").strip()
     return values
+
+
+def _target_frameworks(path: Path) -> set[tuple[str | None, str]]:
+    """读取 TargetFrameworks 的默认值与显式 compatibility opt-in。"""
+
+    project = _xml_root(path)
+    return {
+        (item.attrib.get("Condition"), (item.text or "").strip())
+        for item in project.findall(".//TargetFrameworks")
+    }
 
 
 def _package_references(project: ET.Element) -> dict[str, ET.Element]:
@@ -111,20 +124,21 @@ def test_native_host_target_frameworks_remain_host_defined() -> None:
     assert revit["TargetFramework"] == "$(DspRevitTargetFramework)"
 
 
-def test_revit_core_declares_only_host_neutral_net8_net10_compatibility() -> None:
-    """MOD-009 只允许 Core/Core.Tests 双目标，不扩展 native Host 支持声明。"""
+def test_revit_core_net10_target_is_explicitly_opt_in() -> None:
+    """8.x consumers 默认只看到 net8；Task 8 lane 显式 opt-in 后才暴露 net10。"""
 
-    core = _property_values(_xml_root(REVIT_CORE))
-    core_tests = _property_values(_xml_root(REVIT_CORE_TESTS))
-
-    assert core.get("TargetFrameworks") == "net8.0;net10.0"
-    assert core_tests.get("TargetFrameworks") == "net8.0;net10.0"
-    assert "TargetFramework" not in core
-    assert "TargetFramework" not in core_tests
+    expected = {
+        (None, "net8.0"),
+        (NET10_OPT_IN, "net8.0;net10.0"),
+    }
+    assert _target_frameworks(REVIT_CORE) == expected
+    assert _target_frameworks(REVIT_CORE_TESTS) == expected
+    assert not _xml_root(REVIT_CORE).findall(".//TargetFramework")
+    assert not _xml_root(REVIT_CORE_TESTS).findall(".//TargetFramework")
 
 
 def test_repository_regression_has_host_neutral_dotnet10_compatibility_lane() -> None:
-    """canonical net8 与 candidate net10 必须分离，且 candidate 只测试 Core.Tests。"""
+    """canonical net8 与 candidate net10 分离，candidate 只测试 Host-neutral Core.Tests。"""
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "dotnet10-compat:" in workflow
@@ -133,7 +147,15 @@ def test_repository_regression_has_host_neutral_dotnet10_compatibility_lane() ->
         "dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/"
         "Revit.AgentHost.Core.Tests.csproj -f net8.0"
     ) in workflow
-    assert "Revit.AgentHost.Core.Tests.csproj\" -f net10.0" in workflow
+    assert "DspEnableNet10Compatibility=true" in workflow
+    assert "hosts/revit/plugin/global.json" in workflow
+    assert "Revit.AgentHost.Core.Tests.csproj -f net10.0" in workflow
+    assert "hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj" not in workflow.split(
+        "dotnet10-compat:", 1
+    )[1]
+    assert "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj" not in workflow.split(
+        "dotnet10-compat:", 1
+    )[1]
 
 
 def test_inventory_freezes_dotnet_package_and_codegen_ownership() -> None:
