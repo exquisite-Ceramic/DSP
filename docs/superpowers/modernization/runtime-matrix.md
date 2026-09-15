@@ -1,6 +1,6 @@
 # DSP Modernization Runtime Matrix
 
-**Record state:** M0 Task 2 factual inventory complete; M2 Task 7 Python 3.14 compatibility lane verified  
+**Record state:** M0 Task 2 factual inventory complete; M2 Tasks 7-8 Python 3.14 and Host-neutral .NET 10 compatibility verified  
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Observed:** 2026-09-15
 
@@ -12,7 +12,7 @@ A candidate below is an assessment target only. It is not canonical until the pl
 | --- | --- | --- | --- | --- |
 | Python platform/runtime | root `requires-python = ">=3.11"`; canonical CI = 3.11; Ruff = `py311` | Python 3.14.7 released 2026-08-05 and is the current 3.14 maintenance release | prove 3.14 compatibility beside 3.11 | T2; do not raise floor in M0/M1 |
 | .NET repository SDK | `global.json` = 8.0.100, `latestFeature`; canonical CI uses .NET 8.x | .NET 8 LTS is in Maintenance and ends support 2026-11-10; .NET 10 LTS is Active through 2028-11-14 | assess .NET 10 compatibility where consumer-safe | T2; Host constraints override global preference |
-| Revit Core | `net8.0` | .NET 8 support window above; .NET 10 active | prove `net10.0` compatibility where no Host consumer is broken | T2; no TFM change in M0 |
+| Revit Core | default/canonical `net8.0`; .NET 10 compatibility target is explicit opt-in only | .NET 8 support window above; .NET 10 active | Host-neutral `net10.0` compatibility proven beside default `net8.0`; no canonical/native cutover | T2; compatibility evidence does not broaden native Host support |
 | Revit native plugin | `$(DspRevitTargetFramework)` supplied by Host build inputs | Autodesk Revit 2025 API requires .NET 8.0 | preserve Host-defined TFM matrix | T3; vendor + real Host evidence required per supported Revit release |
 | AutoCAD native plugin | `net8.0-windows`; project comments/current refs align with AutoCAD 2025 | Autodesk: AutoCAD 2025/2026 use .NET 8; AutoCAD 2027 uses .NET 10 | preserve Host-version runtime matrix | T3; no global .NET 10 rewrite |
 | MCP Python SDK | repo declares `mcp>=2,<3` in semantic MCP and AutoCAD sidecar | official MCP Python SDK v2 is current stable line, Python 3.10+ | stay on supported v2 line and lock/audit exact resolution later | T1; no v1→v2 migration exists here |
@@ -34,10 +34,20 @@ A candidate below is an assessment target only. It is not canonical until the pl
 - Absolute Ruff verifier run `34987662684` at `68a5ee77acd672d766964df5114ddc2a1be736b0` proved the Task 7 workflow/runtime-matrix architecture tests are E/F/I-clean after normalizing the new test's import spacing.
 - This evidence proves a non-canonical Python 3.14 compatibility lane only. It does not authorize the later M5 Python-floor/canonical-runtime cutover.
 
+## M2 Task 8 compatibility evidence
+
+- A first implementation made `Revit.AgentHost.Core` and `Revit.AgentHost.Core.Tests` unconditionally target `net8.0;net10.0`; canonical run `34988924018` at `c30d6e1462437da3397cd6df56b20dc86fd335d7` rejected that design because SDK 8.0.425 raised `NETSDK1045` while evaluating the `net10.0` target. The same leakage broke the Revit Core steps in Phase H run `34988924001` and Phase I run `34988923987`.
+- The accepted design therefore keeps `net8.0` as the default target set and exposes `net8.0;net10.0` only when `DspEnableNet10Compatibility=true`. The repository `global.json` remains the canonical 8.x selector; the `.NET 10 (Host-neutral compatibility)` job creates and removes an ephemeral `hosts/revit/plugin/global.json` that selects the installed 10.x SDK only inside the Revit plugin subtree.
+- Canonical repository regression run `34989313437` at `9edbf7c9b10fb60bb28ddfed80d075622233fb9c` passed Revit Core/Core.Tests on both `net8.0` and opt-in `net10.0`: SDK 8.0.425 produced `54/54` passing tests on net8, and SDK 10.0.401 produced `54/54` passing tests on net10.
+- The same run kept both Python lanes green with `1477 passed / 17 skipped / 1 warning` in both pytest modes on Python 3.11.16 and Python 3.14.7; canonical Ruff remained `319 -> 319 / new 0`.
+- Phase H run `34989281811` and Phase I run `34989282011` at `8e29fa23ce6495169ccbeb4fa51c4c812880e595` both returned GREEN for their existing Revit Core consumers, proving the opt-in target does not leak into the established .NET 8 workflows.
+- Absolute Ruff verifier run `34989606896` at `d491a744c6ee015813176796037b4936ac297696` proved the Task 8 .NET architecture test is E/F/I-clean independently of the baseline-delta mechanism.
+- No native Revit or AutoCAD TFM changed. This is Host-neutral Core compatibility evidence only; it does not add an Autodesk Host support row and does not authorize a repository-wide .NET 10 SDK cutover.
+
 ## Runtime gate facts
 
 - `>=3.11` remains the public Python floor until M5 cutover; Python 3.14 is first a compatibility lane.
 - Ruff remains targeted at `py311`, and the Ruff baseline-delta gate remains owned by the Python 3.11 canonical lane.
-- `net8.0` remains Revit Core's current target until compatibility proof; M0 does not retarget it.
-- Native AutoCAD/Revit TFMs are Host compatibility facts, not a repo-wide target policy.
+- Revit Core defaults to `net8.0`; `net10.0` is available only through the explicit `DspEnableNet10Compatibility=true` Host-neutral compatibility gate. The root `global.json` remains on the 8.x policy.
+- Native AutoCAD/Revit TFMs are Host compatibility facts, not a repo-wide target policy; Task 8 does not change them.
 - No prerelease runtime is a modernization baseline; .NET 11 RC is explicitly outside the planned baseline.
