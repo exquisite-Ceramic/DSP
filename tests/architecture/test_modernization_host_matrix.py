@@ -2,7 +2,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MATRIX = ROOT / "docs" / "superpowers" / "modernization" / "host-compatibility-matrix.md"
-AUTOCAD_PROJECT = ROOT / "hosts" / "autocad" / "plugin" / "AutoCAD.AgentHost" / "AutoCAD.AgentHost.csproj"
+AUTOCAD_PROJECT = (
+    ROOT / "hosts" / "autocad" / "plugin" / "AutoCAD.AgentHost" / "AutoCAD.AgentHost.csproj"
+)
 REVIT_PROJECT = ROOT / "hosts" / "revit" / "plugin" / "Revit.AgentHost" / "Revit.AgentHost.csproj"
 
 COLUMNS = (
@@ -36,7 +38,11 @@ def _support_rows() -> list[dict[str, str]]:
 
 def test_supported_host_rows_are_complete_and_real_host_backed() -> None:
     rows = _support_rows()
-    supported = {row["Product / version"]: row for row in rows if row["Support status"] == "SUPPORTED"}
+    supported = {
+        row["Product / version"]: row
+        for row in rows
+        if row["Support status"] == "SUPPORTED"
+    }
 
     assert "AutoCAD 2025" in supported
     assert "Revit 2027" in supported
