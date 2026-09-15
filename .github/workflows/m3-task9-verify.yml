@@ -1,0 +1,27 @@
+name: M3 Task 9 schema resolver verify
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+jobs:
+  focused-schema-resolution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rebuild locked verification environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Freeze pre-migration RefResolver locations
+        shell: bash
+        run: |
+          git grep -n RefResolver -- '*.py' || true
+      - name: Run focused schema characterization
+        run: uv run python -m pytest contracts/python/tests/test_normalized_design_fact_schema.py -q
