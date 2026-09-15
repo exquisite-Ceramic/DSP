@@ -1,9 +1,9 @@
 # DSP Modernization Dependency Inventory
 
-**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized  
+**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized; M3 Task 11 hosted Action and bounded dependency automation verified
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
-**Observed:** 2026-09-15
+**Observed:** 2026-09-16
 
 This record inventories the frozen baseline. It does not authorize an upgrade, migration, removal, or support-floor change. Package-managed first-party distributions are distinguished from source trees that are importable today because root pytest `pythonpath` and workflow install ordering expose them.
 
@@ -79,7 +79,7 @@ Task 6 does not upgrade the SDK, NuGet packages, generator, proto semantics, or 
 | Class | Observation | Owner / MOD | Current action |
 | --- | --- | --- | --- |
 | DEPRECATION | canonical Python regression emits the existing `jsonschema.RefResolver` deprecation warning | Schema tooling / MOD-005 | characterize resolver behavior before any `referencing.Registry` migration |
-| CI_ACTION | current canonical workflow uses older Action majors (`actions/checkout@v4`, `actions/setup-python@v5`) and M0 CI surfaced runner/runtime deprecation warning(s) | Build & Release / MOD-008 | record only in M0; no Action upgrade in Task 2 |
+| CI_ACTION | hosted workflows use `actions/checkout@v7`, `actions/setup-python@v7`, and `actions/setup-dotnet@v6`; the Phase I real dual-Host self-hosted tail remains an explicit `checkout@v4` / `setup-python@v5` compatibility exception pending runner-version proof | Build & Release / MOD-008 | Task 11 verified the hosted upgrades and preserves the self-hosted exception rather than dropping the required runner |
 
 No warning is normalized away by M0. A warning becomes an execution item only after Task 3 disposition.
 
@@ -107,13 +107,13 @@ M0 freezes the proto/schema semantics. Generator/runtime changes are implementat
 
 ## A7 CI & Toolchain
 
-Canonical repository truth is `.github/workflows/repository-regression.yml`: Python 3.11, `actions/checkout@v4`, `actions/setup-python@v5`, ad-hoc Python tool installation + editable first-party installs, both canonical pytest modes, Ruff no-new-diagnostics, `actions/setup-dotnet@v4`, .NET 8.x and Revit Core tests. Historical/domain workflows remain focused guards; real AutoCAD/Revit acceptance remains separate from Linux/offline canonical regression.
+Canonical repository truth is `.github/workflows/repository-regression.yml`: Python 3.11 canonical plus Python 3.14 compatibility, `actions/checkout@v7`, `actions/setup-python@v7`, reconstruction from the committed `uv.lock`, both canonical pytest modes, Ruff no-new-diagnostics, `actions/setup-dotnet@v6`, canonical .NET 8 Revit Core plus the isolated Host-neutral .NET 10 compatibility lane. Historical/domain workflows remain focused guards; real AutoCAD/Revit acceptance remains separate from Linux/offline canonical regression, and the Phase I real dual-Host self-hosted tail is the sole Action-major compatibility exception until its runner version is proven Node-24-capable.
 
 Official facts observed 2026-09-15:
 - uv workspaces keep package-local `pyproject.toml` files while sharing one `uv.lock`; `uv lock`, `uv sync` and `uv run` operate on the workspace (Astral uv documentation).
 - MCP Python SDK v2 is the current stable line and requires Python 3.10+; the repo already declares `mcp>=2,<3`, so M0 records this as an existing modern line rather than a v1→v2 migration.
-- GitHub Dependabot documents support for `github-actions`, `uv`, `.NET SDK`, and NuGet ecosystems; adoption remains a later governance decision.
-- GitHub's current setup-python examples use `actions/checkout@v7` and `actions/setup-python@v7`; this is evidence for MOD-008 assessment, not a Task 2 upgrade authorization.
+- GitHub Dependabot supports the approved `github-actions`, `uv`, `dotnet-sdk`, and `nuget` ecosystems; Task 11 now commits bounded weekly coverage for exactly those four ecosystems, with PR limits and no auto-merge.
+- Task 11 verified the current hosted Action majors `actions/checkout@v7`, `actions/setup-python@v7`, and `actions/setup-dotnet@v6` against repository workflow parity and canonical regression; the required Windows self-hosted real-Host job is intentionally not upgraded without runner-version evidence.
 
 ## Relationship classification
 
