@@ -101,4 +101,30 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Run Revit AgentHost Core regression
-        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj -f net8.0
+
+  dotnet10-compat:
+    name: .NET 10 (Host-neutral compatibility)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Run Host-neutral Revit Core .NET 10 compatibility
+        shell: bash
+        run: |
+          # 根 global.json 继续拥有 canonical 8.x SDK policy。
+          # compatibility lane 只在 Revit plugin 子树创建临时局部 selector，且 job 结束前删除。
+          SDK_VERSION="$(dotnet --list-sdks | awk '$1 ~ /^10\./ {version=$1} END {print version}')"
+          test -n "$SDK_VERSION"
+          trap 'rm -f "$GITHUB_WORKSPACE/hosts/revit/plugin/global.json"' EXIT
+          printf '{\n  "sdk": {\n    "version": "%s",\n    "rollForward": "disable",\n    "allowPrerelease": false\n  }\n}\n' \
+            "$SDK_VERSION" > "$GITHUB_WORKSPACE/hosts/revit/plugin/global.json"
+
+          pushd "$GITHUB_WORKSPACE/hosts/revit/plugin/Revit.AgentHost.Core.Tests"
+          dotnet --version
+          dotnet test Revit.AgentHost.Core.Tests.csproj -f net10.0 -p:DspEnableNet10Compatibility=true
+          popd
