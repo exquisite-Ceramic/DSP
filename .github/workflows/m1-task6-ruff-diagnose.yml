@@ -1,0 +1,25 @@
+name: M1 Task 6 Ruff diagnosis
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+# 临时诊断：只定位 Task 6 新结构测试带来的绝对 Ruff 诊断，定位后立即删除。
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the same Ruff version pinned by uv.lock
+        run: python -m pip install ruff==0.16.7
+      - name: Show Task 6 diagnostics
+        run: ruff check --select E,F,I tests/architecture/test_modernization_dotnet_toolchain.py
