@@ -1,6 +1,6 @@
 # DSP Modernization Runtime Matrix
 
-**Record state:** M0 Task 2 factual inventory complete; no execution authorization  
+**Record state:** M0 Task 2 factual inventory complete; M2 Task 7 Python 3.14 compatibility lane verified  
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Observed:** 2026-09-15
 
@@ -25,9 +25,19 @@ A candidate below is an assessment target only. It is not canonical until the pl
 - Autodesk Revit 2025 Developer Guide: Autodesk `Development Requirements` states the Revit API requires Microsoft .NET 8.0 and references RevitAPI.dll/RevitAPIUI.dll from the Revit installation.
 - MCP Python SDK: https://github.com/modelcontextprotocol/python-sdk — v2 is the current stable release line.
 
+## M2 Task 7 compatibility evidence
+
+- Canonical repository regression run `34987027986` at `b4af4264a35f1d2d799b44d62d5735457a132cd2` expanded the locked Python job into Python 3.11 `canonical` and Python 3.14 `compatibility` lanes while retaining the same committed workspace metadata and `uv.lock`.
+- Python 3.11.16 reconstructed the locked workspace and passed both canonical pytest modes with `1475 passed / 17 skipped / 1 warning`; its Ruff baseline gate reported `320 -> 320 / new 0`.
+- Python 3.14.7 reconstructed the same committed lock successfully, including the resolved native dependency set, and passed both pytest modes with `1475 passed / 17 skipped / 1 warning`; the Ruff baseline step was skipped by design because 3.14 is not the canonical quality-gate owner.
+- Revit Core remained GREEN in the same canonical run.
+- Absolute Ruff verifier run `34987662684` at `68a5ee77acd672d766964df5114ddc2a1be736b0` proved the Task 7 workflow/runtime-matrix architecture tests are E/F/I-clean after normalizing the new test's import spacing.
+- This evidence proves a non-canonical Python 3.14 compatibility lane only. It does not authorize the later M5 Python-floor/canonical-runtime cutover.
+
 ## Runtime gate facts
 
 - `>=3.11` remains the public Python floor until M5 cutover; Python 3.14 is first a compatibility lane.
+- Ruff remains targeted at `py311`, and the Ruff baseline-delta gate remains owned by the Python 3.11 canonical lane.
 - `net8.0` remains Revit Core's current target until compatibility proof; M0 does not retarget it.
 - Native AutoCAD/Revit TFMs are Host compatibility facts, not a repo-wide target policy.
 - No prerelease runtime is a modernization baseline; .NET 11 RC is explicitly outside the planned baseline.
