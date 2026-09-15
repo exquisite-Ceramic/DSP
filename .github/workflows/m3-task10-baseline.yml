@@ -24,6 +24,8 @@ jobs:
           python -m pip install uv
           uv sync --locked --all-packages
           uv lock --check
+      - name: Run .NET dependency ownership contract
+        run: uv run python -m pytest tests/architecture/test_modernization_dotnet_toolchain.py -q
       - name: Freeze resolved Python dependency versions
         shell: bash
         run: |
