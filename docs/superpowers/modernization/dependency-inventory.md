@@ -32,8 +32,9 @@ This record inventories the frozen baseline. It does not authorize an upgrade, m
 | `providers/semantics/dsp_core/pyproject.toml` | semantic-provider distribution | Provider |
 | `providers/semantics/enterprise_mapping/pyproject.toml` | semantic-provider distribution | Provider |
 | `providers/semantics/ifc43/pyproject.toml` | IFC 4.3 semantic-provider distribution | Provider |
+| `providers/semantics/metro_v32/pyproject.toml` | Metro semantic-provider distribution; installed editably by canonical repository regression | Provider |
 
-The frozen Git tree is the authority for workspace membership in M1. The entries above are the manifests confirmed by the M0 tree walk; M1 must derive workspace membership from tracked manifests rather than from import success.
+The frozen Git tree and canonical CI install graph are the authorities for workspace membership in M1. The entries above are the manifests confirmed by the M0 tree/CI evidence; M1 must derive workspace membership from tracked manifests rather than from import success alone.
 
 ### Source trees without a package-local manifest in the inspected platform tree
 
@@ -61,7 +62,7 @@ The frozen Git tree is the authority for workspace membership in M1. The entries
 | Class | Observation | Owner / MOD | Current action |
 | --- | --- | --- | --- |
 | DEPRECATION | canonical Python regression emits the existing `jsonschema.RefResolver` deprecation warning | Schema tooling / MOD-005 | characterize resolver behavior before any `referencing.Registry` migration |
-| CI_ACTION | current canonical workflow uses older Action majors (`actions/checkout@v4`, `actions/setup-python@v5`) and Task 2 RED CI surfaced runner/runtime deprecation warning(s) | Build & Release / MOD-008 | record only in M0; no Action upgrade in Task 2 |
+| CI_ACTION | current canonical workflow uses older Action majors (`actions/checkout@v4`, `actions/setup-python@v5`) and M0 CI surfaced runner/runtime deprecation warning(s) | Build & Release / MOD-008 | record only in M0; no Action upgrade in Task 2 |
 
 No warning is normalized away by M0. A warning becomes an execution item only after Task 3 disposition.
 
@@ -70,6 +71,7 @@ No warning is normalized away by M0. A warning becomes an execution item only af
 - Python packaging is PEP 621 where manifests exist; setuptools remains the observed build backend for the inspected packaged components.
 - The root has no repository-wide Python lock at the frozen baseline.
 - Canonical CI installs tooling and multiple first-party packages procedurally/editably; install order and root pytest `pythonpath` therefore participate in the current effective dependency graph.
+- Canonical CI directly confirms editable installation of `contracts/python`, `hosts/autocad/sidecar`, `platform/semantic_runtime`, `platform/semantic_service`, `platform/semantic_mcp`, and provider packages `dsp_core`, `ifc43`, `metro_v32`, and `enterprise_mapping`.
 - `global.json` is the repository .NET SDK selection source: SDK `8.0.100` with `latestFeature` roll-forward.
 - NuGet versions remain project-local at the inspected baseline; M0 has not established that central package management is required.
 
