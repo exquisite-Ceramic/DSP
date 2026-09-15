@@ -23,5 +23,9 @@ jobs:
         shell: bash
         run: |
           git grep -n RefResolver -- '*.py' || true
-      - name: Run focused schema characterization
-        run: uv run python -m pytest contracts/python/tests/test_normalized_design_fact_schema.py -q
+      - name: Run focused schema resolution contract
+        run: |
+          uv run python -m pytest \
+            contracts/python/tests/test_normalized_design_fact_schema.py \
+            tests/architecture/test_modernization_schema_resolution.py \
+            -q
