@@ -1,0 +1,35 @@
+name: M1 uv lock probe
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+# 这是 Task 4 执行期临时探针，只用于让联网 runner 生成并验证真实 uv.lock。
+# Task 4 收口前必须删除；canonical CI 的正式 uv 迁移属于 Task 5。
+permissions:
+  contents: read
+
+jobs:
+  generate-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv resolver
+        run: python -m pip install uv
+      - name: Generate and validate workspace lock
+        run: |
+          uv --version
+          uv lock
+          uv lock --check
+      - name: Upload generated uv.lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-uv-lock
+          path: uv.lock
+          if-no-files-found: error
