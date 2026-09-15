@@ -6,7 +6,6 @@ import re
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SIDECAR_PYPROJECT = ROOT / "hosts/autocad/sidecar/pyproject.toml"
 DOTNET_PROJECT = (
@@ -96,12 +95,8 @@ def test_regeneration_command_targets_the_existing_generated_package():
 
     assert command.startswith("python -m grpc_tools.protoc ")
     assert "-I ../../../../contracts/proto" in command
-    assert (
-        "--python_out=src/autocad_sidecar/ipc/generated" in command
-    )
-    assert (
-        "--grpc_python_out=src/autocad_sidecar/ipc/generated" in command
-    )
+    assert "--python_out=src/autocad_sidecar/ipc/generated" in command
+    assert "--grpc_python_out=src/autocad_sidecar/ipc/generated" in command
     assert command.endswith(EXPECTED_PROTO_FROM_SIDECAR)
 
 
