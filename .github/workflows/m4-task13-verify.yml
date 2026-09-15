@@ -1,0 +1,35 @@
+name: M4 Task 13 host matrix verifier
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+jobs:
+  host-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Rebuild locked workspace
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 13 host-matrix contract
+        run: uv run python -m pytest tests/architecture/test_modernization_host_matrix.py -q
+      - name: Run absolute Ruff on Task 13 contract
+        run: uv run ruff check --select E,F,I tests/architecture/test_modernization_host_matrix.py
+      - name: Prove native plugin boundaries are unchanged since post-Phase-I baseline
+        run: |
+          git diff --exit-code e308e9279d17ab61ef0d30c874942ce273a0a3f9 HEAD -- \
+            hosts/autocad/plugin/AutoCAD.AgentHost \
+            hosts/revit/plugin/Revit.AgentHost
+          git rev-parse e308e9279d17ab61ef0d30c874942ce273a0a3f9:hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj
+          git rev-parse HEAD:hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj
+          git rev-parse e308e9279d17ab61ef0d30c874942ce273a0a3f9:hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj
+          git rev-parse HEAD:hosts/revit/plugin/Revit.AgentHost/Revit.AgentHost.csproj
