@@ -7,7 +7,6 @@ import jsonschema
 import pytest
 from referencing import Registry, Resource
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_DIR = ROOT / "contracts" / "schemas"
 VECTOR_DIR = ROOT / "contracts" / "test_vectors" / "normalized_design_fact"
