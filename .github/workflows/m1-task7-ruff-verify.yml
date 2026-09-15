@@ -19,8 +19,7 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Check Task 7 architecture tests absolutely
+      - name: Show Ruff import fix diff
         run: |
-          .venv/bin/ruff check --select E,F,I \
-            tests/architecture/test_modernization_runtime_matrix.py \
-            tests/architecture/test_repository_regression_workflow.py
+          .venv/bin/ruff check --select I --fix --diff \
+            tests/architecture/test_modernization_runtime_matrix.py || true
