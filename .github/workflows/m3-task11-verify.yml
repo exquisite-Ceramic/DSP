@@ -32,7 +32,7 @@ jobs:
           ledger_replacements = 0
           for i, line in enumerate(ledger_lines):
               if line.startswith('**Record state:**'):
-                  ledger_lines[i] = '**Record state:** M0 Task 3 decisions frozen; M2 Tasks 7-8 runtime compatibility verified; M3 Tasks 9-11 resolver, dependency-family, Action-family, and bounded dependency-automation work verified  '
+                  ledger_lines[i] = '**Record state:** M0 Task 3 decisions frozen; M2 Tasks 7-8 runtime compatibility verified; M3 Tasks 9-11 resolver, dependency-family, Action-family, and bounded dependency-automation work verified'
                   ledger_replacements += 1
               elif line.startswith('| MOD-008 |'):
                   ledger_lines[i] = '| MOD-008 | GitHub Actions | hosted workflows now use `actions/checkout@v7`, `actions/setup-python@v7`, and `actions/setup-dotnet@v6`; the Phase I real dual-Host self-hosted job remains the sole compatibility exception at `checkout@v4` / `setup-python@v5` pending runner proof | retain the supported Node-24-capable hosted Action majors while preserving the explicit self-hosted exception until its runner is proven `>=2.327.1` | T0 | UPGRADE | Build & Release | canonical + focused GitHub workflows | VERIFIED | APPROVED | Task 11 upgraded each family separately: checkout commit `b6dfe5292f169874678b521eaf173ed1f6ffdc35`, setup-python commit `1c89c83cd3b7a60054c44ceb6a4f4f636eb79c2d`, setup-dotnet commit `f091ebccdda0177f5fe2732ce8d17ea50635e5f8`. Family verifiers proved hosted migration while `tests/architecture/test_modernization_actions.py` keeps the Phase I self-hosted tail as the only deferred exception. Exact-head structural run `35033696892` at `38f31acf312c43f02d5ccfa6d279c4b9a67d8fb9` passed the three Task 11 workflow architecture files `17/17` plus absolute E/F/I Ruff. Canonical run `35033696790` on the same head passed Python 3.11 and 3.14 in both pytest modes with `1487 passed / 17 skipped`, Ruff `319 -> 319 / new 0`, and Revit net8/net10 `54/54`; the hosted runner reports `2.337.0`, satisfying Node-24 Action requirements. No unverified upgrade was applied to the required Windows self-hosted real-Host job | revert hosted Action refs to the previous known-green majors if workflow parity regresses; keep the self-hosted exception unchanged until its runner-version evidence satisfies the Node-24 minimum |'
@@ -48,7 +48,7 @@ jobs:
           inventory_replacements = 0
           for i, line in enumerate(inventory_lines):
               if line.startswith('**Record state:**'):
-                  inventory_lines[i] = '**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized; M3 Task 11 hosted Action and bounded dependency automation verified  '
+                  inventory_lines[i] = '**Record state:** M0 Task 2 factual inventory complete; M1 Task 6 .NET ownership normalized; M3 Task 11 hosted Action and bounded dependency automation verified'
                   inventory_replacements += 1
               elif line.startswith('**Observed:**'):
                   inventory_lines[i] = '**Observed:** 2026-09-16'
@@ -71,10 +71,10 @@ jobs:
           PY
 
           git diff --check
-          git diff -- docs/superpowers/modernization/dependency-inventory.md docs/superpowers/modernization/modernization-ledger.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/superpowers/modernization/dependency-inventory.md docs/superpowers/modernization/modernization-ledger.md
+          git diff --cached --stat
           git commit -m "docs: record task11 action governance"
           echo "DOCS_COMMIT=$(git rev-parse HEAD)"
       - name: Upload docs commit behind an intentionally rejected workflow guard
