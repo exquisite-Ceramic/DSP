@@ -9,7 +9,9 @@ dependencies = [
     "jsonschema>=4.20",
 ]
 
-[project.optional-dependencies]
+# M1 使用标准 dependency group 表达本地验证工具链。
+# uv 默认同步 dev group，因此冻结计划中的 uv sync / uv run 命令不需要额外 --extra 参数。
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
