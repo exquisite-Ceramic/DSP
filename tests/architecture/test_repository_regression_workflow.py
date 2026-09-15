@@ -67,13 +67,17 @@ def test_repository_regression_owns_both_pytest_modes_and_revit_core() -> None:
     )
 
 
-def test_repository_regression_uses_ruff_baseline_delta() -> None:
+def test_repository_regression_uses_one_locked_ruff_for_base_and_head() -> None:
+    """Ruff delta 必须用 HEAD lock 里的同一个二进制检查历史 base 与当前 head。"""
+
     text = _workflow_text()
     command = (
-        "uv run ruff check --select E,F,I --output-format=json "
+        '"$RUFF_BIN" check --select E,F,I --output-format=json '
         "platform hosts/autocad/sidecar tests"
     )
+
     assert "Enforce no new repository Ruff diagnostics" in text
+    assert 'RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"' in text
     assert text.count(command) >= 2
     assert "BASE_SHA" in text
     assert 'git worktree add /tmp/dsp-base "$BASE_SHA"' in text
