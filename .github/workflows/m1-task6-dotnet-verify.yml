@@ -1,0 +1,28 @@
+name: M1 Task 6 dotnet verification
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+# Task 6 临时验证入口：补足 canonical repository regression 未覆盖的 AutoCAD gRPC .NET tests。
+# 验证完成后删除；不改变长期 CI ownership。
+permissions:
+  contents: read
+
+jobs:
+  verify-dotnet-ownership:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Show selected SDK
+        run: dotnet --version
+      - name: Run Revit Core regression
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
+      - name: Run AutoCAD gRPC transport regression
+        run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj
