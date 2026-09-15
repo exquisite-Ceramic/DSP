@@ -67,6 +67,21 @@ def test_workspace_preserves_python_floor_and_ruff_target() -> None:
     assert pyproject["tool"]["ruff"]["target-version"] == "py311"
 
 
+def test_workspace_declares_default_dev_tooling_for_locked_verification() -> None:
+    """默认 locked sync 必须安装计划规定的 pytest 验证工具链。"""
+
+    pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
+    dev_group = set(pyproject.get("dependency-groups", {}).get("dev", []))
+
+    # uv 默认同步 dependency-groups.dev，而不会默认同步 project.optional-dependencies extras。
+    # Task 4 的冻结验证命令没有 --extra dev，因此这些工具必须属于默认 dev group。
+    assert {
+        "pytest>=8.0",
+        "pytest-asyncio>=0.23",
+        "jsonschema>=4.20",
+    }.issubset(dev_group)
+
+
 def test_workspace_has_committed_uv_lock() -> None:
     """共享 lock 必须作为仓库事实提交，而不能只存在于开发者本地环境。"""
 
