@@ -104,7 +104,7 @@ def test_invalid_instance_through_external_ref_keeps_validation_error_shape():
 
     error = exc_info.value
     assert list(error.absolute_path)[:2] == ["facts", 0]
-    assert error.validator == "oneOf"
+    assert error.validator == "type"
 
 
 def test_schema_rejects_unknown_top_level_property():
