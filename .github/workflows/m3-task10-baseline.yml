@@ -1,0 +1,60 @@
+name: M3 Task 10 dependency-family baseline
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+jobs:
+  grpc-protobuf-mcp-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Rebuild locked workspace
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+          uv lock --check
+      - name: Freeze resolved Python dependency versions
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          from importlib.metadata import PackageNotFoundError, version
+
+          for name in ("grpcio", "protobuf", "grpcio-tools", "mcp"):
+              try:
+                  print(f"{name}={version(name)}")
+              except PackageNotFoundError:
+                  print(f"{name}=NOT_INSTALLED")
+          PY
+      - name: Freeze focused test ownership
+        shell: bash
+        run: |
+          echo "=== candidate Python tests ==="
+          find tests hosts/autocad platform/semantic_mcp -type f -name 'test_*.py' -print \
+            | sort \
+            | grep -Ei 'grpc|transport|mcp|semantic' || true
+          echo "=== AutoCAD gRPC .NET tests ==="
+          find hosts/autocad/transport/dotnet -type f -name '*Tests.csproj' -print | sort
+      - name: Run Python gRPC and transport baseline
+        run: uv run python -m pytest tests -q -k 'grpc or transport'
+      - name: Run Python MCP baseline
+        run: uv run python -m pytest tests -q -k 'mcp or semantic_mcp'
+      - name: Run AutoCAD gRPC .NET baseline
+        run: dotnet test hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/AutoCAD.AgentHost.Grpc.Tests.csproj
+      - name: Freeze generated stub provenance
+        shell: bash
+        run: |
+          echo "=== host_transport_v1_pb2.py ==="
+          sed -n '1,40p' hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2.py
+          echo "=== host_transport_v1_pb2_grpc.py ==="
+          sed -n '1,60p' hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated/host_transport_v1_pb2_grpc.py
