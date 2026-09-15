@@ -21,23 +21,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install repository verification stack
+      - name: Install repository verification stack from committed lock
         run: |
-          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
-          python -m pip install \
-            -e contracts/python \
-            -e hosts/autocad/sidecar \
-            -e platform/semantic_runtime \
-            -e platform/semantic_service \
-            -e platform/semantic_mcp \
-            -e providers/semantics/dsp_core \
-            -e providers/semantics/ifc43 \
-            -e providers/semantics/metro_v32 \
-            -e providers/semantics/enterprise_mapping
+          # uv 本身是 bootstrap 工具；仓库内 Python 包与验证工具统一由 committed uv.lock 重建。
+          python -m pip install uv
+          uv sync --locked --all-packages
       - name: Run repository importlib regression
-        run: python -m pytest --import-mode=importlib -q
+        run: uv run python -m pytest --import-mode=importlib -q
       - name: Run repository local-parity regression
-        run: python -m pytest -q
+        run: uv run python -m pytest -q
       - name: Enforce no new repository Ruff diagnostics
         shell: bash
         run: |
@@ -50,12 +42,15 @@ jobs:
           fi
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           git worktree add /tmp/dsp-base "$BASE_SHA"
+
+          # base/head 必须使用 HEAD committed lock 中的同一个 Ruff 二进制，避免历史环境差异污染 delta。
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
           (
             cd /tmp/dsp-base
-            ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
+            "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
           )
-          ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
-          python - <<'PY'
+          "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+          uv run python - <<'PY'
           import json
           import sys
           from collections import Counter
