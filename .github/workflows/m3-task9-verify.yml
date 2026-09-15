@@ -19,13 +19,21 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Freeze pre-migration RefResolver locations
+      - name: Confirm deprecated resolver is absent from the frozen validation path
         shell: bash
         run: |
-          git grep -n RefResolver -- '*.py' || true
+          if git grep -n RefResolver -- contracts/python/tests/test_normalized_design_fact_schema.py; then
+            echo "deprecated RefResolver remains in the frozen Task 9 validation path" >&2
+            exit 1
+          fi
       - name: Run focused schema resolution contract
         run: |
           uv run python -m pytest \
             contracts/python/tests/test_normalized_design_fact_schema.py \
             tests/architecture/test_modernization_schema_resolution.py \
             -q
+      - name: Run absolute Ruff on Task 9 files
+        run: |
+          uv run ruff check --select E,F,I \
+            contracts/python/tests/test_normalized_design_fact_schema.py \
+            tests/architecture/test_modernization_schema_resolution.py
