@@ -5,18 +5,20 @@ on:
     branches:
       - feat/technology-modernization-m1
 
-# 这是 Task 4 执行期临时探针，只用于让联网 runner 生成并验证真实 uv.lock。
+# 这是 Task 4 执行期临时探针，只用于让联网 runner 生成、验证并把真实 uv.lock 写回 M1 分支。
 # Task 4 收口前必须删除；canonical CI 的正式 uv 迁移属于 Task 5。
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-lock:
+    # 防止 probe 自己写回 uv.lock 后再次递归提交。
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: feat/technology-modernization-m1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -27,9 +29,10 @@ jobs:
           uv --version
           uv lock
           uv lock --check
-      - name: Upload generated uv.lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: m1-uv-lock
-          path: uv.lock
-          if-no-files-found: error
+      - name: Commit resolver-generated uv.lock
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "build: commit reproducible Python workspace lock"
+          git push origin HEAD:feat/technology-modernization-m1
