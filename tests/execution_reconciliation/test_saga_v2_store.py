@@ -15,6 +15,9 @@ from design_execution_reconciliation import (
     ReconciliationError,
     SliceReconciliationStatusV2,
 )
+from design_execution_reconciliation.saga_transitions_v2 import (
+    reserve_slice_admission_transition,
+)
 
 from tests.execution_reconciliation.conftest import _build_single_slice_transaction
 from tests.execution_reconciliation.test_saga_v2_definition import _phase_i_context
@@ -90,6 +93,45 @@ def test_reservation_is_evidence_replay_safe_and_strict_cas() -> None:
     with pytest.raises(ReconciliationError) as exc:
         store.reserve_slice_admission(
             definition.saga_id,
+            first_hash,
+            expected_revision=0,
+            reserved_at="2026-09-06T12:00:01Z",
+        )
+    assert exc.value.code == "SAGA_CONFLICT"
+
+
+def test_reservation_transition_matches_in_memory_store_semantics() -> None:
+    _, definition = _v2_definition()
+    store = InMemoryExecutionSagaStoreV2()
+    initial = store.create_saga(definition)
+    first_hash = definition.ordered_slice_hashes[0]
+    reserved_at = "2026-09-06T12:00:00Z"
+
+    transitioned = reserve_slice_admission_transition(
+        initial,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    persisted = store.reserve_slice_admission(
+        definition.saga_id,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    assert transitioned == persisted
+
+    replay = reserve_slice_admission_transition(
+        transitioned,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    assert replay == transitioned
+
+    with pytest.raises(ReconciliationError) as exc:
+        reserve_slice_admission_transition(
+            transitioned,
             first_hash,
             expected_revision=0,
             reserved_at="2026-09-06T12:00:01Z",
