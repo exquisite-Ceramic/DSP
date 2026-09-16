@@ -59,7 +59,7 @@ def test_unverified_runtime_candidates_cannot_become_canonical() -> None:
     assert 'python-version: "3.11"\n            lane: canonical' in workflow
     assert 'python-version: "3.14"\n            lane: compatibility' in workflow
     assert 'dotnet-version: "8.0.x"' in workflow
-    assert 'dotnet-version: "10.x"' in workflow
+    assert 'dotnet-version: "10.0.x"' in workflow
 
     sdk = json.loads(GLOBAL_JSON.read_text(encoding="utf-8"))["sdk"]
     assert sdk == {
