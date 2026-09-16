@@ -4,7 +4,6 @@ import os
 from dataclasses import replace
 
 import pytest
-
 from design_execution_reconciliation import ReconciliationError
 
 from tests.execution_reconciliation.test_saga_v2_store import _v2_definition
