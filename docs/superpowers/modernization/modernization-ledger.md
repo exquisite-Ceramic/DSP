@@ -1,6 +1,6 @@
 # DSP Modernization Ledger
 
-**Record state:** M0 Task 3 decisions frozen; M2 Tasks 7-8 runtime compatibility verified; M3 Tasks 9-11 verified; M4 Tasks 12-13 verified; M5 Task 14 evaluated with no eligible canonical cutover
+**Record state:** M0 Task 3 decisions frozen; M2 Tasks 7-8 runtime compatibility verified; M3 Tasks 9-11 verified; M4 Tasks 12-13 verified; M5 Task 14 evaluated with no eligible canonical cutover; M6 Task 15 evaluated with no eligible retirements
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
 **Observed / frozen:** 2026-09-16  
@@ -42,3 +42,20 @@ The M0 gate is satisfied only when the exact PR head proves all of the following
 - The focused governance test and canonical repository regression are GREEN on the same exact PR head.
 
 Until those checks are green, M1 is blocked. After they are green, M1 remains **NOT STARTED** until the M0 gate is reviewed/accepted; the M0 commit itself does not perform M1 work.
+
+## M6 Task 15 retirement decision
+
+**Decision:** `NO_RETIREMENTS`
+
+Task 15 found no technology path eligible for retirement. Task 14 recorded `NO_CUTOVER` for both MOD-001 and MOD-012, so no replacement runtime/SDK has taken canonical ownership. The M6 design also requires post-switch merged-main observation evidence before removing an old path; this stacked modernization branch has no such merged-main cutover observation to cite. Deleting Python 3.11, .NET 8, or either compatibility lane here would therefore violate the frozen retirement gate rather than complete it.
+
+| Surface | M6 disposition | Reason |
+| --- | --- | --- |
+| Python 3.11 canonical lane and `requires-python >=3.11` / Ruff `py311` | `RETAIN` | MOD-001 remains `APPROVED / APPROVED`; M5 did not switch canonical ownership. |
+| Python 3.14 compatibility lane | `RETAIN` | It remains candidate compatibility evidence, not an obsolete old baseline. |
+| Root .NET 8 SDK policy and Revit Core `net8.0` canonical target | `RETAIN` | MOD-012 remains `APPROVED / APPROVED`; M5 did not switch repository-wide SDK ownership. |
+| Host-neutral .NET 10 compatibility lane | `RETAIN` | It remains an opt-in compatibility proof and is not an obsolete legacy path. |
+| AutoCAD/Revit native Host targets | `RETAIN` | T3 Host version ↔ runtime ↔ TFM ownership remains governed by the Task 13 Host matrix. |
+| MOD-016 V1/V2 and architecture compatibility bridges | `RETAIN / DEFER_ARCHITECTURE` | They are T4 Architecture Modernization Review inputs and are explicitly outside M6 cleanup authority. |
+
+No `.github/workflows/repository-regression.yml`, runtime metadata, SDK selector, native project, or compatibility-lane implementation is removed by Task 15. Retirement may be reconsidered only after a separately eligible M5 cutover is merged to `main`, its required merged-main observation is green, and any applicable Host evidence is present.
