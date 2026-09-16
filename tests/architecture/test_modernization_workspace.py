@@ -10,9 +10,10 @@ import re
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
-INVENTORY = ROOT / "docs" / "superpowers" / "modernization" / "dependency-inventory.md"
+INVENTORY = (
+    ROOT / "docs" / "superpowers" / "modernization" / "dependency-inventory.md"
+)
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
 UV_LOCK = ROOT / "uv.lock"
 
