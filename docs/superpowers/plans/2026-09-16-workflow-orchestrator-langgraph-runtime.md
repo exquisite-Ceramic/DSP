@@ -4,7 +4,7 @@
 
 **Goal:** Implement ADR-010 by introducing a framework-neutral `Workflow Orchestrator` boundary with LangGraph as the v0.6 reference runtime, durable PostgreSQL checkpointing, explicit HITL/AsyncOperationRef pause-resume, and recovery that re-queries authoritative owners instead of inferring external side effects from checkpoint position.
 
-**Architecture:** `Workflow Orchestrator` remains the logical owner; LangGraph is an infrastructure/runtime implementation behind `WorkflowOrchestratorPort`. Workflow checkpoints contain navigation state, user/HITL continuation data, and stable refs only. Deterministic modules such as `OperationResolver`, `ParameterBinder`, ChangeSet/Gateway/Execution Saga services retain their business rules. Execution Saga remains the execution/reconciliation truth, so runtime resume always reloads Saga/approval/ChangeSet state before deciding whether to continue, wait, replan, or enter recovery. PostgreSQL checkpoint tables live only in `orchestrator_checkpoint` and are never read by other owners.
+**Architecture:** `Workflow Orchestrator` remains the logical owner; LangGraph is an infrastructure/runtime implementation behind `WorkflowOrchestratorPort`. Workflow checkpoints contain navigation state, user/HITL continuation data, and stable refs only. Deterministic modules such as `OperationResolver`, `ParameterBinder`, ChangeSet/Gateway/Execution Saga services retain their business rules. Execution Saga remains the execution/reconciliation truth, while Host dispatch recovery state remains a separate execution-owner truth from ADR-009. Runtime resume therefore reloads an `ExecutionOwnerView` that composes Saga state with any active Host-dispatch recovery projection before deciding whether to continue, wait, replan, or enter recovery. PostgreSQL checkpoint tables live only in `orchestrator_checkpoint` and are never read by other owners.
 
 **Tech Stack:** Python 3.11 canonical / Python 3.14 compatibility, `uv`, pytest, LangGraph `>=1.2.11,<2`, `langgraph-checkpoint-postgres>=3.1.2,<4`, psycopg 3, PostgreSQL 17 reference CI service.
 
@@ -16,9 +16,10 @@
 
 - `Workflow Orchestrator` is the authoritative logical owner for workflow progression/checkpoint/HITL/retry coordination.
 - LangGraph types, checkpoint row shapes, graph node objects, and PostgresSaver internals must not enter DSP canonical/public domain contracts.
-- Workflow checkpoints store stable refs and workflow-local data only; they do not become a second source of truth for D5, ChangeSet, ApprovalRecord, ExecutionGrant, ProviderBinding, Execution Saga, ActualDelta, or Host state.
-- Execution Saga remains the authoritative execution/reconciliation state machine.
-- Resume must re-query authoritative owners before any external side effect is retried.
+- Workflow checkpoints store stable refs and workflow-local data only; they do not become a second source of truth for D5, ChangeSet, ApprovalRecord, ExecutionGrant, ProviderBinding, Execution Saga, Host dispatch recovery, ActualDelta, or Host state.
+- Execution Saga remains the authoritative Saga execution/reconciliation state machine; ADR-009 Host dispatch intent/recovery state remains a separate execution-owner projection and is not forced into `ExecutionSagaStatusV2`.
+- Resume must re-query the complete authoritative execution-owner projection before any external side effect is retried.
+- `OUTCOME_UNKNOWN` / dispatch recovery is always `RECOVER_OR_WAIT` from the Workflow Orchestrator’s perspective; it never causes a fresh `begin_execution()` or a new command identity.
 - `AsyncOperationRef` is the stable wait/resume boundary for reconstruction, interaction, and long-running execution; hidden process/session memory is forbidden.
 - Temporal is not introduced by this plan.
 - Existing deterministic modules keep their business rules. LangGraph only sequences calls, waits, resumes, and routes exceptions/results.
@@ -280,7 +281,7 @@ git commit -m "feat: define framework neutral workflow owner contracts"
 
 ---
 
-### Task 3: Define deterministic workflow service ports and owner refresh boundary
+### Task 3: Define deterministic workflow service ports and complete execution-owner refresh boundary
 
 **Files:**
 - Create: `platform/orchestrator/src/design_orchestrator/workflow_services.py`
@@ -303,6 +304,25 @@ class ExecutionSagaView:
     active_slice_hash: str | None
 
 
+class HostDispatchRecoveryState(str, Enum):
+    OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    SAFE_TO_RETRY = "SAFE_TO_RETRY"
+
+
+@dataclass(frozen=True, slots=True)
+class HostDispatchRecoveryView:
+    dispatch_intent_id: str
+    execution_slice_hash: str
+    state: HostDispatchRecoveryState
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionOwnerView:
+    saga: ExecutionSagaView
+    active_dispatch_recovery: HostDispatchRecoveryView | None = None
+
+
 class WorkflowServices(Protocol):
     def resolve_host_context(self, task_id: str) -> StableRef: ...
     def ensure_context_freshness(self, snapshot_ref: StableRef) -> StableRef | AsyncOperationRef: ...
@@ -318,34 +338,74 @@ class WorkflowServices(Protocol):
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef: ...
     def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef: ...
     def begin_execution(self, execution_plan_ref: StableRef, grant_ref: StableRef) -> str | AsyncOperationRef: ...
-    def get_execution_saga(self, saga_id: str) -> ExecutionSagaView: ...
-    def verify_reconcile(self, saga_id: str) -> ExecutionSagaView: ...
+    def get_execution_owner_state(self, saga_id: str) -> ExecutionOwnerView: ...
+    def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView: ...
 ```
+
+`ExecutionOwnerView` is a read model/projection owned by the execution boundary. It does not merge ownership: `ExecutionSagaView` remains the Saga truth projection, while `HostDispatchRecoveryView` projects ADR-009 Host-effect recovery truth. In particular, `OUTCOME_UNKNOWN` is **not** added to `ExecutionSagaStatusV2`.
 
 - [ ] **Step 1: Write RED structural tests**
 
-Verify that the protocol methods exchange only primitive values, `StableRef`, `AsyncOperationRef`, or framework-neutral views. In particular, no method accepts or returns LangGraph state objects.
+Verify that the protocol methods exchange only primitive values, `StableRef`, `AsyncOperationRef`, or framework-neutral views. In particular, no method accepts or returns LangGraph state objects, `StoredExecutionSagaV2`, or `HostDispatchIntent` domain objects directly.
 
 - [ ] **Step 2: Add explicit owner-refresh semantics**
 
 Create a pure helper:
 
 ```python
-def classify_execution_resume(view: ExecutionSagaView) -> str:
-    if view.status in {"SUCCEEDED", "DIVERGED", "PARTIALLY_COMMITTED", "FAILED"}:
+def classify_execution_resume(view: ExecutionOwnerView) -> str:
+    recovery = view.active_dispatch_recovery
+    if recovery is not None:
+        if recovery.state in {
+            HostDispatchRecoveryState.OUTCOME_UNKNOWN,
+            HostDispatchRecoveryState.RECOVERY_REQUIRED,
+            HostDispatchRecoveryState.SAFE_TO_RETRY,
+        }:
+            return "RECOVER_OR_WAIT"
+        raise WorkflowStateError(
+            "WORKFLOW_EXECUTION_RECOVERY_STATE_UNKNOWN",
+            str(recovery.state),
+        )
+
+    saga = view.saga
+    if saga.status in {"SUCCEEDED", "DIVERGED", "PARTIALLY_COMMITTED", "FAILED"}:
         return "TERMINAL"
-    if view.status in {"EXECUTING", "CONVERGENCE_PENDING"}:
+    if saga.status in {"EXECUTING", "CONVERGENCE_PENDING"}:
         return "RECOVER_OR_WAIT"
-    if view.status == "READY":
+    if saga.status == "READY":
         return "MAY_DISPATCH"
-    raise WorkflowStateError("WORKFLOW_SAGA_STATUS_UNKNOWN", view.status)
+    raise WorkflowStateError("WORKFLOW_SAGA_STATUS_UNKNOWN", saga.status)
 ```
 
-This helper is framework-neutral and is used later by LangGraph nodes.
+The ordering is normative: active Host-dispatch recovery is classified before the Saga status. A Saga can still be `EXECUTING` while the Host effect is specifically `OUTCOME_UNKNOWN`; the workflow must preserve that distinction rather than inventing a new Saga enum value.
 
-- [ ] **Step 3: Add tests proving checkpoint position is not execution truth**
+- [ ] **Step 3: Add tests proving checkpoint position and Saga enum alone are not complete execution truth**
 
-Construct `ExecutionSagaView(status="EXECUTING")` while a synthetic workflow phase says `APPLY_WAIT`; assert classification is `RECOVER_OR_WAIT`, not `MAY_DISPATCH`.
+Cover at least:
+
+```python
+executing = ExecutionOwnerView(
+    saga=ExecutionSagaView(
+        saga_id="saga-1",
+        saga_revision=4,
+        status="EXECUTING",
+        active_slice_hash="a" * 64,
+    )
+)
+assert classify_execution_resume(executing) == "RECOVER_OR_WAIT"
+
+unknown = ExecutionOwnerView(
+    saga=executing.saga,
+    active_dispatch_recovery=HostDispatchRecoveryView(
+        dispatch_intent_id="intent-1",
+        execution_slice_hash="a" * 64,
+        state=HostDispatchRecoveryState.OUTCOME_UNKNOWN,
+    ),
+)
+assert classify_execution_resume(unknown) == "RECOVER_OR_WAIT"
+```
+
+Also construct the views while a synthetic workflow phase says `APPLY_WAIT`; classification must still come from refreshed execution-owner truth, not checkpoint position.
 
 - [ ] **Step 4: Run GREEN and commit**
 
@@ -374,6 +434,7 @@ FORBIDDEN_KEYS = {
     "changeset_object",
     "approval_record_object",
     "execution_saga_object",
+    "dispatch_intent_object",
     "semantic_projection_object",
     "actual_delta_object",
 }
@@ -419,7 +480,7 @@ START
 → END
 ```
 
-Every node calls exactly one `WorkflowServices` method or performs workflow-local routing. No node reimplements OperationResolver/ParameterBinder/Gateway/Saga rules.
+Every node calls exactly one `WorkflowServices` method or performs workflow-local routing. No node reimplements OperationResolver/ParameterBinder/Gateway/Saga/dispatch-recovery rules.
 
 - [ ] **Step 4: Implement pause routing for `AsyncOperationRef`**
 
@@ -578,7 +639,7 @@ git commit -m "feat: add orchestrator postgres checkpoint owner"
 
 ---
 
-### Task 7: Make resume re-query authoritative owners before execution decisions
+### Task 7: Make resume re-query complete execution-owner truth before execution decisions
 
 **Files:**
 - Modify: `platform/orchestrator/src/design_orchestrator/langgraph_graph.py`
@@ -598,7 +659,7 @@ class ResumeDecision:
 def decide_apply_resume(
     *,
     checkpoint: WorkflowCheckpointView,
-    saga: ExecutionSagaView | None,
+    execution: ExecutionOwnerView | None,
 ) -> ResumeDecision: ...
 ```
 
@@ -607,18 +668,41 @@ def decide_apply_resume(
 Cover all of these:
 
 ```text
-A. checkpoint phase says APPLY_WAIT, Saga READY -> route MAY_DISPATCH
-B. checkpoint phase says APPLY_WAIT, Saga EXECUTING -> route RECOVER_OR_WAIT, never call begin_execution
-C. checkpoint phase says APPLY_WAIT, Saga PARTIALLY_COMMITTED -> route TERMINAL_EXECUTION_STATE
-D. checkpoint phase says pre-Apply, but Saga already SUCCEEDED -> skip dispatch and route Verify/Reconcile/Complete
-E. checkpoint has stale approval/change refs -> refresh owner facts before planning/apply
+A. checkpoint phase says APPLY_WAIT, ExecutionOwnerView(Saga READY, no dispatch recovery)
+   -> MAY_DISPATCH
+B. checkpoint phase says APPLY_WAIT, Saga EXECUTING, no dispatch recovery
+   -> RECOVER_OR_WAIT, never call begin_execution
+C. checkpoint phase says APPLY_WAIT, Saga PARTIALLY_COMMITTED
+   -> TERMINAL_EXECUTION_STATE
+D. checkpoint says pre-Apply, but Saga already SUCCEEDED
+   -> skip dispatch and route Verify/Reconcile/Complete
+E. checkpoint has stale approval/change refs
+   -> refresh owner facts before planning/apply
+F. Saga EXECUTING + active dispatch recovery OUTCOME_UNKNOWN
+   -> RECOVER_OR_WAIT, never call begin_execution
+G. Saga READY + active dispatch recovery RECOVERY_REQUIRED/SAFE_TO_RETRY
+   -> RECOVER_OR_WAIT; Workflow Orchestrator does not create a new command identity
 ```
 
-Record fake-service calls and assert case B/D never invoke a second Host dispatch.
+Record fake-service calls and assert B/D/F/G never invoke a second Host dispatch through `begin_execution`.
 
 - [ ] **Step 2: Implement pure recovery decision logic**
 
-The function must derive execution routing from the refreshed `ExecutionSagaView`, not from graph node history. Checkpoint phase is used only to know which owner refs need refreshing.
+The function must derive execution routing from the refreshed `ExecutionOwnerView`, not from graph node history. Checkpoint phase is used only to know which owner refs need refreshing.
+
+Decision order:
+
+```text
+active_dispatch_recovery present
+→ RECOVER_OR_WAIT
+
+else classify Saga status
+→ READY                  => MAY_DISPATCH
+→ EXECUTING/PENDING      => RECOVER_OR_WAIT
+→ terminal               => terminal/reconcile route
+```
+
+`OUTCOME_UNKNOWN` stays in the dispatch-recovery projection. Do not add it to Saga status strings or synthesize a fake terminal Saga state.
 
 - [ ] **Step 3: Insert an authoritative refresh node before `apply_or_recover`**
 
@@ -626,18 +710,30 @@ The node must:
 
 ```text
 load saga_id from workflow state
-→ services.get_execution_saga(saga_id)
-→ classify refreshed status
-→ MAY_DISPATCH only for READY
-→ RECOVER_OR_WAIT for active/unknown execution
+→ services.get_execution_owner_state(saga_id)
+→ inspect active Host dispatch recovery first
+→ classify refreshed Saga status second
+→ MAY_DISPATCH only when no recovery is active and Saga is READY
+→ RECOVER_OR_WAIT for active/unknown execution or dispatch recovery
 → skip/reconcile for terminal execution states
 ```
 
-If no `saga_id` exists yet, it may call `begin_execution`; once a Saga ID is durable, subsequent resumes use that ID.
+If no `saga_id` exists yet, it may call `begin_execution`; once a Saga ID is durable, subsequent resumes use that ID and the execution owner’s stable read model.
 
 - [ ] **Step 4: Prove cross-plan ADR-009 integration**
 
-Add a case where the execution owner reports an `OUTCOME_UNKNOWN`/recovery-required condition via its stable service view. The workflow must remain waiting/recovery-routed and must not manufacture a new command identity.
+Build the fake execution owner view from two independent authoritative sources: Saga state plus Host dispatch recovery state. Add an `OUTCOME_UNKNOWN` case whose `dispatch_intent_id` and Slice hash remain stable across repeated workflow resumes.
+
+Assert:
+
+```text
+workflow route = RECOVER_OR_WAIT
+begin_execution call count does not increase
+no new dispatch_intent_id is created
+no new idempotency identity is manufactured
+```
+
+The Workflow Orchestrator may ask the execution owner to continue recovery through its stable service API, but it does not directly mutate the dispatch intent or decide that the Host is safe to retry.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -698,9 +794,11 @@ bound = self._parameter_binder.bind(proposal, binding_context)
 
 It must not copy eligibility, slot-binding, schema validation, provider candidate, or freshness algorithms into workflow node code.
 
+The execution adapter is responsible only for composing the framework-neutral `ExecutionOwnerView` from the execution boundary’s stable Saga projection plus ADR-009 dispatch-recovery projection. It must not copy Saga or dispatch transition logic into the Orchestrator.
+
 - [ ] **Step 4: Add negative architecture assertions**
 
-Search `langgraph_graph.py` and `langgraph_runtime.py` and assert they do not contain copied domain identifiers such as `_supports_canonical_entities`, `_validate_recipe_match`, `compute_*_hash` implementations, or Gateway/Saga transition enums beyond routing status strings/views.
+Search `langgraph_graph.py` and `langgraph_runtime.py` and assert they do not contain copied domain identifiers such as `_supports_canonical_entities`, `_validate_recipe_match`, `compute_*_hash` implementations, Gateway/Saga transition enums, or HostDispatchStatus transition logic beyond routing through framework-neutral views.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -742,18 +840,20 @@ start
 → ChangeSet/approval refs
 → execution Saga ref
 → restart runtime process boundary
-→ refresh Saga truth
+→ refresh complete ExecutionOwnerView
 → verify/reconcile
 → completed
 ```
 
+Include a second branch where restart observes `Saga EXECUTING + HostDispatchRecoveryView(OUTCOME_UNKNOWN)` and remains in recovery without a second execution start.
+
 - [ ] **Step 2: Assert checkpoint payload ownership**
 
-Inspect the saved checkpoint through LangGraph’s supported saver API and assert it contains IDs/refs/workflow-local data but not serialized full authoritative objects. Explicitly reject keys/values that represent `CanonicalChangeSet`, `ApprovalRecord`, `StoredExecutionSagaV2`, `ActualDelta`, or SemanticProjection payloads.
+Inspect the saved checkpoint through LangGraph’s supported saver API and assert it contains IDs/refs/workflow-local data but not serialized full authoritative objects. Explicitly reject keys/values that represent `CanonicalChangeSet`, `ApprovalRecord`, `StoredExecutionSagaV2`, `HostDispatchIntent`, `ActualDelta`, or SemanticProjection payloads.
 
 - [ ] **Step 3: Assert no duplicate execution after restart**
 
-Make the fake execution owner report `EXECUTING` or `SUCCEEDED` after runtime restart even though the checkpoint was written before the original caller observed completion. Assert `begin_execution` call count remains `1`.
+Make the fake execution owner report `EXECUTING`, `SUCCEEDED`, or `OUTCOME_UNKNOWN` recovery after runtime restart even though the checkpoint was written before the original caller observed completion. Assert `begin_execution` call count remains `1` in every case where an execution Saga already exists.
 
 - [ ] **Step 4: Write the runbook**
 
@@ -761,14 +861,17 @@ Document:
 
 ```text
 Workflow checkpoint answers “where is the task navigation?”
-Execution Saga answers “what happened in execution?”
+Execution Saga answers “what happened in Saga execution?”
+Host dispatch recovery answers “is the current Host effect outcome known?”
+ExecutionOwnerView composes those execution-side projections without merging their ownership.
 On resume, reload authoritative refs before retry/replan.
+OUTCOME_UNKNOWN is not a Saga terminal status and never authorizes a fresh begin_execution.
 Do not edit checkpoint rows manually to force business success.
 Do not infer Host non-commit from an Apply-adjacent checkpoint.
 Temporal is not part of the v0.6 recovery procedure.
 ```
 
-Include PostgreSQL schema ownership and the supported operator procedure for a stuck `AsyncOperationRef`.
+Include PostgreSQL schema ownership and the supported operator procedure for a stuck `AsyncOperationRef` or `OUTCOME_UNKNOWN` dispatch recovery.
 
 - [ ] **Step 5: Run targeted and full regression**
 
@@ -806,7 +909,10 @@ Before declaring this implementation complete, verify every ADR-010 invariant:
 - [ ] Checkpoints hold workflow-local state and stable refs only.
 - [ ] OperationResolver/ParameterBinder and other deterministic services retain their domain algorithms.
 - [ ] Execution Saga state is never copied into checkpoint as a second source of truth.
-- [ ] Resume re-queries authoritative owners before external side-effect decisions.
+- [ ] Host dispatch recovery state is never forced into `ExecutionSagaStatusV2` or copied into checkpoint as a second source of truth.
+- [ ] `ExecutionOwnerView` keeps Saga truth and Host-dispatch recovery truth distinguishable while giving the Orchestrator one stable authoritative read boundary.
+- [ ] Resume re-queries complete execution-owner truth before external side-effect decisions.
+- [ ] `OUTCOME_UNKNOWN` / `RECOVERY_REQUIRED` / `SAFE_TO_RETRY` routes to `RECOVER_OR_WAIT` and never manufactures a fresh command identity.
 - [ ] `AsyncOperationRef` is persisted explicitly and survives runtime restart.
 - [ ] HITL resume uses explicit continuation data rather than hidden process memory.
 - [ ] PostgreSQL checkpoint tables live only under `orchestrator_checkpoint`.
