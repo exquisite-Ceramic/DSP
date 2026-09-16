@@ -56,6 +56,6 @@ Task 15 found no technology path eligible for retirement. Task 14 recorded `NO_C
 | Root .NET 8 SDK policy and Revit Core `net8.0` canonical target | `RETAIN` | MOD-012 remains `APPROVED / APPROVED`; M5 did not switch repository-wide SDK ownership. |
 | Host-neutral .NET 10 compatibility lane | `RETAIN` | It remains an opt-in compatibility proof and is not an obsolete legacy path. |
 | AutoCAD/Revit native Host targets | `RETAIN` | T3 Host version ↔ runtime ↔ TFM ownership remains governed by the Task 13 Host matrix. |
-| MOD-016 V1/V2 and architecture compatibility bridges | `RETAIN / DEFER_ARCHITECTURE` | They are T4 Architecture Modernization Review inputs and are explicitly outside M6 cleanup authority. |
+| V1/V2 and architecture compatibility bridges (MOD-016) | `RETAIN / DEFER_ARCHITECTURE` | They are T4 Architecture Modernization Review inputs and are explicitly outside M6 cleanup authority. |
 
 No `.github/workflows/repository-regression.yml`, runtime metadata, SDK selector, native project, or compatibility-lane implementation is removed by Task 15. Retirement may be reconsidered only after a separately eligible M5 cutover is merged to `main`, its required merged-main observation is green, and any applicable Host evidence is present.
