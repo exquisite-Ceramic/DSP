@@ -1,6 +1,6 @@
 # ADR-010: Workflow Orchestrator Runtime Ownership
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-09-16
 - 关联：ADR-008、ADR-009；`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` §3、§28、§29、§43；`platform/orchestrator/`；`platform/execution_reconciliation/`
 
