@@ -6,10 +6,6 @@ from dataclasses import replace
 import pytest
 
 from design_execution_reconciliation import ReconciliationError
-from design_execution_reconciliation.postgres import (
-    apply_execution_saga_migrations,
-    connect_postgres,
-)
 
 from tests.execution_reconciliation.test_saga_v2_store import _v2_definition
 
@@ -20,6 +16,16 @@ def _postgres_dsn() -> str:
     if not dsn:
         pytest.skip("DSP_TEST_POSTGRES_DSN is required")
     return dsn
+
+
+def _postgres_api():
+    """在确认专用 PostgreSQL lane 后才加载 psycopg 基础设施。"""
+    from design_execution_reconciliation.postgres import (
+        apply_execution_saga_migrations,
+        connect_postgres,
+    )
+
+    return apply_execution_saga_migrations, connect_postgres
 
 
 def _store_type():
@@ -35,6 +41,7 @@ def _store_type():
 def _clean_execution_saga_table():
     """每个 PostgreSQL case 使用空 owner table，避免确定性 saga_id 相互污染。"""
     dsn = _postgres_dsn()
+    apply_execution_saga_migrations, connect_postgres = _postgres_api()
     conn = connect_postgres(dsn)
     try:
         apply_execution_saga_migrations(conn)
