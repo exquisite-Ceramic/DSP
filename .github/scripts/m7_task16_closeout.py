@@ -76,6 +76,14 @@ def close_ledger() -> None:
     if old_status_text not in ledger_text:
         raise SystemExit("ledger status vocabulary paragraph drifted")
     ledger_text = ledger_text.replace(old_status_text, new_status_text)
+    ledger_text = ledger_text.replace(
+        "| Python 3.11 canonical lane and `requires-python >=3.11` / Ruff `py311` | `RETAIN` | MOD-001 remains `APPROVED / APPROVED`; M5 did not switch canonical ownership. |",
+        "| Python 3.11 canonical lane and `requires-python >=3.11` / Ruff `py311` | `RETAIN` | At Task 15, MOD-001 was `APPROVED / APPROVED`; M5 did not switch canonical ownership. |",
+    )
+    ledger_text = ledger_text.replace(
+        "| Root .NET 8 SDK policy and Revit Core `net8.0` canonical target | `RETAIN` | MOD-012 remains `APPROVED / APPROVED`; M5 did not switch repository-wide SDK ownership. |",
+        "| Root .NET 8 SDK policy and Revit Core `net8.0` canonical target | `RETAIN` | At Task 15, MOD-012 was `APPROVED / APPROVED`; M5 did not switch repository-wide SDK ownership. |",
+    )
 
     closeout_section = """## Task 16 Technology Modernization closeout
 
@@ -101,7 +109,7 @@ def close_risk_register() -> None:
     risk_text = RISK.read_text(encoding="utf-8")
     risk_text = risk_text.replace(
         "**Record state:** M0 Task 3 execution boundary frozen  ",
-        "**Record state:** Technology Modernization closeout: COMPLETED  ",
+        "**Record state:** Technology Modernization closeout: COMPLETED",
     )
     section = """## Task 16 closeout and T4 handoff
 
