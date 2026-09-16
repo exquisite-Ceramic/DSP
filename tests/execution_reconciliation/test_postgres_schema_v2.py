@@ -3,10 +3,6 @@ from __future__ import annotations
 import os
 
 import pytest
-from design_execution_reconciliation.postgres import (
-    apply_execution_saga_migrations,
-    connect_postgres,
-)
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("DSP_TEST_POSTGRES_DSN"),
@@ -15,6 +11,13 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_execution_saga_migrations_are_owner_scoped_and_idempotent() -> None:
+    # 只有专用 PostgreSQL lane 才加载 psycopg 基础设施；普通 Phase I
+    # 离线回归不安装数据库驱动，也不应在 collection 阶段触发该依赖。
+    from design_execution_reconciliation.postgres import (
+        apply_execution_saga_migrations,
+        connect_postgres,
+    )
+
     conn = connect_postgres(os.environ["DSP_TEST_POSTGRES_DSN"])
     try:
         conn.execute("DROP SCHEMA IF EXISTS execution_saga CASCADE")
