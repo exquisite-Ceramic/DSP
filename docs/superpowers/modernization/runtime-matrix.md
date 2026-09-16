@@ -1,8 +1,8 @@
 # DSP Modernization Runtime Matrix
 
-**Record state:** M0 Task 2 factual inventory complete; M2 Tasks 7-8 Python 3.14 and Host-neutral .NET 10 compatibility verified  
+**Record state:** M0 Task 2 factual inventory complete; M2 Tasks 7-8 Python 3.14 and Host-neutral .NET 10 compatibility verified; M5 Task 14 evaluated with no eligible canonical cutover  
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
-**Observed:** 2026-09-15
+**Observed:** 2026-09-16
 
 A candidate below is an assessment target only. It is not canonical until the plan's dual-run/cutover gates pass.
 
@@ -46,8 +46,20 @@ A candidate below is an assessment target only. It is not canonical until the pl
 
 ## Runtime gate facts
 
-- `>=3.11` remains the public Python floor until M5 cutover; Python 3.14 is first a compatibility lane.
+- `>=3.11` remains the public Python floor until an approved canonical cutover; Python 3.14 remains a compatibility lane after Task 14 because MOD-001 is not `VERIFIED`.
 - Ruff remains targeted at `py311`, and the Ruff baseline-delta gate remains owned by the Python 3.11 canonical lane.
-- Revit Core defaults to `net8.0`; `net10.0` is available only through the explicit `DspEnableNet10Compatibility=true` Host-neutral compatibility gate. The root `global.json` remains on the 8.x policy.
-- Native AutoCAD/Revit TFMs are Host compatibility facts, not a repo-wide target policy; Task 8 does not change them.
+- Revit Core defaults to `net8.0`; `net10.0` is available only through the explicit `DspEnableNet10Compatibility=true` Host-neutral compatibility gate. The root `global.json` remains on the 8.x policy because MOD-012 is not `VERIFIED`.
+- Native AutoCAD/Revit TFMs are Host compatibility facts, not a repo-wide target policy; Task 8 and Task 14 do not change them.
 - No prerelease runtime is a modernization baseline; .NET 11 RC is explicitly outside the planned baseline.
+
+## M5 Task 14 canonical cutover decision
+
+M5 evaluates the ledger before changing canonical ownership. Task 14 does **not** promote compatibility evidence into implementation verification on its own: an item must already be `VERIFIED` and approved for cutover before its metadata/SDK/CI baseline can move.
+
+- `MOD-001`: `NO_CUTOVER` — ledger status remains `APPROVED / APPROVED`. Task 7 proves Python 3.14 compatibility, but the ledger explicitly says that evidence is compatibility-only and not an M5 cutover authorization. Canonical Python therefore remains 3.11; root `requires-python` remains `>=3.11`; Ruff remains `py311`; Python 3.14 stays as the compatibility lane.
+- `MOD-012`: `NO_CUTOVER` — ledger status remains `APPROVED / APPROVED`. Task 8 proves Host-neutral .NET 10 compatibility, but not repository-wide SDK cutover. Root `global.json` therefore remains `8.0.100` with `latestFeature`; Revit Core remains canonical `net8.0`; the opt-in .NET 10 lane remains compatibility-only.
+- Native AutoCAD/Revit targets remain governed by the Task 13 Host matrix and are not candidates for a repository-wide M5 rewrite.
+
+Task 13 final exact-head run `35037786997` at `4adc680a416993643c063de95520f52a6accc925` already kept both Python runtime lanes and both Revit Core runtime lanes GREEN immediately before this M5 decision. Task 14 adds an anti-drift consistency contract so a future branch cannot silently flip any of these canonical owners while MOD-001/MOD-012 remain unverified.
+
+`NO_CUTOVER` is an explicit M5 decision, not a retirement. The old canonical paths stay active; M6 retirement work is not authorized by this result.
