@@ -1,0 +1,65 @@
+name: M6 Task 15 governance collision fix
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+permissions:
+  contents: write
+
+jobs:
+  focused-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Rebuild locked workspace
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Apply the minimal M6 table-label fix and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/superpowers/modernization/modernization-ledger.md")
+          text = path.read_text(encoding="utf-8")
+          old = "| MOD-016 V1/V2 and architecture compatibility bridges | `RETAIN / DEFER_ARCHITECTURE` |"
+          new = "| V1/V2 and architecture compatibility bridges (MOD-016) | `RETAIN / DEFER_ARCHITECTURE` |"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected exactly one M6 MOD-016 display row, found {text.count(old)}")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
+          uv run python -m pytest tests/architecture/test_modernization_governance.py tests/architecture/test_modernization_retirement.py -q
+          uv run ruff check --select E,F,I tests/architecture/test_modernization_retirement.py
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/superpowers/modernization/modernization-ledger.md
+          git diff --cached --stat
+          git commit -m "docs: avoid m6 ledger row parser collision"
+          echo "DOCS_COMMIT=$(git rev-parse HEAD)"
+      - name: Upload ledger commit behind an intentionally rejected workflow guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '\n# upload guard: this commit must not move the branch\n' >> .github/workflows/m6-task15-fix.yml
+          git add .github/workflows/m6-task15-fix.yml
+          git commit -m "ci: task15 fix upload guard"
+          echo "GUARD_COMMIT=$(git rev-parse HEAD)"
+          set +e
+          OUTPUT="$(git push origin HEAD:feat/technology-modernization-m1 2>&1)"
+          RC=$?
+          set -e
+          printf '%s\n' "$OUTPUT"
+          test "$RC" -ne 0
+          printf '%s\n' "$OUTPUT" | grep -qi 'workflow'
