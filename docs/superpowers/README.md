@@ -90,6 +90,9 @@
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga.md`](plans/2026-09-06-phase-i-real-cross-host-materialization-saga.md) | COMPLETED |
 | [`2026-09-12-post-phase-i-engineering-hygiene.md`](plans/2026-09-12-post-phase-i-engineering-hygiene.md) | COMPLETED |
 | [`2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | COMPLETED |
+| [`2026-09-16-durable-persistence-substrate.md`](plans/2026-09-16-durable-persistence-substrate.md) | CURRENT |
+| [`2026-09-16-cross-owner-delivery-crash-recovery.md`](plans/2026-09-16-cross-owner-delivery-crash-recovery.md) | CURRENT |
+| [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
 
 ## 使用规则
 
