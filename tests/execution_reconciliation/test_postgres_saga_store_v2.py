@@ -6,7 +6,10 @@ from dataclasses import replace
 import pytest
 from design_execution_reconciliation import ReconciliationError
 
-from tests.execution_reconciliation.test_saga_v2_store import _v2_definition
+from tests.execution_reconciliation.saga_store_v2_contract import (
+    SAGA_STORE_V2_CONTRACT_CASES,
+    build_saga_v2_contract_fixture,
+)
 
 
 def _postgres_dsn() -> str:
@@ -28,7 +31,7 @@ def _postgres_api():
 
 
 def _store_type():
-    """延迟导入 RED 目标，避免无 DSN 的普通回归在 collection 阶段失败。"""
+    """延迟导入 PostgreSQL adapter，避免普通离线回归在 collection 阶段加载 psycopg。"""
     from design_execution_reconciliation.postgres_saga_store_v2 import (
         PostgresExecutionSagaStoreV2,
     )
@@ -57,10 +60,27 @@ def _clean_execution_saga_table():
         conn.close()
 
 
+@pytest.mark.parametrize(
+    "contract_case",
+    SAGA_STORE_V2_CONTRACT_CASES,
+    ids=[name for name, _assertion in SAGA_STORE_V2_CONTRACT_CASES],
+)
+def test_postgres_store_v2_conforms_to_backend_contract(contract_case) -> None:
+    """PostgreSQL backend 必须与内存 backend 共享完全相同的 Saga V2 领域语义。"""
+    dsn = _postgres_dsn()
+    _name, assertion = contract_case
+    ctx, definition = build_saga_v2_contract_fixture()
+    store = _store_type()(dsn)
+    try:
+        assertion(store, ctx, definition)
+    finally:
+        store.close()
+
+
 def test_postgres_store_survives_restart_and_create_is_evidence_safe() -> None:
     dsn = _postgres_dsn()
     store_type = _store_type()
-    _, definition = _v2_definition()
+    _, definition = build_saga_v2_contract_fixture()
 
     store_a = store_type(dsn)
     try:
@@ -84,7 +104,7 @@ def test_postgres_store_survives_restart_and_create_is_evidence_safe() -> None:
 def test_postgres_store_enforces_revision_cas_across_independent_connections() -> None:
     dsn = _postgres_dsn()
     store_type = _store_type()
-    _, definition = _v2_definition()
+    _, definition = build_saga_v2_contract_fixture()
 
     store_a = store_type(dsn)
     store_b = store_type(dsn)
