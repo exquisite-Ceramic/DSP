@@ -10,7 +10,6 @@ import re
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 INVENTORY = ROOT / "docs" / "superpowers" / "modernization" / "dependency-inventory.md"
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
@@ -22,7 +21,10 @@ def _m0_package_managed_members() -> set[str]:
 
     inventory = INVENTORY.read_text(encoding="utf-8")
     section_start = inventory.index("### Python manifests confirmed at the frozen baseline")
-    section_end = inventory.index("### Source trees without a package-local manifest", section_start)
+    section_end = inventory.index(
+        "### Source trees without a package-local manifest",
+        section_start,
+    )
     section = inventory[section_start:section_end]
 
     # 表格中的反引号路径是 M0 已确认的 package-managed manifest；根 pyproject 是 workspace root，
