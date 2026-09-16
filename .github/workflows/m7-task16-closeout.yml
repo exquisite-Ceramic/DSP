@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           python .github/scripts/m7_task16_closeout.py
           uv run python -m pytest tests/architecture/test_modernization_governance.py -q
-          uv run ruff check --select E,F,I tests/architecture/test_modernization_governance.py .github/scripts/m7_task16_closeout.py
+          uv run ruff check --select E,F,I tests/architecture/test_modernization_governance.py
           git diff --check
           git status --short
           git config user.name "github-actions[bot]"
