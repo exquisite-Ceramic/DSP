@@ -42,5 +42,6 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
     text = _index_text()
 
     assert "Phase I — latest completed capability phase" in text
-    assert "Modernization Planning — current engineering activity" in text
+    assert "Technology Modernization — COMPLETED" in text
+    assert "Modernization Planning — current engineering activity" not in text
     assert "Next capability phase — NOT YET DEFINED" in text

@@ -7,18 +7,30 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AutoCAD.AgentHost.Grpc</RootNamespace>
     <AssemblyName>AutoCAD.AgentHost.Grpc</AssemblyName>
+
+    <!--
+      M1 Task 6：MOD-013 保持 project-local NuGet ownership，不引入 Directory.Packages.props。
+      这些属性只把既有版本事实收敛为单一项目级 owner，不改变任何 package 版本。
+    -->
+    <DspGoogleProtobufVersion>3.29.3</DspGoogleProtobufVersion>
+    <DspGrpcAspNetCoreVersion>2.70.0</DspGrpcAspNetCoreVersion>
+    <DspGrpcToolsVersion>2.70.0</DspGrpcToolsVersion>
+    <DspSystemIOFileSystemAccessControlVersion>5.0.0</DspSystemIOFileSystemAccessControlVersion>
+
+    <!-- canonical proto 仍是唯一 transport source-of-truth；这里只显式化代码生成输入的 owner。 -->
+    <DspHostTransportProto>..\..\..\..\..\contracts\proto\host_transport_v1.proto</DspHostTransportProto>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Google.Protobuf" Version="3.29.3" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.70.0" />
-    <PackageReference Include="Grpc.Tools" Version="2.70.0" PrivateAssets="All" />
-    <PackageReference Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
+    <PackageReference Include="Google.Protobuf" Version="$(DspGoogleProtobufVersion)" />
+    <PackageReference Include="Grpc.AspNetCore" Version="$(DspGrpcAspNetCoreVersion)" />
+    <PackageReference Include="Grpc.Tools" Version="$(DspGrpcToolsVersion)" PrivateAssets="All" />
+    <PackageReference Include="System.IO.FileSystem.AccessControl" Version="$(DspSystemIOFileSystemAccessControlVersion)" />
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="..\..\..\..\..\contracts\proto\host_transport_v1.proto"
+    <Protobuf Include="$(DspHostTransportProto)"
               GrpcServices="Server" />
   </ItemGroup>
 

@@ -9,21 +9,41 @@ dependencies = [
     "jsonschema>=4.20",
 ]
 
-[project.optional-dependencies]
+# M1 使用标准 dependency group 表达本地与 canonical CI 的 Python 验证工具链。
+# uv 默认同步 dev group，因此 pytest 与 Ruff 都由同一份 committed lock 解析和安装。
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "jsonschema>=4.20",
+    "ruff",
 ]
 
-# 若后续使用 uv workspace，可在此登记各 Python 子包：
-# [tool.uv.workspace]
-# members = [
-#     "contracts/python",
-#     "hosts/autocad/sidecar",
-#     "platform/semantic_runtime",
-#     "platform/changeset",
-# ]
+# M1 只把 M0 已确认存在 package-local pyproject.toml 的第一方 distribution 纳入 workspace。
+# 根项目本身天然是 workspace root，因此 members 只列子项目；不得把仅靠 pytest pythonpath
+# 暴露的 platform/approval_scope、impact、interaction、orchestrator 当作正式 package 加入。
+[tool.uv.workspace]
+members = [
+    "contracts/python",
+    "hosts/autocad/sidecar",
+    "hosts/revit/sidecar",
+    "platform/changeset",
+    "platform/convergence",
+    "platform/execution_coordination",
+    "platform/execution_planning",
+    "platform/execution_reconciliation",
+    "platform/gateway_authorization",
+    "platform/materialization_planning",
+    "platform/materialization_topology",
+    "platform/provider_binding",
+    "platform/semantic_mcp",
+    "platform/semantic_runtime",
+    "platform/semantic_service",
+    "providers/semantics/dsp_core",
+    "providers/semantics/enterprise_mapping",
+    "providers/semantics/ifc43",
+    "providers/semantics/metro_v32",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "contracts/python/tests"]

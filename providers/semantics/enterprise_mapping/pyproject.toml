@@ -9,6 +9,11 @@ dependencies = [
     "PyYAML==6.0.3",
 ]
 
+# M1 只把 manifest 已声明的第一方依赖绑定到 workspace member；第三方版本约束保持不变。
+[tool.uv.sources]
+semantic-service = { workspace = true }
+host-contracts = { workspace = true }
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

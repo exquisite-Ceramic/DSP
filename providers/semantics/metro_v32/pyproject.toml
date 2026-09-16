@@ -8,6 +8,10 @@ dependencies = [
     "PyYAML==6.0.3",
 ]
 
+# M1 将 Provider 对语义服务的第一方依赖显式绑定到 workspace member。
+[tool.uv.sources]
+semantic-service = { workspace = true }
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

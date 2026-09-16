@@ -12,32 +12,36 @@ env:
 
 jobs:
   python-regression:
+    name: Python ${{ matrix.python-version }} (${{ matrix.lane }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.11"
+            lane: canonical
+          - python-version: "3.14"
+            lane: compatibility
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
-      - name: Install repository verification stack
+          python-version: ${{ matrix.python-version }}
+      - name: Install repository verification stack from committed lock
         run: |
-          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3 ruff
-          python -m pip install \
-            -e contracts/python \
-            -e hosts/autocad/sidecar \
-            -e platform/semantic_runtime \
-            -e platform/semantic_service \
-            -e platform/semantic_mcp \
-            -e providers/semantics/dsp_core \
-            -e providers/semantics/ifc43 \
-            -e providers/semantics/metro_v32 \
-            -e providers/semantics/enterprise_mapping
+          # uv 本身是 bootstrap 工具；两个 Python lane 都从同一份 committed uv.lock 重建 workspace。
+          python -m pip install uv
+          uv sync --locked --all-packages
       - name: Run repository importlib regression
-        run: python -m pytest --import-mode=importlib -q
+        run: uv run python -m pytest --import-mode=importlib -q
       - name: Run repository local-parity regression
-        run: python -m pytest -q
+        run: uv run python -m pytest -q
       - name: Enforce no new repository Ruff diagnostics
+        # Python 3.11 仍是 canonical lane；3.14 只证明运行时兼容性，不复制 Ruff baseline ownership。
+        if: matrix.lane == 'canonical'
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -49,12 +53,15 @@ jobs:
           fi
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           git worktree add /tmp/dsp-base "$BASE_SHA"
+
+          # base/head 必须使用 HEAD committed lock 中的同一个 Ruff 二进制，避免历史环境差异污染 delta。
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
           (
             cd /tmp/dsp-base
-            ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
+            "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
           )
-          ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
-          python - <<'PY'
+          "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+          uv run python - <<'PY'
           import json
           import sys
           from collections import Counter
@@ -87,9 +94,37 @@ jobs:
   revit-core:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
       - name: Run Revit AgentHost Core regression
-        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
+        run: dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj -f net8.0
+
+  dotnet10-compat:
+    name: .NET 10 (Host-neutral compatibility)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Run Host-neutral Revit Core .NET 10 compatibility
+        shell: bash
+        run: |
+          # 根 global.json 继续拥有 canonical 8.x SDK policy。
+          # compatibility lane 只在 Revit plugin 子树创建临时局部 selector，且 job 结束前删除。
+          SDK_VERSION="$(dotnet --list-sdks | awk '$1 ~ /^10\./ {version=$1} END {print version}')"
+          test -n "$SDK_VERSION"
+          trap 'rm -f "$GITHUB_WORKSPACE/hosts/revit/plugin/global.json"' EXIT
+          printf '{\n  "sdk": {\n    "version": "%s",\n    "rollForward": "disable",\n    "allowPrerelease": false\n  }\n}\n' \
+            "$SDK_VERSION" > "$GITHUB_WORKSPACE/hosts/revit/plugin/global.json"
+
+          pushd "$GITHUB_WORKSPACE/hosts/revit/plugin/Revit.AgentHost.Core.Tests"
+          dotnet --version
+          dotnet test Revit.AgentHost.Core.Tests.csproj -f net10.0 -p:DspEnableNet10Compatibility=true
+          popd
