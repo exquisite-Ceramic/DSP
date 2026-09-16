@@ -28,6 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           python .github/scripts/m7_task16_closeout.py
+          sed -i 's/Technology Modernization closeout: COMPLETED  $/Technology Modernization closeout: COMPLETED/' docs/superpowers/modernization/modernization-risk-register.md
           uv run python -m pytest tests/architecture/test_modernization_governance.py -q
           uv run ruff check --select E,F,I tests/architecture/test_modernization_governance.py
           git diff --check
