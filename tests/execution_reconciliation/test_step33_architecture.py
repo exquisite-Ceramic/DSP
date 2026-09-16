@@ -38,8 +38,8 @@ _FORBIDDEN_PRIVATE_IMPORTS = {
     "design_gateway_authorization.service",
     "semantic_runtime.freshness",
 }
-_FORBIDDEN_IMPORT_ROOTS = {
-    "autocad_sidecar",
+_FORBIDDEN_HOST_IMPORT_ROOTS = {"autocad_sidecar"}
+_FORBIDDEN_STORAGE_IMPORT_ROOTS = {
     "psycopg",
     "asyncpg",
     "redis",
@@ -154,6 +154,11 @@ def _call_name(node: ast.Call) -> str:
     return ""
 
 
+def _is_postgres_adapter(path: Path) -> bool:
+    """ADR-008 允许 PostgreSQL 细节只存在于明确命名的基础设施适配器。"""
+    return path.name == "postgres.py" or path.name.startswith("postgres_")
+
+
 def _workflow() -> dict:
     return yaml.load(_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
@@ -178,25 +183,35 @@ def test_step33_production_has_no_host_product_private_storage_or_native_dispatc
         tree = _tree(path)
         modules = _imported_modules(tree)
         imported_names = _imported_names(tree)
+        roots = {module.split(".")[0] for module in modules}
 
         assert not any(
             module in _FORBIDDEN_PRIVATE_IMPORTS
             or any(module.startswith(f"{private}.") for private in _FORBIDDEN_PRIVATE_IMPORTS)
             for module in modules
         ), path
-        assert not any(
-            module.split(".")[0] in _FORBIDDEN_IMPORT_ROOTS for module in modules
-        ), path
+        assert not roots.intersection(_FORBIDDEN_HOST_IMPORT_ROOTS), path
+
+        storage_roots = roots.intersection(_FORBIDDEN_STORAGE_IMPORT_ROOTS)
+        allowed_storage_roots = {"psycopg"} if _is_postgres_adapter(path) else set()
+        assert not storage_roots.difference(allowed_storage_roots), path
+
         assert "HostCommand" not in imported_names, path
         assert not any(term in source.lower() for term in _FORBIDDEN_PRODUCT_TERMS), path
 
-        calls = {_call_name(node).lower() for node in ast.walk(tree) if isinstance(node, ast.Call)}
+        calls = {
+            _call_name(node).lower()
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+        }
         assert "datetime.now" not in calls, path
         assert "datetime.utcnow" not in calls, path
         assert "time.time" not in calls, path
-        assert not any(
-            call.rsplit(".", 1)[-1] in _FORBIDDEN_DISPATCH_CALLS for call in calls
-        ), path
+        if not _is_postgres_adapter(path):
+            assert not any(
+                call.rsplit(".", 1)[-1] in _FORBIDDEN_DISPATCH_CALLS
+                for call in calls
+            ), path
 
 
 def test_scope_comparator_never_uses_native_type_for_authorization() -> None:
