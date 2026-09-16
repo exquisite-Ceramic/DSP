@@ -1,11 +1,11 @@
 # DSP — Enterprise Collaborative Design Agent Specification v0.6
 
 > 状态：Draft / Architecture Baseline Candidate  
-> 日期：2026-08-28  
+> 日期：2026-08-28；Architecture consistency amendment：2026-09-16  
 > 取代：`Enterprise_Collaborative_Design_Agent_Spec_v0.5.md` 作为下一版候选规格  
 > 适用范围：多 Host 设计协同、Host MCP、Semantic MCP、Canonical Action、D5 Collaboration Kernel、D6 参数绑定、D7 ChangeSet/执行闭环  
 > Metro Semantic 基线：`IFC4.3 地铁 BIM 数据标准 V3.2——构件属性增强合并版`，目标 Schema 为 `IFC4X3_ADD2 / IFC 4.3.2.0`  
-> 本次修订：恢复 v0.5 Runtime/Governance Contract Freeze 内容，并将 Progressive Semantic Modeling 与 v0.6 Semantic MCP/D5 架构统一。
+> 本次修订：恢复 v0.5 Runtime/Governance Contract Freeze 内容，并将 Progressive Semantic Modeling 与 v0.6 Semantic MCP/D5 架构统一；2026-09-16 Architecture Modernization Review 依据 ADR-008～010 补齐 durable persistence、cross-owner delivery/crash recovery 与 workflow runtime ownership 的一致性表述。
 
 ---
 
@@ -62,7 +62,7 @@ Semantic Reconstruction
 9. 所有模型写操作通过 immutable ChangeSet，并经过 ApprovalScopeBoundary 与授权链；
 10. 跨 Host 执行通过 ExecutionSlice / ExecutionUnit / ProviderBinding 分层，不使用 Host-to-Host 硬编码；
 11. 执行结果必须由 Host read-back / ActualDelta 形成闭环验证与 scope check；
-12. LangGraph、Gateway、Semantic Service、D5、Host Provider 各自保持单一 owner，不形成“全能中枢”。
+12. Workflow Orchestrator、Gateway、Semantic Service、D5、Host Provider 各自保持单一 owner，不形成“全能中枢”；LangGraph 是 v0.6 Workflow Orchestrator 的 reference runtime，不是新的 domain owner。
 
 ## 1.2 非目标
 
@@ -236,14 +236,15 @@ DSP 至少区分六个逻辑平面：
 | Semantic definitions / mappings | Semantic Service + pinned Providers | version/hash pinned |
 | Canonical semantic projection | D5 | progressive reconstruction + freshness/coverage barrier |
 | Change history | Change Journal | append-only |
-| Agent workflow state | LangGraph checkpoint | recoverable/replayable |
+| Agent workflow state | Workflow Orchestrator | durable checkpoint；recoverable/replayable |
 | Execution intent | immutable ChangeSet | approval/audit unit |
 | Authorization evidence | Gateway | ApprovalRecord / ExecutionGrant |
 
 Host 与 D5 不是双主数据库；D5 是 task-scoped canonical projection，Host 仍是 native realtime source of truth。
 
-## 3.2 Logical planes
+`Workflow Orchestrator` 是 task/workflow/checkpoint/HITL 的逻辑 authoritative owner；LangGraph 是 v0.6 reference workflow runtime。Framework-specific checkpoint schema/type 不得成为 DSP canonical/domain contract。
 
+## 3.2 Logical planes
 
 ```text
 Host Plane
@@ -263,8 +264,8 @@ Execution Plane
                                          │
                                          ▼
                               ┌──────────────────────┐
-                              │ LangGraph / LLM      │
-                              │ Orchestrator         │
+                              │ Workflow Orchestrator│
+                              │ LangGraph ref + LLM  │
                               └───────┬──────┬───────┘
                                       │      │
                          action space │      │ semantic context
@@ -332,15 +333,16 @@ Execution Plane
 核心边界：
 
 ```text
-Host MCP        = 怎么在具体 Host 执行
-Semantic MCP    = 标准/领域语义和规则是什么
-D4              = 当前允许表达什么 canonical action
-D5              = 当前设计已被理解成什么，以及理解到什么程度
-D6              = 这次 action 的参数具体是什么
-Impact Layer    = 这次修改可能影响什么、什么必须传播/验证
-D7              = 准备审批、分片、绑定、执行和验证什么
-Gateway         = 谁能调用什么、能否执行、如何审计
-LangGraph       = task/workflow/checkpoint/HITL 的最终编排者
+Host MCP              = 怎么在具体 Host 执行
+Semantic MCP          = 标准/领域语义和规则是什么
+D4                    = 当前允许表达什么 canonical action
+D5                    = 当前设计已被理解成什么，以及理解到什么程度
+D6                    = 这次 action 的参数具体是什么
+Impact Layer          = 这次修改可能影响什么、什么必须传播/验证
+D7                    = 准备审批、分片、绑定、执行和验证什么
+Gateway               = 谁能调用什么、能否执行、如何审计
+Workflow Orchestrator = task/workflow/checkpoint/HITL 的逻辑最终编排者
+LangGraph             = v0.6 Workflow Orchestrator reference runtime
 ```
 
 # 4. 互操作等级与 Progressive Semantic Model
@@ -790,7 +792,6 @@ Move entities in the active AutoCAD document.
 不得替代 Canonical Action description。
 
 ---
-
 # 9. D4 — Operation Resolver
 
 ## 9.1 职责
@@ -1437,7 +1438,6 @@ target.classification >= RULE_DERIVED
 AI/LLM 不得自行降低 assurance requirement。
 
 ---
-
 # 19. D5 — Collaboration Kernel / Progressive Semantic Runtime
 
 ## 19.1 职责
@@ -2157,9 +2157,11 @@ binding_set_hash
    ↓
 ExecutionGrant
    ↓
+Durable Dispatch Intent
+   ↓
 HostCommand
    ↓
-ActualDelta
+ActualDelta / Outcome Recovery
    ↓
 Verify / Scope Check / Reconcile
 ```
@@ -2373,6 +2375,8 @@ HostCommand {
 }
 ```
 
+任何生产级 Host mutation 在发送前，execution/reconciliation owner MUST 已 durable persist exact dispatch intent/admission evidence，包括 exact Slice/ExecutionUnit、binding/grant、Host/document、stable idempotency key 与 revision/precondition。不得先调用 Host，再补写“准备执行什么”。
+
 ## 25.9 Verification / Reconcile
 
 ```text
@@ -2454,11 +2458,57 @@ Host revision / precondition 不匹配返回：
 REVISION_CONFLICT
 ```
 
-然后由 Orchestrator：
+然后由 Workflow Orchestrator：
 
 ```text
 reconstruct → revalidate → replan/new ChangeSet
 ```
+
+## 25.13 Durable Host Dispatch / Unknown Outcome
+
+Host Application 不属于平台数据库 transaction。DSP MUST NOT 把 Host mutation 伪装成跨系统 ACID commit。
+
+Reference execution ordering：
+
+```text
+1. durable Saga/Execution reservation
+2. durable admitted authority / grant evidence
+3. persist DISPATCH_INTENT
+4. commit owner-local transaction
+5. dispatch HostCommand(same stable idempotency_key)
+6. observe response / timeout / transport failure
+7. persist observation
+8. Host read-back / ActualDelta / semantic verification / scope check
+9. advance durable Saga state by CAS
+```
+
+若出现：
+
+```text
+Host may have committed
++
+platform did not durably record the outcome
+```
+
+系统 MUST 进入显式 unknown-outcome recovery 语义（实现名 MAY 为 `OUTCOME_UNKNOWN` 或等价状态），不得直接判定 `FAILED`，也不得无条件重新执行。
+
+Recovery 至少使用：
+
+```text
+same stable idempotency key replay when safe
++
+Host revision / command receipt when available
++
+Host read-back
++
+ActualDelta / semantic verification
++
+ApprovalScopeBoundary comparison
+```
+
+最终只能收口为有证据的 `SUCCEEDED/COMMITTED`、`NOT_COMMITTED/SAFE_TO_RETRY`、`PARTIALLY_COMMITTED`、`DIVERGED` 或 `REQUIRES_RECONCILIATION` 等业务状态。
+
+Host/Sidecar 的本地 idempotency cache 是 recovery aid，不是唯一 durable truth。
 
 # 26. “墙体加厚到 300mm”完整流程
 
@@ -2567,21 +2617,26 @@ METRO = unresolved
       ↓
     ExecutionGrant EG-001
 
-17. Host execution
-    HostCommand + idempotency_key
+17. Execution/Reconciliation owner
+    durable reservation + admitted authority
+    persist DISPATCH_INTENT + stable idempotency_key
 
-18. Host ActualDelta
+18. Host execution
+    HostCommand + same stable idempotency_key
+
+19. Host ActualDelta / outcome recovery
     native changes + implicit associativity effects
+    response lost/timeout 时进入 unknown-outcome recovery，不直接推断未提交
 
-19. D5
+20. D5
     dirty → selective reconstruction
     publish new SemanticProjection / Snapshot
 
-20. Verify / Scope Check
+21. Verify / Scope Check
     intended wall thickness == observed 300mm
     ActualDelta ⊆ ApprovalScopeBoundary
 
-21. Result
+22. Result
     inside scope + verify pass → SUCCEEDED
 
     outside scope → SCOPE_BREACH
@@ -2594,7 +2649,8 @@ METRO = unresolved
 - Revit 与 AutoCAD 共用同一个 canonical operation / ChangeSet 语义；
 - 差异只在 HostBinding / ProviderBinding / HostCommand；
 - Progressive Model 只提升当前 operation 需要的语义，不重建无关 Metro/geometry；
-- 若 Metro rule 是本次操作的 policy/validation requirement，才将相关 domain coverage 提升到 L3。
+- 若 Metro rule 是本次操作的 policy/validation requirement，才将相关 domain coverage 提升到 L3；
+- Host 响应丢失不等于 Host 未提交，必须通过 durable intent + idempotency + read-back/reconcile 收口。
 
 # 27. Enterprise MCP Gateway 与 Runtime Surfaces
 
@@ -2629,7 +2685,7 @@ data egress policy
 
 ```text
 BIM/CAD design planning
-own LangGraph workflow state
+own Workflow Orchestrator checkpoint/workflow state
 own canonical ChangeSet
 modify Host native model
 redefine IFC/Metro semantics
@@ -2689,11 +2745,11 @@ semantic.validate_claim
 
 新增 Provider Tool SHOULD NOT 要求修改 stable Orchestrator surface。
 
-# 28. LangGraph Orchestration / Module Interaction
+# 28. Workflow Orchestration / LangGraph Reference Runtime / Module Interaction
 
 ## 28.1 Workflow owner
 
-LangGraph 是业务 task/workflow/checkpoint/HITL 的最终编排者。
+`Workflow Orchestrator` 是业务 task/workflow/checkpoint/HITL 的逻辑 authoritative owner。LangGraph 是 v0.6 reference workflow runtime。
 
 ```text
 START
@@ -2717,7 +2773,9 @@ START
 END
 ```
 
-若当前实现未来替换 LangGraph，替代框架必须保持同一 ownership/invariant，而不能让 Host UI、MCP Server、LLM 各自维护独立最终 agent loop。
+Workflow framework implementation MUST NOT 成为 canonical domain owner。若未来替换 LangGraph，替代 runtime 必须保持同一 `Workflow Orchestrator` ownership/invariant，而不能让 Host UI、MCP Server、LLM 或另一 workflow engine 各自维护独立最终 agent loop。
+
+Temporal 当前不得作为第二个 business orchestrator 与 LangGraph 并行拥有同一 task 的 checkpoint/retry/completion truth。Future runtime replacement 必须通过独立 ADR、parity evidence、显式 cutover 与旧 runtime retirement 完成。
 
 ## 28.2 Deterministic nodes
 
@@ -2736,9 +2794,9 @@ Verify/Reconcile
 Scope Comparator
 ```
 
-LangGraph 负责状态迁移、checkpoint、异常恢复，不把这些规则委托给自由形式 LLM。
+Workflow Orchestrator（v0.6 reference runtime: LangGraph）负责状态迁移、checkpoint、HITL wait/resume、异常恢复与确定性服务之间的 routing，不把这些业务规则委托给自由形式 LLM，也不在 checkpoint 中重新实现这些 owner 的 canonical semantics。
 
-## 28.3 Async operation
+## 28.3 Async operation / Checkpoint boundary
 
 Host interaction、重型 reconstruction、长时间 execution 必须显式返回 typed handle：
 
@@ -2746,7 +2804,31 @@ Host interaction、重型 reconstruction、长时间 execution 必须显式返�
 AsyncOperationRef
 ```
 
-LangGraph checkpoint/resume 只能依赖显式 handle，不依赖 server hidden session state。
+Workflow checkpoint/resume 只能依赖显式 handle 与 stable refs，不依赖 server hidden session state。
+
+Checkpoint 只拥有 workflow navigation/HITL/retry coordination state；不得成为下列领域事实的第二 source of truth：
+
+```text
+SemanticSnapshot / SemanticProjection
+ChangeSet
+ApprovalRecord / ExecutionGrant
+ProviderBinding
+Execution Saga state
+Host commit truth
+ActualDelta
+```
+
+恢复时 MUST：
+
+```text
+reload checkpoint
+→ resolve stable refs
+→ query authoritative owners
+→ inspect Saga / Approval / ChangeSet / Host outcome evidence
+→ decide resume/retry/replan
+```
+
+不得根据“checkpoint 停在 Apply 前”推断 Host 一定未执行。
 
 ## 28.4 Human change capture
 
@@ -2781,9 +2863,12 @@ perform cross-service transaction
 - ChangeSet → ChangeSet Store；
 - ApprovalRecord/ExecutionGrant → Gateway；
 - InteractionSession → Interaction Coordinator；
-- workflow checkpoint → LangGraph。
+- workflow checkpoint → Workflow Orchestrator（LangGraph 为 v0.6 reference runtime）；
+- Execution Saga state → Execution Reconciliation/Saga owner。
 
-# 29. 通用 Envelope / Idempotency / Structured Error
+`LangGraph checkpoint != ExecutionSagaStore state`。Workflow Orchestrator 回答“用户任务进行到哪一步”；Execution Saga 回答“已批准执行的 ChangeSet/Slice 实际执行到什么状态”。
+
+# 29. 通用 Envelope / Idempotency / Structured Error / Cross-owner Delivery
 
 ## 29.1 Request / Response Envelope
 
@@ -2914,6 +2999,54 @@ SLICE_PARTIAL_FAILED
 ```
 
 自然语言错误文本不得成为 retry/replan/compensation 的机器决策依据。
+
+## 29.7 Cross-owner durable delivery
+
+当一个 authoritative owner 的 durable state transition 需要对其他 owner 可见时，producer MUST 在同一个 owner-local database transaction 中提交：
+
+```text
+domain state
++
+outbox record
+```
+
+Reference delivery semantics：
+
+```text
+owner-local ACID commit
+→ transactional outbox
+→ dispatch / retry
+→ at-least-once delivery
+→ consumer inbox / idempotent receipt
+→ owner-local domain transition
+```
+
+DSP v0.6 不承诺 transport-level exactly-once。Exactly-once business effect 依赖：
+
+```text
+local ACID
++ transactional outbox
++ at-least-once delivery
++ idempotent consumer
++ CAS / revision guards
++ stable idempotency key
++ Host read-back / reconcile
+```
+
+对于会产生 durable side effect 的 consumer，duplicate detection MUST durable。Reference mechanism 是 owner-local inbox/receipt，并与 consumer domain transition 在同一 local transaction 中提交。
+
+DSP 不定义所有事件的 global total order。需要顺序约束时，MUST 依赖业务 revision/ordering key，例如：
+
+```text
+saga_id + saga_revision
+changeset_id + version
+interaction_id + state_revision
+projection lineage
+```
+
+Reference implementation 使用 PostgreSQL owner schema 内的 outbox/inbox + polling/claim；Kafka/NATS/RabbitMQ 等 broker 当前不得成为 correctness dependency。未来 MAY 替换 transport，只要保持 owner-local atomic publication、at-least-once、consumer idempotency 与 single-owner invariants。
+
+Delivery infrastructure 只负责消息移动/retry，不是第二 orchestrator，也不得决定重新审批、创建新 ChangeSet、进入 compensation 或 canonical replan。
 
 # 30. 安全、授权与威胁模型
 
@@ -3046,6 +3179,15 @@ policy.denied
 
 审计 MUST append-only，并包含 actor、timestamp、correlation ids 与关键 hash/ref。
 
+Audit 与 Outbox 的职责 MUST 分离：
+
+```text
+Audit  = append-only governance evidence
+Outbox = reliable cross-owner delivery
+```
+
+Outbox record 的投递/清理/归档不得导致必须保留的审计证据丢失；Audit log 也不得被当作唯一业务队列来驱动状态迁移。
+
 ## 31.3 Metrics
 
 至少：
@@ -3171,6 +3313,9 @@ REMOVED
 | D5 Semantic Runtime | 服务端集群或项目级服务 |
 | Semantic Providers | in-process / service / MCP / database，按 manifest |
 | ChangeSet / Approval / Audit Store | 企业服务端 |
+| Owner-scoped Durable Stores / Workflow Checkpoint / Saga Store | 企业服务端；关系型 durable store，PostgreSQL 为 v0.6 reference implementation |
+
+逻辑 owner 与物理部署 MUST 分离。多个 owner MAY 在早期共用一个 PostgreSQL deployment，但 MUST 保持独立 schema/namespace、migration ownership、repository boundary 与 service credential；不得通过共用数据库获得跨 owner 表访问权。
 
 ## 34.2 网络
 
@@ -3199,6 +3344,8 @@ approved definition offline read cache
 
 缓存不得绕过 authority/version/hash 校验。
 
+Redis/其他 cache MAY 用于 cache、ephemeral coordination 或 performance optimization，但不得成为 ApprovalRecord、ChangeSet、Snapshot、workflow checkpoint、Saga state 或 audit evidence 的唯一 system of record。
+
 ## 34.4 Degraded mode
 
 Gateway 不可用：
@@ -3209,6 +3356,27 @@ MODEL_OPERATION → MUST NOT
 ```
 
 Semantic Provider 暂时不可用但 pinned/cache definition 足够完成已批准 read/verify 时 MAY 降级；若 authoritative term/mapping/validation 是当前操作必要条件，则 fail closed。
+
+## 34.5 Durable persistence reference topology
+
+DSP v0.6 的平台级 durable state 默认使用 owner-scoped relational durable store；PostgreSQL 是 reference implementation，不是 canonical/domain contract。
+
+Reference topology MAY：
+
+```text
+PostgreSQL
+├── semantic_runtime
+├── changeset
+├── gateway
+├── interaction
+├── orchestrator_checkpoint
+├── execution_saga
+└── audit
+```
+
+这些 namespace 仍分别由对应 authoritative owner 管理。Domain/service code MUST 依赖 owner repository/store contract，不得把 PostgreSQL table/schema、JSONB shape、sequence、advisory lock 或其他 vendor-specific detail 作为 DSP public/canonical contract。
+
+跨 owner 不使用数据库 ACID transaction；其 durable delivery/recovery 遵守 §29.7 与 §25.13。
 
 # 35. Semantic Authority 与冲突规则
 
@@ -3378,6 +3546,7 @@ Immutable ChangeSet
 ApprovalToken → ApprovalRecord
 RevisionBarrier
 ProviderBinding + ExecutionGrant
+Durable dispatch intent
 Idempotent Host execution
 Host verification + ActualDelta scope check
 ```
@@ -3418,7 +3587,7 @@ platform/
   gateway/                    # auth / policy / audit / grants
   capability/                 # D3
   canonical_actions/          # shared action contracts
-  orchestrator/               # LangGraph + D4 workflow integration
+  orchestrator/               # Workflow Orchestrator + LangGraph v0.6 runtime adapter + D4 workflow integration
   semantic_service/           # Semantic MCP / registry / routing
   semantic_runtime/           # D5 Collaboration Kernel / Progressive Runtime
   dependency/                 # relationship/dependency/constraint/impact
@@ -3465,7 +3634,7 @@ Gateway、Semantic MCP、Host MCP 是不同边界，不得因都使用 MCP 而�
 | Semantic Provider Conformance | manifest / authority / term / mapping / validation / version |
 | D5 Runtime Simulation | progressive coverage / freshness / assurance / snapshot |
 | ChangeSet/Governance | scope / approval / grant / binding / saga |
-| Failure Injection | timeout / replay / conflicts / partial failure |
+| Failure Injection | timeout / replay / unknown outcome / conflicts / partial failure / outbox-inbox recovery |
 | E2E Golden | MOVE / wall thickness / OFFSET / cross-host |
 
 ## 40.2 Execution Provider 必测
@@ -3541,7 +3710,9 @@ Metro Provider 至少测试：
 至少：
 
 ```text
-Apply committed but response lost => idempotent replay
+Apply may have committed but response lost
+  => OUTCOME_UNKNOWN semantics
+  => same idempotency key when safe + Host revision/read-back + ActualDelta/reconcile
 approval wait during designer edit => RevisionBarrier blocks
 second cross-host Slice fails => Saga/partial state
 Sidecar restart => explicit recovery/failure
@@ -3550,6 +3721,8 @@ semantic provider unavailable => cached/pinned policy or fail closed
 provider semantic version drift => ENVIRONMENT_MISMATCH
 ActualDelta outside scope => SCOPE_BREACH
 PENDING without AsyncOperationRef => contract failure
+domain state + outbox committed, producer crashes before delivery => dispatcher resumes delivery
+duplicate cross-owner delivery => consumer durable state transition occurs once
 ```
 
 ## 40.8 Extensibility proof
@@ -3583,7 +3756,7 @@ different ProviderBinding
 
 ```text
 Enterprise Gateway boundary
-LangGraph workflow ownership
+Workflow Orchestrator ownership + LangGraph v0.6 reference runtime
 ChangeJournal / DirtyMap
 Two-phase Freshness
 ContextSnapshot / PlanningSnapshot / SnapshotSet
@@ -3701,6 +3874,14 @@ Assurance
 Progressive Coverage/Maturity
 ```
 
+Architecture Modernization Review 进一步冻结但不新增第二套领域 owner：
+
+```text
+ADR-008 Durable State / Persistence Ownership
+ADR-009 Cross-owner Delivery & Crash Recovery
+ADR-010 Workflow Orchestrator Runtime Ownership
+```
+
 ## 41.5 不恢复的旧设计
 
 不得恢复：
@@ -3723,6 +3904,11 @@ Phase A — Architecture Freeze
   3. ADR-006 Progressive Semantic Runtime
   4. ADR-007 ChangeSet Execution / Approval Boundary
   5. Contract naming/version policy
+
+Architecture Modernization consistency amendment
+  A. ADR-008 Durable State / Persistence Ownership
+  B. ADR-009 Cross-owner Delivery & Crash Recovery
+  C. ADR-010 Workflow Orchestrator Runtime Ownership
 
 Phase B — D5 Baseline Completion
   6. SemanticIdentity / HostBinding / ExternalIdentity
@@ -3814,6 +4000,17 @@ Phase H — Full E2E
 32. Phase B Operation Freshness MUST occur after D6 material target/argument binding.
 33. Persistent HostBinding 与 runtime HostRuntimeRef MUST 分离；provider implementation id 不得充当 Host identity。
 34. 一个 SnapshotSet MUST 使用单一 pinned SemanticEnvironment。
+35. 每一种长期状态必须只有一个 authoritative owner；logical ownership 与 physical storage 必须分离。
+36. 平台级 durable state 默认使用关系型 durable store；PostgreSQL 只是 v0.6 reference implementation，不是 domain contract。
+37. 共用 PostgreSQL deployment 不授予跨 owner 表访问权；schema/repository/migration/credential boundary 必须保持 owner-scoped。
+38. 跨 owner 不使用数据库 ACID transaction；owner-local state change 与 publication 必须使用同一本地事务的 outbox 或语义等价机制。
+39. 跨 owner delivery 以 at-least-once 为基线；会产生 durable side effect 的 consumer 必须使用 inbox/idempotent receipt 或可证明等价机制。
+40. Host mutation 前必须存在 durable dispatch intent；Host 可能已提交而结果未被平台持久记录时必须进入 unknown-outcome recovery，不得仅凭 transport failure 判定失败或无条件 replay。
+41. `Workflow Orchestrator` 是 task/workflow/checkpoint/HITL 的 logical authoritative owner；LangGraph 是 v0.6 reference runtime。
+42. Workflow checkpoint 只能拥有 workflow-local state 与 stable refs，不得重新拥有 ChangeSet、Approval、Execution Saga、Host commit 或 SemanticProjection 真相。
+43. Execution Saga 是 execution/reconciliation truth owner，与 Workflow Orchestrator 分离。
+44. Temporal 或其他 durable workflow engine 不得作为第二 business orchestrator 与 LangGraph 重叠 ownership；未来替换必须通过独立 ADR、parity、cutover、retirement。
+45. Audit 与 Outbox 职责分离：Audit 是 append-only governance evidence；Outbox 是可靠 delivery mechanism，二者不得互相替代。
 
 # 44. 术语表
 
@@ -3823,6 +4020,8 @@ Phase H — Full E2E
 | Host Provider | 提供 Host read/write 能力的插件/Sidecar/MCP |
 | Host Contract | DSP 与 Host 边界的低语义数据契约 |
 | Enterprise Gateway | AuthN/AuthZ、Policy、Routing、Audit、Approval/Grant 的治理边界 |
+| Workflow Orchestrator | task/workflow/checkpoint/HITL progression 的 logical authoritative owner |
+| LangGraph | DSP v0.6 的 Workflow Orchestrator reference runtime；不是 canonical domain owner |
 | Native Fact | 从 Host 读取的原生事实 |
 | NormalizedDesignFact | Host-neutral 固定结构的事实传输契约 |
 | Progressive Semantic Modeling | 按任务/aspect/coverage 渐进提升语义深度，而非维护全量实时语义镜像 |
@@ -3857,6 +4056,8 @@ Phase H — Full E2E
 | ProviderBinding | ExecutionUnit 到具体 provider/tool/native binding 的执行期绑定 |
 | ApprovalRecord | 持久不可变批准事实 |
 | ExecutionGrant | 针对一个 Slice + binding set 的短生命周期执行授权 |
+| Durable Dispatch Intent | Host mutation 前由 execution/reconciliation owner 持久化的 exact execution intent/admission evidence |
+| Transactional Outbox / Inbox | owner-local atomic publication 与 durable duplicate-detection/receipt 机制 |
 | HostDelta / ActualDelta | Host 实际产生的变更，是 reconciliation 权威依据 |
 | SCOPE_BREACH | ActualDelta 超出 ApprovalScopeBoundary 的阻断型一致性错误 |
 | Compensating ChangeSet | Saga 场景用于逆向/补偿的可审计 ChangeSet |
@@ -3886,23 +4087,31 @@ v0.6 进入 `Accepted / Contract Freeze` 前，至少完成：
 18. 用“墙体加厚到 300mm”演练通过 Revit 和 AutoCAD 两种 Provider 路径；
 19. 用 `A-WALL → IfcWall` 证明 Enterprise Mapping Provider 可插拔且 D5 Core 不改代码；
 20. Metro reference case 通过 Schema / PsetProj / IDS / mapping / provenance；
-21. 至少一个 cross-host SnapshotSet + Slice/Saga failure-injection 测试通过。
+21. 至少一个 cross-host SnapshotSet + Slice/Saga failure-injection 测试通过；
+22. ADR-008 已冻结 durable state ownership、owner-scoped persistence 与 PostgreSQL reference substrate；
+23. ADR-009 已冻结 outbox/inbox、at-least-once delivery、durable Host dispatch intent 与 unknown-outcome recovery；
+24. ADR-010 已冻结 Workflow Orchestrator logical ownership、LangGraph v0.6 reference runtime 与禁止双 business orchestrator。
 
 # 46. 一句话系统边界
 
 ```text
-Host MCP         = 在具体 Host 里怎么做
-Semantic MCP     = 标准/领域语义与规则是什么
-Gateway          = 谁能调用什么、是否允许执行、如何审计
-D4               = 当前允许表达什么 Canonical Action
-D5               = 当前设计已经被理解成什么、理解到什么程度、是否新鲜/可信
-D6               = 这次 Action 的参数具体是什么，缺失参数如何从 Host 交互获得
-Impact Layer     = 这次修改会影响什么、哪些必须传播/验证
-D7 ChangeSet     = 准备审批什么 canonical change
-ExecutionSlice   = 在哪个 Host/document/approved scope 执行
-ExecutionUnit    = Slice 内最小 canonical 执行单位
-ProviderBinding  = 这次由哪个 provider/native implementation 执行
-LLM              = 在受约束空间中理解意图，不拥有系统真相、权限或执行权
+Host MCP              = 在具体 Host 里怎么做
+Semantic MCP          = 标准/领域语义与规则是什么
+Gateway               = 谁能调用什么、是否允许执行、如何审计
+Workflow Orchestrator = task/workflow/checkpoint/HITL 的 logical authoritative owner
+LangGraph             = v0.6 Workflow Orchestrator reference runtime
+D4                    = 当前允许表达什么 Canonical Action
+D5                    = 当前设计已经被理解成什么、理解到什么程度、是否新鲜/可信
+D6                    = 这次 Action 的参数具体是什么，缺失参数如何从 Host 交互获得
+Impact Layer          = 这次修改会影响什么、哪些必须传播/验证
+D7 ChangeSet          = 准备审批什么 canonical change
+ExecutionSlice        = 在哪个 Host/document/approved scope 执行
+ExecutionUnit         = Slice 内最小 canonical 执行单位
+ProviderBinding       = 这次由哪个 provider/native implementation 执行
+Execution Saga        = 已批准执行的 Slice/Host commit/reconciliation truth
+Durable Store         = authoritative owner 的物理持久化 substrate；PostgreSQL 是 v0.6 reference
+Outbox/Inbox          = 跨 owner 可靠投递/去重机制，不是业务 orchestrator
+LLM                   = 在受约束空间中理解意图，不拥有系统真相、权限或执行权
 ```
 
 ---
@@ -4149,18 +4358,18 @@ ErrorShape { error_code, category, message, correlation_ids, retryable, details[
 
 | Caller | Callee | Contract | Mode | Retry owner | State owner |
 |---|---|---|---|---|---|
-| LangGraph | Host Context | context → document/selection/view | sync | LangGraph(read) | Host |
-| LangGraph | D5 | FreshnessContract → Snapshot | sync/job | freshness client | D5 |
-| LangGraph | D4 | ContextSnapshot → ResolvedOperation[] | sync | LangGraph | D4/Registry |
-| D6/LangGraph | Interaction Coordinator | request → InteractionSession | async | idempotency owner | Interaction Coordinator |
-| LangGraph | Impact Analyzer | BoundProposal+PlanningSnapshot → Impact/Scope | sync/job | LangGraph | task runtime |
-| LangGraph | ChangeSetBuilder | Proposal+SnapshotSet → ChangeSet | sync | deterministic caller | ChangeSet Store |
-| LangGraph | Gateway | approval admission → ApprovalRecord | HITL/sync | LangGraph | Gateway |
-| LangGraph | Execution Planner | ChangeSet → Slice[]/Unit[] | sync | deterministic caller | Execution Planner |
-| LangGraph | Provider Resolver | ExecutionUnit → ProviderBinding | sync | Resolver | Registry/Resolver |
+| Workflow Orchestrator (LangGraph ref.) | Host Context | context → document/selection/view | sync | Orchestrator(read) | Host |
+| Workflow Orchestrator (LangGraph ref.) | D5 | FreshnessContract → Snapshot | sync/job | freshness client | D5 |
+| Workflow Orchestrator (LangGraph ref.) | D4 | ContextSnapshot → ResolvedOperation[] | sync | Orchestrator | D4/Registry |
+| D6/Workflow Orchestrator | Interaction Coordinator | request → InteractionSession | async | idempotency owner | Interaction Coordinator |
+| Workflow Orchestrator (LangGraph ref.) | Impact Analyzer | BoundProposal+PlanningSnapshot → Impact/Scope | sync/job | Orchestrator | task runtime |
+| Workflow Orchestrator (LangGraph ref.) | ChangeSetBuilder | Proposal+SnapshotSet → ChangeSet | sync | deterministic caller | ChangeSet Store |
+| Workflow Orchestrator (LangGraph ref.) | Gateway | approval admission → ApprovalRecord | HITL/sync | Orchestrator | Gateway |
+| Workflow Orchestrator (LangGraph ref.) | Execution Planner | ChangeSet → Slice[]/Unit[] | sync | deterministic caller | Execution Planner |
+| Workflow Orchestrator (LangGraph ref.) | Provider Resolver | ExecutionUnit → ProviderBinding | sync | Resolver | Registry/Resolver |
 | Gateway | Provider | Grant+Slice+Units+Bindings → result | sync/job | idempotency owner | Provider |
 | Provider/Sidecar | Host Plugin | HostCommand → Result/ActualDelta | IPC | Sidecar | Host |
-| LangGraph | Verify/Reconcile | ActualDelta → verify/scope result | sync/job | Orchestrator | D5/ChangeSet |
+| Workflow Orchestrator (LangGraph ref.) | Verify/Reconcile | ActualDelta → verify/scope result | sync/job | Orchestrator | D5/ChangeSet |
 
 ## B.3 Two-phase ordering
 
@@ -4184,14 +4393,17 @@ ApprovalRecord + ChangeSet
 → RevisionBarrier
 → ProviderBinding[] / binding_set_hash
 → ExecutionGrant
+→ durable reservation / DISPATCH_INTENT
 → HostCommand
-→ ActualDelta
+→ ActualDelta or OUTCOME_UNKNOWN recovery
 → D5 reconcile + Verify + Scope Comparator
 ```
 
 | Condition | Required action |
 |---|---|
-| fail before commit | native rollback + HOST_COMMAND_FAILED |
+| fail before Host dispatch | owner-local rollback/retry；Host 不应有副作用 |
+| Host definitely not committed | SAFE_TO_RETRY；复用同一 logical command / idempotency key |
+| Host may have committed but response/evidence lost | OUTCOME_UNKNOWN → Host revision/read-back/ActualDelta/reconcile；不得无条件 replay |
 | commit + verify pass + scope inside | Slice SUCCEEDED |
 | commit + verify fail | VERIFY_FAILED → reconcile/compensating ChangeSet |
 | ActualDelta outside scope | SCOPE_BREACH → stop remaining slices → compensate/reapproval |
@@ -4218,8 +4430,9 @@ AutoCAD selection
 → RevisionBarrier
 → ProviderBinding PB-001
 → binding_set_hash / ExecutionGrant
+→ durable reservation / DISPATCH_INTENT
 → HostCommand / AutoCAD transaction
-→ ActualDelta
+→ ActualDelta or OUTCOME_UNKNOWN recovery
 → Verify + Scope Check + D5 reconcile
 ```
 
@@ -4255,6 +4468,10 @@ MOVE 与 Wall Thickness MUST 并存。
 | RC-014 | PENDING without AsyncOperationRef is contract failure |
 | RC-015 | interaction retry does not create a second Host prompt |
 | RC-016 | second cross-host Slice failure enters Saga/partial state |
+| RC-017 | Host may have committed but response lost enters unknown-outcome recovery；transport failure alone cannot prove non-commit |
+| RC-018 | domain state + outbox commit survives producer crash and resumes at-least-once delivery |
+| RC-019 | duplicate cross-owner event does not duplicate consumer durable transition |
+| RC-020 | Workflow checkpoint recovery re-resolves authoritative refs and does not infer Host/Saga truth from graph position |
 
 ## D.2 Progressive Runtime — SR
 
