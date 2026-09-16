@@ -1,6 +1,6 @@
 # DSP Modernization Risk Register
 
-**Record state:** M0 Task 3 execution boundary frozen  
+**Record state:** Technology Modernization closeout: COMPLETED
 **Post-Phase-I clean baseline:** `e308e9279d17ab61ef0d30c874942ce273a0a3f9`  
 **Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
 **Decision freeze date:** 2026-09-15
@@ -63,3 +63,9 @@ These are evidence inputs and constraints, not proof that a later migration has 
 - MOD-016 V1/V2 compatibility bridges are T4 and `DEFER_ARCHITECTURE`; Technology Modernization may not remove or redesign them.
 
 No M1+ task may start with unknown ownership/risk/evidence, and no T4 item may be approved for Technology Modernization execution.
+
+## Task 16 closeout and T4 handoff
+
+Technology Modernization closes with no unclassified execution risk and no T4 implementation. The formal T4 row remains MOD-016 (`DEFER_ARCHITECTURE / DEFERRED`). Its evidence, together with adjacent architecture-boundary observations gathered during modernization, is copied into `architecture-modernization-review-input.md` for a separate Architecture Modernization Review.
+
+That handoff is evidence-only: it preserves facts, constraints, and review directions. It does not authorize architecture implementation, does not name a next capability phase, and does not convert a deferred T4 item into an executable Technology Modernization task.
