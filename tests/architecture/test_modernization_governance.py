@@ -117,12 +117,15 @@ def test_technology_modernization_closeout_is_terminal_and_handoff_only() -> Non
     rows = _ledger_rows()
     terminal_statuses = {"VERIFIED", "DEFERRED", "REJECTED", "CLOSED_NO_CUTOVER"}
     for row in rows:
-        assert row["Status"] in terminal_statuses, f"{row['ID']} non-terminal status: {row['Status']}"
+        assert row["Status"] in terminal_statuses, (
+            f"{row['ID']} non-terminal status: {row['Status']}"
+        )
 
-    assert next(row for row in rows if row["ID"] == "MOD-001")["Status"] == "CLOSED_NO_CUTOVER"
-    assert next(row for row in rows if row["ID"] == "MOD-012")["Status"] == "CLOSED_NO_CUTOVER"
-    assert next(row for row in rows if row["ID"] == "MOD-004")["Status"] == "VERIFIED"
-    assert next(row for row in rows if row["ID"] == "MOD-013")["Status"] == "VERIFIED"
+    statuses = {row["ID"]: row["Status"] for row in rows}
+    assert statuses["MOD-001"] == "CLOSED_NO_CUTOVER"
+    assert statuses["MOD-012"] == "CLOSED_NO_CUTOVER"
+    assert statuses["MOD-004"] == "VERIFIED"
+    assert statuses["MOD-013"] == "VERIFIED"
 
     assert ARCHITECTURE_REVIEW_INPUT.is_file(), "missing architecture modernization review input"
     handoff = ARCHITECTURE_REVIEW_INPUT.read_text(encoding="utf-8")
@@ -141,8 +144,14 @@ def test_technology_modernization_closeout_is_terminal_and_handoff_only() -> Non
     assert "Next capability phase:** NOT YET DEFINED" in root_readme
     assert "Next capability phase — NOT YET DEFINED" in lifecycle
     assert "Technology Modernization — COMPLETED" in root_readme
-    assert "2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED" in lifecycle
-    assert "2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | COMPLETED" in lifecycle
+    assert (
+        "2026-09-13-dsp-modernization-design.md`]"
+        "(specs/2026-09-13-dsp-modernization-design.md) | COMPLETED"
+    ) in lifecycle
+    assert (
+        "2026-09-13-dsp-modernization.md`]"
+        "(plans/2026-09-13-dsp-modernization.md) | COMPLETED"
+    ) in lifecycle
 
     risk_register = (MODERNIZATION / "modernization-risk-register.md").read_text(encoding="utf-8")
     assert "Technology Modernization closeout: COMPLETED" in risk_register
