@@ -29,7 +29,7 @@ ADR-003 已定义 Host 写命令的 idempotency key，但其现有 Host/Sidecar 
 
 ### 1. 采用 owner-local ACID + Transactional Outbox
 
-任何 owner 在一次本地业务状态变化需要对其他 owner 可见时，MUST 在**同一个 owner-local database transaction** 中同时提交：
+任何 owner 在一次本地业务状态变化需要通过**durable asynchronous cross-owner propagation** 对其他 owner 可见，且该传播丢失会导致 authoritative state / workflow correctness 不一致时，MUST 在**同一个 owner-local database transaction** 中同时提交：
 
 ```text
 owner domain state
@@ -48,6 +48,8 @@ ChangeSet Store transaction
 若事务回滚，则 domain state 与 outbox record 必须同时不存在；不得先写业务表、再以第二次数据库操作“补发事件”。
 
 Outbox 属于产生该事实的 owner，不属于全局 Event Service。
+
+同步、幂等、显式返回失败并由 caller 负责重试的 query/RPC 不因为“跨 owner”这一点就自动要求 outbox；是否需要 durable publication 取决于该事实是否必须在 producer commit 之后独立存活并最终传播。
 
 ### 2. 跨 owner 投递语义冻结为 at-least-once
 
@@ -69,7 +71,7 @@ idempotent consumer
 
 因此同一事件 MAY 被重复投递；consumer MUST 将重复 delivery 视为正常情况，而不是异常数据。
 
-“Exactly-once business effect” 由以下组合保证：
+DSP 冻结的是**duplicate-tolerant logical business correctness / verified convergent outcome**，由以下组合建立：
 
 ```text
 local ACID
@@ -81,7 +83,7 @@ local ACID
 + Host read-back / reconcile
 ```
 
-不得把 exactly-once transport 作为 DSP 正确性的前置条件。
+不得把 exactly-once transport 作为 DSP 正确性的前置条件；也不得承诺 arbitrary Host-native mutation 在物理层面只被调用一次。
 
 ### 3. Consumer 使用 Inbox / Idempotent Receipt
 
@@ -91,11 +93,23 @@ Reference mechanism 是 owner-local inbox / receipt record，至少绑定：
 
 ```text
 event_id
+event_fingerprint
 producer_owner
+event_type
 producer_stream/version or source revision
 consumer_owner
 processed_at
 result_ref/hash when applicable
+```
+
+`event_fingerprint` MUST 对 immutable event identity/content 做稳定提交，至少覆盖：
+
+```text
+producer_owner
+event_type
+aggregate/source ref
+aggregate/source revision
+payload hash/content
 ```
 
 consumer 在同一个本地事务内完成：
@@ -108,7 +122,19 @@ apply consumer domain transition
 append its own outbox records when needed
 ```
 
-重复 `event_id` 不得重复产生业务状态迁移。
+重复消费语义固定为：
+
+```text
+same event_id + same event_fingerprint
+→ duplicate/replay
+→ return/project existing result
+
+same event_id + different event_fingerprint
+→ DELIVERY_EVENT_CONFLICT
+→ MUST NOT silently deduplicate
+```
+
+这条规则不仅处理 UUID collision，也用于捕获 producer bug、错误 namespace、坏数据恢复和恶意重放。
 
 只读、可纯函数重算且不会产生 durable side effect 的 consumer MAY 不持久化 inbox，但必须有可证明的幂等行为。
 
@@ -212,6 +238,21 @@ Host Application 不属于 PostgreSQL transaction，Host mutation 也不得被�
 8. read-back / ActualDelta / reconciliation
 9. advance durable Saga state by CAS
 ```
+
+`DISPATCH_INTENT` 的创建边界位于 Step32 `ExecutionGrant` 已经 `ADMITTED` 之后。合法 Provider rebinding 必须发生在 `ADMITTED` 之前，因此 pre-admission rebinding 不创建 Host dispatch intent。
+
+对于同一个 `(saga_id, execution_slice_hash)`，v0.6 只允许一个 logical Host dispatch lineage：
+
+```text
+same Saga/Slice + same admitted grant/binding lineage
+→ replay/get existing intent
+
+same Saga/Slice + different grant/binding lineage
+→ DISPATCH_INTENT_CONFLICT
+→ MUST NOT create a second executable Host intent
+```
+
+因此实现 MAY 使用 `(saga_id, execution_slice_hash)` 唯一约束；该约束是对 Step32 “ADMITTED 后禁止透明 rebinding/re-execution” 的持久化防线，而不是在数据库层偷偷新增 pre-admission binding freeze。
 
 不得先调用 Host，再尝试补写“我们本来打算执行”的 durable intent。
 
@@ -328,10 +369,11 @@ Workflow Orchestrator checkpoint（v0.6 由 LangGraph reference runtime 实现�
 
 Outbox event 必须引用已经由 owner 冻结的 domain identity/hash/ref，而不是复制并重新拥有对方领域对象。
 
-典型事件 payload 应优先携带：
+典型事件 payload/envelope 应优先携带：
 
 ```text
 event_id
+event_fingerprint
 event_type
 occurred_at
 producer_owner
@@ -373,7 +415,7 @@ transaction rolled back
 
 ### Window D — consumer state 已提交，ack/response 丢失
 
-结果：重投同一 `event_id`；consumer 返回/投影既有结果，不重复迁移。
+结果：重投同一 `event_id`；若 fingerprint 相同，consumer 返回/投影既有结果而不重复迁移；若 fingerprint 不同，则报 `DELIVERY_EVENT_CONFLICT`，不得静默吞掉冲突。
 
 ### Window E — DISPATCH_INTENT 已提交，Host 尚未调用即崩溃
 
@@ -392,7 +434,7 @@ transaction rolled back
 ### 正面
 
 - 消除“业务状态已提交但通知丢失”的 dual-write gap。
-- 不要求引入分布式事务或 exactly-once broker 即可获得可证明的业务幂等。
+- 不要求引入分布式事务或 exactly-once broker 即可获得可验证、duplicate-tolerant 的业务正确性。
 - 与 ADR-008 的 single-owner / no-cross-owner-ACID 原则一致。
 - 复用现有 Execution Saga V2/CAS，而不是增加第二套业务状态机。
 - Host 外部副作用拥有明确的 unknown-outcome recovery protocol。
@@ -417,7 +459,7 @@ transaction rolled back
 - 不重新设计 Phase I 已冻结的 Saga / `PARTIALLY_COMMITTED` / `DIVERGED` 语义。
 - 不改变 ChangeSet、ApprovalRecord、ExecutionGrant、Snapshot、ActualDelta 的 authoritative ownership。
 - 不以消息系统替代 Audit Store。
-- 不承诺“网络 exactly once”；只冻结可验证的 business-effect correctness。
+- 不承诺“网络 exactly once”，也不承诺 arbitrary Host-native mutation 在物理层面 exactly once；只冻结可验证的 duplicate-tolerant logical correctness / convergent outcome。
 
 ## 被拒绝的方案（Rejected Alternatives）
 
@@ -439,15 +481,16 @@ transaction rolled back
 
 ## 架构约束（Architecture Invariants Added by This ADR）
 
-1. 跨 owner publication 必须消除 owner-local state / event 的 dual-write gap。
+1. 需要 durable asynchronous cross-owner propagation 的 publication 必须消除 owner-local state / event 的 dual-write gap。
 2. v0.6 reference delivery 为 owner-local transactional outbox + at-least-once delivery。
-3. Durable consumer side effect 必须具备 inbox/receipt 或等价可证明幂等机制。
-4. Exactly-once business effect 不依赖 exactly-once network transport。
+3. Durable consumer side effect 必须具备 inbox/receipt 或等价可证明幂等机制；同一 `event_id` 的不同 fingerprint 必须报 `DELIVERY_EVENT_CONFLICT`，不得静默 dedupe。
+4. DSP 冻结 duplicate-tolerant logical business correctness / verified convergent outcome，不依赖 exactly-once network transport，也不承诺任意 Host mutation 的物理 exactly-once invocation。
 5. 不建立 DSP 全局事件 total order；顺序由显式 aggregate revision/CAS 决定。
 6. Delivery infrastructure 不成为第二 workflow orchestrator。
-7. Host mutation 前必须先持久化足够的 durable dispatch intent / admission evidence。
-8. Host outcome 不确定时必须显式进入 unknown-outcome recovery，不得把 timeout 等同于 failure。
-9. ADR-003 idempotency 是重试/恢复证据的一部分，但不是 Host semantic success 的唯一事实源。
-10. PostgreSQL Saga adapter 必须保持 `ExecutionSagaStoreV2` 的 CAS/revision observable semantics。
-11. Crash recovery 必须从 durable owner truth 重建，不依赖 process-local hidden state。
-12. Outbox 是 delivery mechanism，Audit 是 governance evidence；二者不得互相替代。
+7. Host mutation 前必须先持久化足够的 durable dispatch intent / admission evidence；dispatch intent 只在 Step32 authority 已 ADMITTED 后创建。
+8. 同一 `(saga_id, execution_slice_hash)` 只允许一个 logical Host dispatch lineage；不同 admitted grant/binding lineage 必须报 `DISPATCH_INTENT_CONFLICT`，不得生成第二个可执行 intent。
+9. Host outcome 不确定时必须显式进入 unknown-outcome recovery，不得把 timeout 等同于 failure。
+10. ADR-003 idempotency 是重试/恢复证据的一部分，但不是 Host semantic success 的唯一事实源。
+11. PostgreSQL Saga adapter 必须保持 `ExecutionSagaStoreV2` 的 CAS/revision observable semantics。
+12. Crash recovery 必须从 durable owner truth 重建，不依赖 process-local hidden state。
+13. Outbox 是 delivery mechanism，Audit 是 governance evidence；二者不得互相替代。
