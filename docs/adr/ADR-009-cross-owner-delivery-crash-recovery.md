@@ -1,6 +1,6 @@
 # ADR-009: Cross-owner Delivery & Crash Recovery
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-09-16
 - 关联：ADR-003、ADR-008；`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` §25、§28、§29、§31、§43；`platform/execution_coordination/`；`platform/execution_reconciliation/`
 
@@ -152,15 +152,18 @@ semantic projection lineage
 
 Consumer MUST 使用业务 version / CAS / expected revision 检测 stale、duplicate 或 out-of-order transition；不得依赖“消息恰好按网络到达顺序处理”。
 
-### 6. LangGraph 仍是业务 workflow owner，事件投递层不是第二 orchestrator
+### 6. Workflow Orchestrator 是业务 workflow owner；事件投递层不是第二 orchestrator
 
 Outbox dispatcher、inbox consumer、PostgreSQL polling 或未来 broker 都只负责 delivery，不拥有 DSP 业务 workflow。
 
 保持：
 
 ```text
+Workflow Orchestrator
+= task/workflow/checkpoint/HITL authoritative logical owner
+
 LangGraph
-= task/workflow/checkpoint/HITL final owner
+= v0.6 reference workflow runtime
 
 Execution Saga
 = execution/reconciliation durable state owner
@@ -179,7 +182,7 @@ Delivery infrastructure MUST NOT 自行决定：
 是否进入 compensation
 ```
 
-这些决定仍由相应业务 owner / Orchestrator 根据 durable evidence 作出。
+这些决定仍由相应业务 owner / Workflow Orchestrator 根据 durable evidence 作出。
 
 ### 7. Host mutation 使用 Durable Intent，不尝试把 Host 加入数据库事务
 
@@ -319,7 +322,7 @@ unpersisted callback
 
 作为恢复正确性的必要条件。
 
-LangGraph checkpoint 恢复后必须重新验证其外部 refs 当前状态，而不是假设 checkpoint 之后所有远程 side effects 都未发生。
+Workflow Orchestrator checkpoint（v0.6 由 LangGraph reference runtime 实现）恢复后必须重新验证其外部 refs 当前状态，而不是假设 checkpoint 之后所有远程 side effects 都未发生。
 
 ### 12. Event / delivery contract 与 domain contract 分离
 
@@ -394,7 +397,7 @@ transaction rolled back
 - 复用现有 Execution Saga V2/CAS，而不是增加第二套业务状态机。
 - Host 外部副作用拥有明确的 unknown-outcome recovery protocol。
 - Kafka/NATS 等未来可作为 transport evolution，而不是当前 correctness dependency。
-- LangGraph workflow ownership、Execution Saga ownership 与 delivery responsibility 保持可区分。
+- Workflow Orchestrator ownership、LangGraph runtime responsibility、Execution Saga ownership 与 delivery responsibility 保持可区分。
 
 ### 代价
 
