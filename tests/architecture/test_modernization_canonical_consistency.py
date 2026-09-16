@@ -1,7 +1,8 @@
-"""M5 canonical cutover 的反漂移契约。
+"""M5 canonical cutover 与 Task 16 NO_CUTOVER 终态的反漂移契约。
 
-Task 14 只能切换已经 VERIFIED 的运行时/SDK 项。若候选仍是 APPROVED，旧 canonical
-baseline 必须保持不变，并在 runtime matrix / ledger 中显式记录 NO_CUTOVER。
+Task 14 只能切换已经 VERIFIED 的运行时/SDK 项。Task 16 将未切换的候选收成
+CLOSED_NO_CUTOVER；旧 canonical baseline 仍必须保持不变，并在治理记录中显式保留
+NO_CUTOVER 证据。
 """
 
 from __future__ import annotations
@@ -45,11 +46,11 @@ def _ledger_status(mod_id: str) -> tuple[str, str]:
     raise AssertionError(f"missing {mod_id} in modernization ledger")
 
 
-def test_unverified_runtime_candidates_cannot_become_canonical() -> None:
-    """未 VERIFIED 的 Python/.NET 候选不得在 M5 偷偷成为 canonical。"""
+def test_closed_no_cutover_runtime_candidates_cannot_become_canonical() -> None:
+    """Task 16 收口后，未切换候选仍不得偷偷成为 canonical。"""
 
-    assert _ledger_status("MOD-001") == ("APPROVED", "APPROVED")
-    assert _ledger_status("MOD-012") == ("APPROVED", "APPROVED")
+    assert _ledger_status("MOD-001") == ("CLOSED_NO_CUTOVER", "APPROVED")
+    assert _ledger_status("MOD-012") == ("CLOSED_NO_CUTOVER", "APPROVED")
 
     pyproject = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     assert pyproject["project"]["requires-python"] == ">=3.11"
