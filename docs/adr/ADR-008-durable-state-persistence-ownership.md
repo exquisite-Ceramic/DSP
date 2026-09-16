@@ -1,6 +1,6 @@
 # ADR-008: Durable State / Persistence Ownership
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-09-16
 - 关联：ADR-009、ADR-010；`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` §3.1、§19–21、§25、§28、§31、§34、§43；`docs/superpowers/modernization/architecture-modernization-review-input.md`
 
