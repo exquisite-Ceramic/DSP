@@ -5,12 +5,16 @@ on:
     branches:
       - feat/technology-modernization-m1
 
+permissions:
+  contents: write
+
 jobs:
-  retirement-contract:
+  governance-evidence:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           ref: ${{ github.sha }}
       - uses: actions/setup-python@v7
         with:
@@ -19,7 +23,75 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Run M6 retirement contract
-        run: uv run python -m pytest tests/architecture/test_modernization_retirement.py -q
-      - name: Run absolute Ruff
-        run: uv run ruff check --select E,F,I tests/architecture/test_modernization_retirement.py
+      - name: Stage Task 15 no-retirement decision and prove consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          ledger = Path("docs/superpowers/modernization/modernization-ledger.md")
+          text = ledger.read_text(encoding="utf-8")
+          heading = "## M6 Task 15 retirement decision"
+          if heading in text:
+              raise SystemExit("Task 15 retirement decision already present")
+
+          lines = text.splitlines()
+          for index, line in enumerate(lines):
+              if line.startswith("**Record state:**"):
+                  lines[index] = (
+                      "**Record state:** M0 Task 3 decisions frozen; M2 Tasks 7-8 runtime compatibility verified; "
+                      "M3 Tasks 9-11 verified; M4 Tasks 12-13 verified; M5 Task 14 evaluated with no eligible canonical cutover; "
+                      "M6 Task 15 evaluated with no eligible retirements"
+                  )
+                  break
+          else:
+              raise SystemExit("missing ledger record state")
+
+          section = """
+
+          ## M6 Task 15 retirement decision
+
+          **Decision:** `NO_RETIREMENTS`
+
+          Task 15 found no technology path eligible for retirement. Task 14 recorded `NO_CUTOVER` for both MOD-001 and MOD-012, so no replacement runtime/SDK has taken canonical ownership. The M6 design also requires post-switch merged-main observation evidence before removing an old path; this stacked modernization branch has no such merged-main cutover observation to cite. Deleting Python 3.11, .NET 8, or either compatibility lane here would therefore violate the frozen retirement gate rather than complete it.
+
+          | Surface | M6 disposition | Reason |
+          | --- | --- | --- |
+          | Python 3.11 canonical lane and `requires-python >=3.11` / Ruff `py311` | `RETAIN` | MOD-001 remains `APPROVED / APPROVED`; M5 did not switch canonical ownership. |
+          | Python 3.14 compatibility lane | `RETAIN` | It remains candidate compatibility evidence, not an obsolete old baseline. |
+          | Root .NET 8 SDK policy and Revit Core `net8.0` canonical target | `RETAIN` | MOD-012 remains `APPROVED / APPROVED`; M5 did not switch repository-wide SDK ownership. |
+          | Host-neutral .NET 10 compatibility lane | `RETAIN` | It remains an opt-in compatibility proof and is not an obsolete legacy path. |
+          | AutoCAD/Revit native Host targets | `RETAIN` | T3 Host version ↔ runtime ↔ TFM ownership remains governed by the Task 13 Host matrix. |
+          | MOD-016 V1/V2 and architecture compatibility bridges | `RETAIN / DEFER_ARCHITECTURE` | They are T4 Architecture Modernization Review inputs and are explicitly outside M6 cleanup authority. |
+
+          No `.github/workflows/repository-regression.yml`, runtime metadata, SDK selector, native project, or compatibility-lane implementation is removed by Task 15. Retirement may be reconsidered only after a separately eligible M5 cutover is merged to `main`, its required merged-main observation is green, and any applicable Host evidence is present.
+          """.strip("\n")
+
+          ledger.write_text("\n".join(lines).rstrip() + "\n\n" + section + "\n", encoding="utf-8")
+          PY
+
+          uv run python -m pytest tests/architecture/test_modernization_retirement.py -q
+          uv run ruff check --select E,F,I tests/architecture/test_modernization_retirement.py
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/superpowers/modernization/modernization-ledger.md
+          git diff --cached --stat
+          git commit -m "docs: record m6 no-retirement decision"
+          echo "DOCS_COMMIT=$(git rev-parse HEAD)"
+      - name: Upload ledger commit behind an intentionally rejected workflow guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '\n# upload guard: this commit must not move the branch\n' >> .github/workflows/m6-task15-verify.yml
+          git add .github/workflows/m6-task15-verify.yml
+          git commit -m "ci: task15 upload guard"
+          echo "GUARD_COMMIT=$(git rev-parse HEAD)"
+          set +e
+          OUTPUT="$(git push origin HEAD:feat/technology-modernization-m1 2>&1)"
+          RC=$?
+          set -e
+          printf '%s\n' "$OUTPUT"
+          test "$RC" -ne 0
+          printf '%s\n' "$OUTPUT" | grep -qi 'workflow'
