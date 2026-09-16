@@ -1,0 +1,208 @@
+from pathlib import Path
+
+ROOT = Path.cwd()
+MODERNIZATION = ROOT / "docs" / "superpowers" / "modernization"
+LEDGER = MODERNIZATION / "modernization-ledger.md"
+RISK = MODERNIZATION / "modernization-risk-register.md"
+ROOT_README = ROOT / "README.md"
+LIFECYCLE = ROOT / "docs" / "superpowers" / "README.md"
+HANDOFF = MODERNIZATION / "architecture-modernization-review-input.md"
+
+
+def close_ledger() -> None:
+    """把 Task 16 的剩余 APPROVED 状态收成终态，不改 M0 execution-state 历史。"""
+    lines = LEDGER.read_text(encoding="utf-8").splitlines()
+    terminal = {
+        "MOD-001": (
+            "CLOSED_NO_CUTOVER",
+            " Task 16 terminal disposition: `CLOSED_NO_CUTOVER`; the verified Python 3.14 compatibility lane is retained, but M5 did not transfer canonical ownership from Python 3.11 and M6 therefore retired nothing.",
+        ),
+        "MOD-004": (
+            "VERIFIED",
+            " Task 16 terminal disposition: `VERIFIED`; all locked workspace rebuilds through M6 continued to build the packaged components with the retained setuptools backend, and no backend-specific blocker or behavior change was required.",
+        ),
+        "MOD-012": (
+            "CLOSED_NO_CUTOVER",
+            " Task 16 terminal disposition: `CLOSED_NO_CUTOVER`; .NET 10 Host-neutral compatibility remains proven, but M5 did not transfer repository-wide SDK ownership from the .NET 8 policy and M6 therefore retired nothing.",
+        ),
+        "MOD-013": (
+            "VERIFIED",
+            " Task 16 terminal disposition: `VERIFIED`; Task 6 ownership checks and subsequent .NET regressions retained project-local NuGet ownership without evidence requiring central package management.",
+        ),
+    }
+    seen: set[str] = set()
+    for index, line in enumerate(lines):
+        if line.startswith("**Record state:**"):
+            lines[index] = (
+                "**Record state:** Technology Modernization closeout complete through Task 16; "
+                "M0–M4 evidence retained; M5 `NO_CUTOVER`; M6 `NO_RETIREMENTS`; "
+                "T4 findings handed to Architecture Modernization Review"
+            )
+            continue
+        for mod_id, (status, evidence) in terminal.items():
+            if not line.startswith(f"| {mod_id} |"):
+                continue
+            parts = line.split("|")
+            if len(parts) != 14:
+                raise SystemExit(f"unexpected ledger column count for {mod_id}: {len(parts)}")
+            if parts[9].strip() != "APPROVED":
+                raise SystemExit(
+                    f"expected {mod_id} Status APPROVED before closeout, got {parts[9].strip()}"
+                )
+            parts[9] = f" {status} "
+            parts[11] = f" {parts[11].strip()}{evidence} "
+            lines[index] = "|".join(parts)
+            seen.add(mod_id)
+            break
+    if seen != set(terminal):
+        raise SystemExit(f"missing closeout rows: {sorted(set(terminal) - seen)}")
+
+    ledger_text = "\n".join(lines) + "\n"
+    old_status_text = (
+        "Task 2 completed the factual A1-A7 inventory. Task 3 freezes the execution boundary. "
+        "`APPROVED` below means the corresponding future implementation-plan task may be attempted "
+        "with its stated validation and rollback gates; it does **not** mean the candidate is already "
+        "implemented or verified. `VERIFIED` in the Status column means the approved item has subsequently "
+        "satisfied its implementation-plan verification gate. `DEFERRED` means no Technology Modernization "
+        "implementation is authorized for that item."
+    )
+    new_status_text = (
+        "Task 2 completed the factual A1-A7 inventory and Task 3 froze the execution boundary. "
+        "`Execution state` preserves that M0 authorization history. At Task 16, `Status` is terminal: "
+        "`VERIFIED` means the approved disposition satisfied its Technology Modernization gate; "
+        "`CLOSED_NO_CUTOVER` means compatibility evidence was retained but canonical ownership did not switch; "
+        "`DEFERRED` / `REJECTED` remain non-executable outcomes. No row remains in `Status = APPROVED`."
+    )
+    if old_status_text not in ledger_text:
+        raise SystemExit("ledger status vocabulary paragraph drifted")
+    ledger_text = ledger_text.replace(old_status_text, new_status_text)
+
+    closeout_section = """## Task 16 Technology Modernization closeout
+
+**Program record:** `COMPLETED` on the modernization implementation stack. This status closes the Technology Modernization plan itself; it does not imply that the stacked modernization commits have already been merged to `main`, and it does not define the next capability phase.
+
+- M0–M4 produced reproducible tooling, compatibility evidence, dependency/API modernization, protocol/codegen reproducibility, and explicit Host support evidence without changing canonical product semantics.
+- M5 closed MOD-001 and MOD-012 as `CLOSED_NO_CUTOVER`; Python 3.11 and the root .NET 8 SDK policy retain canonical ownership while Python 3.14 / Host-neutral .NET 10 remain compatibility evidence.
+- M6 recorded `NO_RETIREMENTS`; no old runtime, SDK, native Host boundary, or architecture compatibility bridge was deleted without the required cutover and merged-main observation evidence.
+- MOD-015 remains `DEFERRED`; a repository-wide static typing gate was not required for this program.
+- MOD-016 remains T4 / `DEFER_ARCHITECTURE` / `DEFERRED` and is handed to `architecture-modernization-review-input.md` as evidence only.
+- Next capability phase remains `NOT YET DEFINED`."""
+    if "## Task 16 Technology Modernization closeout" in ledger_text:
+        raise SystemExit("Task 16 closeout section already present")
+    ledger_text = ledger_text.replace(
+        "\n## M0 exit gate",
+        "\n\n" + closeout_section + "\n\n## M0 exit gate",
+    )
+    LEDGER.write_text(ledger_text, encoding="utf-8")
+
+
+def close_risk_register() -> None:
+    """关闭 Technology Modernization 风险记录，但不把 T4 变成执行授权。"""
+    risk_text = RISK.read_text(encoding="utf-8")
+    risk_text = risk_text.replace(
+        "**Record state:** M0 Task 3 execution boundary frozen  ",
+        "**Record state:** Technology Modernization closeout: COMPLETED  ",
+    )
+    section = """## Task 16 closeout and T4 handoff
+
+Technology Modernization closes with no unclassified execution risk and no T4 implementation. The formal T4 row remains MOD-016 (`DEFER_ARCHITECTURE / DEFERRED`). Its evidence, together with adjacent architecture-boundary observations gathered during modernization, is copied into `architecture-modernization-review-input.md` for a separate Architecture Modernization Review.
+
+That handoff is evidence-only: it preserves facts, constraints, and review directions. It does not authorize architecture implementation, does not name a next capability phase, and does not convert a deferred T4 item into an executable Technology Modernization task."""
+    if "## Task 16 closeout and T4 handoff" in risk_text:
+        raise SystemExit("risk closeout section already present")
+    RISK.write_text(risk_text.rstrip() + "\n\n" + section + "\n", encoding="utf-8")
+
+
+def write_handoff() -> None:
+    """创建 evidence-only 架构评审输入，不写 Architecture Modernization 实施计划。"""
+    HANDOFF.write_text(
+        """# Architecture Modernization Review Input
+
+**Record type:** evidence-only handoff from completed Technology Modernization  
+**Source plan:** `docs/superpowers/plans/2026-09-13-dsp-modernization.md`  
+**Source design:** `docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`  
+**Technology Modernization execution base:** `2edb734c9aa26a32b414a0eff891260831009a97`  
+**Next capability phase:** `NOT YET DEFINED`
+
+This document records evidence and review directions only. It **does not authorize implementation** of any Architecture Modernization change and is not an architecture implementation plan. Any change that affects public contracts, canonical semantics, Host-visible behavior, orchestration, identity/materialization/Saga semantics, or supported capability requires a separate brainstorming/design process and its own approval gates.
+
+## Formal T4 handoff
+
+| MOD | Finding | Evidence retained by Technology Modernization | Review direction | Technology Modernization outcome |
+| --- | --- | --- | --- | --- |
+| MOD-016 | Active V1/V2 compatibility bridges across planning, binding, and reconciliation | The frozen ledger identifies active compatibility paths with domain/runtime consumers; M6 explicitly prohibited removing them because doing so can change public/runtime semantics or orchestration. | ASSESS LARGER PROGRAM | `DEFER_ARCHITECTURE / DEFERRED`; bridges retained unchanged |
+
+No additional ledger item was escalated to T4 during M1–M6. T0–T3 work either verified its approved behavior-neutral disposition or closed without canonical cutover.
+
+## Adjacent architecture evidence for review
+
+| Area | Repository evidence / constraint | Recommendation | Why this is review input rather than an implementation decision |
+| --- | --- | --- | --- |
+| Host / provider boundary | Current README and Host matrix keep AutoCAD/Revit native APIs inside Host plugin boundaries while platform contracts remain provider-neutral; Task 13 retained Host-version-specific runtime/TFM ownership. | KEEP | Modernization found this boundary compatible with current real-Host evidence; changing it would require architecture justification rather than a tooling refresh. |
+| Runtime abstraction / canonical ownership | M2 proved Python 3.14 and Host-neutral .NET 10 compatibility, but M5 recorded `NO_CUTOVER`; Python 3.11 and the root .NET 8 SDK policy remain canonical. | ASSESS TARGETED CHANGE | A future switch must resolve consumer/observation requirements and cannot be inferred from compatibility lanes alone. |
+| Package / module boundaries | The uv workspace preserves existing first-party distribution identities while providing one committed lock; NuGet remains project-local by verified disposition. | KEEP | Modernization found no evidence that package consolidation or central NuGet ownership was required for reproducibility. |
+| Contract evolution | Canonical JSON Schema remains the cross-language contract authority; gRPC/Protobuf generation is reproducible from the existing `.proto`, and MCP/gRPC retain separate boundary roles. | ASSESS TARGETED CHANGE | Any future contract/protocol role change can alter wire or canonical semantics and must be designed explicitly. |
+| Planning / binding / reconciliation compatibility surface | MOD-016 identifies active compatibility bridges spanning multiple domain/runtime consumers. | ASSESS LARGER PROGRAM | Removal or unification may affect orchestration and compatibility semantics across several packages, so it is outside Technology Modernization cleanup authority. |
+
+## Constraints carried forward
+
+- Preserve `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` as the current system-level contract authority until a separately approved successor exists.
+- Do not infer a capability roadmap from Technology Modernization completion; the next capability phase remains `NOT YET DEFINED`.
+- Do not treat `*_v2`, V1/V2 bridges, Host/provider abstractions, or contract compatibility paths as dead code solely because newer paths exist.
+- Real AutoCAD/Revit support claims remain T3 and require vendor/runtime/SDK/TFM plus real-Host evidence; architecture review must not erase that ownership rule.
+- Technology Modernization verification evidence may be reused as characterization evidence, but it is not approval to alter architecture semantics.
+""",
+        encoding="utf-8",
+    )
+
+
+def close_readmes() -> None:
+    """关闭工程活动生命周期，同时保留下一 capability phase 未定义。"""
+    root_text = ROOT_README.read_text(encoding="utf-8")
+    root_text = root_text.replace(
+        "- **Current engineering activity:** Modernization Planning",
+        "- **Current engineering activity:** Technology Modernization — COMPLETED",
+    )
+    root_text = root_text.replace(
+        "- 当前 Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)",
+        "- 已完成 Technology Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)",
+    )
+    root_text = root_text.replace(
+        "| [`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md) | 当前 Modernization Planning Design |",
+        "| [`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md) | 已完成 Technology Modernization Design / evidence record |",
+    )
+    root_text = root_text.replace(
+        "| [`docs/superpowers/README.md`](docs/superpowers/README.md) | Design Spec / Implementation Plan 生命周期与历史导航 |",
+        "| [`docs/superpowers/modernization/architecture-modernization-review-input.md`](docs/superpowers/modernization/architecture-modernization-review-input.md) | Technology Modernization 的 evidence-only 架构评审输入，不授权实现 |\n| [`docs/superpowers/README.md`](docs/superpowers/README.md) | Design Spec / Implementation Plan 生命周期与历史导航 |",
+    )
+    ROOT_README.write_text(root_text, encoding="utf-8")
+
+    lifecycle_text = LIFECYCLE.read_text(encoding="utf-8")
+    lifecycle_text = lifecycle_text.replace(
+        "- Modernization Planning — current engineering activity",
+        "- Technology Modernization — COMPLETED",
+    )
+    lifecycle_text = lifecycle_text.replace(
+        "[`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | CURRENT",
+        "[`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED",
+    )
+    lifecycle_text = lifecycle_text.replace(
+        "[`2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | CURRENT",
+        "[`2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | COMPLETED",
+    )
+    lifecycle_text = lifecycle_text.replace(
+        "- 当前 Modernization Design 与 Implementation Plan 是工程规划 artifacts，不是新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。",
+        "- Technology Modernization Design 与 Implementation Plan 已完成并保留为工程证据，不构成新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。",
+    )
+    LIFECYCLE.write_text(lifecycle_text, encoding="utf-8")
+
+
+def main() -> None:
+    close_ledger()
+    close_risk_register()
+    write_handoff()
+    close_readmes()
+
+
+if __name__ == "__main__":
+    main()
