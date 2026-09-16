@@ -1,0 +1,25 @@
+name: M5 Task 14 canonical consistency verifier
+
+on:
+  push:
+    branches:
+      - feat/technology-modernization-m1
+
+jobs:
+  canonical-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Rebuild locked workspace
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run M5 canonical consistency contract
+        run: uv run python -m pytest tests/architecture/test_modernization_canonical_consistency.py -q
+      - name: Run absolute Ruff
+        run: uv run ruff check --select E,F,I tests/architecture/test_modernization_canonical_consistency.py
