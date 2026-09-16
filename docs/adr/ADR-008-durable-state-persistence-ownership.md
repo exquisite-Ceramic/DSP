@@ -2,20 +2,20 @@
 
 - 状态：Proposed
 - 日期：2026-09-16
-- 关联：`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` §3.1、§19–21、§25、§28、§31、§34、§43；`docs/superpowers/modernization/architecture-modernization-review-input.md`
+- 关联：ADR-009、ADR-010；`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` §3.1、§19–21、§25、§28、§31、§34、§43；`docs/superpowers/modernization/architecture-modernization-review-input.md`
 
 ## 背景（Context）
 
 DSP v0.6 已经定义了多类需要长期保存、恢复、审计或重放的状态，但此前只冻结了**逻辑 owner 与 durability 语义**，没有冻结统一的物理持久化基线。
 
-主 Spec 已明确以下核心事实：
+主 Spec 已明确以下核心事实；ADR-010 对 workflow ownership 的 framework 表述进一步做了规范化：
 
 - Host Application 是 design-time native state 的实时事实源；D5 不是第二个 Host 主数据库，而是 task-scoped canonical projection。
 - `SemanticProjection`、`Snapshot`、`DirtyMap` 由 D5 拥有。
 - `ChangeSet` 由 ChangeSet Store 拥有。
 - `ApprovalRecord` / `ExecutionGrant` 由 Gateway 拥有。
 - `InteractionSession` 由 Interaction Coordinator 拥有。
-- workflow checkpoint 由 LangGraph 拥有，并要求 recoverable / replayable。
+- workflow checkpoint 由逻辑 `Workflow Orchestrator` 拥有，并要求 recoverable / replayable；LangGraph 是 v0.6 reference workflow runtime。
 - Change Journal 与 Audit 要求 append-only。
 - D4/D6/D7 不得通过共享 D5 内部数据库获得语义状态。
 - DSP 跨 Host 一致性采用 Saga / compensation，而不是 XA/2PC。
@@ -104,7 +104,7 @@ PostgreSQL-specific capability MAY 在 infrastructure adapter 内使用，只要
 D7 -> SELECT semantic_runtime.*
 Gateway -> UPDATE changeset.*
 D5 -> JOIN gateway.approval_record
-LangGraph -> 直接修改其他 owner 的业务表
+Workflow Orchestrator / LangGraph runtime -> 直接修改其他 owner 的业务表
 ```
 
 跨 owner 访问必须经过 contract/API/ref。
@@ -179,18 +179,21 @@ reconcile / verify
 | ApprovalRecord | Gateway | durable approval evidence |
 | ExecutionGrant | Gateway | durable, revocable/expiring authorization evidence |
 | InteractionSession | Interaction Coordinator | finite-state, resumable session |
-| Workflow checkpoint | LangGraph | recoverable/replayable orchestration state |
+| Workflow checkpoint | Workflow Orchestrator | recoverable/replayable workflow state；LangGraph 为 v0.6 reference runtime |
 | Audit | Audit subsystem / Gateway trust domain | append-only evidence |
 
-### 8. LangGraph 仍然拥有 workflow checkpoint
+### 8. Workflow Orchestrator 拥有 workflow checkpoint；LangGraph 是 reference runtime
 
-采用 PostgreSQL 作为 reference durable store 不改变主 Spec 对 workflow ownership 的决定：
+采用 PostgreSQL 作为 reference durable store 不改变 workflow 的逻辑 ownership：
 
 ```text
-LangGraph = task/workflow/checkpoint/HITL final owner
+Workflow Orchestrator = task/workflow/checkpoint/HITL authoritative logical owner
+LangGraph              = v0.6 reference workflow runtime
 ```
 
-`orchestrator_checkpoint` 只是 LangGraph checkpoint 的物理 persistence namespace，不成为第二个 orchestrator，也不获得 ChangeSet、D5、Gateway 等领域状态的 ownership。
+`orchestrator_checkpoint` 是 Workflow Orchestrator 的物理 persistence namespace。v0.6 MAY 由 LangGraph checkpoint adapter 实现，但该 namespace 不成为第二个 orchestrator，也不获得 ChangeSet、D5、Gateway、Execution Saga 等领域状态的 ownership。
+
+Workflow checkpoint 只保存 workflow-local state 与 stable refs；不得复制并重新拥有其他 authoritative owner 的业务真相。具体 runtime ownership 与替换规则由 ADR-010 冻结。
 
 ### 9. Redis / cache 类技术不得成为 system of record
 
@@ -233,6 +236,7 @@ Canonical contract 只表达领域 identity、hash/ref、version、status、prov
 - PostgreSQL 可以为 Snapshot、ChangeSet、Approval、checkpoint、Audit 等提供成熟的事务、约束、索引、备份与 migration 基础。
 - owner boundary 与物理部署解耦，未来可按容量、安全或组织边界拆分数据库，而无需改变 public/domain contract。
 - 保持 Host/D5 非双主、Progressive Semantic Runtime、Saga、immutable ChangeSet 等现有架构不变量。
+- 与 ADR-010 对 `Workflow Orchestrator` logical owner / LangGraph reference runtime 的分层一致。
 
 ### 代价
 
@@ -240,15 +244,15 @@ Canonical contract 只表达领域 identity、hash/ref、version、status、prov
 - 服务间读取不能通过便捷的跨 schema SQL JOIN 完成，需要稳定 API/ref 与显式 read model。
 - 数据库级 ACID 不能被误用为跨 owner / 跨 Host 一致性机制。
 - Infrastructure adapter 必须防止 PostgreSQL-specific 特性向领域层泄漏。
-- 后续仍需分别设计 migration、retention、backup/restore、cross-owner event delivery 与 failure recovery 的运行规则。
+- 后续仍需分别设计 migration、retention、backup/restore 等运行规则；cross-owner delivery 与 crash recovery 由 ADR-009 冻结。
 
 ## 不在本 ADR 范围内（Non-goals）
 
 - 不定义具体表结构、索引、ORM 或 migration framework。
 - 不定义 PostgreSQL HA、replication、RPO/RTO、backup frequency 或 disaster-recovery deployment。
 - 不选择 Kafka、NATS、RabbitMQ 或其他跨 owner event transport。
-- 不冻结 outbox/inbox、CDC 或事件投递实现；任何后续方案必须保持本 ADR 的 single-owner 与 no-cross-owner-ACID 约束。
-- 不改变 LangGraph 的业务 workflow ownership。
+- 不重新定义 ADR-009 已冻结的 outbox/inbox、at-least-once delivery 与 crash-recovery 语义。
+- 不改变 `Workflow Orchestrator` 的业务 workflow ownership；LangGraph 的 v0.6 reference runtime 身份与 future replacement 由 ADR-010 管理。
 - 不引入 Temporal 作为第二个业务 orchestrator。
 - 不改变 Host native source-of-truth、Semantic Service authority、ChangeSet、ApprovalRecord 或 ExecutionGrant 的既有领域语义。
 - 不把完整 DWG/RVT、完整精确几何或全量实时 IFC/Metro 镜像迁入 PostgreSQL。
@@ -280,6 +284,6 @@ Canonical contract 只表达领域 identity、hash/ref、version、status、prov
 5. 跨 owner 不使用数据库 ACID transaction；继续使用 immutable refs、idempotency、Saga 与 reconcile。
 6. Host native design state 仍由 Host Application 权威持有。
 7. D5 是 progressive canonical projection owner，不是第二 Host master。
-8. Durable workflow checkpoint 仍由 LangGraph authoritative ownership 管理。
+8. Durable workflow checkpoint 由 `Workflow Orchestrator` authoritative ownership 管理；LangGraph 仅是 v0.6 reference runtime。
 9. Redis/cache 不得成为 canonical durable system of record。
 10. Persistence vendor detail 不得进入 DSP canonical/public contract。
