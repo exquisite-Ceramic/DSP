@@ -127,6 +127,10 @@ def test_technology_modernization_closeout_is_terminal_and_handoff_only() -> Non
     assert statuses["MOD-004"] == "VERIFIED"
     assert statuses["MOD-013"] == "VERIFIED"
 
+    ledger = (MODERNIZATION / "modernization-ledger.md").read_text(encoding="utf-8")
+    assert "MOD-001 remains `APPROVED / APPROVED`" not in ledger
+    assert "MOD-012 remains `APPROVED / APPROVED`" not in ledger
+
     assert ARCHITECTURE_REVIEW_INPUT.is_file(), "missing architecture modernization review input"
     handoff = ARCHITECTURE_REVIEW_INPUT.read_text(encoding="utf-8")
     for row in rows:
