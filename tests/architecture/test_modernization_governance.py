@@ -2,6 +2,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODERNIZATION = ROOT / "docs" / "superpowers" / "modernization"
+ROOT_README = ROOT / "README.md"
+SUPERPOWERS_README = ROOT / "docs" / "superpowers" / "README.md"
+ARCHITECTURE_REVIEW_INPUT = MODERNIZATION / "architecture-modernization-review-input.md"
 
 
 def _ledger_rows() -> list[dict[str, str]]:
@@ -106,3 +109,41 @@ def test_m0_decisions_are_complete_and_executable_boundary_is_frozen() -> None:
     assert bridges["Risk"] == "T4"
     assert bridges["Decision"] == "DEFER_ARCHITECTURE"
     assert bridges["Execution state"] == "DEFERRED"
+
+
+def test_technology_modernization_closeout_is_terminal_and_handoff_only() -> None:
+    """Task 16 必须关闭全部技术现代化状态，并把 T4 仅作为后续评审输入。"""
+
+    rows = _ledger_rows()
+    terminal_statuses = {"VERIFIED", "DEFERRED", "REJECTED", "CLOSED_NO_CUTOVER"}
+    for row in rows:
+        assert row["Status"] in terminal_statuses, f"{row['ID']} non-terminal status: {row['Status']}"
+
+    assert next(row for row in rows if row["ID"] == "MOD-001")["Status"] == "CLOSED_NO_CUTOVER"
+    assert next(row for row in rows if row["ID"] == "MOD-012")["Status"] == "CLOSED_NO_CUTOVER"
+    assert next(row for row in rows if row["ID"] == "MOD-004")["Status"] == "VERIFIED"
+    assert next(row for row in rows if row["ID"] == "MOD-013")["Status"] == "VERIFIED"
+
+    assert ARCHITECTURE_REVIEW_INPUT.is_file(), "missing architecture modernization review input"
+    handoff = ARCHITECTURE_REVIEW_INPUT.read_text(encoding="utf-8")
+    for row in rows:
+        if "T4" in row["Risk"]:
+            assert row["ID"] in handoff, f"missing T4 handoff for {row['ID']}"
+
+    for recommendation in ("KEEP", "ASSESS TARGETED CHANGE", "ASSESS LARGER PROGRAM"):
+        assert recommendation in handoff
+    assert "evidence-only" in handoff.lower()
+    assert "does not authorize implementation" in handoff.lower()
+    assert "IMPLEMENTED" not in handoff
+
+    root_readme = ROOT_README.read_text(encoding="utf-8")
+    lifecycle = SUPERPOWERS_README.read_text(encoding="utf-8")
+    assert "Next capability phase:** NOT YET DEFINED" in root_readme
+    assert "Next capability phase — NOT YET DEFINED" in lifecycle
+    assert "Technology Modernization — COMPLETED" in root_readme
+    assert "2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED" in lifecycle
+    assert "2026-09-13-dsp-modernization.md`](plans/2026-09-13-dsp-modernization.md) | COMPLETED" in lifecycle
+
+    risk_register = (MODERNIZATION / "modernization-risk-register.md").read_text(encoding="utf-8")
+    assert "Technology Modernization closeout: COMPLETED" in risk_register
+    assert "architecture-modernization-review-input.md" in risk_register
