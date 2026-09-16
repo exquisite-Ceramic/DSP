@@ -6,7 +6,7 @@
 
 ## 背景（Context）
 
-主 Spec v0.6 当前明确写道：
+在本轮 architecture consistency amendment 之前，主 Spec v0.6 曾直接写道：
 
 ```text
 LangGraph = task/workflow/checkpoint/HITL 的最终编排者
