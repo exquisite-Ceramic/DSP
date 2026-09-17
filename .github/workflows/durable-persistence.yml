@@ -39,4 +39,5 @@ jobs:
         run: |
           uv run python -m pytest \
             tests/execution_reconciliation/test_postgres_schema_v2.py \
-            tests/execution_reconciliation/test_postgres_saga_store_v2.py -q
+            tests/execution_reconciliation/test_postgres_saga_store_v2.py \
+            tests/execution_reconciliation/test_postgres_delivery_schema.py -q
