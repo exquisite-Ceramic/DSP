@@ -61,6 +61,7 @@ from .saga_state_v2 import (
     SliceReconciliationStatusV2,
     StoredExecutionSagaV2,
 )
+from .saga_store_factory import create_execution_saga_store_v2
 from .saga_store_v2 import ExecutionSagaStoreV2, InMemoryExecutionSagaStoreV2
 from .saga_v2 import ExecutionSagaBuilderV2, ExecutionSagaControllerV2
 from .scope_comparator import ScopeComparator
@@ -123,6 +124,7 @@ __all__ = [
     "compute_semantic_verification_hash",
     "compute_validation_task_result_hash",
     "compute_verification_evidence_bundle_hash",
+    "create_execution_saga_store_v2",
     "validate_actual_delta_integrity",
     "validate_compensation_proposal_integrity",
     "validate_verification_evidence_bundle_integrity",
