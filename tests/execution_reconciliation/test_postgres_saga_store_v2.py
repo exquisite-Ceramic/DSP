@@ -39,23 +39,37 @@ def _store_type():
     return PostgresExecutionSagaStoreV2
 
 
+def _truncate_execution_saga_owner_state(conn) -> None:
+    """显式清空本 owner 的测试状态，不用 CASCADE 穿透未知依赖边界。"""
+    conn.execute(
+        """
+        TRUNCATE TABLE
+            execution_saga.host_dispatch_observation,
+            execution_saga.host_dispatch_intent,
+            execution_saga.inbox_receipt,
+            execution_saga.outbox,
+            execution_saga.saga_v2
+        """
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clean_execution_saga_table():
-    """每个 PostgreSQL case 使用空 owner table，避免确定性 saga_id 相互污染。"""
+    """每个 PostgreSQL case 使用空 owner state，避免确定性 identity 相互污染。"""
     dsn = _postgres_dsn()
     apply_execution_saga_migrations, connect_postgres = _postgres_api()
     conn = connect_postgres(dsn)
     try:
         apply_execution_saga_migrations(conn)
         with conn.transaction():
-            conn.execute("TRUNCATE TABLE execution_saga.saga_v2")
+            _truncate_execution_saga_owner_state(conn)
     finally:
         conn.close()
     yield
     conn = connect_postgres(dsn)
     try:
         with conn.transaction():
-            conn.execute("TRUNCATE TABLE execution_saga.saga_v2")
+            _truncate_execution_saga_owner_state(conn)
     finally:
         conn.close()
 
