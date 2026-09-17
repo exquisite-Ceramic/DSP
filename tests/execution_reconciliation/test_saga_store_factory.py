@@ -42,3 +42,10 @@ def test_factory_does_not_infer_backend_from_environment(monkeypatch) -> None:
     store = _factory()(backend="memory")
 
     assert isinstance(store, InMemoryExecutionSagaStoreV2)
+
+
+def test_factory_is_exposed_by_provider_neutral_public_api() -> None:
+    """调用方通过 owner 公共 API 选择 backend，而不直接依赖 PostgreSQL adapter。"""
+    import design_execution_reconciliation as reconciliation
+
+    assert reconciliation.create_execution_saga_store_v2 is _factory()
