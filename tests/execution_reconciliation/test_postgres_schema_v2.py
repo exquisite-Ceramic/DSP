@@ -55,6 +55,9 @@ def test_execution_saga_migrations_are_owner_scoped_and_idempotent() -> None:
             ORDER BY version
             """
         ).fetchall()
-        assert versions == [("0001_execution_saga_v2.sql",)]
+        assert versions == [
+            ("0001_execution_saga_v2.sql",),
+            ("0002_delivery_recovery.sql",),
+        ]
     finally:
         conn.close()
