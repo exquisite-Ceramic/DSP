@@ -260,3 +260,78 @@ DSP_TEST_POSTGRES_DSN="postgresql://postgres:postgres@localhost:5432/dsp_test" \
 - 为了方便 import 而把 PostgreSQL adapter/driver 变成 provider-neutral package 的 eager dependency。
 
 这些变化需要先回到相应 ADR / architecture review，而不是通过基础设施 adapter 悄悄改变系统 contract。
+
+## 12. Durable persistence gate 验证记录
+
+在最终证据写回前，已对实现 HEAD `bb21744e0648bbbe17f1f24960e7c618016caeb2` 进行 fresh CI 验证。该提交包含 PostgreSQL adapter、共享 transition engine、backend conformance suite、显式 factory 与本 runbook；以下结果不是历史基线推断，而是该 HEAD 的实际工作流输出。
+
+### 12.1 PostgreSQL 专用验证
+
+GitHub Actions `Durable persistence verification` 使用 PostgreSQL 17 service container，执行：
+
+```bash
+uv run python -m pytest \
+  tests/execution_reconciliation/test_postgres_schema_v2.py \
+  tests/execution_reconciliation/test_postgres_saga_store_v2.py -q
+```
+
+结果：
+
+```text
+13 passed in 0.84s
+```
+
+该 lane 实际覆盖 owner-scoped migration、9 个共享 backend conformance cases、public factory 的显式 PostgreSQL 选择、store recreation/restart reload，以及两个独立 connection 的 stale revision CAS 冲突。
+
+### 12.2 Execution Reconciliation owner gate
+
+`Step33 execution reconciliation` workflow 全部通过，包括：
+
+```text
+Step28 integrity proof              PASS
+Step29 integrity proof              PASS
+Step30 integrity proof              PASS
+Step33 focused tests                PASS
+Step28–Step32 regressions           PASS
+Step33 / Step30 strict Ruff         PASS
+```
+
+这证明 durable adapter/refactor 没有改写既有 Step33 V2 observable semantics。
+
+### 12.3 Repository truth gates
+
+Python 3.11 canonical lane：
+
+```text
+pytest --import-mode=importlib : 1519 passed, 30 skipped
+pytest default mode           : 1519 passed, 30 skipped
+Ruff base diagnostics         : 317
+Ruff head diagnostics         : 317
+new Ruff diagnostics          : 0
+```
+
+Python 3.14 compatibility、Revit Core 与 .NET 10 Host-neutral compatibility 同轮工作流均 PASS。
+
+Step37 offline verification 的 `Verify Step37 diff whitespace` 同样 PASS，可作为当前 PR diff 的 whitespace gate 证据。
+
+### 12.4 Review 回归项
+
+外部 review 曾指出 PostgreSQL test module 在 collection 阶段 eager import `psycopg`，会使只安装 Phase I 依赖子集的 offline lane 在 `skip` 生效前失败。当前 PostgreSQL integration tests 已改为在确认 `DSP_TEST_POSTGRES_DSN` 后再延迟加载 PostgreSQL infrastructure；`phase-i-offline` 在上述 HEAD 上已重新完整 PASS。
+
+因此不得把 delayed import 改回 module-top PostgreSQL infrastructure import，也不得从 package root eager re-export `PostgresExecutionSagaStoreV2`。公共 package 只暴露 provider-neutral `create_execution_saga_store_v2` factory，PostgreSQL adapter 仅在显式 `backend="postgres"` 分支内加载。
+
+### 12.5 架构属性确认
+
+上述测试与代码审查共同确认：
+
+```text
+Postgres adapter preserves ExecutionSagaStoreV2 observable contract
+stale expected_revision => SAGA_CONFLICT
+store/process recreation => exact saga reload
+PostgreSQL schema stays owner-scoped under execution_saga
+no psycopg import in Saga domain state/contracts
+InMemory and PostgreSQL run the same Saga V2 conformance contract
+backend selection is explicit; DSN never selects backend implicitly
+```
+
+本节记录的是 `bb21744...` 的验证基线。写回本节会产生新的 documentation-only HEAD；合并前仍必须以最终 HEAD 的 fresh CI 状态为准，不能用本节的旧 SHA 绿灯替代最终提交验证。
