@@ -77,6 +77,21 @@ def test_postgres_store_v2_conforms_to_backend_contract(contract_case) -> None:
         store.close()
 
 
+def test_factory_selects_postgres_backend_with_explicit_dsn() -> None:
+    """只有显式选择 postgres 且提供 DSN 时，公共 factory 才实例化 durable adapter。"""
+    from design_execution_reconciliation import create_execution_saga_store_v2
+
+    store_type = _store_type()
+    store = create_execution_saga_store_v2(
+        backend="postgres",
+        postgres_dsn=_postgres_dsn(),
+    )
+    try:
+        assert isinstance(store, store_type)
+    finally:
+        store.close()
+
+
 def test_postgres_store_survives_restart_and_create_is_evidence_safe() -> None:
     dsn = _postgres_dsn()
     store_type = _store_type()
