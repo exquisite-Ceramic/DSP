@@ -93,7 +93,7 @@ def test_deterministic_module_import_does_not_require_langgraph() -> None:
         sys.meta_path.insert(0, BlockLangGraph())
         from design_orchestrator.canonical_operations import MOVE_V1
 
-        assert MOVE_V1.operation_id == "MOVE_V1"
+        assert MOVE_V1.canonical_operation == "move.v1"
         """
     )
     completed = subprocess.run(
