@@ -95,6 +95,9 @@ from semantic_runtime import (
     SnapshotKind,
 )
 
+from tests.execution_coordination._materialized_support import (
+    InMemoryDispatchIntentStore,
+)
 from tests.materialization_planning._support import build_case, slot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -429,7 +432,9 @@ class AutoCadMaterializedExecutionPort:
         self._receipts = receipts
         self._observations = observations
 
-    def execute(self, execution_slice, authority, binding_set):
+    def execute(
+        self, execution_slice, authority, binding_set, dispatch_context
+    ):
         """以 readiness-time revision 串行提交 AutoCAD 300 mm mutation。"""
         receipt = self._receipts[execution_slice.materialization_id]
         if receipt.status is not ReadinessStatus.READY:
@@ -447,7 +452,7 @@ class AutoCadMaterializedExecutionPort:
             self._dispatcher.set_wall_thickness(
                 [target.native_id],
                 _TARGET_MM,
-                idempotency_key=f"phase-i-autocad-{uuid.uuid4().hex}",
+                idempotency_key=dispatch_context.idempotency_key,
                 revision=receipt.observed_revision,
             )
         )
@@ -498,7 +503,9 @@ class RevitMaterializedExecutionPort:
         self._observations = observations
         self._inject_external_revision_race = inject_external_revision_race
 
-    def execute(self, execution_slice, authority, binding_set):
+    def execute(
+        self, execution_slice, authority, binding_set, dispatch_context
+    ):
         """使用 readiness revision 执行 Revit；partial 场景先做一条合法外部 201 mm edit。"""
         receipt = self._receipts[execution_slice.materialization_id]
         if receipt.status is not ReadinessStatus.READY:
@@ -538,6 +545,7 @@ class RevitMaterializedExecutionPort:
             expected_revision=receipt.observed_revision,
             thickness_mm=_TARGET_MM,
             marker="saga",
+            idempotency_key=dispatch_context.idempotency_key,
         )
         adapted = RevitExecutionResultAdapter.adapt(
             admitted_authority=_v1_authority_view(authority),
@@ -614,6 +622,7 @@ class RevitMaterializedExecutionPort:
         expected_revision: int,
         thickness_mm: float,
         marker: str,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """构造并发送一条现有 Revit set_wall_thickness HostCommand。"""
         command = RevitHostAdapter.build_set_wall_thickness_command(
@@ -622,7 +631,10 @@ class RevitMaterializedExecutionPort:
             wall_unique_id=wall_unique_id,
             expected_revision=expected_revision,
             thickness_mm=thickness_mm,
-            idempotency_key=f"phase-i-revit-{marker}-{uuid.uuid4().hex}",
+            idempotency_key=(
+                idempotency_key
+                or f"phase-i-revit-{marker}-{uuid.uuid4().hex}"
+            ),
         )
         return self._transport.request(command)
 
@@ -1002,11 +1014,13 @@ def _build_harness(config: PhaseILiveConfig, *, inject_external_revision_race: b
     reconciliation = ExecutionReconciliationServiceV2(
         store=InMemoryExecutionSagaStoreV2()
     )
+    dispatch_intents = InMemoryDispatchIntentStore()
     evidence_port = PhaseIConvergenceEvidencePort(ctx.case.changeset, observations)
     coordinator = MaterializedExecutionSagaCoordinator(
         readiness_barrier=CrossHostReadinessBarrier(readiness_registry),
         reconciliation=reconciliation,
         host_registry=host_registry,
+        dispatch_intents=dispatch_intents,
         evidence_port=evidence_port,
         convergence_verifier=CrossHostConvergenceVerifier(),
         clock=_UtcClock(),
@@ -1016,6 +1030,7 @@ def _build_harness(config: PhaseILiveConfig, *, inject_external_revision_race: b
         readiness_registry=readiness_registry,
         observations=observations,
         reconciliation=reconciliation,
+        dispatch_intents=dispatch_intents,
         evidence_port=evidence_port,
         coordinator=coordinator,
     )
