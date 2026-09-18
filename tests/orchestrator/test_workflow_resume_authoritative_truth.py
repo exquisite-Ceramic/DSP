@@ -241,9 +241,9 @@ def test_graph_outcome_unknown_keeps_stable_dispatch_identity_across_resumes() -
 
     # 第一次恢复读取 owner truth 后进入 EXECUTION_JOB interrupt；此时不得触发 begin_execution。
     graph.invoke(None, config)
-    # 模拟外部等待被唤醒，但 owner 仍报告同一 OUTCOME_UNKNOWN。恢复后必须再次查询 owner，
-    # 并继续复用原 dispatch_intent_id，而不是制造新的 Host command identity。
-    graph.invoke(Command(resume={}), config)
+    # LangGraph 的 interrupt 必须由一个真实、非空的 resume payload 消费；空 dict 会被视为
+    # 未提供 resume value。业务节点不读取该 payload，它只作为“外部等待已经被唤醒”的信号。
+    graph.invoke(Command(resume={"status": "wake"}), config)
 
     assert services.begin_count == 0
     assert services.dispatch_intent_ids == ["dispatch-intent-1", "dispatch-intent-1"]
