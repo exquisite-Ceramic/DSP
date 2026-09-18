@@ -1,0 +1,40 @@
+name: ADR-010 temporary uv lock generator
+
+on:
+  push:
+    branches:
+      - feat/adr-010-workflow-orchestrator-runtime
+    paths:
+      - pyproject.toml
+      - platform/orchestrator/pyproject.toml
+      - .github/workflows/adr010-lock-generator.yml
+
+# 本 workflow 只服务于当前远程实现会话：生成由 uv 官方解析器写出的 committed lock 候选。
+# Task 1 GREEN 前会删除本文件，因此它不会成为 ADR-010 的长期 CI ownership。
+permissions:
+  contents: read
+
+jobs:
+  generate-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install the same uv generation used by repository CI
+        run: python -m pip install uv==0.12.16
+      - name: Resolve ADR-010 workspace lock
+        run: |
+          # 必须让 uv 从 package metadata 重新解析完整 workspace；禁止手工拼接 uv.lock。
+          uv lock
+          uv lock --check
+      - name: Upload generated lock for exact branch commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: adr010-uv-lock
+          path: uv.lock
+          if-no-files-found: error
+          retention-days: 1
