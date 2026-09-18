@@ -44,8 +44,20 @@ from design_orchestrator.parameter_binder import (
     SlotBindingEvidence,
     SlotBindingRecipe,
 )
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationKind,
+    AsyncOperationRef,
+    StableRef,
+    WorkflowCheckpointView,
+    WorkflowPhase,
+    WorkflowResumeCommand,
+    WorkflowStartRequest,
+)
+from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 
 __all__ = [
+    "AsyncOperationKind",
+    "AsyncOperationRef",
     "BindingError",
     "BindingResolverKind",
     "BoundOperationProposal",
@@ -81,5 +93,11 @@ __all__ = [
     "SlotBindingEvidence",
     "SlotBindingRecipe",
     "SlotInteractionRecipe",
+    "StableRef",
     "TaskConstraints",
+    "WorkflowCheckpointView",
+    "WorkflowOrchestratorPort",
+    "WorkflowPhase",
+    "WorkflowResumeCommand",
+    "WorkflowStartRequest",
 ]
