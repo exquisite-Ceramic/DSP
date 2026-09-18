@@ -18,8 +18,11 @@ from design_orchestrator.langgraph_state import (
     _decode_stable_ref,
     _encode_async_ref,
     _encode_stable_ref,
+    graph_state_to_checkpoint_view,
 )
+from design_orchestrator.recovery import decide_apply_resume
 from design_orchestrator.workflow_contracts import (
+    AsyncOperationKind,
     AsyncOperationRef,
     StableRef,
     WorkflowPhase,
@@ -41,6 +44,7 @@ MAIN_PATH = (
     "revision_barrier",
     "provider_binding",
     "execution_grant",
+    "refresh_execution_owner",
     "apply_or_recover",
     "verify_reconcile",
 )
@@ -50,6 +54,7 @@ _ASYNC_RESUME_NODES = {
     "parameter_binding",
     "ensure_operation_freshness",
     "policy_approval",
+    "refresh_execution_owner",
     "apply_or_recover",
 }
 
@@ -94,6 +99,19 @@ def _route_after_async_wait(state: WorkflowGraphState) -> str:
     if not isinstance(resume_node, str) or resume_node not in _ASYNC_RESUME_NODES:
         raise ValueError("async resume_node is missing or invalid")
     return resume_node
+
+
+def _route_after_execution_refresh(state: WorkflowGraphState) -> str:
+    """只根据 refresh node 已持久化的纯路由结果选择下一 graph node。"""
+
+    if state.get("async_operation_ref"):
+        return "await_async_operation"
+    route = state.get("execution_resume_route")
+    if route == "MAY_DISPATCH":
+        return "apply_or_recover"
+    if route == "TERMINAL_EXECUTION_STATE":
+        return "verify_reconcile"
+    raise ValueError("execution resume route is missing or invalid")
 
 
 def build_workflow_graph(services: WorkflowServices) -> StateGraph:
@@ -238,6 +256,43 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             "phase": WorkflowPhase.APPLY_WAIT.value,
         }
 
+    def refresh_execution_owner(state: WorkflowGraphState) -> dict[str, object]:
+        """在每次 apply/recovery 决策前重新读取完整 execution-owner authoritative truth。"""
+
+        saga_id = state.get("saga_id")
+        execution = None
+        if isinstance(saga_id, str) and saga_id.strip():
+            execution = services.get_execution_owner_state(saga_id.strip())
+
+        decision = decide_apply_resume(
+            checkpoint=graph_state_to_checkpoint_view(state),
+            execution=execution,
+        )
+        update: dict[str, object] = {
+            "execution_resume_route": decision.route,
+            "refreshed_saga_revision": decision.refreshed_saga_revision,
+            "async_operation_ref": None,
+        }
+        if decision.route == "RECOVER_OR_WAIT":
+            if not isinstance(saga_id, str) or not saga_id.strip():
+                raise ValueError("RECOVER_OR_WAIT requires durable saga_id")
+            update.update(
+                _set_async_wait(
+                    AsyncOperationRef(
+                        kind=AsyncOperationKind.EXECUTION_JOB,
+                        owner="execution",
+                        operation_id=saga_id.strip(),
+                    ),
+                    resume_node="refresh_execution_owner",
+                    phase=WorkflowPhase.APPLY_WAIT,
+                )
+            )
+        elif decision.route == "TERMINAL_EXECUTION_STATE":
+            update["phase"] = WorkflowPhase.VERIFY_RECONCILE.value
+        else:
+            update["phase"] = WorkflowPhase.APPLY_WAIT.value
+        return update
+
     def apply_or_recover(state: WorkflowGraphState) -> dict[str, object]:
         result = services.begin_execution(
             _require_stable_ref(state, "execution_plan_ref"),
@@ -246,7 +301,7 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         if isinstance(result, AsyncOperationRef):
             return _set_async_wait(
                 result,
-                resume_node="apply_or_recover",
+                resume_node="refresh_execution_owner",
                 phase=WorkflowPhase.APPLY_WAIT,
             )
         if not isinstance(result, str) or not result.strip():
@@ -254,6 +309,7 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         return {
             "saga_id": result.strip(),
             "async_operation_ref": None,
+            "execution_resume_route": None,
             "phase": WorkflowPhase.VERIFY_RECONCILE.value,
         }
 
@@ -262,7 +318,10 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         if not isinstance(saga_id, str) or not saga_id.strip():
             raise ValueError("saga_id is required for verify_reconcile")
         services.verify_reconcile(saga_id.strip())
-        return {"phase": WorkflowPhase.COMPLETED.value}
+        return {
+            "execution_resume_route": None,
+            "phase": WorkflowPhase.COMPLETED.value,
+        }
 
     def await_async_operation(state: WorkflowGraphState) -> dict[str, object]:
         ref = _decode_async_ref(state.get("async_operation_ref"), "async_operation_ref")
@@ -292,6 +351,7 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         ("revision_barrier", revision_barrier),
         ("provider_binding", provider_binding),
         ("execution_grant", execution_grant),
+        ("refresh_execution_owner", refresh_execution_owner),
         ("apply_or_recover", apply_or_recover),
         ("verify_reconcile", verify_reconcile),
         ("await_async_operation", await_async_operation),
@@ -340,15 +400,17 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
     builder.add_edge("execution_planning", "revision_barrier")
     builder.add_edge("revision_barrier", "provider_binding")
     builder.add_edge("provider_binding", "execution_grant")
-    builder.add_edge("execution_grant", "apply_or_recover")
+    builder.add_edge("execution_grant", "refresh_execution_owner")
     builder.add_conditional_edges(
-        "apply_or_recover",
-        _route_async_or("verify_reconcile"),
+        "refresh_execution_owner",
+        _route_after_execution_refresh,
         {
             "await_async_operation": "await_async_operation",
+            "apply_or_recover": "apply_or_recover",
             "verify_reconcile": "verify_reconcile",
         },
     )
+    builder.add_edge("apply_or_recover", "verify_reconcile")
     builder.add_conditional_edges(
         "await_async_operation",
         _route_after_async_wait,
