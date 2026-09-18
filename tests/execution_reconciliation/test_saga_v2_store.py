@@ -5,7 +5,6 @@ from dataclasses import replace
 import pytest
 from design_execution_reconciliation import (
     ExecutionSagaBuilder,
-    ExecutionSagaBuilderV2,
     ExecutionSagaControllerV2,
     ExecutionSagaDefinition,
     ExecutionSagaDefinitionV2,
@@ -15,20 +14,32 @@ from design_execution_reconciliation import (
     ReconciliationError,
     SliceReconciliationStatusV2,
 )
+from design_execution_reconciliation.saga_transitions_v2 import (
+    reserve_slice_admission_transition,
+)
 
 from tests.execution_reconciliation.conftest import _build_single_slice_transaction
-from tests.execution_reconciliation.test_saga_v2_definition import _phase_i_context
+from tests.execution_reconciliation.saga_store_v2_contract import (
+    SAGA_STORE_V2_CONTRACT_CASES,
+    build_saga_v2_contract_fixture,
+)
 
 
 def _v2_definition():
-    ctx = _phase_i_context()
-    definition = ExecutionSagaBuilderV2().build(
-        ctx.case.changeset,
-        ctx.case.boundary_v2,
-        ctx.materialization_plan,
-        ctx.execution_plan,
-    )
-    return ctx, definition
+    return build_saga_v2_contract_fixture()
+
+
+@pytest.mark.parametrize(
+    "contract_case",
+    SAGA_STORE_V2_CONTRACT_CASES,
+    ids=[name for name, _assertion in SAGA_STORE_V2_CONTRACT_CASES],
+)
+def test_in_memory_store_v2_conforms_to_backend_contract(contract_case) -> None:
+    """内存 backend 必须持续定义并通过统一的 Saga V2 persistence contract。"""
+    _name, assertion = contract_case
+    ctx, definition = build_saga_v2_contract_fixture()
+    store = InMemoryExecutionSagaStoreV2()
+    assertion(store, ctx, definition)
 
 
 def test_v2_store_create_is_durable_and_cas_revisioned() -> None:
@@ -90,6 +101,45 @@ def test_reservation_is_evidence_replay_safe_and_strict_cas() -> None:
     with pytest.raises(ReconciliationError) as exc:
         store.reserve_slice_admission(
             definition.saga_id,
+            first_hash,
+            expected_revision=0,
+            reserved_at="2026-09-06T12:00:01Z",
+        )
+    assert exc.value.code == "SAGA_CONFLICT"
+
+
+def test_reservation_transition_matches_in_memory_store_semantics() -> None:
+    _, definition = _v2_definition()
+    store = InMemoryExecutionSagaStoreV2()
+    initial = store.create_saga(definition)
+    first_hash = definition.ordered_slice_hashes[0]
+    reserved_at = "2026-09-06T12:00:00Z"
+
+    transitioned = reserve_slice_admission_transition(
+        initial,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    persisted = store.reserve_slice_admission(
+        definition.saga_id,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    assert transitioned == persisted
+
+    replay = reserve_slice_admission_transition(
+        transitioned,
+        first_hash,
+        expected_revision=0,
+        reserved_at=reserved_at,
+    )
+    assert replay == transitioned
+
+    with pytest.raises(ReconciliationError) as exc:
+        reserve_slice_admission_transition(
+            transitioned,
             first_hash,
             expected_revision=0,
             reserved_at="2026-09-06T12:00:01Z",

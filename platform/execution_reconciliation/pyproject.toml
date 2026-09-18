@@ -3,7 +3,9 @@ name = "design-execution-reconciliation"
 version = "0.1.0"
 description = "Provider-neutral execution reconciliation, verification, and materialization-aware Saga V2 contracts for DSP."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "psycopg[binary,pool]>=3.2,<4",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -11,3 +13,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+design_execution_reconciliation = ["migrations/*.sql"]

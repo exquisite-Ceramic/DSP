@@ -27,6 +27,7 @@ from design_execution_reconciliation import (
     ScopeComparisonStatus,
     SliceReconciliationStatusV2,
     VerificationStatus,
+    build_host_dispatch_intent,
 )
 from design_gateway_authorization import AdmittedExecutionAuthorityV2
 from design_materialization_planning import (
@@ -45,6 +46,7 @@ from design_provider_binding import (
 from .contracts import (
     CoordinationError,
     HostCommitted,
+    HostDispatchContext,
     HostFailed,
     HostFailurePhase,
 )
@@ -375,6 +377,7 @@ class MaterializedExecutionSagaCoordinator:
         readiness_barrier,
         reconciliation,
         host_registry,
+        dispatch_intents,
         evidence_port,
         convergence_verifier,
         clock,
@@ -389,11 +392,25 @@ class MaterializedExecutionSagaCoordinator:
         ):
             if value is None or not callable(getattr(value, method, None)):
                 raise TypeError(f"{name} must provide {method}")
+        for method in (
+            "prepare",
+            "get",
+            "mark_dispatched",
+            "mark_outcome_unknown",
+            "mark_host_committed",
+            "mark_safe_to_retry",
+            "mark_reconciled",
+        ):
+            if dispatch_intents is None or not callable(
+                getattr(dispatch_intents, method, None)
+            ):
+                raise TypeError(f"dispatch_intents must provide {method}")
         if not callable(getattr(evidence_port, "build_evidence", None)):
             raise TypeError("evidence_port must provide build_evidence")
         self._readiness_barrier = readiness_barrier
         self._reconciliation = reconciliation
         self._host_registry = host_registry
+        self._dispatch_intents = dispatch_intents
         self._evidence_port = evidence_port
         self._convergence_verifier = convergence_verifier
         self._clock = clock
@@ -408,7 +425,7 @@ class MaterializedExecutionSagaCoordinator:
         authorities: Sequence[AdmittedExecutionAuthorityV2],
         convergence_profile: ConvergenceComparisonProfile,
     ) -> MaterializedCoordinationResult:
-        """按 readiness→Host→Step33→convergence 的冻结顺序执行 Phase I Saga。"""
+        """按 readiness→durable intent→Host→Step33→convergence 顺序执行。"""
         _validate_owner_truth(canonical_changeset, approval_scope_boundary)
         _validate_materialization_plan(
             canonical_changeset,
@@ -506,12 +523,49 @@ class MaterializedExecutionSagaCoordinator:
                 expected_revision=stored.saga_revision,
             )
 
+            # Step32 admission 已冻结 exact grant/binding lineage；Host I/O 之前必须先把
+            # 同一逻辑命令的 durable intent 与幂等身份写入 owner-local store。
+            intent = build_host_dispatch_intent(
+                saga_id=definition.saga_id,
+                execution_slice_hash=execution_slice.execution_slice_hash,
+                grant_hash=authority.grant_hash,
+                binding_set_hash=binding_set.binding_set_hash,
+                host_instance_id=authority.host_instance_id,
+                document_ref=execution_slice.host_runtime_ref.document_ref,
+                expected_host_revision=None,
+                prepared_at=self._clock.now(),
+            )
+            intent = self._dispatch_intents.prepare(intent)
+            intent = self._dispatch_intents.mark_dispatched(
+                intent.dispatch_intent_id,
+                expected_revision=intent.intent_revision,
+                observed_at=self._clock.now(),
+            )
+            dispatch_context = HostDispatchContext(
+                dispatch_intent_id=str(intent.dispatch_intent_id),
+                idempotency_key=str(intent.idempotency_key),
+                saga_id=definition.saga_id,
+                execution_slice_hash=execution_slice.execution_slice_hash,
+            )
+
             host_port = self._host_registry.resolve(execution_slice.host_runtime_ref)
             if host_port is None or not callable(getattr(host_port, "execute", None)):
                 _error("HOST_RESULT_INVALID", "materialized Host execution port is unavailable")
-            host_result = host_port.execute(execution_slice, authority, binding_set)
+            host_result = host_port.execute(
+                execution_slice,
+                authority,
+                binding_set,
+                dispatch_context,
+            )
             if isinstance(host_result, HostFailed):
                 if host_result.phase is HostFailurePhase.COMMIT_STATE_UNKNOWN:
+                    # 未知结果只能持久化为 OUTCOME_UNKNOWN；timeout 本身绝不是“未提交”证据。
+                    self._dispatch_intents.mark_outcome_unknown(
+                        intent.dispatch_intent_id,
+                        expected_revision=intent.intent_revision,
+                        failure_ref=host_result.failure_ref,
+                        observed_at=host_result.failed_at,
+                    )
                     return _result(
                         stored,
                         MaterializedCoordinationStatus.RECOVERY_REQUIRED,
@@ -519,6 +573,14 @@ class MaterializedExecutionSagaCoordinator:
                         failure_ref=host_result.failure_ref,
                     )
                 if host_result.phase is HostFailurePhase.BEFORE_COMMIT:
+                    # BEFORE_COMMIT 是 Host 明确给出的安全未提交事实；先保存 recovery evidence，
+                    # 再沿用既有 Saga failure path，避免出现 Saga 已失败但 intent 仍是 DISPATCHED。
+                    self._dispatch_intents.mark_safe_to_retry(
+                        intent.dispatch_intent_id,
+                        expected_revision=intent.intent_revision,
+                        evidence_ref=host_result.failure_ref,
+                        observed_at=host_result.failed_at,
+                    )
                     stored = self._reconciliation.fail_slice_before_commit(
                         definition.saga_id,
                         execution_slice.execution_slice_hash,
@@ -537,6 +599,13 @@ class MaterializedExecutionSagaCoordinator:
                 _error("HOST_RESULT_INVALID", "Host execution returned an invalid result")
 
             actual_delta = host_result.actual_delta
+            # Host commit truth 必须先进入 durable intent observation，随后 Saga 才能记录 commit。
+            self._dispatch_intents.mark_host_committed(
+                intent.dispatch_intent_id,
+                expected_revision=intent.intent_revision,
+                evidence_hash=actual_delta.actual_delta_hash,
+                observed_at=host_result.committed_at,
+            )
             stored = self._reconciliation.record_host_commit(
                 definition.saga_id,
                 actual_delta,
