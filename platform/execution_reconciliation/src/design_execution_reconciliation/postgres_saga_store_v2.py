@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 
 from design_gateway_authorization import AdmittedExecutionAuthorityV2
 from psycopg.types.json import Jsonb
@@ -40,9 +39,19 @@ from .saga_transitions_v2 import (
 _Transition = Callable[[StoredExecutionSagaV2], StoredExecutionSagaV2]
 
 
-def _utc_now_text() -> str:
-    """生成只用于审计排序的 UTC 时间；它不参与事件 retry identity。"""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def _transaction_timestamp_text(conn) -> str:
+    """读取当前 PostgreSQL 事务的审计时间，不让 Step33 领域层自行采样 wall clock。
+
+    ``occurred_at`` 不参与事件 fingerprint；由明确的 PostgreSQL adapter 使用数据库
+    transaction timestamp，可以让 Saga 状态与 outbox 事件共享同一个本地事务时间基准。
+    """
+    row = conn.execute("SELECT transaction_timestamp()").fetchone()
+    if row is None or row[0] is None:
+        raise ReconciliationError(
+            "SAGA_PERSISTENCE_ERROR",
+            "PostgreSQL did not return a transaction timestamp",
+        )
+    return row[0].isoformat().replace("+00:00", "Z")
 
 
 class PostgresExecutionSagaStoreV2:
@@ -124,7 +133,7 @@ class PostgresExecutionSagaStoreV2:
                     build_saga_transition_event(
                         None,
                         candidate,
-                        occurred_at=_utc_now_text(),
+                        occurred_at=_transaction_timestamp_text(self._conn),
                     ),
                 )
                 return candidate
@@ -210,7 +219,7 @@ class PostgresExecutionSagaStoreV2:
                 build_saga_transition_event(
                     current,
                     updated,
-                    occurred_at=_utc_now_text(),
+                    occurred_at=_transaction_timestamp_text(self._conn),
                 ),
             )
             return updated
