@@ -7,7 +7,7 @@ LangGraph 在这里仅负责编排确定性服务、等待与恢复路由。每�
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
