@@ -26,15 +26,19 @@ from design_gateway_authorization import (
 )
 from design_provider_binding import ProviderBindingSetV2
 
-from .contracts import AuthorityFailure, HostExecutionResult
+from .contracts import AuthorityFailure, HostDispatchContext, HostExecutionResult
 from .readiness_contracts import HostReadinessReceipt
 
 
 class CoordinationClock(Protocol):
+    """协调器审计时间的最小抽象。"""
+
     def now(self) -> str: ...
 
 
 class ExecutionAuthorityPort(Protocol):
+    """旧 Step37 authority admission 端口。"""
+
     def admit(
         self,
         execution_slice: ExecutionSlice,
@@ -42,6 +46,8 @@ class ExecutionAuthorityPort(Protocol):
 
 
 class HostExecutionPort(Protocol):
+    """旧 Step37 Host execution 端口。"""
+
     def execute(
         self,
         execution_slice: ExecutionSlice,
@@ -50,10 +56,14 @@ class HostExecutionPort(Protocol):
 
 
 class HostExecutionRegistry(Protocol):
+    """旧 Step37 Host execution registry。"""
+
     def resolve(self, runtime_ref: HostRuntimeRef) -> HostExecutionPort: ...
 
 
 class VerificationEvidencePort(Protocol):
+    """旧 Step37 semantic verification evidence 端口。"""
+
     def build_bundle(
         self,
         *,
@@ -82,13 +92,18 @@ class HostReadinessRegistry(Protocol):
 
 
 class MaterializedHostExecutionPort(Protocol):
-    """执行一个已冻结 materialization Slice 的 Host 端口。"""
+    """执行一个已冻结 materialization Slice 的 Host 端口。
+
+    ``dispatch_context`` 由 Execution Saga owner 在 Host I/O 前持久化生成；Host 写入
+    必须复用其中的稳定 ``idempotency_key``，不能在端口内部临时生成新的随机身份。
+    """
 
     def execute(
         self,
         execution_slice: ExecutionSliceV2,
         authority: AdmittedExecutionAuthorityV2,
         binding_set: ProviderBindingSetV2,
+        dispatch_context: HostDispatchContext,
     ) -> HostExecutionResult: ...
 
 
