@@ -9,7 +9,6 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
 from design_orchestrator.workflow_contracts import WorkflowPhase
 from design_orchestrator.workflow_services import (
     ExecutionOwnerView,

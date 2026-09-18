@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import importlib
 
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Command
-
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.workflow_contracts import StableRef, WorkflowCheckpointView, WorkflowPhase
 from design_orchestrator.workflow_services import (
@@ -19,6 +16,8 @@ from design_orchestrator.workflow_services import (
     HostDispatchRecoveryState,
     HostDispatchRecoveryView,
 )
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 _SLICE_HASH = "a" * 64
 

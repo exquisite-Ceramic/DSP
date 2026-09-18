@@ -9,12 +9,12 @@ transition 规则。
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
-import json
-from typing import Any, Protocol
+from typing import Protocol
 
 from design_orchestrator.operation_resolver import (
     CapabilityProfile,

@@ -6,8 +6,6 @@ Command、StateSnapshot 等类型都必须留在 adapter 内部，不能成为�
 
 from __future__ import annotations
 
-from langgraph.checkpoint.memory import InMemorySaver
-
 from design_orchestrator.langgraph_runtime import (
     LangGraphWorkflowRuntime,
     _runtime_config,
@@ -26,6 +24,7 @@ from design_orchestrator.workflow_services import (
     ExecutionSagaView,
     WorkflowStateError,
 )
+from langgraph.checkpoint.memory import InMemorySaver
 
 
 class _TrackingSaver(InMemorySaver):

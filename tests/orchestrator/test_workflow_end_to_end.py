@@ -7,15 +7,14 @@ PostgreSQL 用例使用真实 LangGraph runtime、真实 OperationResolver、真
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-import os
 from pathlib import Path
 from typing import Any
 
 import psycopg
 import pytest
-
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
 from design_orchestrator.default_workflow_services import (

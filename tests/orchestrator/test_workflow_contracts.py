@@ -9,7 +9,6 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
 from design_orchestrator import workflow_contracts, workflow_port
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,

@@ -11,7 +11,6 @@ import os
 
 import psycopg
 import pytest
-
 from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
 from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.workflow_contracts import (
