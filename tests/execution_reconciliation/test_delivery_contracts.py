@@ -50,13 +50,13 @@ def test_saga_transition_event_is_deterministic() -> None:
 
 def test_event_fingerprint_commits_immutable_event_content() -> None:
     """fingerprint 必须提交业务身份与载荷，而不能被审计时间影响。"""
-    base = dict(
-        producer_owner="execution_saga",
-        event_type="SagaTransitioned",
-        aggregate_ref="saga-1",
-        aggregate_revision=3,
-        payload={"saga_status": "EXECUTING"},
-    )
+    base = {
+        "producer_owner": "execution_saga",
+        "event_type": "SagaTransitioned",
+        "aggregate_ref": "saga-1",
+        "aggregate_revision": 3,
+        "payload": {"saga_status": "EXECUTING"},
+    }
 
     first = compute_event_fingerprint(**base)
 
