@@ -54,6 +54,10 @@ class WorkflowGraphState(TypedDict, total=False):
     grant_ref: dict[str, object] | None
     resume_node: str | None
 
+    # Task 7 只持久化“最近一次刷新后的路由分类/修订号”，不复制 Saga 或 dispatch recovery 对象。
+    execution_resume_route: str | None
+    refreshed_saga_revision: int | None
+
 
 def _encode_stable_ref(ref: StableRef | None) -> dict[str, object] | None:
     """把 StableRef 显式编码为普通字典，避免依赖 Python object identity/pickle。"""
