@@ -200,3 +200,20 @@ git rev-parse HEAD
 ```
 
 然后重新运行完整 Phase I offline gate 和 Revit Core tests。若真实证据之后任何 AutoCAD/Revit production 源码发生变化，必须重跑受影响的 native/live gate；不得复用旧输出宣称当前 HEAD 已通过。
+
+## 12. ADR-009 crash recovery 操作语义
+
+当跨 owner delivery 或 Host mutation 出现进程崩溃、网络中断、响应丢失等 crash window 时，操作者必须按以下规则处理；这些规则是恢复边界，不是建议项：
+
+- `RECOVERY_REQUIRED` / `OUTCOME_UNKNOWN` **不等价于** `FAILED`。缺少 Host 响应不能单独证明 mutation 未提交。
+- recovery 期间不得创建新的 logical command identity。必须沿用原 `dispatch_intent_id` 与同一个 `idempotency_key`。
+- 只有明确证据证明原 command 未提交且重试前置条件仍成立时，才允许把 intent 标记为 `SAFE_TO_RETRY`；实际 replay 仍复用原 idempotency key。
+- 不得仅依据 transport log、超时、socket/pipe 断开或 sender 状态手工把 Saga 标记为成功或失败。
+- 恢复判断必须联合读取 **Saga durable state + Host dispatch intent + Host durable command result/read-back + 既有 Step33 reconciliation evidence**；任何单一 transport 信号都不是 commit truth。
+- 同一 `event_id` + 相同 `event_fingerprint` 是允许的 at-least-once duplicate；consumer 必须 replay-safe。
+- 同一 `event_id` + 不同 `event_fingerprint` 是 `DELIVERY_EVENT_CONFLICT`，不是普通 duplicate，必须 fail closed，且不得重复 consumer durable side effect。
+- Provider rebinding 只允许发生在 Step32 admission 之前。Slice 一旦 `ADMITTED`，同一 `(saga_id, execution_slice_hash)` 不能获得第二条 Host dispatch lineage；不同 admitted grant/binding candidate 必须报 `DISPATCH_INTENT_CONFLICT`。
+- outbox delivery 成功不代表 workflow/Saga 成功；workflow/checkpoint 推进也不构成 Host commit evidence。
+- DSP 的正确性承诺是 **duplicate-tolerant logical business correctness / verified convergent outcome**，不是任意 Host-native mutation 的 physical exactly-once invocation。
+
+若 intent 为 `OUTCOME_UNKNOWN`，操作顺序应为：先冻结当前 Saga/intent revision 与原 idempotency identity，再执行只读 Host result lookup/read-back；证据足够时走既有 `record_host_commit -> begin_reconciliation -> compare_scope -> verify_semantics` 链，证据不足则保持 `RECOVERY_REQUIRED`，不得盲目重发 mutation。
