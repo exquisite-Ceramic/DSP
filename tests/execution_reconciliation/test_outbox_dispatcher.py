@@ -6,7 +6,6 @@ from threading import Barrier, Lock
 from uuid import UUID
 
 import pytest
-
 from design_execution_reconciliation import OwnerEvent, compute_event_fingerprint
 
 pytestmark = pytest.mark.skipif(
