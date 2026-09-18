@@ -24,7 +24,7 @@ from design_orchestrator.default_workflow_services import (
     ParameterBindingInputs,
 )
 from design_orchestrator.langgraph_graph import build_workflow_graph
-from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime, _runtime_config
+from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import (
     OperationResolver,
     ResolutionContext,
@@ -524,7 +524,14 @@ def test_restart_with_existing_saga_refreshes_owner_without_second_execution(
     saver_a = create_postgres_checkpointer(_dsn())
     graph_a = build_workflow_graph(service).compile(checkpointer=saver_a)
     graph_a.update_state(
-        _runtime_config(task_id),
+        {
+            "configurable": {
+                "thread_id": task_id,
+                # LangGraph update_state 在人工 seed 根 checkpoint 时必须使用根 namespace；
+                # 生产 runtime 会自行把稳定 workflow namespace 归一化到同一根 checkpoint。
+                "checkpoint_ns": "",
+            }
+        },
         {
             "task_id": task_id,
             "phase": WorkflowPhase.APPLY_WAIT.value,
