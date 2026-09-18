@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from design_execution_reconciliation import build_saga_transition_event
 
 from tests.execution_reconciliation.saga_store_v2_contract import (
