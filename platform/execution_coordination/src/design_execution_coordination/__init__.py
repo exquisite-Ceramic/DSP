@@ -6,6 +6,7 @@ from .contracts import (
     CoordinationResult,
     CoordinationStatus,
     HostCommitted,
+    HostDispatchContext,
     HostExecutionResult,
     HostFailed,
     HostFailurePhase,
@@ -22,6 +23,7 @@ from .ports import (
     ExecutionAuthorityPort,
     HostExecutionPort,
     HostExecutionRegistry,
+    HostOutcomeProbe,
     HostReadinessPort,
     HostReadinessRegistry,
     MaterializedHostExecutionPort,
@@ -37,6 +39,7 @@ from .readiness_contracts import (
     ReadinessStatus,
     compute_readiness_receipt_hash,
 )
+from .recovery import UnknownOutcomeRecovery
 
 __all__ = [
     "AuthorityFailure",
@@ -49,11 +52,13 @@ __all__ = [
     "ExecutionAuthorityPort",
     "ExecutionSagaCoordinator",
     "HostCommitted",
+    "HostDispatchContext",
     "HostExecutionPort",
     "HostExecutionRegistry",
     "HostExecutionResult",
     "HostFailed",
     "HostFailurePhase",
+    "HostOutcomeProbe",
     "HostReadinessPort",
     "HostReadinessReceipt",
     "HostReadinessRegistry",
@@ -66,6 +71,7 @@ __all__ = [
     "ReadinessBarrierStatus",
     "ReadinessError",
     "ReadinessStatus",
+    "UnknownOutcomeRecovery",
     "VerificationEvidencePort",
     "compute_readiness_receipt_hash",
 ]
