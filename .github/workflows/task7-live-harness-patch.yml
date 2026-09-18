@@ -1,0 +1,114 @@
+name: Task7 live harness patch
+
+on:
+  push:
+    paths:
+      - .github/workflows/task7-live-harness-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-live-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/cross-owner-delivery-crash-recovery
+          fetch-depth: 0
+      - name: Apply exact Task7 live harness replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/integration/phase_i_live_host.py")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_exact(old: str, new: str, *, count: int = 1) -> None:
+              global text
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(
+                      f"replacement count mismatch for {old!r}: expected {count}, got {actual}"
+                  )
+              text = text.replace(old, new)
+
+          replace_exact(
+              "from tests.materialization_planning._support import build_case, slot\n",
+              "from tests.execution_coordination._materialized_support import (\n"
+              "    InMemoryDispatchIntentStore,\n"
+              ")\n"
+              "from tests.materialization_planning._support import build_case, slot\n",
+          )
+          replace_exact(
+              "    def execute(self, execution_slice, authority, binding_set):\n",
+              "    def execute(\n"
+              "        self, execution_slice, authority, binding_set, dispatch_context\n"
+              "    ):\n",
+              count=2,
+          )
+          replace_exact(
+              '                idempotency_key=f"phase-i-autocad-{uuid.uuid4().hex}",\n',
+              "                idempotency_key=dispatch_context.idempotency_key,\n",
+          )
+          replace_exact(
+              '            marker="saga",\n        )\n',
+              '            marker="saga",\n'
+              '            idempotency_key=dispatch_context.idempotency_key,\n'
+              '        )\n',
+          )
+          replace_exact(
+              "        marker: str,\n    ) -> dict[str, Any]:\n",
+              "        marker: str,\n"
+              "        idempotency_key: str | None = None,\n"
+              "    ) -> dict[str, Any]:\n",
+          )
+          replace_exact(
+              '            idempotency_key=f"phase-i-revit-{marker}-{uuid.uuid4().hex}",\n',
+              "            idempotency_key=(\n"
+              "                idempotency_key\n"
+              '                or f"phase-i-revit-{marker}-{uuid.uuid4().hex}"\n'
+              "            ),\n",
+          )
+          replace_exact(
+              "    reconciliation = ExecutionReconciliationServiceV2(\n"
+              "        store=InMemoryExecutionSagaStoreV2()\n"
+              "    )\n"
+              "    evidence_port = PhaseIConvergenceEvidencePort(ctx.case.changeset, observations)\n",
+              "    reconciliation = ExecutionReconciliationServiceV2(\n"
+              "        store=InMemoryExecutionSagaStoreV2()\n"
+              "    )\n"
+              "    dispatch_intents = InMemoryDispatchIntentStore()\n"
+              "    evidence_port = PhaseIConvergenceEvidencePort(ctx.case.changeset, observations)\n",
+          )
+          replace_exact(
+              "        host_registry=host_registry,\n"
+              "        evidence_port=evidence_port,\n",
+              "        host_registry=host_registry,\n"
+              "        dispatch_intents=dispatch_intents,\n"
+              "        evidence_port=evidence_port,\n",
+          )
+          replace_exact(
+              "        reconciliation=reconciliation,\n"
+              "        evidence_port=evidence_port,\n"
+              "        coordinator=coordinator,\n",
+              "        reconciliation=reconciliation,\n"
+              "        dispatch_intents=dispatch_intents,\n"
+              "        evidence_port=evidence_port,\n"
+              "        coordinator=coordinator,\n",
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          git diff --check
+          git diff -- tests/integration/phase_i_live_host.py
+      - name: Commit patched live harness
+        shell: bash
+        run: |
+          git config user.name "FangBin"
+          git config user.email "52097203+exquisite-Ceramic@users.noreply.github.com"
+          git add tests/integration/phase_i_live_host.py
+          git commit -m "feat: thread durable idempotency through live hosts"
+          git push origin HEAD:feat/cross-owner-delivery-crash-recovery
