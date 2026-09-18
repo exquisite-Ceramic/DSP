@@ -31,6 +31,11 @@ from .delivery import (
     build_saga_transition_event,
     compute_event_fingerprint,
 )
+from .dispatch_intent import (
+    HostDispatchIntent,
+    HostDispatchStatus,
+    build_host_dispatch_intent,
+)
 from .failure_store import InMemoryExecutionSagaStore
 from .hashing import (
     compute_actual_change_hash,
@@ -94,6 +99,8 @@ __all__ = [
     "ExecutionSagaStatusV2",
     "ExecutionSagaStore",
     "ExecutionSagaStoreV2",
+    "HostDispatchIntent",
+    "HostDispatchStatus",
     "InMemoryExecutionSagaStore",
     "InMemoryExecutionSagaStoreV2",
     "OwnerEvent",
@@ -121,6 +128,7 @@ __all__ = [
     "VerificationEvidenceBundle",
     "VerificationStatus",
     "VerificationSubjectEvidence",
+    "build_host_dispatch_intent",
     "build_saga_transition_event",
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
