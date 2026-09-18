@@ -26,6 +26,11 @@ from .contracts import (
     VerificationStatus,
     VerificationSubjectEvidence,
 )
+from .delivery import (
+    OwnerEvent,
+    build_saga_transition_event,
+    compute_event_fingerprint,
+)
 from .failure_store import InMemoryExecutionSagaStore
 from .hashing import (
     compute_actual_change_hash,
@@ -91,6 +96,7 @@ __all__ = [
     "ExecutionSagaStoreV2",
     "InMemoryExecutionSagaStore",
     "InMemoryExecutionSagaStoreV2",
+    "OwnerEvent",
     "ReconciliationError",
     "SagaConvergenceOutcome",
     "ScopeComparator",
@@ -115,9 +121,11 @@ __all__ = [
     "VerificationEvidenceBundle",
     "VerificationStatus",
     "VerificationSubjectEvidence",
+    "build_saga_transition_event",
     "compute_actual_change_hash",
     "compute_actual_delta_hash",
     "compute_compensation_proposal_hash",
+    "compute_event_fingerprint",
     "compute_execution_saga_definition_hash",
     "compute_execution_saga_definition_hash_v2",
     "compute_scope_comparison_hash",
