@@ -44,4 +44,6 @@ jobs:
             tests/execution_reconciliation/test_postgres_saga_outbox_atomicity.py \
             tests/execution_reconciliation/test_outbox_dispatcher.py \
             tests/execution_reconciliation/test_postgres_inbox.py \
-            tests/execution_reconciliation/test_postgres_dispatch_intent.py -q
+            tests/execution_reconciliation/test_postgres_dispatch_intent.py \
+            tests/execution_reconciliation/test_delivery_crash_windows.py \
+            tests/execution_coordination/test_host_effect_crash_windows.py -q
