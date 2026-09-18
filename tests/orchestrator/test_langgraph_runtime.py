@@ -1,4 +1,4 @@
-"""ADR-010 LangGraph runtime adapter 的 RED 测试。
+"""ADR-010 LangGraph runtime adapter 的 RED/GREEN 契约测试。
 
 这些测试只观察 framework-neutral 的 WorkflowOrchestratorPort 行为。LangGraph 的 config、
 Command、StateSnapshot 等类型都必须留在 adapter 内部，不能成为调用方需要理解的契约。
@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from langgraph.checkpoint.memory import InMemorySaver
 
-from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
+from design_orchestrator.langgraph_runtime import (
+    LangGraphWorkflowRuntime,
+    _runtime_config,
+)
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
@@ -151,6 +154,14 @@ def test_start_uses_task_id_as_langgraph_thread_and_returns_neutral_checkpoint()
     assert runtime.get_checkpoint("task-runtime-1") == checkpoint
     assert runtime.get_checkpoint("another-task") is None
 
+    # ADR-010 的应用级 invoke config 保持固定 namespace；它不会暴露到公共 port。
+    assert _runtime_config("task-runtime-1") == {
+        "configurable": {
+            "thread_id": "task-runtime-1",
+            "checkpoint_ns": "dsp.workflow.v0_6",
+        }
+    }
+
     configurable_rows = [
         config["configurable"]
         for config in saver.put_configs
@@ -158,7 +169,8 @@ def test_start_uses_task_id_as_langgraph_thread_and_returns_neutral_checkpoint()
     ]
     assert configurable_rows
     assert all(row["thread_id"] == "task-runtime-1" for row in configurable_rows)
-    assert all(row["checkpoint_ns"] == "dsp.workflow.v0_6" for row in configurable_rows)
+    # LangGraph root graph 会把非空 checkpoint_ns 归一化为空；非空 namespace 留给 subgraph。
+    assert all(row["checkpoint_ns"] == "" for row in configurable_rows)
 
 
 def test_explicit_hitl_resume_uses_private_command_and_reaches_async_owner_wait() -> None:
