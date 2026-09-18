@@ -1,4 +1,4 @@
-"""ADR-010 LangGraph private state 与 graph topology 的 RED 测试。
+"""ADR-010 LangGraph private state 与 graph topology 的 RED/GREEN 边界测试。
 
 这些测试不把 LangGraph 类型提升为 DSP 公共契约，只验证 runtime adapter 内部的 state 可以
 安全持久化，并且 graph topology 只负责调用 deterministic services、等待与路由。
@@ -132,7 +132,8 @@ def test_langgraph_builder_freezes_adr010_main_path_without_running_services() -
     assert set(EXPECTED_MAIN_PATH).issubset(builder.nodes)
     assert "await_async_operation" in builder.nodes
 
-    # 这里只断言不经过条件等待分支的关键直接边；异步节点通过 conditional routing 进入等待。
+    # 这里只断言真正无条件的静态边；可返回 AsyncOperationRef 的节点必须通过 conditional
+    # routing 选择正常主路径或 await_async_operation，不能同时声明会绕过等待的静态边。
     assert ("resolve_host_context", "ensure_context_freshness") in builder.edges
     assert ("resolve_operations", "await_operation_proposal") in builder.edges
     assert ("await_operation_proposal", "parameter_binding") in builder.edges
@@ -141,4 +142,7 @@ def test_langgraph_builder_freezes_adr010_main_path_without_running_services() -
     assert ("revision_barrier", "provider_binding") in builder.edges
     assert ("provider_binding", "execution_grant") in builder.edges
     assert ("execution_grant", "apply_or_recover") in builder.edges
-    assert ("apply_or_recover", "verify_reconcile") in builder.edges
+
+    # apply_or_recover 的逻辑下一步仍由 MAIN_PATH 冻结为 verify_reconcile，但它必须保留
+    # AsyncOperationRef detour，因此这里验证它有条件分支而不是强迫一个无条件静态 edge。
+    assert "apply_or_recover" in builder.branches
