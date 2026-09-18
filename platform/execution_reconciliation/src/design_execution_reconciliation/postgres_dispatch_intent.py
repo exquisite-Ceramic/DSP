@@ -167,9 +167,10 @@ class PostgresHostDispatchIntentStore:
                     expected_host_revision,
                     status,
                     intent_revision,
-                    prepared_at
+                    prepared_at,
+                    updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
                 RETURNING dispatch_intent_id
                 """,
@@ -185,6 +186,7 @@ class PostgresHostDispatchIntentStore:
                     intent.expected_host_revision,
                     intent.status.value,
                     intent.intent_revision,
+                    intent.prepared_at,
                     intent.prepared_at,
                 ),
             ).fetchone()
