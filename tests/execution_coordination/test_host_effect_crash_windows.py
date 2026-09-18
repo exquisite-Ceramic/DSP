@@ -22,7 +22,6 @@ from tests.execution_coordination._materialized_support import (
     execute,
     materialized_fixture,
 )
-from tests.execution_coordination._support import phase_i_readiness_inputs
 
 
 class _Probe:
@@ -148,13 +147,22 @@ def test_e_f_restart_uses_same_intent_identity_and_unknown_never_blind_retries()
 
 def test_e2_conflicting_admitted_lineage_never_creates_second_host_call() -> None:
     """E2：同一 Saga/Slice 的第二个 admitted grant/binding candidate 必须在 Host I/O 前冲突。"""
-    ctx = phase_i_readiness_inputs()
+    store = InMemoryDispatchIntentStore()
+    fixture = materialized_fixture(dispatch_intents=store)
+    ctx = fixture.ctx
     execution_slice = ctx.execution_plan.execution_slices[0]
     authority = ctx.authorities[0]
-    store = InMemoryDispatchIntentStore()
 
+    # Saga identity 属于 reconciliation owner；测试先用同一 production service 建立
+    # READY durable definition，再预置一条不同 admitted lineage，避免自行猜测 saga_id。
+    seeded = fixture.reconciliation.create_saga(
+        ctx.case.changeset,
+        ctx.case.boundary_v2,
+        ctx.materialization_plan,
+        ctx.execution_plan,
+    )
     conflicting = build_host_dispatch_intent(
-        saga_id=ctx.saga_definition.saga_id,
+        saga_id=seeded.definition.saga_id,
         execution_slice_hash=execution_slice.execution_slice_hash,
         grant_hash="f" * 64,
         binding_set_hash=authority.binding_set_hash,
@@ -164,7 +172,6 @@ def test_e2_conflicting_admitted_lineage_never_creates_second_host_call() -> Non
         prepared_at="2026-09-18T15:20:00Z",
     )
     store.prepare(conflicting)
-    fixture = materialized_fixture(dispatch_intents=store)
 
     with pytest.raises(ReconciliationError) as exc_info:
         execute(fixture)
