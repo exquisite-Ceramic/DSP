@@ -42,4 +42,5 @@ jobs:
             tests/execution_reconciliation/test_postgres_saga_store_v2.py \
             tests/execution_reconciliation/test_postgres_delivery_schema.py \
             tests/execution_reconciliation/test_postgres_saga_outbox_atomicity.py \
-            tests/execution_reconciliation/test_outbox_dispatcher.py -q
+            tests/execution_reconciliation/test_outbox_dispatcher.py \
+            tests/execution_reconciliation/test_postgres_inbox.py -q
