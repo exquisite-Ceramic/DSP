@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.workflow_contracts import StableRef, WorkflowCheckpointView, WorkflowPhase
@@ -22,7 +23,11 @@ from design_orchestrator.workflow_services import (
 _SLICE_HASH = "a" * 64
 
 
-def _checkpoint(*, phase: WorkflowPhase = WorkflowPhase.APPLY_WAIT, saga_id: str | None = "saga-1") -> WorkflowCheckpointView:
+def _checkpoint(
+    *,
+    phase: WorkflowPhase = WorkflowPhase.APPLY_WAIT,
+    saga_id: str | None = "saga-1",
+) -> WorkflowCheckpointView:
     """构造只包含稳定引用的 checkpoint，模拟 crash/restart 后的旧导航事实。"""
 
     return WorkflowCheckpointView(
@@ -154,6 +159,8 @@ class _ResumeServices:
         raise AssertionError(f"unexpected workflow service call: {name}")
 
     def get_execution_owner_state(self, saga_id: str) -> ExecutionOwnerView:
+        """记录每次 authoritative refresh，并保留当前 recovery identity 供断言。"""
+
         self.calls.append(f"refresh:{saga_id}")
         recovery = self.execution.active_dispatch_recovery
         if recovery is not None:
@@ -161,11 +168,15 @@ class _ResumeServices:
         return self.execution
 
     def begin_execution(self, execution_plan_ref: StableRef, grant_ref: StableRef) -> str:
+        """模拟唯一允许的新 dispatch，并记录它是否发生在 refresh 之后。"""
+
         self.calls.append("begin_execution")
         self.begin_count += 1
         return "saga-new"
 
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView:
+        """记录 terminal/reconcile 路由；测试不在这里复制真实 Saga 逻辑。"""
+
         self.calls.append(f"verify:{saga_id}")
         return self.execution
 
@@ -192,6 +203,19 @@ def _seed_after_execution_grant(*, services: _ResumeServices, saga_id: str = "sa
     return graph, config
 
 
+def test_graph_refreshes_ready_owner_before_dispatch() -> None:
+    """A/E：即使 checkpoint 已到 apply 边界，也必须先 refresh READY truth，再允许 dispatch。"""
+
+    services = _ResumeServices(_execution("READY", revision=9))
+    graph, config = _seed_after_execution_grant(services=services)
+
+    graph.invoke(None, config)
+
+    assert services.begin_count == 1
+    assert services.calls[:2] == ["refresh:saga-1", "begin_execution"]
+    assert services.calls[2] == "verify:saga-new"
+
+
 def test_graph_refreshes_owner_before_skipping_dispatch_for_succeeded_saga() -> None:
     """D/E：旧 approval/change refs 不能覆盖 SUCCEEDED owner truth，且 refresh 必须先发生。"""
 
@@ -215,8 +239,12 @@ def test_graph_outcome_unknown_keeps_stable_dispatch_identity_across_resumes() -
     )
     graph, config = _seed_after_execution_grant(services=services)
 
+    # 第一次恢复读取 owner truth 后进入 EXECUTION_JOB interrupt；此时不得触发 begin_execution。
     graph.invoke(None, config)
+    # 模拟外部等待被唤醒，但 owner 仍报告同一 OUTCOME_UNKNOWN。恢复后必须再次查询 owner，
+    # 并继续复用原 dispatch_intent_id，而不是制造新的 Host command identity。
+    graph.invoke(Command(resume={}), config)
 
     assert services.begin_count == 0
-    assert services.dispatch_intent_ids == ["dispatch-intent-1"]
-    assert services.calls[0] == "refresh:saga-1"
+    assert services.dispatch_intent_ids == ["dispatch-intent-1", "dispatch-intent-1"]
+    assert services.calls == ["refresh:saga-1", "refresh:saga-1"]
