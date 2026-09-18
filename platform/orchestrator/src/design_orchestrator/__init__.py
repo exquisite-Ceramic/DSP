@@ -17,6 +17,7 @@ from design_orchestrator.interactive_binding import (
     OperationInteractionRecipe,
     SlotInteractionRecipe,
 )
+from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
     OperationPolicy,
@@ -70,6 +71,7 @@ __all__ = [
     "InteractionBindingContext",
     "InteractionRequired",
     "InteractiveParameterResolver",
+    "LangGraphWorkflowRuntime",
     "MOVE_V1",
     "MOVE_V1_BINDING_RECIPE",
     "MVP_BINDING_RECIPES",
