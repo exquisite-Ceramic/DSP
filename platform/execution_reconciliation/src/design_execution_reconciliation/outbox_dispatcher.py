@@ -40,8 +40,10 @@ class PostgresOutboxDispatcher:
         for event in claimed:
             try:
                 self._sink.send(event)
-            except Exception:
-                # transport 失败不把事件标记 published；主动释放 lease 让下一批立即重试。
+            except Exception:  # noqa: BLE001
+                # 这里是任意 transport sink 的故障隔离边界。普通 Exception 都必须
+                # 转换为“保持 unpublished + 立即释放 lease”，否则未知 transport
+                # 异常会把事件无谓锁住到 lease 到期，削弱计划冻结的 retry 语义。
                 self._store.release_claim(event.event_id)
                 continue
             self._store.mark_published(event.event_id)
