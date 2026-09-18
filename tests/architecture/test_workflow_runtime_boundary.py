@@ -67,13 +67,22 @@ def test_package_init_does_not_reexport_runtime_adapter() -> None:
 def test_deterministic_module_import_does_not_require_langgraph() -> None:
     """即使 LangGraph 完全不可用，deterministic operation contract 仍必须可独立导入。"""
 
-    orchestrator_src = ORCHESTRATOR / "src"
     script = textwrap.dedent(
         f"""
         import importlib.abc
         import sys
+        from pathlib import Path
 
-        sys.path.insert(0, {str(orchestrator_src)!r})
+        root = Path({str(ROOT)!r})
+        source_roots = [
+            root / "contracts" / "python" / "src",
+            *root.glob("platform/*/src"),
+            *root.glob("hosts/*/*/src"),
+            *root.glob("providers/*/*/src"),
+        ]
+        for source_root in source_roots:
+            if source_root.is_dir():
+                sys.path.insert(0, str(source_root))
 
         class BlockLangGraph(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
