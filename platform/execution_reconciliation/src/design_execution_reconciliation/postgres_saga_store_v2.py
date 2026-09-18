@@ -1,12 +1,14 @@
 """Execution Saga V2 的 PostgreSQL durable store 适配器。
 
-该模块只负责数据库连接、snapshot 编解码和 SQL CAS；所有 Saga V2 业务状态转换
-继续由 ``saga_transitions_v2`` 的纯领域函数唯一承载，避免出现第二套状态机。
+该模块只负责数据库连接、snapshot 编解码、SQL CAS 与 owner-local outbox 原子写入；
+所有 Saga V2 业务状态转换继续由 ``saga_transitions_v2`` 的纯领域函数唯一承载，
+避免出现第二套状态机。
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from design_gateway_authorization import AdmittedExecutionAuthorityV2
 from psycopg.types.json import Jsonb
@@ -17,7 +19,9 @@ from .contracts import (
     ScopeComparisonResult,
     SemanticVerificationResult,
 )
+from .delivery import build_saga_transition_event
 from .postgres import connect_postgres
+from .postgres_outbox import insert_outbox_event
 from .saga_contracts_v2 import ExecutionSagaDefinitionV2
 from .saga_persistence_v2 import decode_stored_saga_v2, encode_stored_saga_v2
 from .saga_state_v2 import SagaConvergenceOutcome, StoredExecutionSagaV2
@@ -34,6 +38,11 @@ from .saga_transitions_v2 import (
 )
 
 _Transition = Callable[[StoredExecutionSagaV2], StoredExecutionSagaV2]
+
+
+def _utc_now_text() -> str:
+    """生成只用于审计排序的 UTC 时间；它不参与事件 retry identity。"""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class PostgresExecutionSagaStoreV2:
@@ -74,7 +83,7 @@ class PostgresExecutionSagaStoreV2:
         ).fetchone()
 
     def create_saga(self, definition: ExecutionSagaDefinitionV2) -> StoredExecutionSagaV2:
-        """首次插入不可变定义；并发/重复 create 必须执行 exact-evidence 比较。"""
+        """首次插入不可变定义，并与首个 owner event 在同一事务提交。"""
         if not isinstance(definition, ExecutionSagaDefinitionV2):
             # 复用领域 owner 的稳定 TypeError，而不是让 SQL adapter 自创错误语义。
             return create_initial_saga_v2(definition)
@@ -108,6 +117,16 @@ class PostgresExecutionSagaStoreV2:
                 ),
             )
             if cursor.rowcount == 1:
+                # Saga 初始事实与通知事件必须一起成功或一起回滚，不能留下
+                # “状态已存在但跨 owner 永远不可见”的 crash window。
+                insert_outbox_event(
+                    self._conn,
+                    build_saga_transition_event(
+                        None,
+                        candidate,
+                        occurred_at=_utc_now_text(),
+                    ),
+                )
                 return candidate
 
             # 另一个连接可能刚刚赢得 create；重新读取并执行与内存后端相同的
@@ -136,7 +155,7 @@ class PostgresExecutionSagaStoreV2:
         expected_revision: int,
         transition: _Transition,
     ) -> StoredExecutionSagaV2:
-        """执行一次纯领域 transition，并以 SQL ``WHERE revision`` 完成原子 CAS。"""
+        """以一次 owner-local transaction 原子提交 Saga CAS 与 outbox event。"""
         if not isinstance(saga_id, str) or not saga_id.strip():
             raise ReconciliationError("SAGA_NOT_FOUND", "execution Saga V2 was not found")
         normalized = saga_id.strip()
@@ -152,7 +171,8 @@ class PostgresExecutionSagaStoreV2:
             updated = transition(current)
 
             # 共享 transition 对同证据 replay 会返回原 snapshot。此时即使调用方携带
-            # 较旧 expected_revision，也必须保持内存后端的 replay-safe 可观察语义。
+            # 较旧 expected_revision，也必须保持内存后端的 replay-safe 可观察语义；
+            # 同时这里不能再产生 outbox event，否则一次逻辑 transition 会被重复发布。
             if updated == current:
                 return current
 
@@ -182,6 +202,17 @@ class PostgresExecutionSagaStoreV2:
                     "SAGA_CONFLICT",
                     "Saga V2 revision changed before durable transition commit",
                 )
+
+            # outbox INSERT 仍处于同一 psycopg transaction context。任何 fingerprint
+            # conflict、数据库错误或进程异常都会让前面的 Saga UPDATE 一并回滚。
+            insert_outbox_event(
+                self._conn,
+                build_saga_transition_event(
+                    current,
+                    updated,
+                    occurred_at=_utc_now_text(),
+                ),
+            )
             return updated
 
     def reserve_slice_admission(
