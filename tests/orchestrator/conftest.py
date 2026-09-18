@@ -3,6 +3,7 @@
 历史 Step23/25/26/36 lane 只验证 deterministic orchestrator 层，并不会安装 LangGraph
 或 PostgreSQL runtime 依赖。这里仅在对应依赖缺失时阻止收集 runtime 专用测试；完整 workspace
 回归与 workflow-orchestrator PostgreSQL gate 安装这些依赖后仍会正常收集并执行全部用例。
+该 collection guard 只控制 pytest 模块收集，不豁免 Ruff 或 branch-vs-main quality gate。
 """
 
 from __future__ import annotations
