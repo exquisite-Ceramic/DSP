@@ -410,7 +410,14 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             "verify_reconcile": "verify_reconcile",
         },
     )
-    builder.add_edge("apply_or_recover", "verify_reconcile")
+    builder.add_conditional_edges(
+        "apply_or_recover",
+        _route_async_or("verify_reconcile"),
+        {
+            "await_async_operation": "await_async_operation",
+            "verify_reconcile": "verify_reconcile",
+        },
+    )
     builder.add_conditional_edges(
         "await_async_operation",
         _route_after_async_wait,
