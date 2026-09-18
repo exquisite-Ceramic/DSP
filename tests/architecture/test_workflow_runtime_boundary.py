@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 import tomllib
 from pathlib import Path
 
@@ -50,3 +53,46 @@ def test_existing_domain_modules_do_not_import_langgraph() -> None:
             encoding="utf-8"
         )
         assert "langgraph" not in text
+
+
+def test_package_init_does_not_reexport_runtime_adapter() -> None:
+    """包根不得 eager import LangGraph adapter 并污染 deterministic import 路径。"""
+
+    text = (ORCHESTRATOR / "src" / "design_orchestrator" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    assert "langgraph_runtime" not in text
+
+
+def test_deterministic_module_import_does_not_require_langgraph() -> None:
+    """即使 LangGraph 完全不可用，deterministic operation contract 仍必须可独立导入。"""
+
+    orchestrator_src = ORCHESTRATOR / "src"
+    script = textwrap.dedent(
+        f"""
+        import importlib.abc
+        import sys
+
+        sys.path.insert(0, {str(orchestrator_src)!r})
+
+        class BlockLangGraph(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "langgraph" or fullname.startswith("langgraph."):
+                    raise ModuleNotFoundError("langgraph intentionally unavailable")
+                return None
+
+        sys.meta_path.insert(0, BlockLangGraph())
+        from design_orchestrator.canonical_operations import MOVE_V1
+
+        assert MOVE_V1.operation_id == "MOVE_V1"
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
