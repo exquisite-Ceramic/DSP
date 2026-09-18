@@ -1,4 +1,8 @@
-"""Immutable provider-neutral contracts for Step37 execution coordination."""
+"""Step37 execution coordination 的不可变 provider-neutral 公共契约。
+
+Task 7 在该边界补充 durable Host dispatch identity；这里只表达逻辑命令身份与
+Host outcome 事实，不引入任何 Host-native payload 或 recovery 决策。
+"""
 
 from __future__ import annotations
 
