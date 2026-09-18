@@ -183,7 +183,7 @@ def test_e2_conflicting_admitted_lineage_never_creates_second_host_call() -> Non
 
 
 def test_g_later_slice_failure_preserves_existing_partial_commit_semantics() -> None:
-    """G：前一 Slice 已提交而后一 Slice BEFORE_COMMIT 失败时，Saga 仍由既有 partial semantics 收口。"""
+    """G：验证前 Slice 已提交、后 Slice BEFORE_COMMIT 失败仍保持 partial semantics。"""
     failure = HostFailed(
         phase=HostFailurePhase.BEFORE_COMMIT,
         failure_ref="REVIT_REVISION_CONFLICT",
