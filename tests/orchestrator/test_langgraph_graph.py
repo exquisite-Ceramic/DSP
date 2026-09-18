@@ -45,6 +45,8 @@ EXPECTED_MAIN_PATH = (
     "revision_barrier",
     "provider_binding",
     "execution_grant",
+    # Task 7 冻结：进入 apply/recovery 决策前必须先重新读取 execution-owner authoritative truth。
+    "refresh_execution_owner",
     "apply_or_recover",
     "verify_reconcile",
 )
@@ -141,7 +143,11 @@ def test_langgraph_builder_freezes_adr010_main_path_without_running_services() -
     assert ("execution_planning", "revision_barrier") in builder.edges
     assert ("revision_barrier", "provider_binding") in builder.edges
     assert ("provider_binding", "execution_grant") in builder.edges
-    assert ("execution_grant", "apply_or_recover") in builder.edges
+    assert ("execution_grant", "refresh_execution_owner") in builder.edges
+
+    # Task 7 后 refresh_execution_owner 必须通过 conditional routing 决定 dispatch、等待或
+    # terminal reconcile；它不能用静态 edge 跳过 authoritative owner 的恢复判定。
+    assert "refresh_execution_owner" in builder.branches
 
     # apply_or_recover 的逻辑下一步仍由 MAIN_PATH 冻结为 verify_reconcile，但它必须保留
     # AsyncOperationRef detour，因此这里验证它有条件分支而不是强迫一个无条件静态 edge。
