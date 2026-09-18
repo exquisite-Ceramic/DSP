@@ -34,9 +34,11 @@ jobs:
           # 统一从 committed uv.lock 重建 workspace，避免 PostgreSQL lane 漂移依赖版本。
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Run orchestrator PostgreSQL checkpoint verification
+      - name: Run orchestrator PostgreSQL checkpoint and authoritative-resume verification
         env:
           DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
         run: |
-          # Task 6 先冻结 checkpoint owner 与 restart-resume；Task 7 再扩展 authoritative-truth resume gate。
-          uv run python -m pytest tests/orchestrator/test_postgres_checkpoint.py -q
+          # Task 7 把 restart-resume gate 扩展到 execution-owner authoritative truth。
+          uv run python -m pytest \
+            tests/orchestrator/test_postgres_checkpoint.py \
+            tests/orchestrator/test_workflow_resume_authoritative_truth.py -q
