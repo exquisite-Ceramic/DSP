@@ -29,7 +29,7 @@ _CHECKPOINT_NAMESPACE = "dsp.workflow.v0_6"
 
 
 def _runtime_config(task_id: str) -> dict[str, dict[str, str]]:
-    """构造只在 adapter 内使用的 LangGraph checkpoint 隔离配置。"""
+    """构造调用 graph 时使用的 LangGraph runtime-private 配置。"""
 
     if not isinstance(task_id, str) or not task_id.strip():
         raise WorkflowStateError("WORKFLOW_RESUME_INVALID", "task_id must not be blank")
@@ -38,6 +38,23 @@ def _runtime_config(task_id: str) -> dict[str, dict[str, str]]:
         "configurable": {
             "thread_id": normalized,
             "checkpoint_ns": _CHECKPOINT_NAMESPACE,
+        }
+    }
+
+
+def _checkpoint_lookup_config(task_id: str) -> dict[str, dict[str, str]]:
+    """构造 root graph checkpoint 的读取配置。
+
+    LangGraph 会把顶层 graph 的非空 ``checkpoint_ns`` 归一化为空字符串，并把非空 namespace
+    保留给 subgraph 路径。因此 ADR-010 的应用级 namespace 仍只存在于 invoke config 中，而
+    root checkpoint 的稳定读取坐标是 ``thread_id + checkpoint_ns=''``。
+    """
+
+    runtime_config = _runtime_config(task_id)
+    return {
+        "configurable": {
+            "thread_id": runtime_config["configurable"]["thread_id"],
+            "checkpoint_ns": "",
         }
     }
 
@@ -113,8 +130,8 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
         不伪造用户输入。后续恢复决策仍由 graph/service 对 authoritative owner 的重新查询决定。
         """
 
-        config = _runtime_config(task_id)
-        snapshot = self._load_snapshot(task_id, config)
+        invoke_config = _runtime_config(task_id)
+        snapshot = self._load_snapshot(task_id)
         if snapshot is None:
             raise WorkflowStateError("WORKFLOW_NOT_FOUND", task_id.strip())
 
@@ -131,7 +148,7 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
             graph_input = Command(resume=_resume_payload(command))
 
         try:
-            self._graph.invoke(graph_input, config)
+            self._graph.invoke(graph_input, invoke_config)
         except WorkflowStateError:
             raise
         except Exception as exc:
@@ -151,8 +168,7 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
     def get_checkpoint(self, task_id: str) -> WorkflowCheckpointView | None:
         """读取当前 checkpoint，并把所有 LangGraph 私有类型投影出公共边界。"""
 
-        config = _runtime_config(task_id)
-        snapshot = self._load_snapshot(task_id, config)
+        snapshot = self._load_snapshot(task_id)
         if snapshot is None:
             return None
 
@@ -178,22 +194,15 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
             )
         return checkpoint
 
-    def _load_snapshot(
-        self,
-        task_id: str,
-        config: dict[str, dict[str, str]],
-    ) -> Any | None:
-        """先用 checkpointer 判断线程是否存在，再读取 LangGraph StateSnapshot。
+    def _load_snapshot(self, task_id: str) -> Any | None:
+        """读取 root checkpoint，并把 backend/serialization 细节封装成稳定错误码。"""
 
-        这一步把“not found”和“checkpoint backend/serialization 损坏”分开，避免调用方需要
-        识别 LangGraph 或具体 checkpointer 的异常类型。
-        """
-
+        lookup_config = _checkpoint_lookup_config(task_id)
         try:
-            checkpoint_tuple = self._checkpointer.get_tuple(config)
+            checkpoint_tuple = self._checkpointer.get_tuple(lookup_config)
             if checkpoint_tuple is None:
                 return None
-            return self._graph.get_state(config)
+            return self._graph.get_state(lookup_config)
         except WorkflowStateError:
             raise
         except Exception as exc:
