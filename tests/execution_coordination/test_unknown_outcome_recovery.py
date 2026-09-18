@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from design_execution_coordination import (
     CoordinationError,
     HostCommitted,
