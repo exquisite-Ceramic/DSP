@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 import inspect
 from typing import Any
 
+import pytest
+
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
@@ -233,6 +235,8 @@ def test_parameter_binding_rejects_proposal_outside_persisted_operation_space() 
 def test_langgraph_runtime_does_not_copy_deterministic_domain_algorithms() -> None:
     """LangGraph 只能路由 service，不得吸收 resolver/binder/Saga/dispatch transition 规则。"""
 
+    # 旧 deterministic lane 不安装 LangGraph；该源码守卫只在 runtime 依赖存在时有意义。
+    pytest.importorskip("langgraph")
     from design_orchestrator import langgraph_graph, langgraph_runtime
 
     source = inspect.getsource(langgraph_graph) + inspect.getsource(langgraph_runtime)
