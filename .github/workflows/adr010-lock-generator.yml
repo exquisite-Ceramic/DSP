@@ -9,10 +9,10 @@ on:
       - platform/orchestrator/pyproject.toml
       - .github/workflows/adr010-lock-generator.yml
 
-# 本 workflow 只服务于当前远程实现会话：生成由 uv 官方解析器写出的 committed lock 候选。
-# Task 1 GREEN 前会删除本文件，因此它不会成为 ADR-010 的长期 CI ownership。
+# 本 workflow 只服务于当前远程实现会话：用 uv 官方解析器生成 lock，并把生成结果
+# 直接提交到当前 feature branch。Task 1 GREEN 前会删除本文件，因此它不是长期 CI owner。
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-lock:
@@ -31,10 +31,15 @@ jobs:
           # 必须让 uv 从 package metadata 重新解析完整 workspace；禁止手工拼接 uv.lock。
           uv lock
           uv lock --check
-      - name: Upload generated lock for exact branch commit
-        uses: actions/upload-artifact@v4
-        with:
-          name: adr010-uv-lock
-          path: uv.lock
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated lock to the exact feature branch
+        run: |
+          # 只有 lock 真正变化时才提交；提交内容完全来自上一阶段的 uv 解析结果。
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already matches package metadata"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "build: lock workflow orchestrator runtime"
+          git push origin HEAD:feat/adr-010-workflow-orchestrator-runtime
