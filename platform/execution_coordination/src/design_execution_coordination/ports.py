@@ -26,7 +26,13 @@ from design_gateway_authorization import (
 )
 from design_provider_binding import ProviderBindingSetV2
 
-from .contracts import AuthorityFailure, HostDispatchContext, HostExecutionResult
+from .contracts import (
+    AuthorityFailure,
+    HostCommitted,
+    HostDispatchContext,
+    HostExecutionResult,
+    HostFailed,
+)
 from .readiness_contracts import HostReadinessReceipt
 
 
@@ -113,6 +119,20 @@ class MaterializedHostExecutionRegistry(Protocol):
     def resolve(self, runtime_ref: HostRuntimeRef) -> MaterializedHostExecutionPort: ...
 
 
+class HostOutcomeProbe(Protocol):
+    """Task 8 的只读 Host outcome 查询端口。
+
+    Probe 必须使用 Task 7 已持久化的 ``HostDispatchContext`` 查询同一个 logical
+    command；该端口不暴露 mutation 方法，因此 recovery 不能借 probe 偷偷重发写操作。
+    """
+
+    def resolve(
+        self,
+        execution_slice: ExecutionSliceV2,
+        dispatch_context: HostDispatchContext,
+    ) -> HostCommitted | HostFailed: ...
+
+
 class ConvergenceEvidencePort(Protocol):
     """连接 Step33 本地验证证据与 Task13 canonical convergence evidence。"""
 
@@ -143,6 +163,7 @@ __all__ = [
     "ExecutionAuthorityPort",
     "HostExecutionPort",
     "HostExecutionRegistry",
+    "HostOutcomeProbe",
     "HostReadinessPort",
     "HostReadinessRegistry",
     "MaterializedHostExecutionPort",
