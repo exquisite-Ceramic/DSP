@@ -9,11 +9,7 @@ transition 规则。
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass
-from enum import Enum
-from hashlib import sha256
+from dataclasses import dataclass
 from typing import Protocol
 
 from design_orchestrator.operation_resolver import (
@@ -28,6 +24,7 @@ from design_orchestrator.parameter_binder import (
     ParameterBinder,
     ParameterBindingContext,
 )
+from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
 from design_orchestrator.workflow_services import ExecutionOwnerView
 
@@ -131,81 +128,6 @@ class ExternalOwnerPorts(Protocol):
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView: ...
 
 
-def _normalize_for_hash(value: object) -> object:
-    """把 workflow-local artifact 递归投影成确定性的 JSON-compatible 结构。
-
-    这里的 hash 只服务于 Workflow Orchestrator 自己的 artifact 完整性引用，不替代任何
-    领域 owner 的 canonical hash。遇到无法稳定序列化的对象时 fail closed，避免把进程地址、
-    repr 或其他非确定性信息写进 checkpoint-facing ``StableRef``。
-    """
-
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Enum):
-        return _normalize_for_hash(value.value)
-    if isinstance(value, Mapping):
-        normalized_items: dict[str, object] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise TypeError("workflow artifact mappings require string keys")
-            normalized_items[key] = _normalize_for_hash(item)
-        return {key: normalized_items[key] for key in sorted(normalized_items)}
-    if isinstance(value, (tuple, list)):
-        return [_normalize_for_hash(item) for item in value]
-    if isinstance(value, (set, frozenset)):
-        normalized = [_normalize_for_hash(item) for item in value]
-        return sorted(
-            normalized,
-            key=lambda item: json.dumps(
-                item,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ),
-        )
-    if is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: _normalize_for_hash(getattr(value, field.name))
-            for field in fields(value)
-        }
-
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        try:
-            dumped = model_dump(mode="json")
-        except TypeError:
-            dumped = model_dump()
-        return _normalize_for_hash(dumped)
-
-    attributes = getattr(value, "__dict__", None)
-    if isinstance(attributes, Mapping):
-        public_attributes = {
-            str(key): item
-            for key, item in attributes.items()
-            if not str(key).startswith("_")
-        }
-        if public_attributes:
-            return _normalize_for_hash(public_attributes)
-
-    raise TypeError(
-        "workflow-local artifact contains a value without deterministic serialization"
-    )
-
-
-def _artifact_content_hash(value: object) -> str:
-    """计算 workflow-local artifact 的 lowercase SHA-256 内容摘要。"""
-
-    normalized = _normalize_for_hash(value)
-    payload = json.dumps(
-        normalized,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
-    return sha256(payload).hexdigest()
-
-
 class DefaultWorkflowServices:
     """ADR-010 的默认 service 组合器。
 
@@ -262,7 +184,7 @@ class DefaultWorkflowServices:
         return self._artifact_store.put(
             kind="operation_resolution",
             value=resolution,
-            content_hash=_artifact_content_hash(resolution),
+            content_hash=workflow_artifact_content_hash(resolution),
         )
 
     def bind_parameters(
@@ -300,7 +222,7 @@ class DefaultWorkflowServices:
         return self._artifact_store.put(
             kind="bound_operation_proposal",
             value=bound,
-            content_hash=_artifact_content_hash(bound),
+            content_hash=workflow_artifact_content_hash(bound),
         )
 
     def ensure_operation_freshness(
