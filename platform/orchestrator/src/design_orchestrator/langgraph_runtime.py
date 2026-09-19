@@ -61,7 +61,11 @@ def _checkpoint_lookup_config(task_id: str) -> dict[str, dict[str, str]]:
 
 
 def _resume_payload(command: WorkflowResumeCommand) -> dict[str, object]:
-    """把公共 HITL command 转为 runtime-private、JSON-compatible resume payload。"""
+    """把公共 HITL command 转为 runtime-private、JSON-compatible resume payload。
+
+    这里只做字段透传；pause 是否当前、resume kind 是否匹配以及 legacy/poll 模式选择仍由后续
+    Task 7 的 runtime validation 统一负责。Graph 自身同时保留 defense-in-depth 精确校验。
+    """
 
     if not isinstance(command, WorkflowResumeCommand):
         raise WorkflowStateError(
@@ -69,6 +73,7 @@ def _resume_payload(command: WorkflowResumeCommand) -> dict[str, object]:
             "command must be a WorkflowResumeCommand",
         )
     return {
+        "pause_id": command.pause_id,
         "resume_kind": command.resume_kind,
         "payload": dict(command.payload),
     }
