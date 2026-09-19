@@ -26,6 +26,16 @@ No additional ledger item was escalated to T4 during M1–M6. T0–T3 work eithe
 | Contract evolution | Canonical JSON Schema remains the cross-language contract authority; gRPC/Protobuf generation is reproducible from the existing `.proto`, and MCP/gRPC retain separate boundary roles. | ASSESS TARGETED CHANGE | Any future contract/protocol role change can alter wire or canonical semantics and must be designed explicitly. |
 | Planning / binding / reconciliation compatibility surface | MOD-016 identifies active compatibility bridges spanning multiple domain/runtime consumers. | ASSESS LARGER PROGRAM | Removal or unification may affect orchestration and compatibility semantics across several packages, so it is outside Technology Modernization cleanup authority. |
 
+## Phase II handoff consumption
+
+MOD-016 is now consumed by the separately approved Architecture Modernization Phase II artifacts:
+
+- Design Spec: `docs/superpowers/specs/2026-09-19-canonical-v2-convergence-design.md`
+- Implementation Plan: `docs/superpowers/plans/2026-09-19-canonical-v2-convergence.md`
+- Merged planning baseline: `0384644f592922566a2b7557022418ca6819a02b`
+
+Stage A remains fact-only inventory work. This handoff does not authorize consumer cutover, legacy retirement, or capability roadmap changes; those actions remain gated by the Phase II disposition, parity, protected-main PR, exact-head verification, and merged-main observation rules.
+
 ## Constraints carried forward
 
 - Preserve `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` as the current system-level contract authority until a separately approved successor exists.
