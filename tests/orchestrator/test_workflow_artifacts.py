@@ -15,8 +15,8 @@ from design_orchestrator.operation_resolver import (
     SemanticEligibilityContext,
 )
 from design_orchestrator.parameter_binder import (
-    MVP_BINDING_RECIPES,
     BoundOperationProposal,
+    MVP_BINDING_RECIPES,
     OperationProposal,
     ParameterBinder,
     ParameterBindingContext,
