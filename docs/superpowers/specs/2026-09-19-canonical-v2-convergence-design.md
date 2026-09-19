@@ -289,13 +289,20 @@ cutover 合并 main 后完成 required observation；满足条件才标记 `RETI
 
 完成 disposition ledger，确认四项 PR #55 债务各有 owner / next action，并冻结继任 Capability Phase。
 
-## 10. Inventory 硬时限与硬出口
+## 10. Inventory 时限与硬出口
 
-为避免 architecture archaeology 无限膨胀，Stage A 不以“把所有历史读完”为完成条件，而以产物完整度为条件。
+为避免 architecture archaeology 无限膨胀，Stage A 同时受**日历上限、任务上限、PR 上限和产物完整度**约束：
 
-Stage A 结束必须满足：
+- 日历上限：从 Stage A 正式开始计算，最多 **2 个工作日**用于 inventory 探索；
+- 任务上限：最多 **3 个 inventory tasks**，分别覆盖主干 contract/export、runtime/test consumers、Host/persistence/ops evidence；
+- PR 上限：Stage A 只允许 **1 个 dedicated inventory PR**；
+- 超过任一上限仍缺证据的 item，不继续扩大调查范围，必须标记为 `BLOCKED`，写明缺失证据、owner 与解除条件，并进入后续独立 work item。
 
-1. scope 内每一个 V1/V2 surface 都有 ledger row；
+这里的时间上限是治理边界，不是为了赶工而降低证据标准；无法在窗口内证明的事实必须诚实转为 `BLOCKED`，不能用推断填空。
+
+Stage A 结束还必须满足：
+
+1. scope 内每一个已发现的 V1/V2 surface 都有 ledger row；
 2. 每 row 至少有 producer、consumer、owner、persistence/Host 影响、disposition；
 3. 不存在 `UNKNOWN` / `TBD` disposition；不确定项必须明确为 `BLOCKED` 并记录缺失证据；
 4. inventory 阶段不因“顺便能删”而执行 retirement；
