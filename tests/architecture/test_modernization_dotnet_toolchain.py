@@ -11,6 +11,10 @@ GLOBAL_JSON = ROOT / "global.json"
 TRANSPORT = ROOT / (
     "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc/AutoCAD.AgentHost.Grpc.csproj"
 )
+TRANSPORT_TESTS = ROOT / (
+    "hosts/autocad/transport/dotnet/AutoCAD.AgentHost.Grpc.Tests/"
+    "AutoCAD.AgentHost.Grpc.Tests.csproj"
+)
 AUTOCAD_NATIVE = ROOT / "hosts/autocad/plugin/AutoCAD.AgentHost/AutoCAD.AgentHost.csproj"
 REVIT_CORE = ROOT / "hosts/revit/plugin/Revit.AgentHost.Core/Revit.AgentHost.Core.csproj"
 REVIT_CORE_TESTS = ROOT / (
@@ -75,7 +79,7 @@ def test_global_json_preserves_m0_sdk_policy() -> None:
 
 
 def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
-    """MOD-013=KEEP：版本仍归 transport csproj 所有，不引入中央包管理。"""
+    """MOD-013=KEEP：transport 版本仍归项目所有，并冻结当前 gRPC family 版本。"""
 
     assert not CENTRAL_PACKAGES.exists(), "MOD-013=KEEP 时不得创建 Directory.Packages.props"
 
@@ -83,9 +87,9 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
     properties = _property_values(project)
     references = _package_references(project)
     expected_owners = {
-        "Google.Protobuf": ("DspGoogleProtobufVersion", "3.29.3"),
-        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.70.0"),
-        "Grpc.Tools": ("DspGrpcToolsVersion", "2.70.0"),
+        "Google.Protobuf": ("DspGoogleProtobufVersion", "3.36.2"),
+        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.83.0"),
+        "Grpc.Tools": ("DspGrpcToolsVersion", "2.84.0"),
         "System.IO.FileSystem.AccessControl": (
             "DspSystemIOFileSystemAccessControlVersion",
             "5.0.0",
@@ -97,6 +101,13 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
         assert references[package].attrib.get("Version") == f"$({property_name})"
 
     assert references["Grpc.Tools"].attrib.get("PrivateAssets") == "All"
+
+
+def test_grpc_transport_test_client_tracks_server_runtime_floor() -> None:
+    """Grpc.Net.Client 必须与 Grpc.AspNetCore 的 2.83 runtime floor 对齐。"""
+
+    references = _package_references(_xml_root(TRANSPORT_TESTS))
+    assert references["Grpc.Net.Client"].attrib.get("Version") == "2.83.0"
 
 
 def test_transport_proto_codegen_owner_is_explicit_and_semantics_unchanged() -> None:
