@@ -20,12 +20,35 @@
 - `WorkflowResumeCommand.pause_id` 必须是 trailing optional field；既有 `resume_kind/payload` source compatibility 保持。
 - Human Operation Proposal `ACCEPT/REJECT` payload 必须为空；existing async completion payload contract 不重写。
 - `checkpoint_contract_version=2` 是 runtime-private；不得进入 `WorkflowCheckpointView` public contract。
+- 新 workflow 从 `LangGraphWorkflowRuntime.start()` 的 initial state 起就必须写 `checkpoint_contract_version=2`；不能等到 human pause 才补版本。
 - v2 human checkpoint corruption 不得降级成 legacy；legacy human migration 必须要求 exact old shape + real pending interrupt。
-- legacy artifact rehydration 必须重新调用真实 `OperationResolver`，并要求 recomputed hash 等于 old `operation_ref.content_hash`。
+- legacy artifact rehydration 必须重新调用真实 `OperationResolver`，并要求 legacy recomputed hash 等于 old `operation_ref.content_hash`。
 - `await_operation_proposal` node identity 必须保留；不得通过 bump namespace 遗弃旧 in-flight checkpoint。
-- Step26 Interaction Coordinator、Step28/32 Gateway/approval、Execution Saga、Host plugin/sidecar、semantic owner、MCP/Agent front door均不得改变 ownership。
+- Step26 Interaction Coordinator、Step28/32 Gateway/approval、Execution Saga、Host plugin/sidecar、semantic owner、MCP/Agent front door 均不得改变 ownership。
 - 任何 restart acceptance 必须使用真实 PostgreSQL artifact store；memory store 只能用于 unit/in-memory tests。
 - 最终必须通过 Python 3.11 两种 pytest mode、Python 3.14、Ruff new diagnostics = 0、Workflow Orchestrator PostgreSQL、Durable Persistence PostgreSQL、Revit Core、.NET 10。
+
+## Execution Topology
+
+本 `architecture/capability-hitl-pause-resume-design` 分支只承载 approved Design Spec、Implementation Plan 与 lifecycle/governance 文档；**不得在本分支实现 production code**。
+
+书面 Plan review 通过后按以下顺序执行：
+
+```text
+Design + Plan artifact branch
+→ architecture/docs PR to main
+→ required write-access approval + protected-main checks
+→ merge exact approved artifact head
+→ verify exact merged main SHA
+→ create feat/capability-hitl-pause-resume from that merged main
+→ execute Tasks 1–9 as TDD commits
+→ one implementation PR to main
+→ required approval/checks
+→ merge exact implementation head
+→ verify merged main before successor work
+```
+
+如果 Task 1 census 或后续 RED evidence 证明 approved Design Spec 的 owner/compatibility assumption 错误，停止 implementation branch，回到 design amendment；不得在实现 PR 中暗改 contract。
 
 ## Review Focus
 
@@ -33,7 +56,7 @@
 2. **v2 corruption vs legacy:** `checkpoint_contract_version=2 + AWAIT_OPERATION_PROPOSAL + missing pending_interaction` 必须 `WORKFLOW_CHECKPOINT_INVALID`，不能 synthetic legacy pause。
 3. **Artifact corruption before resume:** artifact row 缺失、codec/version 错误或 hash mismatch 时 human pause 必须保持未消费，并返回 `WORKFLOW_ARTIFACT_UNAVAILABLE`。
 4. **Real continuation after process restart:** 新 runtime/new saver/new artifact store 接管 human pause 后，ACCEPT 必须真实运行 `ParameterBinder`，而不是只让 checkpoint phase 前移。
-5. **Legacy memory-only operation artifact:** 只允许用 exact `context_snapshot_ref` 重跑真实 `OperationResolver`；hash mismatch/缺 hash/输入不可得必须 fail closed。
+5. **Legacy memory-only operation artifact:** 只允许用 exact `context_snapshot_ref` 重跑真实 `OperationResolver`；legacy hash mismatch/缺 hash/输入不可得必须 fail closed。
 
 ---
 
@@ -44,10 +67,10 @@
 - Create: `tests/architecture/test_hitl_pause_resume_compatibility_census.py`
 
 **Interfaces:**
-- Consumes: approved HITL spec §14 and current merged-main public/runtime surfaces.
+- Consumes: approved HITL spec §14 and exact merged-main public/runtime surfaces.
 - Produces: a machine-readable six-area census that later tasks must not contradict.
 
-- [ ] **Step 1: Write the RED architecture test**
+- [ ] **Step 1: Write the failing architecture test**
 
 Create `tests/architecture/test_hitl_pause_resume_compatibility_census.py`:
 
@@ -94,9 +117,7 @@ def test_hitl_compatibility_census_is_complete_and_closed() -> None:
         assert "UNKNOWN" not in combined
 ```
 
-- [ ] **Step 2: Run RED**
-
-Run:
+- [ ] **Step 2: Run the test and verify RED**
 
 ```bash
 uv run pytest tests/architecture/test_hitl_pause_resume_compatibility_census.py -q
@@ -106,7 +127,7 @@ Expected: FAIL because the census document does not exist.
 
 - [ ] **Step 3: Execute the exact repository census**
 
-Run all commands from repository root and copy the exact path/line findings into the census:
+Run from repository root:
 
 ```bash
 rg -n "WorkflowResumeCommand|WorkflowCheckpointView|PendingInteraction" \
@@ -116,6 +137,9 @@ rg -n "WorkflowResumeCommand\(" platform hosts tests
 
 rg -n "WorkflowArtifactStore|_MemoryArtifactStore|artifact_store" \
   platform hosts tests
+
+rg -n "CapabilityProfile|provider_candidates|ResolutionResult" \
+  platform providers hosts tests
 
 rg -n "await_operation_proposal|ASYNC_OPERATION_COMPLETED|resume\(.*None" \
   platform hosts tests
@@ -127,22 +151,24 @@ rg -n "design_orchestrator.*workflow|workflow_contracts|workflow_port" \
   hosts contracts
 ```
 
-Create exactly one row for each required area. Use concrete file paths/counts or `NONE_IN_REPOSITORY(<exact rg command>)`; do not use guessed external consumers.
+Create exactly one row for each required area. `artifact_store_impls` evidence must additionally name every repository `CapabilityProfile` implementation/shape that can enter `ResolutionResult.provider_candidates`, because Task 2 codec must preserve the fields needed by the current artifact hash and consumers.
+
+Use concrete file paths/counts or `NONE_IN_REPOSITORY(<exact rg command>)`; do not infer absence of repo-external callers.
 
 - [ ] **Step 4: Freeze compatibility decisions in the census**
 
-The six decisions must encode these rules when supported by the actual census:
+The six decisions must encode these rules when supported by evidence:
 
 ```text
-public_exports       -> additive only; keep existing names
-runtime_callers      -> resume_kind/payload preserved; pause_id trailing optional
- test_callers         -> migrate human callers; preserve async completion callers
-host_plugin_callers  -> if none in repository, record NONE_IN_REPOSITORY; do not infer repo-external absence
-persisted_checkpoints-> recognize old human and old async shapes separately
-artifact_store_impls -> memory remains test-only; production restart requires durable adapter
+public_exports        -> additive only; keep existing names
+runtime_callers       -> resume_kind/payload preserved; pause_id trailing optional
+test_callers          -> migrate human callers; preserve async completion callers
+host_plugin_callers   -> if none in repository, record NONE_IN_REPOSITORY; repo-external state remains unproven
+persisted_checkpoints -> recognize old human and old async shapes separately
+artifact_store_impls  -> memory remains test-only; production restart requires durable adapter; codec covers observed profile shapes
 ```
 
-If the census reveals a real Host/plugin/external repository caller that contradicts an additive change, stop this plan before Task 2 and amend the design.
+If a real repository Host/plugin caller or persisted shape contradicts the approved additive strategy, stop before Task 2 and amend the design.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -162,31 +188,34 @@ git commit -m "docs: freeze HITL compatibility census"
 **Files:**
 - Create: `platform/orchestrator/src/design_orchestrator/workflow_artifacts.py`
 - Modify: `platform/orchestrator/src/design_orchestrator/default_workflow_services.py`
-- Test: `tests/orchestrator/test_workflow_artifacts.py`
-- Test: `tests/orchestrator/test_default_workflow_services.py`
+- Create: `tests/orchestrator/test_workflow_artifacts.py`
+- Modify: `tests/orchestrator/test_default_workflow_services.py`
 
 **Interfaces:**
-- Consumes: `ResolutionResult`, `ResolvedOperation`, `CapabilityProfile`, `BoundOperationProposal`, `StableRef`.
+- Consumes: `ResolutionResult`, `ResolvedOperation`, observed `CapabilityProfile` shapes, `BoundOperationProposal`, `StableRef`.
 - Produces:
 
 ```python
 WORKFLOW_ARTIFACT_CODEC_VERSION = 1
 
-class WorkflowArtifactCodecError(ValueError): ...
+class WorkflowArtifactError(ValueError): ...
+class WorkflowArtifactCodecError(WorkflowArtifactError): ...
+class WorkflowArtifactUnavailableError(WorkflowArtifactError): ...
 
 @dataclass(frozen=True, slots=True)
 class PersistedCapabilityProfile: ...
 
 def workflow_artifact_content_hash(value: object) -> str: ...
+def legacy_workflow_artifact_content_hash(value: object) -> str: ...
 def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]: ...
 def decode_workflow_artifact(
     *, kind: str, codec_version: int, payload: Mapping[str, object]
 ) -> object: ...
 ```
 
-- [ ] **Step 1: Write RED codec round-trip tests**
+- [ ] **Step 1: Write RED codec and legacy-hash characterization tests**
 
-Create tests that use real resolver/binder output, not hand-written fake payloads:
+Use real resolver/binder output. The operation-resolution round trip compares all consumer-visible fields rather than concrete provider class identity:
 
 ```python
 def test_operation_resolution_codec_round_trips_real_resolution(sample_resolution):
@@ -199,9 +228,10 @@ def test_operation_resolution_codec_round_trips_real_resolution(sample_resolutio
     assert isinstance(restored, ResolutionResult)
     assert restored.resolved_operations == sample_resolution.resolved_operations
     assert sorted(restored.provider_candidates) == sorted(sample_resolution.provider_candidates)
-    assert workflow_artifact_content_hash(restored) == workflow_artifact_content_hash(
-        sample_resolution
-    )
+    for candidate_id, original in sample_resolution.provider_candidates.items():
+        restored_profile = restored.provider_candidates[candidate_id]
+        for field_name in PERSISTED_CAPABILITY_PROFILE_FIELDS:
+            assert getattr(restored_profile, field_name) == getattr(original, field_name)
 
 
 def test_bound_operation_proposal_codec_round_trips_real_binding(sample_bound):
@@ -215,14 +245,11 @@ def test_bound_operation_proposal_codec_round_trips_real_binding(sample_bound):
         payload=payload,
     )
     assert restored == sample_bound
-    assert workflow_artifact_content_hash(restored) == workflow_artifact_content_hash(
-        sample_bound
-    )
 ```
 
-Also assert unknown kind/version fail with `WorkflowArtifactCodecError`.
+Before moving the current generic hash helper, add a characterization fixture with a real `ResolutionResult` and assert `legacy_workflow_artifact_content_hash()` equals the pre-change `_artifact_content_hash()` value. This legacy helper exists only to verify old refs during Task 7 migration.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Step 2: Run the codec tests and verify RED**
 
 ```bash
 uv run pytest tests/orchestrator/test_workflow_artifacts.py -q
@@ -230,35 +257,34 @@ uv run pytest tests/orchestrator/test_workflow_artifacts.py -q
 
 Expected: FAIL because `workflow_artifacts` does not exist.
 
-- [ ] **Step 3: Implement the deterministic hash in one owner module**
+- [ ] **Step 3: Implement explicit canonical payload hashing for new artifacts**
 
-Move the existing normalization semantics out of `default_workflow_services.py` without changing its digest contract:
+`workflow_artifact_content_hash(value)` must hash the canonical JSON generated by the explicit codec/type dispatch, not arbitrary class identity:
 
 ```python
-def workflow_artifact_content_hash(value: object) -> str:
-    normalized = _normalize_for_hash(value)
-    payload = json.dumps(
-        normalized,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
-    return sha256(payload).hexdigest()
+canonical = _canonical_artifact_payload(value)
+payload = json.dumps(
+    canonical,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=False,
+    allow_nan=False,
+).encode("utf-8")
+return sha256(payload).hexdigest()
 ```
 
-`DefaultWorkflowServices.resolve_operations()` and `.bind_parameters()` must call this shared function so persisted codec verification and producer hash calculation cannot drift.
+Move the existing generic `_normalize_for_hash` algorithm unchanged into `legacy_workflow_artifact_content_hash()` so legacy refs remain verifiable. New `DefaultWorkflowServices.resolve_operations()` / `.bind_parameters()` use `workflow_artifact_content_hash()` only.
 
 - [ ] **Step 4: Implement exact v1 codecs**
 
-`encode_workflow_artifact()` must accept only:
+`encode_workflow_artifact()` accepts only:
 
 ```text
 operation_resolution      -> ResolutionResult
 bound_operation_proposal  -> BoundOperationProposal
 ```
 
-For `operation_resolution`, encode every `ResolvedOperation` field plus provider candidates as an explicit `PersistedCapabilityProfile` shape containing:
+For `operation_resolution`, persist every `ResolvedOperation` field plus provider candidates using the Task 1 observed protocol fields. The minimum frozen profile fields are:
 
 ```text
 provider_server
@@ -276,7 +302,9 @@ input_schema
 output_schema
 ```
 
-Decode `existence_effects` back to `CanonicalExistenceEffect`, and decode provider candidates into `PersistedCapabilityProfile` instances satisfying the existing `CapabilityProfile` protocol.
+If Task 1 finds additional fields that current generic legacy hashing/consumer behavior depends on, list and encode them explicitly rather than falling back to `__dict__`.
+
+Reconstruct enum-typed fields such as `CanonicalExistenceEffect` explicitly. Decode provider candidates into `PersistedCapabilityProfile` instances satisfying the existing `CapabilityProfile` protocol.
 
 For `bound_operation_proposal`, explicitly reconstruct:
 
@@ -289,11 +317,11 @@ PlanningRequirements
 semantic_environment_ref
 ```
 
-Do not use `pickle`, `repr`, `__dict__` as persisted wire shape, or class-path imports stored in payload.
+Do not persist class-path imports, pickle data, repr strings, or object addresses.
 
-- [ ] **Step 5: Add deterministic negative tests**
+- [ ] **Step 5: Add negative codec tests**
 
-Cover malformed payload keys, wrong nested enum values, wrong Python type for a declared kind, and codec version `2`:
+Cover wrong kind/type, missing/extra keys, wrong nested enum values and codec version `2`:
 
 ```python
 with pytest.raises(WorkflowArtifactCodecError):
@@ -332,7 +360,7 @@ git commit -m "feat: add workflow artifact codecs"
 - Create: `tests/orchestrator/test_artifact_postgres.py`
 
 **Interfaces:**
-- Consumes: `WorkflowArtifactStore`, Task 2 codec/hash functions.
+- Consumes: `WorkflowArtifactStore`, Task 2 codec/hash/errors.
 - Produces:
 
 ```python
@@ -347,7 +375,7 @@ def create_postgres_artifact_store(dsn: str) -> PostgresWorkflowArtifactStore: .
 
 - [ ] **Step 1: Write RED schema/restart tests**
 
-Use `DSP_TEST_POSTGRES_DSN` and a clean `orchestrator_artifact` schema. Assert:
+Use `DSP_TEST_POSTGRES_DSN` and a clean `orchestrator_artifact` schema:
 
 ```python
 store_a = create_postgres_artifact_store(_dsn())
@@ -359,13 +387,14 @@ ref = store_a.put(
 store_a.close()
 
 store_b = create_postgres_artifact_store(_dsn())
-assert store_b.get(ref) == resolution
+restored = store_b.get(ref)
+assert restored.resolved_operations == resolution.resolved_operations
 store_b.close()
 ```
 
-Query `information_schema.tables` and assert artifact tables live in `orchestrator_artifact`, not `public`, `orchestrator_checkpoint`, `execution_saga`, `gateway`, or `semantic_runtime`.
+Query `information_schema.tables` and assert artifact tables live only in `orchestrator_artifact`, not `public`, `orchestrator_checkpoint`, `execution_saga`, `gateway`, or `semantic_runtime`.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Step 2: Run the PostgreSQL test and verify RED**
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" \
@@ -376,7 +405,7 @@ Expected: FAIL because the adapter does not exist.
 
 - [ ] **Step 3: Implement schema bootstrap and owned connection**
 
-Create a fixed schema constant and one owner table equivalent to:
+Create fixed owner schema/table equivalent to:
 
 ```sql
 CREATE TABLE IF NOT EXISTS workflow_artifact (
@@ -390,13 +419,13 @@ CREATE TABLE IF NOT EXISTS workflow_artifact (
 )
 ```
 
-Bootstrap schema with a separate autocommit admin connection, then open the store connection with:
+Bootstrap with a separate autocommit admin connection. Open the store connection with autocommit and:
 
 ```sql
 SET search_path TO orchestrator_artifact
 ```
 
-The adapter owns and explicitly closes that connection, mirroring `OwnedPostgresSaver` lifecycle discipline.
+The adapter owns/closes its connection, mirroring `OwnedPostgresSaver` lifecycle discipline.
 
 - [ ] **Step 4: Implement `put()` fail-closed and idempotent**
 
@@ -408,27 +437,29 @@ if actual_hash != content_hash:
     raise WorkflowArtifactCodecError("artifact content_hash does not match value")
 ```
 
-Encode using codec version `1`. Insert a new opaque UUID `artifact_id`; on `UNIQUE(kind, content_hash)` conflict, select and return the existing row identity. Repeated identical `put()` must return the same `StableRef`.
+Encode with codec version `1`; insert opaque UUID `artifact_id`. On `UNIQUE(kind, content_hash)` conflict, select and return the existing row identity. Repeated identical `put()` returns the same `StableRef`.
 
-- [ ] **Step 5: Implement `get()` with full integrity verification**
+- [ ] **Step 5: Implement `get()` with integrity verification**
 
-`get(ref)` must require `ref.content_hash`, load only by opaque `artifact_id`, then verify in order:
+`get(ref)` requires `ref.content_hash`, loads only by opaque `artifact_id`, then checks:
 
 ```text
 row exists
 row.content_hash == ref.content_hash
-codec kind/version decodes
+known kind/version
+payload decodes
 workflow_artifact_content_hash(decoded) == row.content_hash
 ```
 
-Any failure raises `WorkflowArtifactCodecError`/`KeyError` internally; callers must not receive corrupted values.
+Missing rows or integrity/codec failures normalize to `WorkflowArtifactUnavailableError` at the store boundary; callers never receive corrupted values.
 
 - [ ] **Step 6: Add corruption/idempotency negative tests**
 
-Directly tamper test rows using a separate admin connection and prove:
+Using a separate admin connection, prove:
 
-- payload mutation fails on `get()`;
-- `codec_version=999` fails;
+- payload mutation -> `WorkflowArtifactUnavailableError`;
+- `codec_version=999` -> `WorkflowArtifactUnavailableError`;
+- wrong ref content hash -> `WorkflowArtifactUnavailableError`;
 - same `kind + hash` put returns same ref;
 - same supplied hash with a different value is rejected before SQL write;
 - `close()` is idempotent.
@@ -491,7 +522,7 @@ class WorkflowResumeCommand:
 
 - [ ] **Step 1: Write RED public-contract tests**
 
-Add tests for nonblank pause ID, unique/nonempty allowed kinds, additive command field order, and wait exclusivity:
+Add nonblank pause ID, unique/nonempty allowed kinds, additive field-order, CANCELLED and wait-exclusivity tests:
 
 ```python
 def test_resume_command_keeps_existing_field_order_and_adds_pause_id_last() -> None:
@@ -523,7 +554,7 @@ def test_checkpoint_rejects_human_and_async_wait_at_once() -> None:
         )
 ```
 
-Also prove existing async construction remains valid:
+Prove old async construction remains source-compatible:
 
 ```python
 command = WorkflowResumeCommand(
@@ -533,7 +564,7 @@ command = WorkflowResumeCommand(
 assert command.pause_id is None
 ```
 
-- [ ] **Step 2: Run RED**
+- [ ] **Step 2: Run the tests and verify RED**
 
 ```bash
 uv run pytest tests/orchestrator/test_workflow_contracts.py -q
@@ -541,20 +572,20 @@ uv run pytest tests/orchestrator/test_workflow_contracts.py -q
 
 Expected: FAIL because pending interaction/CANCELLED/pause_id are absent.
 
-- [ ] **Step 3: Implement minimal additive contracts**
+- [ ] **Step 3: Implement the additive contracts**
 
-Validation rules:
+Validation:
 
-- normalize `pause_id` with existing `_required_text` when present;
+- normalize present `pause_id` with existing `_required_text`;
 - convert `kind` to `PendingInteractionKind`;
 - require `subject_ref` is `StableRef`;
-- normalize `allowed_resume_kinds` to tuple of nonblank strings, reject empty/duplicates;
-- in `WorkflowCheckpointView.__post_init__`, reject `pending_interaction` together with either `async_operation_ref` or `interaction_ref`;
-- do **not** globally reject `WorkflowResumeCommand.payload`, because async completion still owns its existing payload schema.
+- normalize `allowed_resume_kinds` to nonempty unique tuple of nonblank strings;
+- `WorkflowCheckpointView.__post_init__` rejects `pending_interaction` with either `async_operation_ref` or `interaction_ref`;
+- do **not** globally reject command payload because async completion keeps owner-specific payload.
 
-- [ ] **Step 4: Export the new public types**
+- [ ] **Step 4: Export new public types without removing old exports**
 
-Update `workflow_contracts.__all__` and package `__init__.py` with `PendingInteractionKind` and `PendingInteractionView`; do not remove or rename old exports.
+Update `workflow_contracts.__all__` and package `__init__.py` with `PendingInteractionKind` and `PendingInteractionView`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -576,8 +607,10 @@ git commit -m "feat: define HITL pause contracts"
 
 **Files:**
 - Modify: `platform/orchestrator/src/design_orchestrator/langgraph_state.py`
-- Modify: `tests/orchestrator/test_langgraph_graph.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/langgraph_runtime.py`
 - Create: `tests/orchestrator/test_hitl_checkpoint_state.py`
+- Modify: `tests/orchestrator/test_langgraph_runtime.py`
+- Modify: `tests/orchestrator/test_langgraph_graph.py`
 
 **Interfaces:**
 - Consumes: Task 4 `PendingInteractionView`.
@@ -585,6 +618,7 @@ git commit -m "feat: define HITL pause contracts"
 
 ```python
 CHECKPOINT_CONTRACT_VERSION = 2
+
 
 def encode_pending_interaction(
     value: PendingInteractionView | None,
@@ -599,7 +633,7 @@ def decode_pending_interaction(
 
 `WorkflowGraphState` gains `checkpoint_contract_version: int` and `pending_interaction: dict[str, object] | None`.
 
-- [ ] **Step 1: Write RED state-shape tests**
+- [ ] **Step 1: Write RED state/version tests**
 
 Cover exact pending keys and v2 corruption:
 
@@ -628,15 +662,23 @@ def test_pending_interaction_decoder_rejects_extra_keys() -> None:
         decode_pending_interaction(value)
 ```
 
-- [ ] **Step 2: Run RED**
+Also add a runtime start test that inspects the persisted graph state and asserts:
 
-```bash
-uv run pytest tests/orchestrator/test_hitl_checkpoint_state.py -q
+```python
+assert snapshot.values["checkpoint_contract_version"] == 2
 ```
 
-Expected: FAIL because version/pending codecs do not exist.
+- [ ] **Step 2: Run the targeted tests and verify RED**
 
-- [ ] **Step 3: Implement exact JSON-compatible pending codec**
+```bash
+uv run pytest \
+  tests/orchestrator/test_hitl_checkpoint_state.py \
+  tests/orchestrator/test_langgraph_runtime.py -q
+```
+
+Expected: FAIL because version/pending codecs are absent and `start()` does not write version 2.
+
+- [ ] **Step 3: Implement the exact JSON-compatible pending codec**
 
 Persist only:
 
@@ -647,38 +689,53 @@ subject_ref {ref_id, content_hash}
 allowed_resume_kinds [stable strings]
 ```
 
-No arbitrary metadata/payload field is allowed. Reuse `_encode_stable_ref/_decode_stable_ref`.
+Reject arbitrary metadata/payload. Reuse `_encode_stable_ref/_decode_stable_ref`.
 
-- [ ] **Step 4: Add version-aware checkpoint validation**
+- [ ] **Step 4: Add version-aware state validation**
 
-`graph_state_to_checkpoint_view()` must:
+`graph_state_to_checkpoint_view()` behavior:
 
 ```text
-version absent -> preserve existing legacy projection; do not synthesize human pause here
+version absent -> preserve existing unversioned projection; do not synthesize a human pause here
 version == 2   -> validate v2 structure
 other version  -> ValueError
 ```
 
-For version `2`, `AWAIT_OPERATION_PROPOSAL` requires pending interaction. `WorkflowCheckpointView` then enforces pending-vs-async/interaction mutual exclusion.
+For version `2`, `AWAIT_OPERATION_PROPOSAL` requires pending interaction. Do not reject recognized unversioned async state here; runtime owns interrupt-aware legacy classification in Task 7.
 
-Do not reject recognized unversioned async state here; runtime owns interrupt-aware legacy classification in Task 7.
+- [ ] **Step 5: Write version 2 from `start()` initial state**
 
-- [ ] **Step 5: Preserve authoritative-object guards**
+Import `CHECKPOINT_CONTRACT_VERSION` into `langgraph_runtime.py` and add:
 
-Extend negative tests so a pending view containing or adjacent to `changeset_object`, `approval_record_object`, `execution_saga_object`, `semantic_projection_object` remains rejected by existing `FORBIDDEN_AUTHORITATIVE_STATE_KEYS` logic.
+```python
+initial_state = {
+    "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
+    ...
+}
+```
 
-- [ ] **Step 6: Run GREEN and commit**
+Do not expose this private field through `WorkflowCheckpointView`.
+
+- [ ] **Step 6: Preserve authoritative-object guards**
+
+Extend tests so pending state containing or adjacent to `changeset_object`, `approval_record_object`, `execution_saga_object`, `semantic_projection_object` remains rejected.
+
+- [ ] **Step 7: Run GREEN and commit**
 
 ```bash
 uv run pytest \
   tests/orchestrator/test_hitl_checkpoint_state.py \
+  tests/orchestrator/test_langgraph_runtime.py \
   tests/orchestrator/test_langgraph_graph.py -q
 uv run ruff check \
   platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_runtime.py \
   tests/orchestrator/test_hitl_checkpoint_state.py
 
 git add platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_runtime.py \
   tests/orchestrator/test_hitl_checkpoint_state.py \
+  tests/orchestrator/test_langgraph_runtime.py \
   tests/orchestrator/test_langgraph_graph.py
 git commit -m "feat: version HITL checkpoint state"
 ```
@@ -706,19 +763,19 @@ resolve_operations
 
 - [ ] **Step 1: Write RED topology/pause tests**
 
-Assert `MAIN_PATH` includes `prepare_operation_proposal_pause` directly before `await_operation_proposal`. Start a graph with `InMemorySaver` and verify the paused public/private state has:
+Assert `MAIN_PATH` includes `prepare_operation_proposal_pause` directly before `await_operation_proposal`. With `InMemorySaver`, verify paused private/public state contains:
 
 ```text
 checkpoint_contract_version = 2
 phase = AWAIT_OPERATION_PROPOSAL
-pending_interaction.pause_id = nonblank UUID string
+pending_interaction.pause_id = nonblank UUID
 pending_interaction.subject_ref == operation_ref
 async_operation_ref = None
 ```
 
 - [ ] **Step 2: Write RED ACCEPT/REJECT tests**
 
-For ACCEPT, invoke LangGraph with runtime-private payload:
+For ACCEPT:
 
 ```python
 Command(
@@ -730,23 +787,23 @@ Command(
 )
 ```
 
-Assert graph reaches `parameter_binding` and clears `pending_interaction`.
+Assert graph reaches parameter binding and clears pending interaction.
 
-For REJECT use `OPERATION_PROPOSAL_REJECTED`; assert terminal phase `CANCELLED`, no `bind_parameters` call, and no downstream service call.
+For REJECT use `OPERATION_PROPOSAL_REJECTED`; assert terminal `CANCELLED`, no `bind_parameters` call and no downstream service call.
 
-- [ ] **Step 3: Run RED**
+- [ ] **Step 3: Run graph tests and verify RED**
 
 ```bash
 uv run pytest tests/orchestrator/test_langgraph_graph.py -q
 ```
 
-Expected: FAIL because current graph creates no persisted pending interaction and ignores resume kind.
+Expected: FAIL because current graph has no persisted pending interaction and ignores resume kind.
 
 - [ ] **Step 4: Implement `prepare_operation_proposal_pause`**
 
-Use `str(uuid4())` exactly once in the prepare node, construct `PendingInteractionView`, and return its encoded state. The await node must never generate a pause ID.
+Use `str(uuid4())` exactly once in the prepare node, construct `PendingInteractionView`, and return its encoded state. `await_operation_proposal` must never generate a pause ID.
 
-The interrupt payload is limited to:
+Interrupt payload is limited to:
 
 ```python
 {
@@ -758,7 +815,7 @@ The interrupt payload is limited to:
 
 - [ ] **Step 5: Implement defense-in-depth resume parsing in the await node**
 
-The value returned by `interrupt()` must be a mapping with exact keys `pause_id`, `resume_kind`, `payload`. Require matching pause ID, an allowed resume kind, and `{}` payload for both v1 human actions.
+The value returned by `interrupt()` must be a mapping with exact keys `pause_id`, `resume_kind`, `payload`. Require matching pause ID, allowed kind and `{}` payload.
 
 Return:
 
@@ -767,11 +824,11 @@ ACCEPT -> pending_interaction=None, phase=PARAMETER_BINDING
 REJECT -> pending_interaction=None, phase=CANCELLED
 ```
 
-Add a conditional edge from `await_operation_proposal` to `parameter_binding` or `END` based only on the resulting phase.
+Add a conditional edge from `await_operation_proposal` to `parameter_binding` or `END` based only on resulting phase.
 
-- [ ] **Step 6: Prove existing async topology is unchanged**
+- [ ] **Step 6: Prove existing async topology remains unchanged**
 
-Keep `await_async_operation`, `_ASYNC_RESUME_NODES`, existing owner refresh ordering, and `ASYNC_OPERATION` interrupt payload unchanged. Run existing async/recovery graph tests in the same target suite.
+Keep `await_async_operation`, `_ASYNC_RESUME_NODES`, owner-refresh ordering and the `ASYNC_OPERATION` interrupt contract unchanged; run existing recovery tests in the same cycle.
 
 - [ ] **Step 7: Run GREEN and commit**
 
@@ -779,7 +836,8 @@ Keep `await_async_operation`, `_ASYNC_RESUME_NODES`, existing owner refresh orde
 uv run pytest \
   tests/orchestrator/test_langgraph_graph.py \
   tests/orchestrator/test_workflow_resume_authoritative_truth.py -q
-uv run ruff check platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+uv run ruff check \
+  platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
   tests/orchestrator/test_langgraph_graph.py
 
 git add platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
@@ -789,7 +847,7 @@ git commit -m "feat: implement correlated HITL graph pause"
 
 ---
 
-### Task 7: Validate resume mode and migrate exact legacy human checkpoints
+### Task 7: Validate resume mode, recover artifacts, and migrate exact legacy checkpoints
 
 **Files:**
 - Create: `platform/orchestrator/src/design_orchestrator/hitl_resume.py`
@@ -809,12 +867,12 @@ def synthetic_legacy_operation_proposal_pause(
 ) -> PendingInteractionView: ...
 
 
-def validate_human_resume(
+def validate_resume_mode(
     *, checkpoint: WorkflowCheckpointView, command: WorkflowResumeCommand | None
-) -> None: ...
+) -> str: ...  # "human" | "async" | "poll"
 ```
 
-Extend `WorkflowServices` with:
+Extend `WorkflowServices`:
 
 ```python
 def ensure_operation_artifact(
@@ -826,7 +884,7 @@ def ensure_operation_artifact(
 
 - [ ] **Step 1: Write RED pure resume-validation tests**
 
-Cover:
+Cover stable codes:
 
 ```text
 human wait + command=None                        -> WORKFLOW_RESUME_INVALID
@@ -834,14 +892,17 @@ human wait + pause_id=None                       -> WORKFLOW_RESUME_INVALID
 human wait + wrong pause_id                      -> WORKFLOW_RESUME_STALE
 human wait + right pause/wrong resume_kind       -> WORKFLOW_RESUME_MISMATCH
 human ACCEPT/REJECT + nonempty payload           -> WORKFLOW_RESUME_INVALID
-async wait + pause_id != None                    -> WORKFLOW_RESUME_INVALID
-async wait + existing command pause_id=None       -> allowed
-async wait + command=None                         -> allowed
+async wait + command.pause_id != None             -> WORKFLOW_RESUME_STALE
+async wait + existing command pause_id=None       -> "async"
+async wait + command=None                         -> "poll"
+no human pending + previously consumed pause_id   -> WORKFLOW_RESUME_STALE
 ```
+
+The STALE classification is deliberate: a task that already consumed/superseded a human pause must report stale even if it is now waiting on an async owner.
 
 - [ ] **Step 2: Implement deterministic synthetic legacy identity**
 
-Use compact sorted JSON, preserving `content_hash: null` explicitly:
+Use compact sorted JSON with explicit `content_hash: null`:
 
 ```python
 payload = {
@@ -861,9 +922,9 @@ canonical = json.dumps(
 pause_id = "legacy-op-proposal:" + sha256(canonical).hexdigest()
 ```
 
-Return `PendingInteractionView(OPERATION_PROPOSAL, operation_ref, ACCEPT/REJECT)`.
+Return OPERATION_PROPOSAL pending view with ACCEPT/REJECT.
 
-- [ ] **Step 3: Add `ensure_operation_artifact()` to the deterministic service adapter**
+- [ ] **Step 3: Add `ensure_operation_artifact()` using real resolver semantics**
 
 Algorithm:
 
@@ -871,34 +932,52 @@ Algorithm:
 try artifact_store.get(operation_ref)
   -> require ResolutionResult
   -> return original ref
-except missing/corrupt artifact:
+except WorkflowArtifactUnavailableError:
   -> require operation_ref.content_hash
   -> external_owners.load_operation_resolution_inputs(context_snapshot_ref)
   -> self._operation_resolver.resolve(inputs.profiles, inputs.context)
-  -> recompute workflow_artifact_content_hash
-  -> require exact equality with old content_hash
-  -> artifact_store.put(kind="operation_resolution", ...)
+  -> legacy_workflow_artifact_content_hash(resolution)
+  -> require exact equality with old operation_ref.content_hash
+  -> artifact_store.put(
+         kind="operation_resolution",
+         value=resolution,
+         content_hash=workflow_artifact_content_hash(resolution),
+     )
   -> return new durable ref
 ```
 
-Do not copy resolver eligibility logic. If inputs/hash are unavailable or mismatch, raise an internal artifact-unavailable exception for runtime normalization.
+Do not copy resolver eligibility logic. Missing inputs/hash or legacy hash mismatch raises `WorkflowArtifactUnavailableError`.
 
-- [ ] **Step 4: Write RED legacy snapshot classification tests**
+For **new v2** refs, normal `artifact_store.get(subject_ref)` must succeed; rehydration is a legacy path, not a way to silently repair corrupted v2 durable artifacts.
 
-Seed an `InMemorySaver`/compiled graph using `update_state` with an old unversioned Operation Proposal state and `as_node="resolve_operations"`, then drive it to a real `await_operation_proposal` interrupt using the old shape fixture.
+- [ ] **Step 4: Build real legacy interrupt fixtures instead of using the new graph**
 
-The runtime must only synthesize a pending human view when all are true:
+In `tests/orchestrator/test_hitl_resume.py`, define a tiny test-only legacy graph builder whose node identity and old payload match pre-HITL behavior:
 
-```text
-version absent
-phase AWAIT_OPERATION_PROPOSAL
-valid operation_ref
-real snapshot.interrupts present
-pending_interaction absent
-async_operation_ref absent
+```python
+def _build_legacy_operation_proposal_graph(checkpointer):
+    builder = StateGraph(WorkflowGraphState)
+
+    def await_operation_proposal(state: WorkflowGraphState) -> dict[str, object]:
+        operation_ref = _decode_stable_ref(state["operation_ref"], "operation_ref")
+        assert operation_ref is not None
+        interrupt(
+            {
+                "kind": "OPERATION_PROPOSAL",
+                "operation_ref": _encode_stable_ref(operation_ref),
+            }
+        )
+        return {"phase": WorkflowPhase.PARAMETER_BINDING.value}
+
+    builder.add_node("await_operation_proposal", await_operation_proposal)
+    builder.add_edge(START, "await_operation_proposal")
+    builder.add_edge("await_operation_proposal", END)
+    return builder.compile(checkpointer=checkpointer)
 ```
 
-Also seed an unversioned `async_operation_ref` wait and prove existing async resume is still recognized, not rejected as an unknown legacy human interrupt.
+Invoke this fixture once with an **unversioned** old state to create a real pending interrupt in the shared checkpointer. Then construct the **new** `LangGraphWorkflowRuntime` with that same checkpointer and verify migration.
+
+Create a separate tiny old `await_async_operation` fixture with unversioned `async_operation_ref` and a real interrupt to prove old async waits remain valid.
 
 - [ ] **Step 5: Implement interrupt-aware checkpoint projection in runtime**
 
@@ -913,9 +992,10 @@ def _checkpoint_from_snapshot(
     version = values.get("checkpoint_contract_version")
     interrupts = tuple(getattr(snapshot, "interrupts", ()))
 
-    if version == 2:
+    if version == CHECKPOINT_CONTRACT_VERSION:
         return checkpoint
     if _is_exact_legacy_operation_proposal(values, interrupts):
+        assert checkpoint.operation_ref is not None
         return dataclasses.replace(
             checkpoint,
             pending_interaction=synthetic_legacy_operation_proposal_pause(
@@ -933,46 +1013,76 @@ def _checkpoint_from_snapshot(
     return checkpoint
 ```
 
-`graph_state_to_checkpoint_view()` itself must remain unaware of LangGraph interrupt presence.
+`graph_state_to_checkpoint_view()` stays unaware of LangGraph interrupt presence.
 
-- [ ] **Step 6: Migrate legacy human state to a real v2 interrupt before consuming command**
+- [ ] **Step 6: Migrate a legacy human state to a real v2 interrupt before consuming the command**
 
-For a legacy human checkpoint, before `Command(resume=...)`:
+For exact legacy human checkpoint:
 
-1. validate incoming command against the synthetic pause;
+1. validate incoming command against synthetic pause;
 2. call `ensure_operation_artifact(old_operation_ref, context_snapshot_ref)`;
-3. build v2 pending interaction using the **same synthetic pause_id** and the returned durable subject ref;
-4. call `graph.update_state(..., as_node="prepare_operation_proposal_pause")` with `checkpoint_contract_version=2`, durable `operation_ref`, and encoded pending interaction;
-5. invoke graph with `None` once so `await_operation_proposal` establishes a real v2 interrupt;
-6. reload checkpoint and revalidate the same command;
+3. build v2 pending interaction using the **same synthetic pause_id** and returned durable subject ref;
+4. call:
+
+```python
+migrated_config = self._graph.update_state(
+    _checkpoint_lookup_config(task_id),
+    {
+        "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
+        "operation_ref": _encode_stable_ref(durable_ref),
+        "pending_interaction": encode_pending_interaction(migrated_pending),
+        "async_operation_ref": None,
+        "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,
+    },
+    as_node="prepare_operation_proposal_pause",
+)
+self._graph.invoke(None, migrated_config)
+```
+
+5. reload root snapshot and require a real v2 `await_operation_proposal` interrupt;
+6. revalidate the same command against the reloaded pending view;
 7. only then invoke `Command(resume=...)`.
 
-This sequence preserves correlation and ensures a failed artifact recovery never consumes the old pause.
+A failed artifact recovery happens before `update_state` and therefore cannot consume/replace the old pause.
 
 - [ ] **Step 7: Implement new-v2 runtime validation before graph invocation**
 
-For new human pause:
+For human pause:
 
 ```text
 load snapshot/public checkpoint
-validate mode/pause/kind/payload
-services.ensure_operation_artifact(subject_ref, context_snapshot_ref)
-require returned ref == subject_ref for normal v2 path
+validate pause/mode/kind/payload
+artifact_store-backed service validates subject artifact
 construct Command(resume={pause_id,resume_kind,payload})
 invoke graph
 ```
 
-If artifact validation fails, normalize to:
+For new v2, `ensure_operation_artifact()` must return the same `StableRef`; a changed/new ref would indicate hidden repair and must be rejected.
+
+Normalize any artifact availability/integrity failure to `WorkflowStateError("WORKFLOW_ARTIFACT_UNAVAILABLE", ...)`, preserving the original cause. Checkpoint must remain unchanged.
+
+For async wait, keep existing `pause_id=None` command/poll path and never call operation-artifact recovery merely because LangGraph has an interrupt.
+
+- [ ] **Step 8: Add non-sensitive structured observability**
+
+Use a module logger and structured `extra` fields. At human/async/poll resume boundaries record only:
 
 ```text
-WORKFLOW_ARTIFACT_UNAVAILABLE
+task_id
+pause_id                 # human only
+pending_kind             # human only
+resume_kind
+resume_mode               # human | async | poll
+artifact_ref
+artifact_content_hash
+artifact_source           # durable | rehydrated
+checkpoint_contract_version
+result                    # accepted | rejected | stale | mismatch | invalid | unavailable | continued
 ```
 
-and prove graph/checkpoint remains unchanged.
+Add `caplog` tests that inspect record attributes and assert command payload/domain bodies are not serialized into log messages/fields.
 
-For async wait, keep existing `pause_id=None` command/poll path and do not call `ensure_operation_artifact` merely because an interrupt exists.
-
-- [ ] **Step 8: Run GREEN and commit**
+- [ ] **Step 9: Run GREEN and commit**
 
 ```bash
 uv run pytest \
@@ -1007,9 +1117,19 @@ git commit -m "feat: validate and migrate HITL resume"
 
 **Interfaces:** no new public interface; this task provides end-to-end evidence for Tasks 2–7.
 
-- [ ] **Step 1: Replace memory artifact storage in PostgreSQL E2E with the real durable adapter**
+- [ ] **Step 1: Use the real durable artifact adapter in PostgreSQL E2E**
 
-For the main restart scenario create:
+Change the E2E helper annotation from memory-specific to the protocol:
+
+```python
+def _service(
+    owners: _ScenarioOwners,
+    *,
+    store: WorkflowArtifactStore | None = None,
+) -> DefaultWorkflowServices: ...
+```
+
+For the main restart scenario:
 
 ```python
 saver_a = create_postgres_checkpointer(_dsn())
@@ -1020,33 +1140,25 @@ runtime_a = LangGraphWorkflowRuntime(
 )
 ```
 
-Start workflow and stop at human Operation Proposal pause. Capture `pause_id` and `subject_ref`, then close both saver and artifact store before constructing runtime B.
+Start and stop at human Operation Proposal pause. Capture `pause_id`/`subject_ref`, then close both saver and artifact store before runtime B.
 
 - [ ] **Step 2: Prove same pause + subject artifact after process reconstruction**
 
-Create new saver/store/service/runtime instances and assert:
+Create new saver/store/service/runtime instances:
 
 ```python
 reopened = runtime_b.get_checkpoint(task_id)
 assert reopened.pending_interaction == proposal_wait.pending_interaction
-assert artifact_store_b.get(reopened.pending_interaction.subject_ref)
+assert reopened.pending_interaction is not None
+restored_artifact = artifact_store_b.get(reopened.pending_interaction.subject_ref)
+assert isinstance(restored_artifact, ResolutionResult)
 ```
 
-Resume with:
+Resume with empty human payload and the exact pause ID. Assert real `ParameterBinder` output is produced and workflow reaches the existing async owner path.
 
-```python
-WorkflowResumeCommand(
-    resume_kind="OPERATION_PROPOSAL_ACCEPTED",
-    payload={},
-    pause_id=reopened.pending_interaction.pause_id,
-)
-```
+- [ ] **Step 3: Preserve existing async completion behavior after human resume**
 
-Assert real ParameterBinder output is produced and workflow reaches the existing async owner path.
-
-- [ ] **Step 3: Preserve existing async completion behavior after the new human resume**
-
-The later async completion command must remain:
+The later async completion remains:
 
 ```python
 WorkflowResumeCommand(
@@ -1055,29 +1167,31 @@ WorkflowResumeCommand(
 )
 ```
 
-Do not add `pause_id`; assert it continues through owner refresh and completes as before.
+No pause ID. Assert existing owner refresh/recovery behavior and final completion remain unchanged.
 
 - [ ] **Step 4: Add stale replay and corruption acceptance cases**
 
-After successful human ACCEPT, resubmitting the original human command must raise `WORKFLOW_RESUME_STALE`.
+After successful human ACCEPT, resubmit the original human command and require `WORKFLOW_RESUME_STALE` even if the workflow is now in async wait.
 
-In a separate PostgreSQL case, corrupt/delete the referenced workflow artifact while paused; resume must raise `WORKFLOW_ARTIFACT_UNAVAILABLE`, checkpoint must still expose the same human `pause_id`, and fake external owner mutation counters must remain zero.
+In a separate PostgreSQL case, corrupt/delete the referenced workflow artifact while paused; resume must raise `WORKFLOW_ARTIFACT_UNAVAILABLE`, checkpoint still exposes the same `pause_id`, and fake external-owner mutation counters remain zero.
 
 - [ ] **Step 5: Update the recovery runbook**
 
-Add these operator facts without changing external owner procedures:
+Add:
 
 ```text
 orchestrator_checkpoint = navigation/wait state
 orchestrator_artifact   = workflow-local deterministic continuation artifacts
 paused checkpoint with reachable artifact ref => artifact GC forbidden
 WORKFLOW_ARTIFACT_UNAVAILABLE => do not edit checkpoint/artifact rows manually
-legacy rehydration requires authoritative snapshot inputs + exact hash equality
+legacy rehydration requires authoritative snapshot inputs + exact legacy hash equality
 ```
 
-- [ ] **Step 6: Wire the artifact/restart tests into the existing PostgreSQL 17 workflow**
+Do not change execution-owner/Host recovery ownership.
 
-The workflow must run at least:
+- [ ] **Step 6: Wire artifact/restart tests into the existing PostgreSQL 17 workflow**
+
+The existing workflow must run at least:
 
 ```bash
 DSP_TEST_POSTGRES_DSN='postgresql://postgres:postgres@localhost:5432/dsp_test' \
@@ -1087,7 +1201,7 @@ DSP_TEST_POSTGRES_DSN='postgresql://postgres:postgres@localhost:5432/dsp_test' \
   tests/orchestrator/test_workflow_end_to_end.py -q
 ```
 
-Do not create a second independent Orchestrator database workflow unless the existing workflow cannot express this gate.
+Do not add a second Orchestrator database workflow unless the existing gate cannot express this requirement.
 
 - [ ] **Step 7: Run PostgreSQL GREEN and commit**
 
@@ -1107,14 +1221,14 @@ git commit -m "test: prove HITL restart durability"
 
 ---
 
-### Task 9: Close capability gates and hand off to real E2E workflow
+### Task 9: Close capability gates and merge from an exact verified head
 
 **Files:**
 - Modify: `docs/superpowers/README.md`
-- Modify: `docs/superpowers/reviews/2026-09-19-hitl-pause-resume-compatibility-census.md` only if implementation evidence changes a previously recorded repository fact.
-- No product code unless a gate exposes a real defect in Tasks 2–8.
+- Modify: `docs/superpowers/reviews/2026-09-19-hitl-pause-resume-compatibility-census.md` only if implementation evidence changes a recorded repository fact.
+- No product code unless a gate exposes a real defect owned by Tasks 2–8.
 
-**Interfaces:** consumes the complete HITL branch; produces exact-head verification evidence and lifecycle closeout.
+**Interfaces:** consumes complete HITL implementation branch; produces exact-head verification, implementation PR and merged-main closeout.
 
 - [ ] **Step 1: Run targeted orchestrator regression**
 
@@ -1125,7 +1239,7 @@ uv run pytest tests/architecture/test_hitl_pause_resume_compatibility_census.py 
 
 Expected: all non-live/non-PostgreSQL tests PASS; PostgreSQL-only tests may skip only when DSN is intentionally absent.
 
-- [ ] **Step 2: Run PostgreSQL owner gates locally when DSN is available**
+- [ ] **Step 2: Run PostgreSQL owner gates when DSN is available**
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" \
@@ -1149,7 +1263,7 @@ dotnet test \
   -f net8.0
 ```
 
-Ruff acceptance is **new diagnostics = 0** relative to the implementation branch base; do not require unrelated historical diagnostics to disappear.
+Ruff acceptance is **new diagnostics = 0** relative to implementation branch base; unrelated historical diagnostics need not disappear.
 
 - [ ] **Step 4: Verify architecture boundaries by source guard**
 
@@ -1159,24 +1273,25 @@ Add/run an architecture assertion or explicit source audit proving:
 no LangGraph type exported from workflow_contracts/workflow_port
 no PostgreSQL type exported from WorkflowArtifactStore protocol
 no Step26 InteractionSession object stored in pending_interaction
-no ApprovalRecord/ExecutionGrant/Saga/Host/Semantic object stored in checkpoint/artifact store
+no ApprovalRecord/ExecutionGrant/Saga/Host/Semantic authoritative object stored in checkpoint/artifact store
 no Temporal dependency
-no change under Host plugin/sidecar production contract for this capability
+no Host plugin/sidecar production-contract change for this capability
 ```
 
-If a boundary violation is found, fix the owning earlier task and rerun its RED/GREEN cycle; do not waive it in closeout.
+A violation must be fixed in the owning earlier task and re-verified; do not waive it at closeout.
 
-- [ ] **Step 5: Update lifecycle index only after exact-head implementation gates are green**
+- [ ] **Step 5: Update lifecycle index after implementation gates are green**
 
-Change the current repository summary to identify HITL pause/resume as the active/completed first Capability increment according to actual merge state, and keep the next successor explicitly as:
+On the implementation branch set the durable pre-merge state to:
 
 ```text
-real E2E workflow
+Capability Phase — HITL pause/resume CURRENT; implementation exact-head verified
+Capability Phase successor after HITL — real E2E workflow, NOT YET STARTED
 ```
 
-Do not mark the next capability implemented.
+Mark `2026-09-19-hitl-pause-resume.md` `COMPLETED` only after Tasks 1–8 and all exact-head gates are green. Do not mark real E2E implemented/started.
 
-- [ ] **Step 6: Commit closeout and run fresh CI on the exact commit**
+- [ ] **Step 6: Commit closeout and push exact head**
 
 ```bash
 git add docs/superpowers/README.md
@@ -1184,7 +1299,7 @@ git commit -m "docs: close HITL pause resume capability"
 git rev-parse HEAD
 ```
 
-Push the exact head and require fresh successful runs for:
+Require fresh successful exact-head runs for:
 
 ```text
 Repository regression
@@ -1201,9 +1316,34 @@ revit-core
 .NET 10 (Host-neutral compatibility)
 ```
 
-- [ ] **Step 7: Final completion audit**
+- [ ] **Step 7: Open and review the implementation PR**
 
-Before declaring HITL complete, confirm all twelve Design Spec §20 completion criteria with exact commit/workflow evidence. Only then may the project start the successor Design/Implementation work for:
+PR topology:
+
+```text
+base = main
+head = feat/capability-hitl-pause-resume
+scope = Tasks 1–9 only
+```
+
+The PR body must name the approved spec, exact implementation head, targeted/PostgreSQL/repository verification evidence, and explicitly state that MCP/front-door/real Host work is not included.
+
+Require protected-main write-access approval and all required checks. Do not bypass main rules.
+
+- [ ] **Step 8: Merge exact implementation head and verify merged main**
+
+Merge only if the PR head still equals the verified exact SHA. After merge:
+
+```bash
+git fetch origin main
+git rev-parse origin/main
+```
+
+Verify merged main contains the HITL commits and no unreviewed delta. If merge-main workflows trigger, require them green before declaring the capability closed.
+
+- [ ] **Step 9: Final completion audit**
+
+Confirm all twelve Design Spec §20 completion criteria with exact commit/workflow evidence. Only after merged-main verification may the project begin successor work:
 
 ```text
 real E2E workflow
@@ -1216,15 +1356,20 @@ real E2E workflow
 Before implementation starts, verify:
 
 - [ ] Task 1 completes all six required census areas before Task 2 production code.
-- [ ] Durable artifact codec/store is implemented before HITL restart claims.
+- [ ] Artifact codec/store is implemented before any HITL restart durability claim.
+- [ ] New artifact hash semantics are explicit; old generic hash is retained only for legacy verification.
 - [ ] `WorkflowResumeCommand` keeps `resume_kind/payload` and adds only trailing optional `pause_id`.
-- [ ] Human and async waits are distinguished semantically without removing the existing async command/poll path.
-- [ ] `checkpoint_contract_version=2` cannot make corrupted v2 state look legacy.
+- [ ] Human and async waits are separated without removing existing async command/poll behavior.
+- [ ] `checkpoint_contract_version=2` is written from initial start state and cannot make corrupted v2 state look legacy.
+- [ ] Legacy human tests create a **real old interrupt with an old graph fixture**, not with the new topology.
 - [ ] Exact legacy human migration requires real interrupt presence and does not misclassify unversioned async waits.
-- [ ] Legacy artifact rehydration uses the real resolver and exact hash equality.
+- [ ] Legacy artifact rehydration uses the real resolver and exact legacy hash equality.
 - [ ] `await_operation_proposal` node identity remains available for old checkpoints.
-- [ ] PostgreSQL restart occurs at the human pause boundary and uses a new artifact-store instance.
+- [ ] PostgreSQL restart occurs at the human pause boundary with a new artifact-store instance.
 - [ ] ACCEPT reaches real ParameterBinder; REJECT reaches `CANCELLED` without downstream service calls.
 - [ ] Artifact failure occurs before graph progression and preserves the pending pause.
+- [ ] A replayed consumed human pause is `WORKFLOW_RESUME_STALE`, including after routing to async wait.
+- [ ] Observability records only workflow-local metadata and does not serialize command/domain payload bodies.
 - [ ] No Host/plugin, Gateway, Saga, Interaction Coordinator, semantic-owner, MCP/front-door ownership expansion exists.
-- [ ] Final exact-head CI includes repository + orchestrator PostgreSQL + durable persistence workflows.
+- [ ] Artifact-only design/plan branch is merged before implementation branch creation.
+- [ ] Final exact-head CI includes repository + Orchestrator PostgreSQL + durable persistence workflows, followed by merged-main verification.
