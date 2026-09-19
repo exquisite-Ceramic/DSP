@@ -50,6 +50,7 @@ def test_workflow_services_expose_only_framework_neutral_boundary() -> None:
         "resolve_host_context",
         "ensure_context_freshness",
         "resolve_operations",
+        "ensure_operation_artifact",
         "bind_parameters",
         "ensure_operation_freshness",
         "analyze_impact",
