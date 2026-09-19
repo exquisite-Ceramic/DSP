@@ -8,7 +8,8 @@
 - Technology Modernization — COMPLETED
 - Architecture Modernization Phase II — COMPLETED
 - Next capability phase — NOT YET DEFINED
-- Capability Phase successor — declared by `2026-09-19-capability-phase-handoff.md`; detailed Design Spec NOT YET DEFINED
+- Capability Phase candidate — HITL pause/resume Design APPROVED; Implementation Plan UNDER REVIEW
+- Capability Phase successor after HITL — real E2E workflow, NOT YET STARTED
 
 ## 主规格 authority
 
@@ -62,6 +63,7 @@
 | [`2026-09-19-compensation-execution-ownership.md`](specs/2026-09-19-compensation-execution-ownership.md) | CURRENT |
 | [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
 | [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
+| [`2026-09-19-hitl-pause-resume-design.md`](specs/2026-09-19-hitl-pause-resume-design.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -101,10 +103,11 @@
 | [`2026-09-16-cross-owner-delivery-crash-recovery.md`](plans/2026-09-16-cross-owner-delivery-crash-recovery.md) | CURRENT |
 | [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
 | [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | COMPLETED |
+| [`2026-09-19-hitl-pause-resume.md`](plans/2026-09-19-hitl-pause-resume.md) | CURRENT |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；Capability Phase successor 已冻结，但其详细 Design Spec 尚未定义。
-- 新能力阶段只有在其 Design Spec 正式冻结后才进入实现。
+- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；HITL pause/resume Design Spec 已批准、Implementation Plan 正在评审，但在 plan 获得书面批准并进入 implementation 前，治理层仍保持 `Next capability phase — NOT YET DEFINED`。
+- HITL Implementation Plan 未完成 review 前不得进入 production implementation；HITL 完成后才进入 successor `real E2E workflow`。
