@@ -55,6 +55,7 @@
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga-design.md`](specs/2026-09-06-phase-i-real-cross-host-materialization-saga-design.md) | COMPLETED |
 | [`2026-09-12-post-phase-i-engineering-hygiene-design.md`](specs/2026-09-12-post-phase-i-engineering-hygiene-design.md) | COMPLETED |
 | [`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED |
+| [`2026-09-19-canonical-v2-convergence-design.md`](specs/2026-09-19-canonical-v2-convergence-design.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -93,6 +94,7 @@
 | [`2026-09-16-durable-persistence-substrate.md`](plans/2026-09-16-durable-persistence-substrate.md) | CURRENT |
 | [`2026-09-16-cross-owner-delivery-crash-recovery.md`](plans/2026-09-16-cross-owner-delivery-crash-recovery.md) | CURRENT |
 | [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
+| [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | CURRENT |
 
 ## 使用规则
 
