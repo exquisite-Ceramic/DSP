@@ -36,3 +36,10 @@ tasks_used=3
 - 不适用字段使用 `N/A:<reason>`；不得使用空值、`UNKNOWN` 或 `TBD`。
 - `EVIDENCE_MISSING:<具体证据>` 仅用于 `BLOCKED` row 的 parity/real-host/blocker 字段。
 - Stage A 未修改 production code、package exports、runtime behavior 或 consumer ownership。
+
+## Stage B boundary freeze
+
+- Stage B 继承 Stage A 的 8 个 `BLOCKED`、2 个 `KEEP` 和 1 个 real-Host `BLOCKED` 结论；在新的 parity evidence 出现前不得升级为 `CUTOVER_READY`。
+- `RETIREABLE` 在 Stage B 非法；本阶段只冻结 canonical candidates、legacy consumer allowlist 与长期合法 boundary。
+- 本次 freeze 不改变 public contract、authoritative ownership 或 Saga semantics，因此 ADR gate 结论为 `NO_NEW_ADR_REQUIRED`。
+- Stage B PR 禁止 consumer cutover、legacy deletion、V2 rename 或 Host support-matrix 扩张。
