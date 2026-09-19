@@ -18,9 +18,9 @@ APPROVED_ACTION_MAJORS = {
     "actions/setup-python": "v7",
     "actions/setup-dotnet": "v6",
 }
-SELF_HOSTED_COMPATIBILITY = {
-    "actions/checkout": "v4",
-    "actions/setup-python": "v5",
+SELF_HOSTED_ACTION_MAJORS = {
+    "actions/checkout": "v7",
+    "actions/setup-python": "v7",
 }
 APPROVED_DEPENDABOT_ECOSYSTEMS = {
     "github-actions",
@@ -35,7 +35,7 @@ def _workflow_paths() -> list[Path]:
 
 
 def _hosted_text(path: Path) -> str:
-    """排除唯一尚未证明 Node 24 runner 版本的 real dual-Host self-hosted job。"""
+    """排除 real dual-Host self-hosted job，由独立契约验证 runner 边界。"""
 
     text = path.read_text(encoding="utf-8")
     if path == PHASE_I:
@@ -69,14 +69,14 @@ def test_hosted_setup_dotnet_uses_supported_node24_major() -> None:
     assert not _hosted_offenders("actions/setup-dotnet", "v6")
 
 
-def test_real_dual_host_job_is_the_only_deferred_action_compatibility_exception() -> None:
-    """未知 self-hosted runner 版本时，只冻结 real dual-Host job 的旧 Node runtime Actions。"""
+def test_real_dual_host_job_keeps_self_hosted_boundary_on_supported_action_majors() -> None:
+    """real dual-Host 保持手动 self-hosted 边界，同时 Actions runtime 与支持版本对齐。"""
 
     text = PHASE_I.read_text(encoding="utf-8")
     _, self_hosted = text.split(SELF_HOSTED_MARKER, 1)
     assert "- self-hosted" in self_hosted
     assert "- Windows" in self_hosted
-    for action, expected_major in SELF_HOSTED_COMPATIBILITY.items():
+    for action, expected_major in SELF_HOSTED_ACTION_MAJORS.items():
         assert _action_refs(self_hosted, action) == [expected_major]
     assert not _action_refs(self_hosted, "actions/setup-dotnet")
 
