@@ -153,6 +153,11 @@ def test_start_uses_task_id_as_langgraph_thread_and_returns_neutral_checkpoint()
     assert runtime.get_checkpoint("task-runtime-1") == checkpoint
     assert runtime.get_checkpoint("another-task") is None
 
+    # 新 workflow 从第一次 graph invocation 起就必须是 v2，不能等到 human resume 时再补版本。
+    snapshot = runtime._load_snapshot("task-runtime-1")
+    assert snapshot is not None
+    assert snapshot.values["checkpoint_contract_version"] == 2
+
     # ADR-010 的应用级 invoke config 保持固定 namespace；它不会暴露到公共 port。
     assert _runtime_config("task-runtime-1") == {
         "configurable": {
