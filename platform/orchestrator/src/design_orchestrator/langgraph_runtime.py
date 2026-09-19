@@ -16,6 +16,7 @@ from design_orchestrator.hitl_resume import synthetic_legacy_operation_proposal_
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.langgraph_state import (
     CHECKPOINT_CONTRACT_VERSION,
+    _encode_async_ref,
     _encode_stable_ref,
     graph_state_to_checkpoint_view,
 )
@@ -85,9 +86,9 @@ def _project_checkpoint_snapshot(snapshot: Any) -> WorkflowCheckpointView:
     """把 persisted values 与真实 interrupt 共同投影为公共 checkpoint。
 
     ``graph_state_to_checkpoint_view()`` 继续只解释 state 本身，绝不根据 phase 猜测 pause。
-    runtime 只有在看到精确历史 Operation Proposal interrupt payload 时，才为未版本化旧状态
-    合成 deterministic human pause identity；其他 legacy interrupt 形状由后续 fail-closed RED
-    单独冻结，避免本步骤一次引入尚未验证的行为。
+    v2 checkpoint 始终按严格公共契约投影；未版本化旧状态只有在真实 interrupt 精确匹配
+    Operation Proposal 或 external-owner async 历史形状时才兼容读取，其他 interrupt-bearing
+    legacy shape 一律 fail closed。
     """
 
     values = getattr(snapshot, "values", None)
@@ -102,22 +103,47 @@ def _project_checkpoint_snapshot(snapshot: Any) -> WorkflowCheckpointView:
         return checkpoint
 
     interrupts = tuple(getattr(snapshot, "interrupts", ()) or ())
-    if len(interrupts) != 1 or checkpoint.operation_ref is None:
+    if not interrupts:
+        # 未版本化 state 本身不包含 human pause identity；没有真实 interrupt 时绝不能仅凭
+        # phase 猜测存在人工暂停。
         return checkpoint
+    if len(interrupts) != 1:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "unversioned checkpoint contains an unsupported interrupt set",
+        )
 
     interrupt_value = getattr(interrupts[0], "value", None)
-    expected = {
-        "kind": "OPERATION_PROPOSAL",
-        "operation_ref": _encode_stable_ref(checkpoint.operation_ref),
-    }
-    if interrupt_value != expected:
-        return checkpoint
+    if (
+        checkpoint.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        and checkpoint.operation_ref is not None
+        and checkpoint.async_operation_ref is None
+    ):
+        expected_human_interrupt = {
+            "kind": "OPERATION_PROPOSAL",
+            "operation_ref": _encode_stable_ref(checkpoint.operation_ref),
+        }
+        if interrupt_value == expected_human_interrupt:
+            pending = synthetic_legacy_operation_proposal_pause(
+                task_id=checkpoint.task_id,
+                operation_ref=checkpoint.operation_ref,
+            )
+            return replace(checkpoint, pending_interaction=pending)
 
-    pending = synthetic_legacy_operation_proposal_pause(
-        task_id=checkpoint.task_id,
-        operation_ref=checkpoint.operation_ref,
+    if checkpoint.async_operation_ref is not None:
+        expected_async_interrupt = {
+            "kind": "ASYNC_OPERATION",
+            "operation_ref": _encode_async_ref(checkpoint.async_operation_ref),
+        }
+        if interrupt_value == expected_async_interrupt:
+            # 旧 async wait 已经通过公共 async_operation_ref 完整表达，不创建 synthetic
+            # human pause，也不改变历史 poll/command 兼容语义。
+            return checkpoint
+
+    raise WorkflowStateError(
+        "WORKFLOW_CHECKPOINT_INVALID",
+        "unversioned checkpoint contains an unsupported interrupt shape",
     )
-    return replace(checkpoint, pending_interaction=pending)
 
 
 class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
