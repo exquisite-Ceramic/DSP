@@ -449,7 +449,6 @@ def test_inventory_closeout_rows_are_terminal_owned_and_complete() -> None:
         )
         if has_missing_evidence:
             assert row["disposition"] == "BLOCKED"
-            assert row["cutover_blocker"].startswith("EVIDENCE_MISSING:")
             assert row["authoritative_owner"] not in {"", "UNKNOWN", "TBD"}
             assert row["retirement_preconditions"] not in {"", "UNKNOWN", "TBD"}
 ```
@@ -674,7 +673,7 @@ Host-visible semantics
   -> existing real-Host acceptance evidence
 ```
 
-- [ ] **Step 4: parity 失败时 fail closed**
+- [ ] **Step 4: parity 失败时 fail closed，并保证 PR required checks 可合并**
 
 Ledger：
 
@@ -685,7 +684,7 @@ authoritative_owner = <已冻结 owner>
 retirement_preconditions = <解除该差异所需 evidence/implementation>
 ```
 
-此时该 item PR 不允许进入 Task 6。
+此时该 item PR 不允许进入 Task 6。失败的 parity test **不得以普通 RED 状态提交**：若它只用于发现差异，确认并记录 `PARITY_FAILURE` 后从 worktree 移除；若需要把差异保留为 executable evidence，则把该 test 标记为 `xfail(strict=True)`，且 `reason` 必须与该 row 的 `cutover_blocker` 完全一致。PR 只允许提交 GREEN 的 V1 characterization、ledger/evidence 翻转，以及（若选择保留）strict XFAIL parity evidence；不得提交永久 RED test。
 
 - [ ] **Step 5: parity GREEN 时记录 exact focused evidence**
 
@@ -909,7 +908,7 @@ RETIREABLE 均有 merged-main GREEN
 Capability Phase handoff doc exists
 ```
 
-注意：合法 `BLOCKED` row 可以保留 `EVIDENCE_MISSING:<具体证据>`，不得用全文 `assert "EVIDENCE_MISSING" not in text` 误杀。
+注意：合法 `BLOCKED` row 可以保留 `EVIDENCE_MISSING:<具体证据>`，不得用全文 `assert "EVIDENCE_MISSING" not in text` 误杀；`cutover_blocker` 可以合法使用 `PARITY_FAILURE:` 等更具体 blocker，不要求与 evidence 字段使用同一前缀。
 
 - [ ] **Step 2: Freeze Capability Phase order**
 
@@ -976,7 +975,8 @@ git commit -m "docs: close Phase II canonical convergence"
 - **Inventory area completeness:** spec §5.1 的 11 个 mandatory scopes 都映射到稳定 `area` 值，并在 Task 3 closeout 由 set inclusion 机器强制。
 - **PR bootstrap reachability:** Task 1 首个 commit 允许 `dedicated_inventory_pr=PENDING`；branch push 后创建 Draft PR、立即回填真实 `#<number>`，Task 3 closeout 强制真实 PR identity，消除 clean-branch PR/commit 循环。
 - **RED -> GREEN reachability:** inventory budget test 与 skeleton 使用同一 machine-readable `inventory-status`；不存在 Task 1 的字符串/下划线对撞。
-- **Blocked evidence semantics:** `EVIDENCE_MISSING:<具体证据>` 是合法 `BLOCKED` terminal blocker；closeout 解析 row，不再做全文 substring 禁令。
+- **Parity failure PR reachability:** Task 5 parity 失败时，普通 RED test 必须移除或转为 `xfail(strict=True)` 且 reason 与 `PARITY_FAILURE` blocker 一致；Stage C PR 不允许携带永久 RED test。
+- **Blocked evidence semantics:** `EVIDENCE_MISSING:<具体证据>` 是合法 `BLOCKED` terminal evidence；它可以与更具体的 `PARITY_FAILURE:` blocker 共存，closeout 不再强制 blocker 使用 `EVIDENCE_MISSING:` 前缀。
 - **Boundary coverage:** production roots 从 repo metadata 派生，覆盖 AutoCAD/Revit sidecar、platform packages、providers、contracts/python 与 tools；AST import guard 不依赖字符串搜索。
 - **Disposition guards:** `KEEP` 保持 contract/export 并冻结 consumer；`ADAPTER_ONLY` 仅允许 explicit adapter；`BLOCKED` 冻结现有 consumer allowlist，避免误杀合法 legacy dependency。
 - **Census coverage:** reconciliation Saga/state/store/controller/compensation、gateway/coordination production src、Host sidecar、persistence/ops 均进入显式 targets。
