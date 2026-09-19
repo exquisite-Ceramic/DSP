@@ -13,6 +13,7 @@ from langgraph.types import Command
 
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.langgraph_state import (
+    CHECKPOINT_CONTRACT_VERSION,
     _encode_stable_ref,
     graph_state_to_checkpoint_view,
 )
@@ -95,6 +96,9 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
             )
         config = _runtime_config(request.task_id)
         initial_state: dict[str, object] = {
+            # 新 workflow 从第一次 graph invocation 起就是 v2；版本号必须随所有后续
+            # checkpoint update 自然继承，不能等到 human resume 时再补写。
+            "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
             "task_id": request.task_id,
             "phase": WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
             "request_data": dict(request.request_data),
