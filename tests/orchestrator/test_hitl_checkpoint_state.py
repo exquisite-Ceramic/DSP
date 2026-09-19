@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from design_orchestrator import langgraph_state
 from design_orchestrator.workflow_contracts import (
     PendingInteractionKind,
