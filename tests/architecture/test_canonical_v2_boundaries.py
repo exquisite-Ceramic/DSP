@@ -5,7 +5,6 @@ import importlib
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
 GUARDED_LEGACY_ITEMS = {
