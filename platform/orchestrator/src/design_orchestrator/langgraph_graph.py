@@ -7,7 +7,9 @@ LangGraph 在这里仅负责编排确定性服务、等待与恢复路由。每�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import cast
+from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -18,12 +20,16 @@ from design_orchestrator.langgraph_state import (
     _decode_stable_ref,
     _encode_async_ref,
     _encode_stable_ref,
+    decode_pending_interaction,
+    encode_pending_interaction,
     graph_state_to_checkpoint_view,
 )
 from design_orchestrator.recovery import decide_apply_resume
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    PendingInteractionKind,
+    PendingInteractionView,
     StableRef,
     WorkflowPhase,
 )
@@ -33,6 +39,7 @@ MAIN_PATH = (
     "resolve_host_context",
     "ensure_context_freshness",
     "resolve_operations",
+    "prepare_operation_proposal_pause",
     "await_operation_proposal",
     "parameter_binding",
     "ensure_operation_freshness",
@@ -101,6 +108,17 @@ def _route_after_async_wait(state: WorkflowGraphState) -> str:
     return resume_node
 
 
+def _route_after_operation_proposal(state: WorkflowGraphState) -> str:
+    """根据已验证的人机决策路由到 binder 或稳定的 CANCELLED 终点。"""
+
+    phase = state.get("phase")
+    if phase == WorkflowPhase.PARAMETER_BINDING.value:
+        return "parameter_binding"
+    if phase == WorkflowPhase.CANCELLED.value:
+        return "cancelled"
+    raise ValueError("operation proposal resume route is missing or invalid")
+
+
 def _route_after_execution_refresh(state: WorkflowGraphState) -> str:
     """只根据 refresh node 已持久化的纯路由结果选择下一 graph node。"""
 
@@ -148,18 +166,80 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         )
         return {
             "operation_ref": _encode_stable_ref(result),
+            # v2 的 AWAIT_OPERATION_PROPOSAL checkpoint 必须与 pending identity 原子出现；
+            # 因此 resolve node 保持当前 phase，真正的人机等待状态由下一 prepare node 写入。
+            "phase": WorkflowPhase.RESOLVE_OPERATIONS.value,
+        }
+
+    def prepare_operation_proposal_pause(
+        state: WorkflowGraphState,
+    ) -> dict[str, object]:
+        """在 interrupt 之前生成并持久化唯一 proposal pause identity。"""
+
+        operation_ref = _require_stable_ref(state, "operation_ref")
+        pending = PendingInteractionView(
+            pause_id=str(uuid4()),
+            kind=PendingInteractionKind.OPERATION_PROPOSAL,
+            subject_ref=operation_ref,
+            allowed_resume_kinds=(
+                "OPERATION_PROPOSAL_ACCEPTED",
+                "OPERATION_PROPOSAL_REJECTED",
+            ),
+        )
+        return {
+            "pending_interaction": encode_pending_interaction(pending),
+            "async_operation_ref": None,
             "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,
         }
 
     def await_operation_proposal(state: WorkflowGraphState) -> dict[str, object]:
+        """暂停并只接受与 durable pause identity 精确相关的 ACCEPT/REJECT。"""
+
         operation_ref = _require_stable_ref(state, "operation_ref")
-        interrupt(
+        pending = decode_pending_interaction(state.get("pending_interaction"))
+        if pending is None:
+            raise ValueError("pending_interaction is required for operation proposal wait")
+        if pending.kind is not PendingInteractionKind.OPERATION_PROPOSAL:
+            raise ValueError("pending interaction kind is invalid for operation proposal wait")
+        if pending.subject_ref != operation_ref:
+            raise ValueError("pending interaction subject does not match operation_ref")
+
+        resumed = interrupt(
             {
-                "kind": "OPERATION_PROPOSAL",
-                "operation_ref": _encode_stable_ref(operation_ref),
+                "pause_id": pending.pause_id,
+                "kind": pending.kind.value,
+                "subject_ref": _encode_stable_ref(pending.subject_ref),
             }
         )
-        return {"phase": WorkflowPhase.PARAMETER_BINDING.value}
+        if not isinstance(resumed, Mapping):
+            raise ValueError("operation proposal resume payload must be a mapping")
+
+        expected_keys = {"pause_id", "resume_kind", "payload"}
+        actual_keys = set(resumed)
+        if actual_keys != expected_keys:
+            raise ValueError(
+                "operation proposal resume payload must contain exactly "
+                "pause_id, resume_kind, and payload"
+            )
+        if resumed.get("pause_id") != pending.pause_id:
+            raise ValueError("operation proposal resume pause_id does not match pending pause")
+
+        resume_kind = resumed.get("resume_kind")
+        if resume_kind not in pending.allowed_resume_kinds:
+            raise ValueError("operation proposal resume_kind is not allowed")
+        payload = resumed.get("payload")
+        if not isinstance(payload, Mapping) or payload:
+            raise ValueError("operation proposal human payload must be an empty mapping")
+
+        if resume_kind == "OPERATION_PROPOSAL_REJECTED":
+            return {
+                "pending_interaction": None,
+                "phase": WorkflowPhase.CANCELLED.value,
+            }
+        return {
+            "pending_interaction": None,
+            "phase": WorkflowPhase.PARAMETER_BINDING.value,
+        }
 
     def parameter_binding(state: WorkflowGraphState) -> dict[str, object]:
         result = services.bind_parameters(_require_stable_ref(state, "operation_ref"))
@@ -340,6 +420,7 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         ("resolve_host_context", resolve_host_context),
         ("ensure_context_freshness", ensure_context_freshness),
         ("resolve_operations", resolve_operations),
+        ("prepare_operation_proposal_pause", prepare_operation_proposal_pause),
         ("await_operation_proposal", await_operation_proposal),
         ("parameter_binding", parameter_binding),
         ("ensure_operation_freshness", ensure_operation_freshness),
@@ -368,8 +449,16 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             "resolve_operations": "resolve_operations",
         },
     )
-    builder.add_edge("resolve_operations", "await_operation_proposal")
-    builder.add_edge("await_operation_proposal", "parameter_binding")
+    builder.add_edge("resolve_operations", "prepare_operation_proposal_pause")
+    builder.add_edge("prepare_operation_proposal_pause", "await_operation_proposal")
+    builder.add_conditional_edges(
+        "await_operation_proposal",
+        _route_after_operation_proposal,
+        {
+            "parameter_binding": "parameter_binding",
+            "cancelled": END,
+        },
+    )
     builder.add_conditional_edges(
         "parameter_binding",
         _route_async_or("ensure_operation_freshness"),
