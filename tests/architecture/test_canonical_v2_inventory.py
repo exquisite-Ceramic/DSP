@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 LEDGER = Path("docs/superpowers/modernization/canonical-v2-convergence-ledger.md")
 
 REQUIRED_COLUMNS = (
