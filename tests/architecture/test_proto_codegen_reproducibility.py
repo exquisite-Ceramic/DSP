@@ -105,7 +105,8 @@ def test_committed_python_stubs_record_the_locked_generator_provenance():
     pb2 = PB2.read_text(encoding="utf-8")
     pb2_grpc = PB2_GRPC.read_text(encoding="utf-8")
 
-    # grpcio-tools 1.84.0 当前携带 protoc 7.35.1；锁文件中的 protobuf runtime 可取同 major 的新补丁。
+    # grpcio-tools 1.84.0 当前携带 protoc 7.35.1；
+    # 锁文件中的 protobuf runtime 可取同 major 的新补丁。
     assert "# Protobuf Python Version: 7.35.1" in pb2
     assert "GRPC_GENERATED_VERSION = '1.84.0'" in pb2_grpc
     assert _locked_package_version("grpcio-tools") == "1.84.0"
