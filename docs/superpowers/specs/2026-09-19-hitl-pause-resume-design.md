@@ -15,7 +15,7 @@
 它解决的不是“如何再加一个 interrupt”，而是下面四个缺口：
 
 1. 调用方必须能从 framework-neutral checkpoint 明确知道 workflow 当前是否在等待人类输入、等待的是哪一种输入，以及该输入关联哪个 stable subject；
-2. human resume 必须与当前 durable pause identity 相关联，旧命令、错误命令和发往异步 owner wait 的命令都不能推进 graph；
+2. human resume 必须与当前 durable pause identity 相关联，旧命令、错误命令和发往异步 owner wait 的 human command 都不能推进 graph；
 3. 进程重启后，同一个 pause 必须仍以同一个公共 identity 被观察和恢复；
 4. HITL checkpoint 必须继续遵守 single-authoritative-owner：只持有 workflow navigation state 和 stable refs，不复制 Operation / ChangeSet / Approval / Saga / Host / Semantic authoritative truth。
 
@@ -47,6 +47,8 @@ real AutoCAD/Revit acceptance
 - `WorkflowResumeCommand` 已存在；
 - graph 的 `await_operation_proposal` 已调用 `interrupt()`；
 - `await_async_operation` 已用同一 LangGraph interrupt primitive 等待外部 `AsyncOperationRef`；
+- 现有 PostgreSQL E2E 已使用 `WorkflowResumeCommand(resume_kind="ASYNC_OPERATION_COMPLETED", ...)` 恢复 external async wait；
+- `resume(task_id, None)` 的公共 port 文档继续表示 poll/recheck authoritative owner state；
 - PostgreSQL checkpoint 已独占 `orchestrator_checkpoint` owner schema，并已有 restart/recovery acceptance；
 - `WorkflowCheckpointView` 已只暴露 stable refs / navigation state。
 
@@ -58,9 +60,9 @@ current checkpoint
      operation_ref = ...
      # 没有公共 pending-human-interaction identity
 
-current resume(command)
+current human resume(command)
   └─ 只检查 LangGraph snapshot 是否存在 interrupt
-     # 不证明 command 对应当前 pause
+     # 不证明 command 对应当前 human pause
      # 不证明 resume_kind 与当前 human decision 匹配
 ```
 
@@ -84,7 +86,8 @@ current resume(command)
 - Operation Proposal 的 `ACCEPT / REJECT` v1 HITL；
 - human wait 与 external async wait 的公共语义分离；
 - restart 后同一 pending interaction 的恢复；
-- stale / mismatch / malformed resume 的 fail-closed 行为；
+- stale / mismatch / malformed human resume 的 fail-closed 行为；
+- 保持既有 async completion/poll contract；
 - 旧 in-flight Operation Proposal checkpoint 的兼容读取/恢复策略；
 - architecture / unit / PostgreSQL restart acceptance。
 
@@ -101,7 +104,8 @@ current resume(command)
 - 新 Host support matrix；
 - real AutoCAD/Revit acceptance；
 - legacy V1 retirement；
-- Temporal 或第二 workflow runtime。
+- Temporal 或第二 workflow runtime；
+- 重写现有 `ASYNC_OPERATION_COMPLETED` resume protocol。
 
 `pause_id` 是 durable correlation token，不是 authentication secret 或 authorization credential。
 
@@ -256,14 +260,25 @@ async_operation_ref != None
 
 ### 5.4 WorkflowResumeCommand
 
-保留现有 command 的 `resume_kind` / `payload` 概念，并增加明确的 pause correlation：
+保留现有 `resume_kind` / `payload` constructor 形状，并以 **additive optional field** 增加 human pause correlation：
 
 ```python
 @dataclass(frozen=True, slots=True)
 class WorkflowResumeCommand:
-    pause_id: str
     resume_kind: str
     payload: Mapping[str, object] = field(default_factory=dict)
+    pause_id: str | None = None
+```
+
+规则分两类：
+
+```text
+human pending interaction
+  => pause_id MUST be non-empty
+
+external async wait
+  => existing command/poll semantics remain valid
+  => pause_id MUST be None
 ```
 
 v1 Operation Proposal 规则：
@@ -273,9 +288,17 @@ OPERATION_PROPOSAL_ACCEPTED => payload MUST be empty
 OPERATION_PROPOSAL_REJECTED => payload MUST be empty
 ```
 
-本能力禁止借 generic `payload` 携带 ResolvedOperation、Approval、ChangeSet 或其他 owner 的 authoritative DTO。未来若某个 human interaction 需要数据输入，必须先在对应 capability design 中冻结该 kind 的 payload schema 与 ownership，再允许非空 payload。
+现有 async completion signal 继续允许其 owner-specific payload，例如已经存在的：
 
-实现计划在修改 constructor 前必须做 caller census。若发现 Host/plugin/external consumer，必须采用 additive compatibility adapter；不得无证据地直接破坏外部 caller。当前 Capability handoff 尚未开放 MCP/Agent front door，因此本设计不把未存在的 front-door compatibility 当成约束。
+```text
+resume_kind = ASYNC_OPERATION_COMPLETED
+payload.operation_id = <external operation id>
+pause_id = None
+```
+
+本能力禁止借 human HITL generic `payload` 携带 ResolvedOperation、Approval、ChangeSet 或其他 owner 的 authoritative DTO。未来若某个 human interaction 需要数据输入，必须先在对应 capability design 中冻结该 kind 的 payload schema 与 ownership，再允许非空 payload。
+
+实现计划仍必须做 caller census；若发现 repo 外 Host/plugin/external consumer 对 resume 语义有依赖，必须验证 additive field 和 human validation 不破坏该 consumer，不能只凭 constructor source-compatibility 推断行为兼容。
 
 ---
 
@@ -320,48 +343,67 @@ await_operation_proposal
 
 ### 7.1 Human resume
 
-`resume(task_id, command)` 只能用于 `pending_interaction != None`。
+当 `pending_interaction != None` 时，`resume(task_id, command)` 必须把 command 解释为 human resume。
 
 runtime 在构造 LangGraph `Command(resume=...)` 之前必须按顺序校验：
 
 ```text
 1. task exists
 2. checkpoint has pending_interaction
-3. command.pause_id == pending_interaction.pause_id
-4. command.resume_kind in pending_interaction.allowed_resume_kinds
-5. command payload satisfies the exact kind schema
+3. command.pause_id is present
+4. command.pause_id == pending_interaction.pause_id
+5. command.resume_kind in pending_interaction.allowed_resume_kinds
+6. command payload satisfies the exact human-kind schema
 ```
 
 任一失败都不得调用 graph，也不得修改 checkpoint。
 
-### 7.2 External async poll/recheck
+### 7.2 External async resume remains compatible
 
-`resume(task_id, None)` 只用于：
+当 `async_operation_ref != None` 且 `pending_interaction == None` 时，本能力保留 ADR-010 现有 async resume 语义：
 
 ```text
-async_operation_ref != None
+resume(task_id, None)
+  = poll/recheck authoritative owner state
+
+resume(task_id, WorkflowResumeCommand(..., pause_id=None))
+  = 既有显式 async completion signal，例如 ASYNC_OPERATION_COMPLETED
 ```
 
-它表示“重新查询 external authoritative owner 并决定继续/等待”，不是隐式 human acceptance。
+具体 async completion payload 继续由既有 owner/runtime contract 校验；本设计不重新定义其 domain schema。
+
+任何 `pause_id != None` 的 human-correlated command 发往 external async wait 必须 fail closed，不能把 human decision 注入 owner wait。
+
+### 7.3 Wait-mode separation
+
+公共调用方必须只根据 checkpoint contract 判断等待类型：
+
+```text
+pending_interaction != None
+  => human wait
+  => resume requires human command with matching pause_id
+
+async_operation_ref != None
+  => external owner wait
+  => existing async completion command or poll/recheck path
+```
 
 如果 checkpoint 正在等待 human interaction，而 command 为 `None`，必须 fail closed；不能把 poll 当作接受。
 
-如果 checkpoint 正在等待 external async owner，而调用方提供 human command，也必须 fail closed；不能把 human input 注入 owner wait。
-
-### 7.3 Stable errors
+### 7.4 Stable errors
 
 冻结以下公共错误语义：
 
 ```text
 WORKFLOW_RESUME_INVALID
-  malformed command / wrong resume mode / invalid payload schema
+  malformed command / wrong wait mode / invalid payload schema
 
 WORKFLOW_RESUME_STALE
-  task exists but command.pause_id no longer matches current pending interaction
+  human command.pause_id no longer matches current pending interaction
   including already-consumed / superseded pause
 
 WORKFLOW_RESUME_MISMATCH
-  pause_id matches, but resume_kind is not allowed for the current pending kind
+  human pause_id matches, but resume_kind is not allowed for current pending kind
 ```
 
 现有：
@@ -464,12 +506,21 @@ pending_interaction field absent
 kind = OPERATION_PROPOSAL
 subject_ref = operation_ref
 allowed_resume_kinds = ACCEPT / REJECT
-pause_id = "legacy-op-proposal:" + sha256(
-    normalized task_id
-    + operation_ref.ref_id
-    + (operation_ref.content_hash or "")
-)
+
+canonical legacy identity payload = compact UTF-8 JSON with sorted keys:
+{
+  "contract": "legacy-operation-proposal-pause-v1",
+  "task_id": normalized_task_id,
+  "operation_ref": {
+    "ref_id": operation_ref.ref_id,
+    "content_hash": operation_ref.content_hash
+  }
+}
+
+pause_id = "legacy-op-proposal:" + sha256(canonical_json_bytes).hexdigest()
 ```
+
+Canonical JSON 必须使用稳定 key order、无无意义 whitespace，并显式保留 `content_hash=null`，避免字符串直接拼接产生边界歧义。
 
 该 synthetic `pause_id`：
 
@@ -481,7 +532,13 @@ pause_id = "legacy-op-proposal:" + sha256(
 
 恢复 legacy pause 后，workflow 进入新 contract，后续 checkpoint 使用真实持久化 `PendingInteractionView`。
 
-### 9.2 Node-name compatibility
+### 9.2 Legacy human command behavior
+
+升级后的 caller 必须先读取 checkpoint，取得 synthetic `pause_id`，再提交带该 `pause_id` 的 human command。
+
+旧的 Operation Proposal human command 若没有 `pause_id`，在新 runtime 上不得继续绕过 correlation；它必须 `WORKFLOW_RESUME_INVALID`。若 caller census 发现 repo 外消费者无法原子升级，则 implementation plan 必须提供显式 compatibility adapter，并限定退场条件，不能在核心 runtime 永久保留“无 pause_id human resume”。
+
+### 9.3 Node-name compatibility
 
 实现必须保留能够恢复旧 `await_operation_proposal` checkpoint 的 node identity；若 topology 变更会使旧 checkpoint 无法加载，implementation plan 必须先增加兼容 adapter / migration test，不能通过 bump namespace 静默遗弃 in-flight task。
 
@@ -507,14 +564,14 @@ runtime B + saver B
 get_checkpoint(task)
   == same pause_id/kind/subject_ref
   ↓
-resume(task, command(P))
+resume(task, human command(P))
   ↓
 workflow continues or cancels correctly
 ```
 
 ### 10.2 Retry after accepted resume
 
-如果第一次 resume 已经 durable 推进到后续 checkpoint，但 caller 在收到响应前失败，再次提交同一 `pause_id` 必须得到：
+如果第一次 human resume 已经 durable 推进到后续 checkpoint，但 caller 在收到响应前失败，再次提交同一 `pause_id` 必须得到：
 
 ```text
 WORKFLOW_RESUME_STALE
@@ -526,7 +583,7 @@ WORKFLOW_RESUME_STALE
 
 ### 10.3 Concurrent resume non-goal
 
-v1 不承诺两个进程同时对同一 `pause_id` 提交 command 时的全局 exactly-once arbitration。
+v1 不承诺两个进程同时对同一 `pause_id` 提交 human command 时的全局 exactly-once arbitration。
 
 要求仅为：
 
@@ -559,6 +616,8 @@ pending_interaction = {
 - 强制 human wait / async wait mutually exclusive；
 - 对 malformed legacy pause 失败，不进行 best-effort 猜测。
 
+legacy synthetic pending interaction 需要 LangGraph interrupt presence，因此只能在持有完整 snapshot 的 runtime adapter 层派生；纯 `graph_state_to_checkpoint_view()` 不得仅凭 `phase` 猜测存在 human pause。
+
 `checkpoint_view_to_graph_state()` 只用于 framework-neutral state projection，不得把外部 owner object 放回 graph state。
 
 ---
@@ -582,7 +641,7 @@ pause_id possession != authorization
 - interaction/action permission；
 - audit identity；
 
-然后才可构造 `WorkflowResumeCommand`。
+然后才可构造 human-correlated `WorkflowResumeCommand`。
 
 Workflow Orchestrator 不应为了提前解决未来 IAM 而持有用户目录、role model 或 approval authority。
 
@@ -605,9 +664,11 @@ persisted checkpoint compatibility census
 1. 新 `PendingInteractionView` 为 additive export；
 2. `WorkflowCheckpointView.pending_interaction` 为 additive optional field；
 3. `WorkflowPhase.CANCELLED` 为 additive enum value；
-4. `WorkflowResumeCommand.pause_id` 的 constructor 兼容策略必须由 caller census 决定；
-5. 若存在 repo 外 Host/plugin consumer，必须先提供 additive adapter/deprecation path；
-6. 不允许为了本能力顺手删除 `interaction_ref`、旧 phase 或其它 legacy contract。
+4. `WorkflowResumeCommand.pause_id` 必须作为 trailing optional field 增加，以保持现有 async constructor source compatibility；
+5. 新 human pending interaction 必须要求 non-empty `pause_id`；
+6. 既有 async resume/poll contract 不因 HITL capability 被删除或重命名；
+7. 若存在 repo 外 Host/plugin consumer，必须验证 behavioral compatibility，并在需要时提供 additive adapter/deprecation path；
+8. 不允许为了本能力顺手删除 `interaction_ref`、旧 phase 或其它 legacy contract。
 
 ---
 
@@ -621,7 +682,8 @@ persisted checkpoint compatibility census
 - `pause_id` non-empty；
 - allowed resume kinds non-empty / unique；
 - checkpoint human/async wait mutual exclusion；
-- `WorkflowResumeCommand` exact v1 payload rules；
+- human `WorkflowResumeCommand` exact v1 payload rules；
+- existing async command with `pause_id=None` remains valid；
 - `CANCELLED` stable projection。
 
 ### 14.2 In-memory runtime tests
@@ -632,11 +694,12 @@ persisted checkpoint compatibility census
 2. correct `pause_id + ACCEPT` 继续到 parameter binding/下一 wait；
 3. correct `pause_id + REJECT` 到 `CANCELLED`；
 4. wrong `pause_id` => `WORKFLOW_RESUME_STALE` 且 checkpoint 不变；
-5. wrong `resume_kind` => `WORKFLOW_RESUME_MISMATCH` 且 checkpoint 不变；
+5. wrong human `resume_kind` => `WORKFLOW_RESUME_MISMATCH` 且 checkpoint 不变；
 6. `resume(None)` 发给 human wait => fail closed；
-7. human command 发给 async wait => fail closed；
-8. 重放已消费 pause => stale；
-9. LangGraph types 不泄漏到 public return/error。
+7. human-correlated command 发给 async wait => fail closed；
+8. existing `ASYNC_OPERATION_COMPLETED` command with `pause_id=None` 继续合法；
+9. 重放已消费 human pause => stale；
+10. LangGraph types 不泄漏到 public return/error。
 
 ### 14.3 Legacy checkpoint tests
 
@@ -645,6 +708,7 @@ persisted checkpoint compatibility census
 - 新 runtime 可投影 deterministic synthetic `pause_id`；
 - restart 后 synthetic id 不变化；
 - ACCEPT/REJECT 可完成一次迁移；
+- legacy human command without pause_id fail closed；
 - 未知 legacy interrupt shape fail closed。
 
 ### 14.4 PostgreSQL restart acceptance
@@ -654,8 +718,9 @@ PostgreSQL 17 gate 必须证明：
 - old runtime instance pause；
 - saver/connection 显式关闭；
 - new runtime/new saver 读取同一 pending interaction；
-- resume 后继续；
-- 第二次相同 command stale；
+- human resume 后继续；
+- 第二次相同 human command stale；
+- 后续 external async wait 仍可通过既有 completion signal/recovery path 继续；
 - checkpoint delete/corruption 不会修改 external authoritative owner state。
 
 ### 14.5 Repository gates
@@ -676,11 +741,11 @@ PostgreSQL 17 gate 必须证明：
 
 ## 15. Failure handling
 
-HITL resume 的原则是 fail closed：
+HITL human resume 的原则是 fail closed：
 
 ```text
 bad/missing pause correlation
-wrong action
+wrong human action
 wrong wait mode
 malformed checkpoint
 unknown legacy interrupt
@@ -689,7 +754,9 @@ unknown legacy interrupt
     => stable WorkflowStateError
 ```
 
-runtime 在 validation 通过前不得调用 LangGraph `Command(resume=...)`。
+runtime 在 human validation 通过前不得调用 LangGraph `Command(resume=...)`。
+
+existing async command/poll path 继续按现有 owner/recovery validation 运行；本能力不把 human pause 校验错误码强加给 async owner protocol。
 
 如果 validation 通过后 deterministic/domain service 失败，继续使用现有 `WORKFLOW_SERVICE_FAILURE` 归一化并保留原始 cause；本能力不改变 service owner 的业务错误语义。
 
@@ -701,10 +768,11 @@ runtime 在 validation 通过前不得调用 LangGraph `Command(resume=...)`。
 
 ```text
 task_id
-pause_id
+pause_id (human wait only)
 pending kind
 resume_kind
-result = accepted | rejected | stale | mismatch | invalid
+resume_mode = human | async | poll
+result = accepted | rejected | stale | mismatch | invalid | continued
 checkpoint/restart path
 ```
 
@@ -718,15 +786,15 @@ checkpoint/restart path
 
 ### 17.1 Keep current generic `interrupt()` only
 
-拒绝。调用方无法稳定识别 pending human state，旧 command 无 correlation，human/async wait 公共语义混合。
+拒绝。调用方无法稳定识别 pending human state，旧 human command 无 correlation，human/async wait 公共语义混合。
 
 ### 17.2 Make Step26 InteractionSession own all HITL
 
-拒绝。Step26 拥有 Host-native value acquisition session，不应成为所有 workflow human decisions 的通用 truth；这会把 operation proposal / future workflow decisions错误地耦合到 Host interaction owner。
+拒绝。Step26 拥有 Host-native value acquisition session，不应成为所有 workflow human decisions 的通用 truth；这会把 operation proposal / future workflow decisions 错误地耦合到 Host interaction owner。
 
 ### 17.3 Add a new authoritative Human Interaction Service now
 
-拒绝。第一步只需要 workflow-local decision/navigation state；引入新的 durable service、DB owner 和 delivery protocol超出当前需求。若未来 multi-client inbox、audit workflow 或 long-lived delegated approval确实要求独立 owner，再通过独立 design 引入。
+拒绝。第一步只需要 workflow-local decision/navigation state；引入新的 durable service、DB owner 和 delivery protocol 超出当前需求。若未来 multi-client inbox、audit workflow 或 long-lived delegated approval 确实要求独立 owner，再通过独立 design 引入。
 
 ### 17.4 Treat `pause_id` as an authorization token
 
@@ -739,6 +807,10 @@ checkpoint/restart path
 ### 17.6 Put proposal body into checkpoint for UI convenience
 
 拒绝。违反 HITL Payload Ownership Contract 与 single-authoritative-owner；UI 必须通过 stable ref 重新查询 authoritative owner。
+
+### 17.7 Replace existing async completion command as part of HITL
+
+拒绝。当前 PostgreSQL E2E 已验证 `ASYNC_OPERATION_COMPLETED` 路径；human/async 语义分离不要求重写 external async protocol。该变化若未来有需求，应独立设计。
 
 ---
 
@@ -782,8 +854,8 @@ Capability Phase HITL pause/resume 只有同时满足以下条件才算完成：
 1. `PendingInteractionView` 成为稳定 framework-neutral contract；
 2. Operation Proposal pause 在 checkpoint 中拥有 durable `pause_id`；
 3. ACCEPT / REJECT 均有明确 graph terminal/continuation semantics；
-4. human wait 与 external async wait 对公共 caller 明确分离；
-5. stale/mismatch/invalid resume 全部 fail closed，且失败前不推进 graph；
+4. human wait 与 external async wait 对公共 caller 明确分离，同时既有 async completion/poll contract 保持可用；
+5. stale/mismatch/invalid human resume 全部 fail closed，且失败前不推进 graph；
 6. process restart 后同一 pending interaction 可恢复；
 7. 合法 legacy Operation Proposal checkpoint 可一次性迁移；未知 legacy shape fail closed；
 8. checkpoint 仍不拥有任何外部 domain authoritative truth；
