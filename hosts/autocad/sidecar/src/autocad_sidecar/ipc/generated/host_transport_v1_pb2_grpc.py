@@ -5,7 +5,7 @@ import warnings
 
 from . import host_transport_v1_pb2 as host__transport__v1__pb2
 
-GRPC_GENERATED_VERSION = '1.70.0'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,14 +18,14 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in host_transport_v1_pb2_grpc.py depends on'
+        + ' but the generated code in host_transport_v1_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class AutoCadHostStub(object):
+class AutoCadHostStub:
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -46,7 +46,7 @@ class AutoCadHostStub(object):
                 _registered_method=True)
 
 
-class AutoCadHostServicer(object):
+class AutoCadHostServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Ping(self, request, context):
@@ -82,7 +82,7 @@ def add_AutoCadHostServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class AutoCadHost(object):
+class AutoCadHost:
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
