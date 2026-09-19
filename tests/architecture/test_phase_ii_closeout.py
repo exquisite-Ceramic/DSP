@@ -4,7 +4,6 @@ import ast
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
 EVIDENCE = ROOT / "docs/superpowers/modernization/canonical-v2-convergence-evidence.md"
