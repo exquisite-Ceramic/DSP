@@ -6,7 +6,9 @@
 
 - Phase I — latest completed capability phase
 - Technology Modernization — COMPLETED
+- Architecture Modernization Phase II — COMPLETED
 - Next capability phase — NOT YET DEFINED
+- Capability Phase successor — declared by `2026-09-19-capability-phase-handoff.md`; detailed Design Spec NOT YET DEFINED
 
 ## 主规格 authority
 
@@ -55,7 +57,11 @@
 | [`2026-09-06-phase-i-real-cross-host-materialization-saga-design.md`](specs/2026-09-06-phase-i-real-cross-host-materialization-saga-design.md) | COMPLETED |
 | [`2026-09-12-post-phase-i-engineering-hygiene-design.md`](specs/2026-09-12-post-phase-i-engineering-hygiene-design.md) | COMPLETED |
 | [`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED |
-| [`2026-09-19-canonical-v2-convergence-design.md`](specs/2026-09-19-canonical-v2-convergence-design.md) | CURRENT |
+| [`2026-09-19-canonical-v2-convergence-design.md`](specs/2026-09-19-canonical-v2-convergence-design.md) | COMPLETED |
+| [`2026-09-19-hitl-payload-ownership-contract.md`](specs/2026-09-19-hitl-payload-ownership-contract.md) | CURRENT |
+| [`2026-09-19-compensation-execution-ownership.md`](specs/2026-09-19-compensation-execution-ownership.md) | CURRENT |
+| [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
+| [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -94,11 +100,11 @@
 | [`2026-09-16-durable-persistence-substrate.md`](plans/2026-09-16-durable-persistence-substrate.md) | CURRENT |
 | [`2026-09-16-cross-owner-delivery-crash-recovery.md`](plans/2026-09-16-cross-owner-delivery-crash-recovery.md) | CURRENT |
 | [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
-| [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | CURRENT |
+| [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | COMPLETED |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- Technology Modernization Design 与 Implementation Plan 已完成并保留为工程证据，不构成新的 capability phase；下一能力阶段仍保持 `NOT YET DEFINED`。
-- 新能力阶段只有在其 Design Spec 正式冻结后才命名。
+- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；Capability Phase successor 已冻结，但其详细 Design Spec 尚未定义。
+- 新能力阶段只有在其 Design Spec 正式冻结后才进入实现。

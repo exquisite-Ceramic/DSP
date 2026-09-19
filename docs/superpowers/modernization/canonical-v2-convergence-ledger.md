@@ -44,3 +44,12 @@ tasks_used=3
 - CV2-009 与 CV2-010 是长期 `KEEP` boundary，由 public-symbol/artifact-existence guard 冻结，不伪装成 V1-to-V2 cutover item。
 - 本次 freeze 不改变 public contract、authoritative ownership 或 Saga semantics，因此 ADR gate 结论为 `NO_NEW_ADR_REQUIRED`。
 - Stage B PR 禁止 consumer cutover、legacy deletion、V2 rename 或 Host support-matrix 扩张。
+
+## Stage E ownership handoff
+
+- HITL payload / checkpoint ownership：`docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md`。
+- DIVERGED compensation execution ownership：`docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md`。
+- Workflow checkpoint retention / GC ownership：`docs/superpowers/specs/2026-09-19-checkpoint-retention-contract.md`。
+- CV2-008 继续保持 `BLOCKED`：owner 已冻结，但 V2 compensation executor、authorization/dispatch implementation、PostgreSQL/real-Host evidence 仍缺失；ownership contract 的存在不等于 parity/cutover evidence。
+- CV2-009 继续保持 `KEEP`：HITL 与 retention contract 只强化 stable-ref/checkpoint owner boundary，不把 checkpoint 升格为领域 authoritative truth。
+- 当前无 `CUTOVER_READY` / `RETIREABLE` item；Stage D retirement evidence 明确为 `NO_RETIREMENTS_AUTHORIZED`，因此本 handoff 不授权 legacy 删除或 consumer migration。

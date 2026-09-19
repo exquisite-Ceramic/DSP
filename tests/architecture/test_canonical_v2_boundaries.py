@@ -17,6 +17,19 @@ GUARDED_LEGACY_ITEMS = {
     "CV2-007",
     "CV2-008",
 }
+ITEM_GUARD_TESTS = {
+    "CV2-001": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-002": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-003": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-004": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-005": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-006": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-007": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-008": "test_stage_b_freezes_disposition_specific_legacy_consumers",
+    "CV2-009": "test_stage_b_keeps_long_term_ownership_and_verification_boundaries",
+    "CV2-010": "test_stage_b_keeps_long_term_ownership_and_verification_boundaries",
+    "CV2-011": "test_stage_b_freezes_real_host_mixed_authority_boundary",
+}
 AUTOCAD_READINESS = (
     ROOT / "hosts/autocad/sidecar/src/autocad_sidecar/execution/readiness.py"
 )
