@@ -24,9 +24,16 @@ from design_orchestrator.parameter_binder import (
     ParameterBinder,
     ParameterBindingContext,
 )
-from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
+from design_orchestrator.workflow_artifacts import (
+    WorkflowArtifactUnavailableError,
+    legacy_workflow_artifact_content_hash,
+    workflow_artifact_content_hash,
+)
 from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
-from design_orchestrator.workflow_services import ExecutionOwnerView
+from design_orchestrator.workflow_services import (
+    ExecutionOwnerView,
+    OperationArtifactResolution,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +192,97 @@ class DefaultWorkflowServices:
             kind="operation_resolution",
             value=resolution,
             content_hash=workflow_artifact_content_hash(resolution),
+        )
+
+    def ensure_operation_artifact(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> OperationArtifactResolution:
+        """确保 Operation Resolution artifact 在继续 HITL resume 前真实可用。
+
+        v2 checkpoint 只允许直接读取 durable artifact；artifact 缺失或损坏时必须 fail closed，
+        不能用当前 owner facts 重算后静默继续。只有显式进入 legacy migration 时，才允许依据
+        checkpoint 绑定的 snapshot inputs 重新运行真实 ``OperationResolver``，并且重建结果的
+        legacy hash 必须与旧 ``operation_ref`` 精确一致，之后才能写入新 codec artifact。
+        """
+
+        if not isinstance(operation_ref, StableRef):
+            raise TypeError("operation_ref must be a StableRef")
+        if not isinstance(context_snapshot_ref, StableRef):
+            raise TypeError("context_snapshot_ref must be a StableRef")
+        if not isinstance(allow_legacy_rehydrate, bool):
+            raise TypeError("allow_legacy_rehydrate must be a boolean")
+
+        # 首选 durable truth。即使调用方允许 legacy migration，已经存在的 durable artifact
+        # 仍必须直接复用，不能再次读取 owner facts 或制造新的 artifact identity。
+        unavailable: WorkflowArtifactUnavailableError
+        try:
+            persisted = self._artifact_store.get(operation_ref)
+        except WorkflowArtifactUnavailableError as exc:
+            unavailable = exc
+        else:
+            if isinstance(persisted, ResolutionResult):
+                return OperationArtifactResolution(
+                    ref=operation_ref,
+                    source="durable",
+                )
+            unavailable = WorkflowArtifactUnavailableError(
+                "operation artifact does not contain a ResolutionResult"
+            )
+
+        # v2 状态禁止 rehydrate。这里重新抛出 durable store 的不可用错误，保留其原始 cause，
+        # 让上层后续统一归一为稳定 workflow error，同时保证 checkpoint 不被修改。
+        if not allow_legacy_rehydrate:
+            raise unavailable
+
+        # Legacy migration 必须有旧 content hash 才能证明“当前重建结果就是历史 artifact”。
+        # 缺少 hash 时在读取任何 owner facts 之前 fail closed，避免以当前世界状态补写历史事实。
+        legacy_hash = operation_ref.content_hash
+        if legacy_hash is None:
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation artifact ref is missing content_hash"
+            ) from unavailable
+
+        try:
+            inputs = self._external_owners.load_operation_resolution_inputs(
+                context_snapshot_ref
+            )
+        except WorkflowArtifactUnavailableError:
+            raise
+        if not isinstance(inputs, OperationResolutionInputs):
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation resolution inputs are unavailable or invalid"
+            )
+
+        # 只调用 production resolver，不复制或简化 eligibility 逻辑。只有旧 hash 完全匹配时，
+        # 才证明这次 deterministic reconstruction 与 checkpoint 中的历史 identity 等价。
+        resolution = self._operation_resolver.resolve(inputs.profiles, inputs.context)
+        rebuilt_legacy_hash = legacy_workflow_artifact_content_hash(resolution)
+        if rebuilt_legacy_hash != legacy_hash:
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation artifact hash does not match reconstructed resolution"
+            )
+
+        canonical_hash = workflow_artifact_content_hash(resolution)
+        migrated_ref = self._artifact_store.put(
+            kind="operation_resolution",
+            value=resolution,
+            content_hash=canonical_hash,
+        )
+        if not isinstance(migrated_ref, StableRef):
+            raise WorkflowArtifactUnavailableError(
+                "workflow artifact store returned an invalid migrated reference"
+            )
+        if migrated_ref.content_hash != canonical_hash:
+            raise WorkflowArtifactUnavailableError(
+                "migrated operation artifact reference hash does not match canonical hash"
+            )
+        return OperationArtifactResolution(
+            ref=migrated_ref,
+            source="rehydrated",
         )
 
     def bind_parameters(
