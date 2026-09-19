@@ -7,8 +7,8 @@ requires-python = ">=3.11"
 # frozen design_fact_contracts package。
 dependencies = [
     "host-contracts>=0.1.0",
-    "grpcio>=1.70,<2",
-    "protobuf>=5.29,<7",
+    "grpcio>=1.84,<2",
+    "protobuf>=7.35.1,<8",
     "mcp>=2,<3",
 ]
 
@@ -21,10 +21,11 @@ autocad-sidecar-mcp = "autocad_sidecar.mcp_main:main"
 
 [project.optional-dependencies]
 pipe = ["pywin32>=306"]
-grpc-build = ["grpcio-tools==1.70.0"]
+grpc-build = ["grpcio-tools==1.84.0"]
 
 # M4 Task 12：canonical proto 仍是唯一 source-of-truth；生成器由 grpc-build exact pin +
-# committed uv.lock 固定。命令以 sidecar 目录为工作目录，并直接指向现有 generated package。
+# committed uv.lock 固定。runtime floor 与 generator 同步，protobuf major 与生成器要求保持一致。
+# 命令以 sidecar 目录为工作目录，并直接指向现有 generated package。
 [tool.dsp.proto-codegen]
 source = "../../../../contracts/proto/host_transport_v1.proto"
 output = "src/autocad_sidecar/ipc/generated"
