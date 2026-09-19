@@ -12,14 +12,19 @@ from typing import Any
 
 from langgraph.types import Command
 
-from design_orchestrator.hitl_resume import synthetic_legacy_operation_proposal_pause
+from design_orchestrator.hitl_resume import (
+    synthetic_legacy_operation_proposal_pause,
+    validate_resume_mode,
+)
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.langgraph_state import (
     CHECKPOINT_CONTRACT_VERSION,
     _encode_async_ref,
     _encode_stable_ref,
+    encode_pending_interaction,
     graph_state_to_checkpoint_view,
 )
+from design_orchestrator.workflow_artifacts import WorkflowArtifactUnavailableError
 from design_orchestrator.workflow_contracts import (
     WorkflowCheckpointView,
     WorkflowPhase,
@@ -64,11 +69,7 @@ def _checkpoint_lookup_config(task_id: str) -> dict[str, dict[str, str]]:
 
 
 def _resume_payload(command: WorkflowResumeCommand) -> dict[str, object]:
-    """把公共 HITL command 转为 runtime-private、JSON-compatible resume payload。
-
-    这里只做字段透传；pause 是否当前、resume kind 是否匹配以及 legacy/poll 模式选择仍由后续
-    Task 7 的 runtime validation 统一负责。Graph 自身同时保留 defense-in-depth 精确校验。
-    """
+    """把公共 HITL command 转为 runtime-private、JSON-compatible resume payload。"""
 
     if not isinstance(command, WorkflowResumeCommand):
         raise WorkflowStateError(
@@ -146,6 +147,71 @@ def _project_checkpoint_snapshot(snapshot: Any) -> WorkflowCheckpointView:
     )
 
 
+def _checkpoint_from_snapshot(
+    snapshot: Any,
+    *,
+    task_id: str,
+) -> WorkflowCheckpointView:
+    """安全投影一个已读取 snapshot，并统一执行 task identity 校验与错误归一。"""
+
+    try:
+        checkpoint = _project_checkpoint_snapshot(snapshot)
+    except WorkflowStateError:
+        raise
+    except Exception as exc:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "persisted workflow checkpoint is invalid",
+        ) from exc
+    if checkpoint.task_id != task_id.strip():
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "checkpoint task_id does not match requested task",
+        )
+    return checkpoint
+
+
+def _require_v2_human_interrupt(
+    snapshot: Any,
+    checkpoint: WorkflowCheckpointView,
+) -> None:
+    """确认 legacy migration 后已经形成真实、可恢复的 v2 human interrupt。"""
+
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, Mapping):
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "migrated checkpoint values must be a mapping",
+        )
+    if values.get("checkpoint_contract_version") != CHECKPOINT_CONTRACT_VERSION:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "legacy human migration did not persist checkpoint contract version 2",
+        )
+    pending = checkpoint.pending_interaction
+    if (
+        checkpoint.phase is not WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        or pending is None
+        or checkpoint.operation_ref != pending.subject_ref
+    ):
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "legacy human migration did not persist a valid pending interaction",
+        )
+
+    interrupts = tuple(getattr(snapshot, "interrupts", ()) or ())
+    expected_interrupt = {
+        "pause_id": pending.pause_id,
+        "kind": pending.kind.value,
+        "subject_ref": _encode_stable_ref(pending.subject_ref),
+    }
+    if len(interrupts) != 1 or getattr(interrupts[0], "value", None) != expected_interrupt:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "legacy human migration did not establish the expected v2 interrupt",
+        )
+
+
 class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
     """把 ADR-010 deterministic graph 封装在 framework-neutral orchestrator port 后面。"""
 
@@ -200,26 +266,103 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
         task_id: str,
         command: WorkflowResumeCommand | None = None,
     ) -> WorkflowCheckpointView:
-        """恢复既有 workflow；显式 HITL 才构造 ``Command(resume=...)``。
-
-        ``command is None`` 表示 poll/recheck：runtime 只从现有 checkpoint 重新调用 graph，
-        不伪造用户输入。后续恢复决策仍由 graph/service 对 authoritative owner 的重新查询决定。
-        """
+        """按公共 checkpoint 事实选择 human/async/poll，并安全恢复既有 workflow。"""
 
         invoke_config = _runtime_config(task_id)
         snapshot = self._load_snapshot(task_id)
         if snapshot is None:
             raise WorkflowStateError("WORKFLOW_NOT_FOUND", task_id.strip())
 
-        graph_input: object
-        if command is None:
-            graph_input = None
-        else:
-            interrupts = getattr(snapshot, "interrupts", ())
-            if not interrupts:
+        checkpoint = _checkpoint_from_snapshot(snapshot, task_id=task_id)
+        resume_mode = validate_resume_mode(checkpoint=checkpoint, command=command)
+
+        values = getattr(snapshot, "values", None)
+        if not isinstance(values, Mapping):
+            raise WorkflowStateError(
+                "WORKFLOW_CHECKPOINT_INVALID",
+                "checkpoint values must be a mapping",
+            )
+        checkpoint_version = values.get("checkpoint_contract_version")
+
+        if checkpoint_version is None and resume_mode == "human":
+            # 精确 legacy human pause 必须先校验 command，再恢复 artifact；任何恢复失败都发生在
+            # update_state 之前，从而保证原旧 checkpoint 仍然可重试。
+            pending = checkpoint.pending_interaction
+            context_snapshot_ref = checkpoint.context_snapshot_ref
+            if pending is None or context_snapshot_ref is None:
+                raise WorkflowStateError(
+                    "WORKFLOW_CHECKPOINT_INVALID",
+                    "legacy human checkpoint is missing migration references",
+                )
+            if command is None:
+                # validate_resume_mode 已保证 human 模式一定有 command；这里仅保留防御性断言。
                 raise WorkflowStateError(
                     "WORKFLOW_RESUME_INVALID",
-                    "workflow has no pending interrupt",
+                    "human resume command is required",
+                )
+
+            try:
+                resolution = self._services.ensure_operation_artifact(
+                    pending.subject_ref,
+                    context_snapshot_ref,
+                    allow_legacy_rehydrate=True,
+                )
+            except WorkflowArtifactUnavailableError as exc:
+                raise WorkflowStateError(
+                    "WORKFLOW_ARTIFACT_UNAVAILABLE",
+                    "operation artifact required for legacy migration is unavailable",
+                ) from exc
+
+            migrated_pending = replace(pending, subject_ref=resolution.ref)
+            try:
+                migrated_config = self._graph.update_state(
+                    _checkpoint_lookup_config(task_id),
+                    {
+                        "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
+                        "operation_ref": _encode_stable_ref(resolution.ref),
+                        "pending_interaction": encode_pending_interaction(migrated_pending),
+                        "async_operation_ref": None,
+                        "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,
+                    },
+                    as_node="prepare_operation_proposal_pause",
+                )
+                # ``as_node`` 只声明“prepare 已完成”；随后从其后继 await node 建立真实 interrupt，
+                # 绝不能重新执行 prepare node，否则会生成新的随机 pause_id。
+                self._graph.invoke(None, migrated_config)
+            except WorkflowStateError:
+                raise
+            except Exception as exc:
+                raise WorkflowStateError(
+                    "WORKFLOW_CHECKPOINT_INVALID",
+                    "legacy human checkpoint migration failed",
+                ) from exc
+
+            migrated_snapshot = self._load_snapshot(task_id)
+            if migrated_snapshot is None:
+                raise WorkflowStateError(
+                    "WORKFLOW_CHECKPOINT_INVALID",
+                    "legacy human migration completed without a persisted checkpoint",
+                )
+            migrated_checkpoint = _checkpoint_from_snapshot(
+                migrated_snapshot,
+                task_id=task_id,
+            )
+            _require_v2_human_interrupt(migrated_snapshot, migrated_checkpoint)
+
+            # 同一个 command 必须再次通过迁移后 v2 pending 校验，证明 synthetic pause identity
+            # 没有在 migration 中漂移；只有这一步之后才允许真正消费 Command(resume=...)。
+            validate_resume_mode(checkpoint=migrated_checkpoint, command=command)
+            snapshot = migrated_snapshot
+            checkpoint = migrated_checkpoint
+
+        graph_input: object
+        if resume_mode == "poll":
+            graph_input = None
+        else:
+            if command is None:
+                raise WorkflowStateError(
+                    "WORKFLOW_RESUME_INVALID",
+                    "explicit resume mode requires a command",
                 )
             graph_input = Command(resume=_resume_payload(command))
 
@@ -247,22 +390,7 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
         snapshot = self._load_snapshot(task_id)
         if snapshot is None:
             return None
-
-        try:
-            checkpoint = _project_checkpoint_snapshot(snapshot)
-        except WorkflowStateError:
-            raise
-        except Exception as exc:
-            raise WorkflowStateError(
-                "WORKFLOW_CHECKPOINT_INVALID",
-                "persisted workflow checkpoint is invalid",
-            ) from exc
-        if checkpoint.task_id != task_id.strip():
-            raise WorkflowStateError(
-                "WORKFLOW_CHECKPOINT_INVALID",
-                "checkpoint task_id does not match requested task",
-            )
-        return checkpoint
+        return _checkpoint_from_snapshot(snapshot, task_id=task_id)
 
     def _load_snapshot(self, task_id: str) -> Any | None:
         """读取 root checkpoint，并把 backend/serialization 细节封装成稳定错误码。"""
