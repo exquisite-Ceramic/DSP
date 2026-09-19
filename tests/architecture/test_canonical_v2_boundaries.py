@@ -8,6 +8,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
+GUARDED_LEGACY_ITEMS = {
+    "CV2-001",
+    "CV2-002",
+    "CV2-003",
+    "CV2-004",
+    "CV2-005",
+    "CV2-006",
+    "CV2-007",
+    "CV2-008",
+    "CV2-011",
+}
 
 
 def _production_python_roots() -> tuple[Path, ...]:
@@ -98,33 +109,44 @@ def current_consumers(module: str, symbol: str) -> set[str]:
 
 
 def test_stage_b_freezes_disposition_specific_legacy_consumers() -> None:
-    """BLOCKED/KEEP/CUTOVER_READY 必须冻结现有 legacy consumer，禁止静默扩张。"""
+    """Stage B 必须冻结每个 legacy boundary 的现有 production consumer。"""
     text = LEDGER.read_text(encoding="utf-8")
     assert "## Stage B boundary freeze" in text
 
     rows = _ledger_rows(text)
     assert all(row["disposition"] != "RETIREABLE" for row in rows)
 
-    for row in rows:
+    problems: list[str] = []
+    by_id = {row["item_id"]: row for row in rows}
+    for item_id in sorted(GUARDED_LEGACY_ITEMS):
+        row = by_id[item_id]
         targets = _legacy_targets(row)
         if not targets:
+            problems.append(f"{item_id}: missing machine-readable design_*:symbol legacy target")
             continue
 
         actual: set[str] = set()
         for module, symbol in targets:
             exported = importlib.import_module(module)
-            assert hasattr(exported, symbol), f"{row['item_id']} lost public export {module}:{symbol}"
+            if not hasattr(exported, symbol):
+                problems.append(f"{item_id}: lost public export {module}:{symbol}")
+                continue
             actual |= current_consumers(module, symbol)
 
-        expected = _split_allowlist(row["runtime_callers"])
         disposition = row["disposition"]
         if disposition in {"KEEP", "BLOCKED", "CUTOVER_READY"}:
-            assert actual == expected, (
-                f"{row['item_id']} legacy consumers drifted: "
-                f"expected={sorted(expected)} actual={sorted(actual)}"
-            )
+            expected = _split_allowlist(row["runtime_callers"])
+            if actual != expected:
+                problems.append(
+                    f"{item_id}: expected={sorted(expected)} actual={sorted(actual)}"
+                )
         elif disposition == "ADAPTER_ONLY":
             adapters = _split_allowlist(row["bridge_or_adapter"])
-            assert actual <= adapters
+            if not actual <= adapters:
+                problems.append(
+                    f"{item_id}: consumers={sorted(actual)} adapters={sorted(adapters)}"
+                )
         else:
-            raise AssertionError(f"unsupported Stage B disposition: {disposition}")
+            problems.append(f"{item_id}: unsupported Stage B disposition {disposition}")
+
+    assert not problems, "\n" + "\n".join(problems)
