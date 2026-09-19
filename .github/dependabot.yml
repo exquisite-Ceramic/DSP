@@ -16,12 +16,19 @@ updates:
     open-pull-requests-limit: 3
 
   # NuGet：项目本地 PackageReference 继续保持所有权；递归发现仅生成候选 PR。
+  # 测试基础设施依赖按一个逻辑栈分组，避免相同三项依赖在多个测试项目间重复生成碎片 PR。
   - package-ecosystem: "nuget"
     directories:
       - "**/*"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    groups:
+      dotnet-test-stack:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "xunit"
+          - "xunit.runner.visualstudio"
 
   # .NET SDK：只从根 global.json 产生 SDK 更新候选，不隐式改变 Host TFM。
   - package-ecosystem: "dotnet-sdk"
