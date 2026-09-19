@@ -1,5 +1,9 @@
 """Host-neutral orchestrator components."""
 
+from design_orchestrator.artifact_postgres import (
+    PostgresWorkflowArtifactStore,
+    create_postgres_artifact_store,
+)
 from design_orchestrator.canonical_operations import (
     CanonicalCreationContract,
     CanonicalExistenceEffect,
@@ -95,6 +99,7 @@ __all__ = [
     "ParameterBindingContext",
     "ParameterBindingInputs",
     "PlanningRequirements",
+    "PostgresWorkflowArtifactStore",
     "ResolutionContext",
     "ResolutionResult",
     "ResolvedOperation",
@@ -112,4 +117,5 @@ __all__ = [
     "WorkflowPhase",
     "WorkflowResumeCommand",
     "WorkflowStartRequest",
+    "create_postgres_artifact_store",
 ]
