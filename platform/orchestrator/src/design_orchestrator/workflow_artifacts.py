@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
-import json
 from typing import Any
 
 from design_orchestrator.canonical_operations import (
