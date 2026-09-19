@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HITL = ROOT / "docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md"
 COMPENSATION = ROOT / "docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md"
 RETENTION = ROOT / "docs/superpowers/specs/2026-09-19-checkpoint-retention-contract.md"
+LEDGER = ROOT / "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
+REVIEW_INPUT = ROOT / "docs/superpowers/modernization/architecture-modernization-review-input.md"
 
 
 def _contract_block(path: Path, fence: str) -> dict[str, str]:
@@ -68,3 +70,14 @@ def test_checkpoint_retention_contract_preserves_external_owner_state() -> None:
     assert contract["terminal_retention"] == "POLICY_CONFIGURED_AFTER_TERMINAL_OBSERVATION"
     assert contract["external_authoritative_state_deletion"] == "FORBIDDEN"
     assert contract["minimum_audit_metadata"] == "REQUIRED"
+
+
+def test_phase_ii_ownership_contracts_are_handed_back_to_governance() -> None:
+    """Task 8 必须把 ownership 冻结结果写回 ledger，并登记 hygiene debt 的 owner/next action。"""
+    ledger = LEDGER.read_text(encoding="utf-8")
+    for filename in (HITL.name, COMPENSATION.name, RETENTION.name):
+        assert filename in ledger
+
+    review = REVIEW_INPUT.read_text(encoding="utf-8")
+    assert "legacy_lane_package_declaration_owner=Engineering Hygiene" in review
+    assert "legacy_lane_package_declaration_next_action=" in review
