@@ -7,7 +7,8 @@
 - Phase I — latest completed capability phase
 - Technology Modernization — COMPLETED
 - Architecture Modernization Phase II — COMPLETED
-- Next capability phase — Capability Phase successor declared; detailed Design Spec NOT YET DEFINED
+- Next capability phase — NOT YET DEFINED
+- Capability Phase successor — declared by `2026-09-19-capability-phase-handoff.md`; detailed Design Spec NOT YET DEFINED
 
 ## 主规格 authority
 
