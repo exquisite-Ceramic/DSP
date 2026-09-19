@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HITL = ROOT / "docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md"
 COMPENSATION = ROOT / "docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md"
