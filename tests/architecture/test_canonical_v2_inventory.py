@@ -30,6 +30,28 @@ REQUIRED_COLUMNS = (
     "observation_status",
 )
 
+ALLOWED_DISPOSITIONS = {
+    "KEEP",
+    "ADAPTER_ONLY",
+    "CUTOVER_READY",
+    "BLOCKED",
+    "RETIREABLE",
+}
+
+REQUIRED_INVENTORY_AREAS = {
+    "execution_planning",
+    "materialization_planning_seam",
+    "provider_binding",
+    "gateway_authorization",
+    "execution_coordination",
+    "execution_reconciliation",
+    "execution_saga",
+    "convergence_compensation",
+    "orchestrator",
+    "workflow_test_ops",
+    "real_host_acceptance",
+}
+
 
 def _inventory_status(text: str) -> dict[str, str]:
     """解析 Inventory status 的稳定 key=value 区块。"""
@@ -96,3 +118,39 @@ def test_known_parallel_public_surfaces_are_exactly_in_ledger() -> None:
         "design_provider_binding:ProviderBindingSet",
         "design_provider_binding:ProviderBindingSetV2",
     ) in pairs
+
+
+def test_inventory_closeout_rows_are_terminal_owned_and_complete() -> None:
+    """Stage A 必须覆盖 mandatory areas，并把缺失证据收口成受约束 BLOCKED。"""
+    text = LEDGER.read_text(encoding="utf-8")
+    rows = _ledger_rows(text)
+    assert rows
+
+    observed_areas = {row["area"] for row in rows}
+    assert REQUIRED_INVENTORY_AREAS <= observed_areas
+
+    status = _inventory_status(text)
+    pr_identity = status["dedicated_inventory_pr"]
+    assert pr_identity.startswith("#") and pr_identity[1:].isdigit()
+    assert status["tasks_used"] == "3"
+
+    for row in rows:
+        assert row["disposition"] in ALLOWED_DISPOSITIONS
+        for field in (
+            "producer",
+            "consumers",
+            "authoritative_owner",
+            "persistence_owner",
+            "retirement_preconditions",
+            "rollback",
+        ):
+            assert row[field] not in {"", "UNKNOWN", "TBD"}
+
+        has_missing_evidence = any(
+            "EVIDENCE_MISSING:" in row[field]
+            for field in ("parity_evidence", "real_host_evidence", "cutover_blocker")
+        )
+        if has_missing_evidence:
+            assert row["disposition"] == "BLOCKED"
+            assert row["authoritative_owner"] not in {"", "UNKNOWN", "TBD"}
+            assert row["retirement_preconditions"] not in {"", "UNKNOWN", "TBD"}
