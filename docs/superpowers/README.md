@@ -56,6 +56,9 @@
 | [`2026-09-12-post-phase-i-engineering-hygiene-design.md`](specs/2026-09-12-post-phase-i-engineering-hygiene-design.md) | COMPLETED |
 | [`2026-09-13-dsp-modernization-design.md`](specs/2026-09-13-dsp-modernization-design.md) | COMPLETED |
 | [`2026-09-19-canonical-v2-convergence-design.md`](specs/2026-09-19-canonical-v2-convergence-design.md) | CURRENT |
+| [`2026-09-19-hitl-payload-ownership-contract.md`](specs/2026-09-19-hitl-payload-ownership-contract.md) | CURRENT |
+| [`2026-09-19-compensation-execution-ownership.md`](specs/2026-09-19-compensation-execution-ownership.md) | CURRENT |
+| [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
 
 ## Implementation Plans
 
