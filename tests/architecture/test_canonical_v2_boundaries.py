@@ -17,8 +17,14 @@ GUARDED_LEGACY_ITEMS = {
     "CV2-006",
     "CV2-007",
     "CV2-008",
-    "CV2-011",
 }
+AUTOCAD_READINESS = (
+    ROOT / "hosts/autocad/sidecar/src/autocad_sidecar/execution/readiness.py"
+)
+REVIT_READINESS = ROOT / "hosts/revit/sidecar/src/revit_sidecar/readiness.py"
+REVIT_RESULT_ADAPTER = (
+    ROOT / "hosts/revit/sidecar/src/revit_sidecar/execution_result_adapter.py"
+)
 
 
 def _production_python_roots() -> tuple[Path, ...]:
@@ -109,7 +115,7 @@ def current_consumers(module: str, symbol: str) -> set[str]:
 
 
 def test_stage_b_freezes_disposition_specific_legacy_consumers() -> None:
-    """Stage B 必须冻结每个 legacy boundary 的现有 production consumer。"""
+    """Stage B 必须冻结每个 package-level legacy boundary 的 production consumer。"""
     text = LEDGER.read_text(encoding="utf-8")
     assert "## Stage B boundary freeze" in text
 
@@ -150,3 +156,54 @@ def test_stage_b_freezes_disposition_specific_legacy_consumers() -> None:
             problems.append(f"{item_id}: unsupported Stage B disposition {disposition}")
 
     assert not problems, "\n" + "\n".join(problems)
+
+
+def test_stage_b_freezes_real_host_mixed_authority_boundary() -> None:
+    """Host 专项 row 冻结 Revit V1 result adapter 与两端 V2 readiness 的并存事实。"""
+    rows = {
+        row["item_id"]: row
+        for row in _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+    }
+    host_row = rows["CV2-011"]
+    assert host_row["disposition"] == "BLOCKED"
+    assert _split_allowlist(host_row["runtime_callers"]) == {
+        REVIT_RESULT_ADAPTER.relative_to(ROOT).as_posix()
+    }
+
+    assert (
+        "design_gateway_authorization",
+        "AdmittedExecutionAuthority",
+    ) in _imports(REVIT_RESULT_ADAPTER)
+    for readiness in (AUTOCAD_READINESS, REVIT_READINESS):
+        imports = _imports(readiness)
+        assert (
+            "design_execution_planning",
+            "ExecutionSliceV2",
+        ) in imports
+        assert (
+            "design_gateway_authorization",
+            "AdmittedExecutionAuthorityV2",
+        ) in imports
+        assert (
+            "design_provider_binding",
+            "ProviderBindingSetV2",
+        ) in imports
+
+
+def test_stage_b_keeps_long_term_ownership_and_verification_boundaries() -> None:
+    """KEEP row 的稳定 public/artifact boundary 必须继续存在。"""
+    rows = {
+        row["item_id"]: row
+        for row in _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+    }
+    assert rows["CV2-009"]["disposition"] == "KEEP"
+    assert rows["CV2-010"]["disposition"] == "KEEP"
+
+    orchestrator = importlib.import_module("design_orchestrator")
+    for symbol in ("StableRef", "WorkflowCheckpointView", "DefaultWorkflowServices"):
+        assert hasattr(orchestrator, symbol)
+
+    assert (ROOT / ".github/workflows/repository-regression.yml").is_file()
+    assert (
+        ROOT / ".github/workflows/phase-i-real-cross-host-materialization-saga.yml"
+    ).is_file()
