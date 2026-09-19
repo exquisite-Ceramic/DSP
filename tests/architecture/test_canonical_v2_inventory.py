@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
+import re
 
 
 LEDGER = Path("docs/superpowers/modernization/canonical-v2-convergence-ledger.md")
