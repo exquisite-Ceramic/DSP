@@ -58,6 +58,8 @@ from design_orchestrator.parameter_binder import (
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    PendingInteractionKind,
+    PendingInteractionView,
     StableRef,
     WorkflowCheckpointView,
     WorkflowPhase,
@@ -98,6 +100,8 @@ __all__ = [
     "ParameterBinder",
     "ParameterBindingContext",
     "ParameterBindingInputs",
+    "PendingInteractionKind",
+    "PendingInteractionView",
     "PlanningRequirements",
     "PostgresWorkflowArtifactStore",
     "ResolutionContext",
