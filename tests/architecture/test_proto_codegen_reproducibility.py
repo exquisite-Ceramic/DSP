@@ -23,7 +23,8 @@ PB2_GRPC = GENERATED_DIR / "host_transport_v1_pb2_grpc.py"
 EXPECTED_PROTO_FROM_SIDECAR = "../../../../contracts/proto/host_transport_v1.proto"
 EXPECTED_OUTPUT_FROM_SIDECAR = "src/autocad_sidecar/ipc/generated"
 EXPECTED_PYTHON_GENERATOR = "grpcio-tools==1.70.0"
-EXPECTED_DOTNET_GRPC_TOOLS = "2.70.0"
+# .NET codegen 版本由 transport csproj 独占；这里冻结本次 family modernization 后的 owner 值。
+EXPECTED_DOTNET_GRPC_TOOLS = "2.84.0"
 
 
 def _sidecar_metadata() -> dict:
