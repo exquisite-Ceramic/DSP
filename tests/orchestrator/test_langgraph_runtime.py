@@ -150,6 +150,8 @@ def test_start_uses_task_id_as_langgraph_thread_and_returns_neutral_checkpoint()
     assert checkpoint.task_id == "task-runtime-1"
     assert checkpoint.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
     assert checkpoint.operation_ref == StableRef("operation-1", "b" * 64)
+    assert checkpoint.pending_interaction is not None
+    assert checkpoint.pending_interaction.subject_ref == checkpoint.operation_ref
     assert runtime.get_checkpoint("task-runtime-1") == checkpoint
     assert runtime.get_checkpoint("another-task") is None
 
@@ -178,24 +180,27 @@ def test_start_uses_task_id_as_langgraph_thread_and_returns_neutral_checkpoint()
 
 
 def test_explicit_hitl_resume_uses_private_command_and_reaches_async_owner_wait() -> None:
-    """只有显式 HITL command 才能恢复 proposal interrupt，随后 owner 异步事实仍以 ref 表达。"""
+    """显式 HITL command 必须携带当前 pause_id；恢复后 owner 异步事实仍只以 ref 表达。"""
 
     runtime = LangGraphWorkflowRuntime(
         services=_RuntimeServices(),
         checkpointer=InMemorySaver(),
     )
-    runtime.start(_request())
+    start_checkpoint = runtime.start(_request())
+    assert start_checkpoint.pending_interaction is not None
 
     checkpoint = runtime.resume(
         "task-runtime-1",
         WorkflowResumeCommand(
             resume_kind="OPERATION_PROPOSAL_ACCEPTED",
-            payload={"accepted": True},
+            payload={},
+            pause_id=start_checkpoint.pending_interaction.pause_id,
         ),
     )
 
     assert isinstance(checkpoint, WorkflowCheckpointView)
     assert checkpoint.phase is WorkflowPhase.PARAMETER_BINDING
+    assert checkpoint.pending_interaction is None
     assert checkpoint.async_operation_ref == AsyncOperationRef(
         kind=AsyncOperationKind.INTERACTION_SESSION,
         owner="interaction",
