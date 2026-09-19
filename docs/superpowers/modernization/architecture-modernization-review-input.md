@@ -36,6 +36,15 @@ MOD-016 is now consumed by the separately approved Architecture Modernization Ph
 
 Stage A remains fact-only inventory work. This handoff does not authorize consumer cutover, legacy retirement, or capability roadmap changes; those actions remain gated by the Phase II disposition, parity, protected-main PR, exact-head verification, and merged-main observation rules.
 
+## Phase II engineering hygiene handoff
+
+```phase-ii-hygiene-handoff
+legacy_lane_package_declaration_owner=Engineering Hygiene
+legacy_lane_package_declaration_next_action=Make every legacy verification lane declare its package/install inputs explicitly and keep that declaration aligned with root workspace and committed lock ownership.
+```
+
+该 debt 不属于 canonical convergence、Host 语义或 capability ownership；它保留为 Engineering Hygiene 工作项。后续清理必须保持现有 repository-regression coverage，不得借 package declaration cleanup 改变 public/runtime behavior。
+
 ## Constraints carried forward
 
 - Preserve `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md` as the current system-level contract authority until a separately approved successor exists.
