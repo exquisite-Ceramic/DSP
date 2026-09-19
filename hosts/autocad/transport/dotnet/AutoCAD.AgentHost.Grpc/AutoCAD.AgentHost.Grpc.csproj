@@ -14,7 +14,7 @@
     -->
     <DspGoogleProtobufVersion>3.29.3</DspGoogleProtobufVersion>
     <DspGrpcAspNetCoreVersion>2.70.0</DspGrpcAspNetCoreVersion>
-    <DspGrpcToolsVersion>2.70.0</DspGrpcToolsVersion>
+    <DspGrpcToolsVersion>2.84.0</DspGrpcToolsVersion>
     <DspSystemIOFileSystemAccessControlVersion>5.0.0</DspSystemIOFileSystemAccessControlVersion>
 
     <!-- canonical proto 仍是唯一 transport source-of-truth；这里只显式化代码生成输入的 owner。 -->
