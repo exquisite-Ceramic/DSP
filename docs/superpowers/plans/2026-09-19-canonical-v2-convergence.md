@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 以事实普查、语义等价证明、逐项 cutover、merged-main observation 和显式 retirement authorization，将 planning / binding / reconciliation / saga 主干收敛到可审计的 canonical path，同时允许必要的 compatibility bridge 以 `KEEP` / `ADAPTER_ONLY` 合法存在。
+**Goal:** 以事实普查、语义等价证明、逐项 cutover、merged-main observation 和显式 retirement authorization，将 planning / binding / reconciliation / saga 主干收敛到可审计的 canonical path，同时允许必要 compatibility bridge 以 `KEEP` / `ADAPTER_ONLY` / `BLOCKED` 合法存在。
 
-**Architecture:** 本计划严格遵循 `characterize -> consumer census -> parity -> cutover -> exact-head verification -> merge -> merged-main observation -> RETIREABLE -> retirement`。Stage A 只建立事实，不修改产品行为；Stage B 冻结 canonical ownership；Stage C 仅处理已被证明为 `CUTOVER_READY` 的 item；Stage D 只在 merged-main observation 后允许 retirement；Stage E 完成 PR #55 债务归属与 Capability Phase handoff。所有 cutover 均按 compatibility item 独立 TDD、独立 commit、独立验证，禁止大爆炸式迁移。
+**Architecture:** 严格遵循 `characterize -> consumer census -> parity -> cutover -> exact-head verification -> merge -> merged-main observation -> RETIREABLE -> retirement`。Stage A 只建立事实；Stage B 冻结 canonical ownership 与 legacy consumer 边界；Stage C 每个 compatibility item 独立证明 parity 并通过独立 PR cut over；Stage D 只在 merged-main observation 后授权 retirement；Stage E 完成 PR #55 债务归属与 Capability Phase handoff。
 
 **Tech Stack:** Python 3.11 canonical / Python 3.14 compatibility、pytest、Ruff、uv workspace、PostgreSQL 17 reconciliation evidence、.NET 8 canonical / Host-neutral .NET 10 compatibility、AutoCAD/Revit real-Host acceptance gates、GitHub Actions。
 
@@ -12,131 +12,206 @@
 
 ## Global Constraints
 
-- Phase II 不是“删除 V1”项目；V1 只有达到 `RETIREABLE` 才允许删除。
+- Phase II 不是“删除 V1”项目；legacy path 只有达到 `RETIREABLE` 才允许删除。
 - canonical baseline 保持 Python 3.11 与 root .NET 8 SDK policy；Python 3.14 / Host-neutral .NET 10 仅是 compatibility evidence。
 - 不改变 ADR-008 / ADR-009 / ADR-010 已冻结 authoritative ownership。
 - Workflow checkpoint 只能保存 workflow-local navigation state + stable refs，不能成为 ChangeSet / Approval / Saga / Host / Semantic truth 的第二 source of truth。
-- Stage A 最多 2 个工作日、最多 3 个 inventory tasks、最多 1 个 dedicated inventory PR。
+- Stage A 最多 2 个工作日、最多 3 个 inventory tasks、恰好 1 个 dedicated inventory PR。
 - 超过 inventory 任一硬上限仍缺证据的 item 必须进入 `BLOCKED`，记录缺失证据、owner、解除条件；禁止继续无限考古。
-- 每个 compatibility item 最终只能是 `KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE` 之一。
+- 每个 compatibility item 只能处于 `KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE` 之一。
 - `grep` 无调用不足以证明 `RETIREABLE`；public export、runtime caller、adapter、persisted identity、schema/proto、tests、CI/runbook、real-Host boundary 都算 consumer。
 - 涉及 Host-visible semantics、materialization identity、Saga transitions、recovery、durable state 的 cutover 必须保留原 owner 的 real-Host / PostgreSQL / crash-recovery gate。
 - Phase II 不能因普通技术债无限阻塞 Capability Phase；exit 必须冻结 `HITL pause/resume -> real E2E workflow -> semantic->plan->approve->execute->reconcile -> MCP/Agent front door -> real AutoCAD/Revit acceptance`。
+- `main` 受 `protect-main` ruleset 保护；所有进入 main 的 Phase II 变更必须通过 PR 与 required checks，不允许直接 push。
+- PR topology 固定为：
+  - Stage A：1 个 dedicated inventory PR，Tasks 1–3 全部在此 PR 中完成。
+  - Stage B：1 个 canonical-boundary-freeze PR，只冻结 disposition / guards / 必要 ADR，不做 consumer cutover。
+  - Stage C：每个 compatibility item 1 个独立 PR；先提交 parity evidence，再提交最小 cutover。parity 失败时该 PR 只记录 `BLOCKED` evidence，不执行 cutover。
+  - Stage D：每个已通过 merged-main observation 且真正达到 `RETIREABLE` 的 item 单独 retirement PR。
+  - Stage E：1 个 ownership/handoff + final closeout PR。
+- `KEEP / ADAPTER_ONLY / BLOCKED` 的 guard 语义不同，禁止用一个“全部禁止 import”的规则混用：
+  - `KEEP`：contract/export 必须继续存在；当前 consumer surface 冻结，新增 consumer 必须先更新 ledger 并 review。
+  - `ADAPTER_ONLY`：只有 ledger 明确列出的 adapter path 可以依赖 legacy contract；其他 production direct import 禁止。
+  - `BLOCKED`：当前已登记合法 consumer 可以继续存在，但 consumer allowlist 冻结，禁止新增，直到 blocker 解除。
+- Production Python scan roots 必须从 root `pyproject.toml` 的 uv workspace / pytest pythonpath 派生，并显式纳入 `tools`；不得再次手写只覆盖 `platform/providers` 的残缺 topology。
+- Import guard 使用 Python AST 解析 `Import` / `ImportFrom`，不得用全文 substring 搜索模拟 import 关系。
 
 ## Review Focus
 
-1. **Persisted/hash identity 被误判为“无 consumer”**：即使 runtime import 已消失，只要 durable state / hash / serialized contract 仍存在，就必须阻止 `RETIREABLE`；Task 2/3 用 ledger validation test 固定。
-2. **新业务代码继续直接 import legacy V1**：`ADAPTER_ONLY` 或已 cutover item 必须由 architecture guard 拒绝新增 direct import；Task 4/6 固定。
-3. **V1/V2 结构相似但语义不等价**：hash、routing、materialization identity、Saga transition、recovery 任一不一致都不得 cutover；Task 5 固定 parity characterization。
-4. **merged-main 未观察就 retirement**：branch-local GREEN 不能直接授权删除；Task 7 要求 observation evidence 才能转 `RETIREABLE`。
+1. **Persisted/hash identity 被误判为“无 consumer”**：即使 runtime import 已消失，只要 durable state / hash / serialized contract 仍存在，就必须阻止 `RETIREABLE`；Tasks 2/3 固定。
+2. **legacy consumer surface 继续扩散**：`KEEP` / `BLOCKED` 冻结现有 allowlist，`ADAPTER_ONLY` 只允许显式 adapter；Host sidecar 同样纳入 production scan；Task 4 固定。
+3. **V1/V2 结构相似但语义不等价**：hash、routing、materialization identity、Saga transition、recovery 任一不一致都不得 cutover；Task 5 固定。
+4. **merged-main 未观察就 retirement**：branch-local GREEN 不能直接授权删除；Task 7 解析 ledger row 并验证 merged-main evidence。
 5. **checkpoint/compensation ownership 漂移**：HITL payload、DIVERGED compensation、checkpoint GC 必须有 owner contract，且 workflow checkpoint 不得吸收 authoritative domain truth；Task 8 固定。
 
 ---
 
 ## File / Responsibility Map
 
-- `docs/superpowers/modernization/canonical-v2-convergence-ledger.md` — Phase II 唯一 compatibility disposition ledger；记录 item、consumer、owner、parity、blocker、rollback、observation、disposition。
-- `docs/superpowers/modernization/canonical-v2-convergence-evidence.md` — exact-head / merged-main / Host / PostgreSQL / crash-recovery evidence 索引，不复制业务 truth。
-- `tests/architecture/test_canonical_v2_inventory.py` — ledger schema、inventory completeness、无 `UNKNOWN/TBD`、inventory budget 与 disposition 合法性。
-- `tests/architecture/test_canonical_v2_boundaries.py` — canonical / adapter-only import boundary、public export policy、新 legacy dependency 防扩散。
-- `tests/architecture/test_canonical_v2_cutover_evidence.py` — `CUTOVER_READY -> RETIREABLE` 必须具备 exact-head、merged-main observation、rollback 与 required owner evidence。
-- `docs/adr/ADR-011-canonical-execution-mainline.md` — 仅当 Stage B 事实结论改变 public contract / authoritative ownership / Saga semantics 时创建；否则不得为了形式强行新增 ADR。
-- `docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md` — Capability Phase 的 HITL payload ownership hard prerequisite。
+- `docs/superpowers/modernization/canonical-v2-convergence-ledger.md` — Phase II compatibility disposition ledger；至少包含 spec §5 的 20 个事实字段，并额外保存 exact-head / merged-main observation 字段。
+- `docs/superpowers/modernization/canonical-v2-convergence-evidence.md` — workflow run/job、Host、PostgreSQL、crash-recovery evidence 索引，不复制业务 truth。
+- `tests/architecture/test_canonical_v2_inventory.py` — ledger schema、row parser、inventory budget、consumer census closeout。
+- `tests/architecture/test_canonical_v2_boundaries.py` — production root discovery、AST import census、`KEEP / ADAPTER_ONLY / BLOCKED` guard。
+- `tests/architecture/test_canonical_v2_cutover_evidence.py` — exact-head / merged-main / retirement authorization。
+- `tests/architecture/test_phase_ii_ownership_handoffs.py` — checkpoint / compensation / GC ownership contract guard。
+- `docs/adr/ADR-011-canonical-execution-mainline.md` — 仅当 Stage B 事实结论改变 public contract / authoritative ownership / Saga semantics 时创建；否则明确记录 `NO_NEW_ADR_REQUIRED`。
+- `docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md` — Capability Phase HITL hard prerequisite。
 - `docs/superpowers/specs/2026-09-19-checkpoint-retention-contract.md` — Workflow Orchestrator checkpoint retention/GC ownership contract。
-- `docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md` — DIVERGED compensation decision/proposal/authorization/dispatch/durable truth ownership contract；若已有等价 ADR/Spec，则更新既有文件而不是重复建模。
+- `docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md` — DIVERGED compensation decision/proposal/authorization/dispatch/durable truth ownership contract；若存在等价 authoritative 文档则更新既有文件。
+
+## Ledger Format Contract
+
+Spec §5 的 20 个必需字段必须全部出现：
+
+```text
+item_id
+area
+v1_contract_or_path
+v2_contract_or_path
+bridge_or_adapter
+producer
+consumers
+public_exports
+runtime_callers
+test_callers
+host_dependency
+authoritative_owner
+persistence_owner
+semantic_delta
+parity_evidence
+real_host_evidence
+cutover_blocker
+disposition
+retirement_preconditions
+rollback
+```
+
+为支持 executable gates，再增加：
+
+```text
+exact_head_run
+merged_main_run
+observation_status
+```
+
+约定：
+
+- Python importable contract 使用 `module:symbol`，例如 `design_execution_planning:ExecutionPlan`。
+- 多个 repo-relative path 用 `<br>` 分隔，不使用自由文本逗号列表。
+- 不适用字段使用 `N/A:<reason>`，不能留空。
+- `EVIDENCE_MISSING:<具体证据>` **只允许出现在 `BLOCKED` row** 的 evidence/blocker 字段；这本身是合法 terminal blocker，但必须同时具备明确 owner 和 `retirement_preconditions`。
+- `UNKNOWN` / `TBD` 不允许成为任何 row 的字段值。
+- `RETIREABLE` row 必须有非空 `merged_main_run`、`rollback`，且 `observation_status = GREEN`。
 
 ---
 
-### Task 1: Stage A1 — Freeze the compatibility ledger contract and inventory budget
+### Task 1: Stage A1 — Freeze ledger contract, parser, inventory budget, and inventory PR identity
 
 **Files:**
 - Create: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Create: `tests/architecture/test_canonical_v2_inventory.py`
-- Modify: `docs/superpowers/modernization/architecture-modernization-review-input.md`（仅增加 Phase II ledger 链接与 inventory PR/budget 状态；若文件实际命名不同，先读取现有 review-input 文件并修改该真实路径）
+- Modify: `docs/superpowers/modernization/architecture-modernization-review-input.md`
 
 **Interfaces:**
-- Consumes: Phase II spec §5/§6/§9/§10、MOD-016、现有 package exports。
-- Produces: ledger row schema；`KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE` 唯一终态；inventory start date、task counter、dedicated PR identity。
+- Consumes: Phase II spec §5/§6/§9/§10、MOD-016。
+- Produces: 23-column ledger contract、row parser、inventory budget block、dedicated Stage A PR identity。
 
-- [ ] **Step 1: 写 ledger RED architecture test**
+- [ ] **Step 1: 写 ledger RED test，完整冻结 20+3 schema**
 
 ```python
+from __future__ import annotations
+
 from pathlib import Path
 
 
 LEDGER = Path("docs/superpowers/modernization/canonical-v2-convergence-ledger.md")
 
+REQUIRED_COLUMNS = (
+    "item_id",
+    "area",
+    "v1_contract_or_path",
+    "v2_contract_or_path",
+    "bridge_or_adapter",
+    "producer",
+    "consumers",
+    "public_exports",
+    "runtime_callers",
+    "test_callers",
+    "host_dependency",
+    "authoritative_owner",
+    "persistence_owner",
+    "semantic_delta",
+    "parity_evidence",
+    "real_host_evidence",
+    "cutover_blocker",
+    "disposition",
+    "retirement_preconditions",
+    "rollback",
+    "exact_head_run",
+    "merged_main_run",
+    "observation_status",
+)
 
-def test_phase_ii_ledger_has_required_columns_and_dispositions() -> None:
-    """Phase II ledger 必须包含完整事实字段，且处置值只能来自冻结集合。"""
+
+def _inventory_status(text: str) -> dict[str, str]:
+    """解析 Inventory status 的稳定 key=value 区块。"""
+    status: dict[str, str] = {}
+    in_block = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line == "```inventory-status":
+            in_block = True
+            continue
+        if in_block and line == "```":
+            break
+        if in_block and "=" in line:
+            key, value = line.split("=", 1)
+            status[key.strip()] = value.strip()
+    return status
+
+
+def test_phase_ii_ledger_has_complete_schema() -> None:
+    """Ledger 必须完整冻结 spec 20 字段和 3 个 observation 字段。"""
     text = LEDGER.read_text(encoding="utf-8")
-    for required in (
-        "item_id",
-        "area",
-        "v1_contract_or_path",
-        "v2_contract_or_path",
-        "consumers",
-        "public_exports",
-        "runtime_callers",
-        "test_callers",
-        "host_dependency",
-        "authoritative_owner",
-        "persistence_owner",
-        "semantic_delta",
-        "parity_evidence",
-        "real_host_evidence",
-        "cutover_blocker",
-        "disposition",
-        "retirement_preconditions",
-        "rollback",
-    ):
-        assert required in text
-
-    for disposition in (
-        "KEEP",
-        "ADAPTER_ONLY",
-        "CUTOVER_READY",
-        "BLOCKED",
-        "RETIREABLE",
-    ):
-        assert disposition in text
+    header = next(line for line in text.splitlines() if line.startswith("| item_id |"))
+    for column in REQUIRED_COLUMNS:
+        assert f"| {column} " in header
 
 
-def test_inventory_budget_is_explicit_and_bounded() -> None:
-    """Inventory 必须保留 2 工作日 / 3 tasks / 1 PR 的硬边界。"""
-    text = LEDGER.read_text(encoding="utf-8")
-    assert "2 个工作日" in text
-    assert "3" in text and "inventory task" in text.lower()
-    assert "1" in text and "inventory PR" in text
+def test_inventory_budget_is_machine_readable_and_bounded() -> None:
+    """Inventory 的 2 工作日 / 3 tasks / 1 PR 必须可执行验证。"""
+    status = _inventory_status(LEDGER.read_text(encoding="utf-8"))
+    assert status["working_day_budget"] == "2"
+    assert status["task_budget"] == "3"
+    assert status["dedicated_inventory_pr"].startswith("#")
+    assert int(status["tasks_used"]) <= 3
 ```
 
 - [ ] **Step 2: 运行 RED**
 
 Run: `uv run pytest tests/architecture/test_canonical_v2_inventory.py -q`
 
-Expected: FAIL，因为 Phase II ledger 尚不存在。
+Expected: FAIL，因为 ledger 尚不存在。
 
-- [ ] **Step 3: 创建 ledger skeleton，但不填猜测事实**
+- [ ] **Step 3: 创建与 test 完全一致的 ledger skeleton**
 
-Ledger 首部必须包含：
+首部必须使用：
 
-```text
-Inventory status
-- start_date
-- working_day_budget = 2
-- task_budget = 3
-- dedicated_inventory_pr = <PR identity after opening>
-- tasks_used = 0
-
-Disposition values
-KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE
+```inventory-status
+start_date=2026-09-19
+working_day_budget=2
+task_budget=3
+dedicated_inventory_pr=#<实际 PR 号>
+tasks_used=1
 ```
 
-表格使用 spec 的完整字段。无法证明的字段写 `EVIDENCE_MISSING:<具体证据>`，最终 inventory close 前必须转 `BLOCKED` 并补 owner/解除条件，禁止 `UNKNOWN` / `TBD`。
+表格 header 使用 `REQUIRED_COLUMNS` 的全部 23 列。Task 1 只创建 schema，不写猜测 consumer 事实。
 
-- [ ] **Step 4: GREEN + Ruff**
+- [ ] **Step 4: 打开 Stage A dedicated inventory PR，并回填真实 PR 号**
 
-Run:
+PR base=`main`，head=当前 Phase II inventory branch。PR body 明确 Stage A 只允许 Tasks 1–3，不允许产品迁移。将真实 `#<number>` 写入 `dedicated_inventory_pr` 后再运行 GREEN。
+
+- [ ] **Step 5: GREEN + Ruff**
 
 ```bash
 uv run pytest tests/architecture/test_canonical_v2_inventory.py -q
@@ -145,7 +220,7 @@ uv run ruff check tests/architecture/test_canonical_v2_inventory.py
 
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/modernization/canonical-v2-convergence-ledger.md \
@@ -156,11 +231,11 @@ git commit -m "docs: establish Phase II convergence inventory"
 
 ---
 
-### Task 2: Stage A2 — Inventory public contracts, producers, and materialization/planning seams
+### Task 2: Stage A2 — Inventory public contracts, producers, materialization seams, Saga surface, and compensation surface
 
 **Files:**
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
-- Test: `tests/architecture/test_canonical_v2_inventory.py`
+- Modify: `tests/architecture/test_canonical_v2_inventory.py`
 - Read-only census targets:
   - `platform/execution_planning/src/design_execution_planning/__init__.py`
   - `platform/execution_planning/src/design_execution_planning/contracts.py`
@@ -171,63 +246,79 @@ git commit -m "docs: establish Phase II convergence inventory"
   - `platform/provider_binding/src/design_provider_binding/v2.py`
   - `platform/execution_reconciliation/src/design_execution_reconciliation/__init__.py`
   - `platform/execution_reconciliation/src/design_execution_reconciliation/contracts.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/compensation.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga_v2.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga_contracts_v2.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga_state_v2.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga_store_v2.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/saga_transitions_v2.py`
+  - `platform/execution_reconciliation/src/design_execution_reconciliation/postgres_saga_store_v2.py`
 
 **Interfaces:**
 - Consumes: Task 1 ledger schema。
-- Produces: inventory task 1 facts：V1/V2 public exports、producer、bridge、semantic delta、materialization seam、initial owner/disposition candidate。
+- Produces: inventory task 1 facts：V1/V2 public exports、producer、bridge、semantic delta、materialization seam、Saga/compensation surface、initial disposition。
 
-- [ ] **Step 1: 先写“已知并行 public surface 必须入账”的 RED test**
+- [ ] **Step 1: 写 exact-column RED test，禁止子串误判**
 
 ```python
-from pathlib import Path
+def _ledger_rows(text: str) -> list[dict[str, str]]:
+    """把 compatibility Markdown 表解析为逐列 row。"""
+    lines = [line for line in text.splitlines() if line.startswith("|")]
+    header_index = next(i for i, line in enumerate(lines) if line.startswith("| item_id |"))
+    headers = [cell.strip() for cell in lines[header_index].strip("|").split("|")]
+    rows: list[dict[str, str]] = []
+    for line in lines[header_index + 2 :]:
+        values = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(values) != len(headers):
+            break
+        rows.append(dict(zip(headers, values, strict=True)))
+    return rows
 
 
-def test_known_parallel_public_surfaces_are_in_ledger() -> None:
-    """当前已证实的 V1/V2 public surface 不能遗漏在 inventory 外。"""
-    text = Path(
-        "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
-    ).read_text(encoding="utf-8")
-    for symbol in (
-        "ExecutionPlan",
-        "ExecutionPlanV2",
-        "ExecutionPlanningRequest",
-        "ExecutionPlanningRequestV2",
-        "ProviderBindingSet",
-        "ProviderBindingSetV2",
-        "ProviderExecutionSnapshot",
-        "ProviderExecutionSnapshotV2",
-        "design_execution_reconciliation",
-        "materialization_planning",
-    ):
-        assert symbol in text
+def test_known_parallel_public_surfaces_are_exactly_in_ledger() -> None:
+    """已证实的 V1/V2 surface 必须出现在对应列，而不是靠 V2 子串误满足 V1。"""
+    rows = _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+    pairs = {
+        (row["v1_contract_or_path"], row["v2_contract_or_path"])
+        for row in rows
+    }
+    assert (
+        "design_execution_planning:ExecutionPlan",
+        "design_execution_planning:ExecutionPlanV2",
+    ) in pairs
+    assert (
+        "design_provider_binding:ProviderBindingSet",
+        "design_provider_binding:ProviderBindingSetV2",
+    ) in pairs
 ```
 
 - [ ] **Step 2: 运行 RED**
 
 Run: `uv run pytest tests/architecture/test_canonical_v2_inventory.py -q`
 
-Expected: FAIL，直到上述并行 surface 都进入 ledger。
+Expected: FAIL，直到 exact V1/V2 pairs 已进入 ledger。
 
 - [ ] **Step 3: 只读 census 并填 ledger**
 
-必须记录每个 item 的：export file、producer file、V1/V2 semantic delta、materialization identity/routing 是否参与 hash、是否存在 adapter、当前 owner。此 Task **禁止修改 production code / exports / tests behavior**。
+每个 item 至少记录 export file、producer、bridge、semantic delta、materialization/routing/hash identity、Saga state/store/controller、compensation relation。此 Task 禁止修改 production code / exports / runtime behavior。
 
-- [ ] **Step 4: 对无法证明的字段按硬规则处理**
+- [ ] **Step 4: 处理无法在本 inventory task 证明的事实**
 
-若 task 1 范围内无法证明 persistence/public consumer，写：
+合法终态示例：
 
 ```text
-cutover_blocker = EVIDENCE_MISSING:<具体证据>
 disposition = BLOCKED
-authoritative_owner = <明确 owner>
-retirement_preconditions = <解除条件>
+cutover_blocker = EVIDENCE_MISSING:PostgreSQL restart parity for saga state
+authoritative_owner = Execution Reconciliation
+retirement_preconditions = Prove PostgreSQL 17 restart/recovery parity on the recorded durable schema
 ```
 
-不得扩大考古范围。
+不得继续扩大 archaeology scope；`EVIDENCE_MISSING:` 不需要伪装成其他字符串。
 
-- [ ] **Step 5: GREEN + commit**
+- [ ] **Step 5: 更新 inventory counter 并验证**
 
-Run:
+将 `tasks_used=2` 写回 status block。
 
 ```bash
 uv run pytest tests/architecture/test_canonical_v2_inventory.py -q
@@ -238,48 +329,81 @@ Commit: `docs: inventory canonical contract surfaces`
 
 ---
 
-### Task 3: Stage A3 — Census runtime/test/Host/persistence/ops consumers and close inventory PR
+### Task 3: Stage A3 — Census runtime, tests, gateway, coordination, Host, persistence, ops, and close inventory PR
 
 **Files:**
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Modify: `tests/architecture/test_canonical_v2_inventory.py`
-- Read-only census targets:
+- Read-only production census targets:
+  - `platform/gateway_authorization/src/**`
+  - `platform/execution_coordination/src/**`
+  - `platform/orchestrator/src/**`
+  - `platform/convergence/src/**`
+  - `hosts/autocad/sidecar/src/**`
+  - `hosts/revit/sidecar/src/**`
+  - `tools/**`
+  - `contracts/python/**`
+  - reconciliation PostgreSQL migrations/store/recovery/outbox/inbox/delivery paths
+- Read-only test/ops census targets:
   - `tests/execution_planning/**`
   - `tests/provider_binding/**`
   - `tests/execution_coordination/**`
   - `tests/execution_reconciliation/**`
   - `tests/gateway_authorization/**`
   - `tests/integration/**`
-  - orchestrator/workflow packages and tests
+  - `tests/architecture/**`
+  - orchestrator/workflow tests
   - `.github/workflows/**`
-  - AutoCAD/Revit acceptance/runbook paths
-  - reconciliation PostgreSQL migrations/store/recovery/outbox/inbox paths
+  - AutoCAD/Revit acceptance/runbooks
 
 **Interfaces:**
-- Consumes: Task 2 public/producers census。
-- Produces: inventory tasks 2 + 3 的完整 consumer census；Stage A terminal ledger，没有 `UNKNOWN/TBD/EVIDENCE_MISSING` 未处置项。
+- Consumes: Task 2 producer/public census。
+- Produces: runtime/test/Host/persistence/ops consumer census；Stage A terminal ledger；`tasks_used=3`。
 
-- [ ] **Step 1: RED — ledger closeout 必须拒绝未知 owner / 无期限占位**
+- [ ] **Step 1: 写 row-aware closeout RED**
 
 ```python
-from pathlib import Path
+ALLOWED_DISPOSITIONS = {
+    "KEEP",
+    "ADAPTER_ONLY",
+    "CUTOVER_READY",
+    "BLOCKED",
+    "RETIREABLE",
+}
 
 
-def test_inventory_closeout_has_no_unknown_or_tbd() -> None:
-    """Stage A 结束时未知项必须显式 BLOCKED，而不是继续保留未知状态。"""
-    text = Path(
-        "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
-    ).read_text(encoding="utf-8")
-    assert "UNKNOWN" not in text
-    assert "TBD" not in text
-    assert "EVIDENCE_MISSING:" not in text
+def test_inventory_closeout_rows_are_terminal_and_owned() -> None:
+    """Stage A 不允许空字段或 UNKNOWN/TBD；缺证据只能作为受约束 BLOCKED。"""
+    rows = _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+    assert rows
+    for row in rows:
+        assert row["disposition"] in ALLOWED_DISPOSITIONS
+        for field in (
+            "producer",
+            "consumers",
+            "authoritative_owner",
+            "persistence_owner",
+            "retirement_preconditions",
+            "rollback",
+        ):
+            assert row[field] not in {"", "UNKNOWN", "TBD"}
+
+        has_missing_evidence = any(
+            "EVIDENCE_MISSING:" in row[field]
+            for field in ("parity_evidence", "real_host_evidence", "cutover_blocker")
+        )
+        if has_missing_evidence:
+            assert row["disposition"] == "BLOCKED"
+            assert row["cutover_blocker"].startswith("EVIDENCE_MISSING:")
+            assert row["authoritative_owner"] not in {"", "UNKNOWN", "TBD"}
+            assert row["retirement_preconditions"] not in {"", "UNKNOWN", "TBD"}
 ```
 
-- [ ] **Step 2: 运行 RED，然后执行 runtime/test consumer census**
+- [ ] **Step 2: 执行 runtime/test consumer census**
 
-必须覆盖 direct import/call、adapter input/output、fixtures、architecture guards、gateway/execution coordination、orchestrator stable refs。
+必须覆盖 direct import/call、adapter I/O、fixtures、architecture guards、gateway、execution coordination、orchestrator stable refs。Gateway/coordination **production src** 不能只看 tests。
 
-- [ ] **Step 3: 执行 Host/persistence/ops evidence census**
+- [ ] **Step 3: 执行 Host/persistence/ops census**
 
 必须覆盖：
 
@@ -288,17 +412,16 @@ serialized/hash identity
 PostgreSQL schema/migrations/store/recovery
 outbox/inbox/delivery
 Saga durable state/controller
-AutoCAD/Revit real-Host acceptance/runbook/workflow lane
+AutoCAD/Revit sidecar runtime imports
+real-Host acceptance/runbook/workflow lane
 checkpoint persistence / retention hooks
 ```
 
 - [ ] **Step 4: 在 budget 边界强制收口**
 
-到 2 工作日 / 第 3 inventory task / dedicated inventory PR 边界仍无法证明的 item：立刻转 `BLOCKED`，写 owner、缺什么 evidence、如何解除。不得开第 4 inventory task。
+将 `tasks_used=3` 写回 ledger。仍无法证明的 item 立即 `BLOCKED`，写 concrete missing evidence、owner、解除条件；不得创建第 4 个 inventory task。
 
 - [ ] **Step 5: Stage A verification**
-
-Run:
 
 ```bash
 uv run pytest tests/architecture/test_canonical_v2_inventory.py -q
@@ -306,72 +429,129 @@ uv run pytest tests/architecture -q
 uv run ruff check tests/architecture
 ```
 
-Expected: inventory architecture tests GREEN；没有产品代码 diff。
+Expected: inventory architecture tests GREEN；Stage A diff 不包含 product behavior migration。
 
-- [ ] **Step 6: Commit / dedicated inventory PR closeout**
+- [ ] **Step 6: close Stage A dedicated inventory PR**
 
-Commit: `docs: complete Phase II consumer census`
+PR body 必须记录：
 
-PR 描述必须记录 `tasks_used <= 3`、calendar budget、所有 `BLOCKED` owner 和没有 inventory-time product migration。
+```text
+tasks_used = 3
+working_day_budget <= 2
+one dedicated inventory PR only
+all BLOCKED rows have owner + release condition
+no inventory-time product migration
+```
+
+通过 required checks 和 review 后 merge 到 main。Stage B 从 merged main 新分支开始。
 
 ---
 
-### Task 4: Stage B — Freeze canonical candidates and compatibility boundaries
+### Task 4: Stage B — Freeze canonical candidates and disposition-specific legacy boundaries
 
 **Files:**
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Create: `tests/architecture/test_canonical_v2_boundaries.py`
 - Conditional create/modify: `docs/adr/ADR-011-canonical-execution-mainline.md`
-- Conditional modify: package `__init__.py` / adapter modules **only after** disposition is frozen；本 Task 默认只加 guard，不做 consumer cutover。
+- Conditional modify: package `__init__.py` / adapter modules only when disposition freeze requires an explicit compatibility adapter export；默认不做 consumer cutover。
 
 **Interfaces:**
-- Consumes: Stage A complete ledger。
-- Produces: canonical candidate set、long-term `KEEP` set、`ADAPTER_ONLY` boundary、`CUTOVER_READY`/`BLOCKED` set；如 authoritative/public/Saga semantics 改变则产出 ADR。
+- Consumes: merged Stage A ledger。
+- Produces: canonical candidate set、`KEEP` / `ADAPTER_ONLY` / `BLOCKED` guard policy、`CUTOVER_READY` set、必要 ADR。
 
-- [ ] **Step 1: RED — 新 domain code 不得越过 ADAPTER_ONLY boundary**
+- [ ] **Step 1: 写 production-root + AST import helper RED**
 
 ```python
+from __future__ import annotations
+
+import ast
+import tomllib
 from pathlib import Path
 
 
-FORBIDDEN_DIRECT_IMPORTS = (
-    # 这里填 Stage A ledger 明确判为 ADAPTER_ONLY 的真实 legacy module。
-)
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_adapter_only_legacy_modules_are_not_imported_by_new_domain_code() -> None:
-    """兼容路径只能停留在明确 adapter 边界，不能继续扩散到业务代码。"""
-    roots = [Path("platform"), Path("providers")]
-    for root in roots:
+def _production_python_roots() -> tuple[Path, ...]:
+    """从 repository metadata 派生 production Python roots，并纳入 tools。"""
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    members = {
+        ROOT / value
+        for value in config["tool"]["uv"]["workspace"]["members"]
+    }
+    pythonpath = {
+        ROOT / value
+        for value in config["tool"]["pytest"]["ini_options"]["pythonpath"]
+        if not value.startswith("tests/")
+    }
+    roots = members | pythonpath | {ROOT / "tools"}
+    return tuple(sorted(path for path in roots if path.exists()))
+
+
+def _imports(path: Path) -> set[tuple[str, str | None]]:
+    """用 AST 提取真实 import，不被注释、docstring 或相似字符串误导。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[tuple[str, str | None]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                found.add((node.module, alias.name))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                found.add((alias.name, None))
+    return found
+
+
+def _production_python_files() -> tuple[Path, ...]:
+    """排除 tests/cache/build，只扫描 production Python。"""
+    files: set[Path] = set()
+    for root in _production_python_roots():
         for path in root.rglob("*.py"):
-            if "adapter" in path.name:
+            if any(part in {"tests", "__pycache__", ".venv", "build", "dist"} for part in path.parts):
                 continue
-            text = path.read_text(encoding="utf-8")
-            for module in FORBIDDEN_DIRECT_IMPORTS:
-                assert module not in text, f"{path} directly imports {module}"
+            files.add(path)
+    return tuple(sorted(files))
 ```
 
-实现时 `FORBIDDEN_DIRECT_IMPORTS` 必须由 ledger 的真实 `ADAPTER_ONLY` rows 精确生成，不能预先假定 V1 都属于此集合。
+- [ ] **Step 2: 写三类 disposition guard RED**
 
-- [ ] **Step 2: 对每个 item 冻结 Stage B disposition**
-
-判定规则：
+实现 helper `current_consumers(module, symbol)`，返回 repo-relative consumer path 集合。根据 ledger row：
 
 ```text
-KEEP         -> 长期合法 contract / Host boundary；补 guard 防误删。
-ADAPTER_ONLY -> 只允许 explicit adapter 依赖；domain/business direct import 禁止。
-CUTOVER_READY-> 已完成 characterization + census + parity proof。
-BLOCKED      -> blocker + owner + release condition 完整。
-RETIREABLE   -> Stage B 不得直接产生；必须等 Stage D merged-main observation。
+KEEP
+  -> public export/contract 仍存在
+  -> current consumer set == ledger runtime_callers allowlist
+
+ADAPTER_ONLY
+  -> current consumer set <= bridge_or_adapter allowlist
+  -> 非 adapter production consumer 必须为 0
+
+BLOCKED
+  -> current consumer set == ledger runtime_callers allowlist
+  -> 允许现有 consumer，但禁止新增
 ```
 
-- [ ] **Step 3: ADR decision gate**
+`CUTOVER_READY` 在 cutover 前同样冻结现有 legacy consumer set；`RETIREABLE` 在 Stage B 不允许出现。
 
-若任何 Stage B 结论改变 public contract、authoritative ownership 或 Saga semantics：创建/更新 ADR，并在 ledger 引用。否则明确记录 `NO_NEW_ADR_REQUIRED`，避免无意义 ADR。
+不得通过 `if "adapter" in path.name` 猜 adapter；允许路径来自 ledger `bridge_or_adapter` 的精确 repo-relative paths。
 
-- [ ] **Step 4: GREEN + commit**
+- [ ] **Step 3: 冻结每个 item 的 Stage B disposition**
 
-Run:
+判定必须基于 Stage A facts：
+
+```text
+KEEP         -> 长期合法 contract / Host boundary
+ADAPTER_ONLY -> legacy 仅存在于 explicit adapter
+CUTOVER_READY-> characterization + census + parity prerequisites 已具备
+BLOCKED      -> blocker + owner + release condition 完整
+RETIREABLE   -> 本 Stage 禁止产生
+```
+
+- [ ] **Step 4: ADR decision gate**
+
+若任一 Stage B 结论改变 public contract、authoritative ownership 或 Saga semantics，创建/更新 ADR-011 并在 ledger 引用；否则 ledger 记录 `NO_NEW_ADR_REQUIRED`。
+
+- [ ] **Step 5: GREEN + repository boundary verification**
 
 ```bash
 uv run pytest tests/architecture/test_canonical_v2_inventory.py \
@@ -380,149 +560,174 @@ uv run ruff check tests/architecture/test_canonical_v2_inventory.py \
   tests/architecture/test_canonical_v2_boundaries.py
 ```
 
-Commit: `test: freeze canonical compatibility boundaries`
+- [ ] **Step 6: Stage B PR**
+
+只提交 ledger/guards/必要 ADR；通过 required checks 和 review 后 merge。不得把任何 consumer cutover 混入此 PR。
 
 ---
 
-### Task 5: Stage C1 — Characterize and prove parity for each CUTOVER_READY item
+### Task 5: Stage C1 — Characterize and prove parity for one CUTOVER_READY item
 
 **Files:**
-- Modify/create focused tests under the owning package, one compatibility item at a time。
+- Modify/create focused tests under the owning package for **one** ledger item。
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-evidence.md`
 
 **Interfaces:**
-- Consumes: Stage B `CUTOVER_READY` rows only。
-- Produces: executable parity evidence for semantic output、identity/hash、persistence/recovery where applicable。
+- Consumes: merged Stage B 中单个 `CUTOVER_READY` row。
+- Produces: executable parity evidence；若失败则把该 item 转 `BLOCKED`。
 
-- [ ] **Step 1: 为第一个 CUTOVER_READY item 写 V1 characterization test**
+- [ ] **Step 1: 为该 item 写 V1 characterization test**
 
-示例骨架；字段必须替换为该 item 的真实 contract：
+示例结构；实施时替换为 inventory 中的真实 contract 与 fixture：
 
 ```python
 def test_v1_characterization_freezes_semantic_identity_and_ordering() -> None:
-    """先冻结现有 V1 行为；V2 parity 不能靠字段名相似推断。"""
+    """先冻结现有 V1 行为，禁止用字段名相似替代 parity 证明。"""
     v1_result = build_v1_fixture_result()
     assert v1_result.semantic_identity == EXPECTED_IDENTITY
     assert v1_result.normalized_routes == EXPECTED_ROUTES
     assert v1_result.hash == EXPECTED_HASH
 ```
 
-- [ ] **Step 2: 运行 characterization，确认在未修改 production code 前 GREEN**
+- [ ] **Step 2: 在未改 production code 前运行 characterization**
+
+Expected: GREEN。若 characterization 本身无法稳定复现，item 直接转 `BLOCKED`，不得开始 cutover。
 
 - [ ] **Step 3: 写 V1/V2 parity RED**
 
 ```python
 def test_v2_is_semantically_equivalent_for_cutover_fixture() -> None:
-    """只有语义、identity 与 durable semantics 全部等价才允许 cutover。"""
+    """语义、identity、hash 与 durable semantics 全部等价才允许 cutover。"""
     v1_result = build_v1_fixture_result()
     v2_result = build_v2_fixture_result()
     assert normalize_semantics(v2_result) == normalize_semantics(v1_result)
     assert identity_projection(v2_result) == identity_projection(v1_result)
 ```
 
-对于 planning/binding/materialization，必须比较 routing/materialization identity 与 hash body；对于 reconciliation/Saga，必须比较 transition、idempotency、recovery、durable state，而不是只比较最终 status string。
+要求：
 
-- [ ] **Step 4: 若 parity 失败，转 BLOCKED，不修改 consumer**
+```text
+planning/binding/materialization
+  -> routing + materialization identity + hash body
+
+reconciliation/Saga
+  -> transitions + idempotency + durable state + restart/recovery
+
+Host-visible semantics
+  -> existing real-Host acceptance evidence
+```
+
+- [ ] **Step 4: parity 失败时 fail closed**
 
 Ledger：
 
 ```text
 disposition = BLOCKED
 cutover_blocker = PARITY_FAILURE:<具体差异>
-owner = <owner>
-retirement_preconditions = <解除条件>
+authoritative_owner = <已冻结 owner>
+retirement_preconditions = <解除该差异所需 evidence/implementation>
 ```
 
-- [ ] **Step 5: 若 parity GREEN，记录 exact test evidence**
+此时该 item PR 不允许进入 Task 6。
 
-每个 item 单独 commit：`test: prove <item> v2 parity`
+- [ ] **Step 5: parity GREEN 时记录 exact focused evidence**
+
+单独 commit：`test: prove <item> v2 parity`
+
+继续同一个 item PR 的 Task 6。
 
 ---
 
-### Task 6: Stage C2 — Cut over one compatibility item at a time
+### Task 6: Stage C2 — Cut over the same compatibility item and merge its independent PR
 
 **Files:**
-- Modify: 由该 ledger row `consumers` 列出的**全部真实 consumer files**。
-- Modify: owning package public exports / adapters only when该 item 的 cutover contract要求。
+- Modify: 该 ledger row `consumers/runtime_callers/public_exports` 指出的全部真实 consumer files。
+- Modify: owning package public exports / explicit adapters，仅当该 item 的 cutover contract要求。
 - Modify: `tests/architecture/test_canonical_v2_boundaries.py`
 - Modify: focused package tests。
 - Modify: ledger/evidence docs。
 
 **Interfaces:**
-- Consumes: 单个已完成 Task 5 parity proof 的 `CUTOVER_READY` item。
-- Produces: canonical consumer set 已迁移；legacy path 无新增 direct consumer；rollback 明确。
+- Consumes: Task 5 同一 PR 内已 GREEN 的 parity evidence。
+- Produces: canonical consumers 已迁移；legacy consumer allowlist 缩减；exact-head evidence；独立 cutover PR merge。
 
-- [ ] **Step 1: RED — architecture test 先要求 consumer 使用 canonical path**
+- [ ] **Step 1: RED — 精确 consumer 必须使用 canonical path**
 
-对该 item 的实际 consumer 写精确断言；不要使用 repository-wide 模糊字符串替换。
+对 ledger 已登记 consumer 写 AST 或 import-level 精确断言；禁止 repository-wide 字符串替换。
 
-- [ ] **Step 2: 最小迁移 consumer**
+- [ ] **Step 2: 最小迁移该 item**
 
-只迁移该 item；禁止同时清理相邻 V1/V2、重命名无关 API、顺手删除 bridge。
+只迁移当前 item；禁止顺手：
+- 删除相邻 legacy API；
+- rename unrelated V2；
+- 修改其他 item disposition；
+- 扩大 Host support matrix。
 
-- [ ] **Step 3: focused GREEN**
+- [ ] **Step 3: focused GREEN + boundary GREEN**
 
-Run owning-package focused tests + architecture boundary tests。
+运行 owning-package focused tests 与：
+
+```bash
+uv run pytest tests/architecture/test_canonical_v2_boundaries.py -q
+```
 
 - [ ] **Step 4: owner-specific evidence**
-
-按 ledger row 风险执行：
 
 ```text
 ordinary pure-Python contract -> focused + repository regression
 materialization / identity     -> Phase I materialization/offline + required real Host gate
 reconciliation durable state   -> PostgreSQL 17 + restart/recovery + repository regression
-Saga / Host-visible semantics  -> existing Saga/real-Host acceptance gate
+Saga / Host-visible semantics  -> existing Saga / real-Host acceptance gate
 ```
 
 - [ ] **Step 5: exact-head verification**
 
-在最终候选 HEAD 上重新运行该 item 的 focused gate + repository canonical regression；证据写入 evidence doc，记录 commit SHA 和 workflow run/job identity。
+在最终 candidate HEAD 重新跑该 item 所需 focused + canonical regression；在 evidence doc 记录 commit SHA、workflow run/job、test counts、skip rationale。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: cutover commit + PR merge**
 
-每个 item 一个 cutover commit：`refactor: cut over <item> canonical path`
+Commit: `refactor: cut over <item> canonical path`
 
-重复 Task 5/6 直到没有剩余可执行 `CUTOVER_READY` item；`BLOCKED` item 不允许为了 Phase 完成度被强行迁移。
+同一 PR 只能包含这个 compatibility item 的 parity + cutover。required checks/review GREEN 后 merge 到 main。
+
+- [ ] **Step 7: 从最新 merged main 开始下一个 item**
+
+不得在旧长期分支连续叠加多个 cutover。重复 Tasks 5/6，直到没有可执行 `CUTOVER_READY` item。
 
 ---
 
-### Task 7: Stage D — Merged-main observation, RETIREABLE authorization, and retirement
+### Task 7: Stage D — Observe merged main, authorize RETIREABLE, and retire only authorized legacy paths
 
 **Files:**
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-evidence.md`
 - Create/modify: `tests/architecture/test_canonical_v2_cutover_evidence.py`
-- Conditional delete: 仅 ledger 已转 `RETIREABLE` 的 legacy implementation/export/tests。
+- Conditional delete: 仅已转 `RETIREABLE` 的 legacy implementation/export/tests。
 
 **Interfaces:**
-- Consumes: Task 6 已 merge 到 main 的 cutover。
-- Produces: merged-main observation；`RETIREABLE` authorization；必要时 legacy retirement。
+- Consumes: Task 6 已 merge 到 main 的单个 cutover。
+- Produces: merged-main observation；`RETIREABLE` authorization；必要时独立 retirement PR。
 
-- [ ] **Step 1: RED — RETIREABLE 必须拥有 merged-main evidence**
+- [ ] **Step 1: RED — row-aware RETIREABLE gate**
 
 ```python
-from pathlib import Path
-
-
 def test_retireable_rows_require_merged_main_observation() -> None:
-    """Branch-local GREEN 不能授权 retirement。"""
-    text = Path(
-        "docs/superpowers/modernization/canonical-v2-convergence-ledger.md"
-    ).read_text(encoding="utf-8")
-    # 实现时解析 ledger rows；每个 RETIREABLE row 都必须有 merged_main_run 与 rollback。
-    assert "merged_main_run" in text
-    assert "rollback" in text
+    """RETIREABLE 必须由 merged-main evidence 授权，不能靠列名或 branch-local GREEN。"""
+    rows = _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+    for row in rows:
+        if row["disposition"] != "RETIREABLE":
+            continue
+        assert row["merged_main_run"].startswith("run:")
+        assert row["observation_status"] == "GREEN"
+        assert row["rollback"] not in {"", "UNKNOWN", "TBD", "N/A"}
 ```
 
-- [ ] **Step 2: merge 后在 main 运行 required observation**
+- [ ] **Step 2: 在 merged main 运行 required observation**
 
-至少包括 canonical repository regression；若该 item 有 real-Host/PostgreSQL/recovery owner gate，同样必须在 merged main 或 spec 允许的 post-merge observation lane 取得证据。
+至少运行 canonical repository regression。若 item 绑定 real-Host/PostgreSQL/recovery gate，同样必须取得 spec 允许的 post-merge evidence。
 
 - [ ] **Step 3: 仅满足全部条件时转 RETIREABLE**
-
-必须同时满足：
 
 ```text
 all consumers cut over
@@ -533,19 +738,25 @@ no Host compatibility obligation
 no persistence/hash identity obligation
 ```
 
+否则保持当前 disposition 或转 `BLOCKED`；不得为了删除量降低标准。
+
 - [ ] **Step 4: retirement RED**
 
-先写 architecture/public API test 证明旧 path 已不应存在，再删除 legacy implementation/export。
+先写 architecture/public API test 证明 legacy path 已不应存在，再删除 implementation/export。若只是 `ADAPTER_ONLY` / `KEEP` / `BLOCKED`，本步骤不得执行。
 
 - [ ] **Step 5: retirement regression**
 
-Run focused + architecture + repository regression + required Host/durable evidence。
+运行 focused + architecture + repository regression + required Host/durable evidence。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 独立 retirement PR**
 
-一个 retirement item 一个 commit：`refactor: retire <item> compatibility path`
+每个 `RETIREABLE` item 独立 commit/PR：
 
-如果 Phase II 最终没有任何 row 达到 `RETIREABLE`，Task 7 仍可合法完成；记录 `NO_RETIREMENTS_AUTHORIZED`，不得为了制造删除量降低门槛。
+```text
+refactor: retire <item> compatibility path
+```
+
+若没有 item 达到 `RETIREABLE`，记录 `NO_RETIREMENTS_AUTHORIZED`，Task 7 合法完成。
 
 ---
 
@@ -553,14 +764,14 @@ Run focused + architecture + repository regression + required Host/durable evide
 
 **Files:**
 - Create: `docs/superpowers/specs/2026-09-19-hitl-payload-ownership-contract.md`
-- Create: `docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md`（若 Stage A 找到现有 authoritative 文档则改为修改该文件）
+- Create/modify: `docs/superpowers/specs/2026-09-19-compensation-execution-ownership.md`
 - Create: `docs/superpowers/specs/2026-09-19-checkpoint-retention-contract.md`
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
-- Modify: existing CI/hygiene tracking doc for legacy lane package declaration；若 census 证明声明错误会污染 inventory，则用独立 hygiene commit 修复并跑 workflow architecture tests。
-- Create/modify: architecture tests that assert checkpoint ownership boundary where existing workflow code exposes payload/state types。
+- Modify: existing CI/hygiene tracking doc for legacy lane package declaration。
+- Create: `tests/architecture/test_phase_ii_ownership_handoffs.py`
 
 **Interfaces:**
-- Consumes: Stage A consumer census、ADR-010 workflow ownership、reconciliation compensation facts。
+- Consumes: Stage A census、ADR-010 workflow ownership、reconciliation compensation facts。
 - Produces: 四项债务各有 owner / next action / acceptance evidence；HITL payload ownership 成为 Capability Phase hard prerequisite。
 
 - [ ] **Step 1: HITL ownership contract**
@@ -583,19 +794,32 @@ checkpoint MUST NOT own authoritative copies of:
 
 - [ ] **Step 2: DIVERGED compensation ownership contract**
 
-分别冻结：decision owner、proposal builder、authorization owner、Host dispatcher/executor、durable truth owner、Workflow Orchestrator coordination role。禁止用 delivery success 代替 compensation business success。
+分别冻结 decision owner、proposal builder、authorization owner、Host dispatcher/executor、durable truth owner、Workflow Orchestrator coordination role。delivery success 不能等价 compensation business success。
 
 - [ ] **Step 3: checkpoint retention/GC contract**
 
-至少冻结：active/paused 不 GC；terminal minimum retention semantics；删除 checkpoint 不删除外部 authoritative state；GC 归 Workflow Orchestrator persistence ops owner；保留最小 audit metadata。
+至少冻结 active/paused 不 GC；terminal minimum retention semantics；checkpoint deletion 不删除外部 authoritative state；GC 归 Workflow Orchestrator persistence ops owner；保留最小 audit metadata。
 
 - [ ] **Step 4: legacy lane package declaration**
 
-若它只属于 hygiene，ledger 记录 owner/next action 即可；若会导致 consumer census 漏包，则以独立 hygiene TDD/commit 修正，不和 canonical cutover 混在同一 commit。
+若只属于 hygiene，ledger 记录 owner/next action；若会导致 consumer census 漏包，以独立 hygiene commit 修正，不与 canonical cutover 混合。
 
-- [ ] **Step 5: architecture verification + commit**
+- [ ] **Step 5: 写 architecture tests 固定 ownership boundary**
 
-Run workflow/orchestrator architecture tests、reconciliation ownership tests、Ruff。
+`tests/architecture/test_phase_ii_ownership_handoffs.py` 至少检查：
+- 三份 ownership contract 存在；
+- HITL contract 明确 stable refs / prohibited authoritative copies；
+- compensation contract 明确六类 owner；
+- retention contract 明确 active/paused no-GC 与 external state isolation。
+
+- [ ] **Step 6: 精确验证命令**
+
+```bash
+uv run pytest tests/architecture/test_workflow_runtime_boundary.py \
+  tests/architecture/test_phase_ii_ownership_handoffs.py \
+  tests/execution_reconciliation -q
+uv run ruff check tests/architecture/test_phase_ii_ownership_handoffs.py
+```
 
 Commit: `docs: freeze Phase II ownership handoffs`
 
@@ -607,25 +831,29 @@ Commit: `docs: freeze Phase II ownership handoffs`
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
 - Modify: `docs/superpowers/modernization/canonical-v2-convergence-evidence.md`
 - Create: `docs/superpowers/specs/2026-09-19-capability-phase-handoff.md`
-- Modify: Phase II spec status from review-frozen to closed/implemented only after all closeout gates pass。
-- Modify: relevant architecture tests to lock final state。
+- Modify: Phase II spec status only after all closeout gates pass。
+- Modify: relevant architecture tests。
 
 **Interfaces:**
 - Consumes: Tasks 1–8。
-- Produces: Phase II terminal disposition ledger；Capability Phase declared successor；no open ownerless debt。
+- Produces: terminal disposition ledger；Capability Phase declared successor；no ownerless debt。
 
-- [ ] **Step 1: Closeout RED**
+- [ ] **Step 1: Closeout RED 使用 row parser，不做全文 substring 禁令**
 
-Architecture test 必须验证：
+Architecture test 必须逐 row 验证：
 
 ```text
-all ledger rows have one terminal disposition
-no UNKNOWN / TBD / EVIDENCE_MISSING
-all BLOCKED rows have owner + release condition
-all RETIREABLE rows have merged-main evidence
-all four PR #55 debts have owner + next action
+disposition ∈ KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE
+producer / consumer / owner / rollback 不为空
+UNKNOWN / TBD 不得作为字段值
+EVIDENCE_MISSING 只允许 BLOCKED，且 owner + release condition 完整
+KEEP / ADAPTER_ONLY / BLOCKED 均有对应 guard
+RETIREABLE 均有 merged-main GREEN
+四项 PR #55 债务均有 owner + next action
 Capability Phase handoff doc exists
 ```
+
+注意：合法 `BLOCKED` row 可以保留 `EVIDENCE_MISSING:<具体证据>`，不得用全文 `assert "EVIDENCE_MISSING" not in text` 误杀。
 
 - [ ] **Step 2: Freeze Capability Phase order**
 
@@ -639,11 +867,11 @@ Capability Phase handoff doc exists
 5. real AutoCAD/Revit acceptance
 ```
 
-并声明：Phase II 后续普通 hygiene / non-blocking debt 不得继续阻止 Capability Phase；只有显式 hard prerequisite 可以阻塞。
+并声明 Phase II 后续普通 hygiene / non-blocking debt 不得继续阻止 Capability Phase；只有显式 hard prerequisite 可以阻塞。
 
 - [ ] **Step 3: Full verification**
 
-至少运行：
+至少：
 
 ```bash
 uv lock --check
@@ -651,7 +879,7 @@ uv run pytest -q
 uv run ruff check .
 ```
 
-并按实际最终 touched/cutover rows 执行：
+按实际 touched/cutover rows 再执行：
 
 ```text
 Python 3.11 canonical regression
@@ -659,18 +887,20 @@ Python 3.14 compatibility regression
 .NET 8 canonical
 Host-neutral .NET 10 compatibility
 Revit Core
-PostgreSQL 17 reconciliation/recovery (若本 Phase cutover 触及 durable reconciliation/Saga)
-Phase I materialization/offline (若本 Phase cutover 触及 planning/binding/materialization)
-real AutoCAD/Revit acceptance (若对应 row 的 owner gate 要求)
+PostgreSQL 17 reconciliation/recovery（若触及 durable reconciliation/Saga）
+Phase I materialization/offline（若触及 planning/binding/materialization）
+real AutoCAD/Revit acceptance（若 row owner gate 要求）
 ```
 
-不得为了 closeout 跑与实际 disposition 无关的新 support matrix。
+不得为了 closeout 新增无关 support matrix。
 
 - [ ] **Step 4: Exact-head final evidence**
 
-在最终 HEAD 记录：commit SHA、每个 required workflow run/job、test counts、skip rationale、Ruff new diagnostics=0、scope diff audit。
+记录 commit SHA、required workflow run/job、test counts、skip rationale、Ruff new diagnostics=0、scope diff audit。
 
-- [ ] **Step 5: Final commit**
+- [ ] **Step 5: Stage E closeout PR**
+
+Final commit：
 
 ```bash
 git add docs/superpowers/modernization/canonical-v2-convergence-ledger.md \
@@ -681,10 +911,17 @@ git add docs/superpowers/modernization/canonical-v2-convergence-ledger.md \
 git commit -m "docs: close Phase II canonical convergence"
 ```
 
+通过 `protect-main` required checks 与 review 后 merge。
+
 ## Plan Self-Review Result
 
-- **Spec coverage:** Stage A–E、五种 disposition、完整 cutover protocol、inventory 三重硬上限、PR #55 四项债务、Capability Phase successor 均有明确 Task。
-- **No-placeholder check:** implementation 阶段不允许 `TBD/TODO/UNKNOWN` 作为 terminal ledger 值；唯一条件性内容是由 Stage A 事实决定真实 item/path/ADR 是否需要，这是 spec 要求的 evidence-driven branch，不是未设计实现。
-- **Type consistency:** 本 Phase 不提前发明新的 domain V3 contract；所有 cutover interface 名称必须取自 inventory 的真实 package exports。计划只新增 governance ledger/evidence/architecture guards 与 ownership handoff contracts。
-- **Review Focus coverage:** durable identity、legacy import expansion、semantic parity、merged-main observation、checkpoint/compensation ownership 分别由 Tasks 2/3、4/6、5、7、8 的 tests/gates 固定。
-- **Scope discipline:** Stage A 禁止产品迁移；Stage C 只执行 `CUTOVER_READY`；Stage D 只删除 `RETIREABLE`；必要 bridge 可长期 `KEEP/ADAPTER_ONLY`，Phase II 不以删除数量作为成功标准。
+- **Spec coverage:** Stage A–E、五种 disposition、完整 cutover protocol、2 工作日 / 3 tasks / 1 inventory PR、PR #55 四项债务、Capability Phase successor 均映射到明确 Task。
+- **Ledger schema:** spec §5 的 20/20 字段全部进入 enforceable test；额外 3 个 evidence 字段支持 exact-head / merged-main gate。
+- **RED -> GREEN reachability:** inventory budget test 与 skeleton 使用同一 machine-readable `inventory-status`；不存在 Task 1 的字符串/下划线对撞。
+- **Blocked evidence semantics:** `EVIDENCE_MISSING:<具体证据>` 是合法 `BLOCKED` terminal blocker；closeout 解析 row，不再做全文 substring 禁令。
+- **Boundary coverage:** production roots 从 repo metadata 派生，覆盖 AutoCAD/Revit sidecar、platform packages、providers、contracts/python 与 tools；AST import guard 不依赖字符串搜索。
+- **Disposition guards:** `KEEP` 保持 contract/export 并冻结 consumer；`ADAPTER_ONLY` 仅允许 explicit adapter；`BLOCKED` 冻结现有 consumer allowlist，避免误杀合法 legacy dependency。
+- **Census coverage:** reconciliation Saga/state/store/controller/compensation、gateway/coordination production src、Host sidecar、persistence/ops 均进入显式 targets。
+- **PR topology:** Stage A、Stage B、per-item Stage C、per-item Stage D、Stage E 都有明确 PR/merge 边界，满足 protected main 和 merged-main observation 顺序。
+- **Weak assertion cleanup:** public surface 使用 parsed columns + exact pairs；RETIREABLE 使用逐 row evidence；adapter exception 使用 explicit path allowlist；Task 8 有精确 pytest/Ruff 命令。
+- **Scope discipline:** Stage A 禁止产品迁移；Stage C 只执行 `CUTOVER_READY`；Stage D 只删除 `RETIREABLE`；必要 bridge 可长期 `KEEP / ADAPTER_ONLY / BLOCKED`，Phase II 不以删除数量作为成功标准。
