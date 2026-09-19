@@ -22,7 +22,7 @@ PB2_GRPC = GENERATED_DIR / "host_transport_v1_pb2_grpc.py"
 
 EXPECTED_PROTO_FROM_SIDECAR = "../../../../contracts/proto/host_transport_v1.proto"
 EXPECTED_OUTPUT_FROM_SIDECAR = "src/autocad_sidecar/ipc/generated"
-EXPECTED_PYTHON_GENERATOR = "grpcio-tools==1.70.0"
+EXPECTED_PYTHON_GENERATOR = "grpcio-tools==1.84.0"
 # .NET codegen 版本由 transport csproj 独占；这里冻结本次 family modernization 后的 owner 值。
 EXPECTED_DOTNET_GRPC_TOOLS = "2.84.0"
 
@@ -74,7 +74,7 @@ def test_python_generator_is_exactly_declared_and_present_in_the_committed_lock(
     grpc_build = metadata["project"]["optional-dependencies"]["grpc-build"]
 
     assert grpc_build == [EXPECTED_PYTHON_GENERATOR]
-    assert _locked_package_version("grpcio-tools") == "1.70.0"
+    assert _locked_package_version("grpcio-tools") == "1.84.0"
 
 
 def test_dotnet_grpc_tools_ownership_remains_explicit_and_project_local():
@@ -106,5 +106,5 @@ def test_committed_python_stubs_record_the_locked_generator_provenance():
     pb2_grpc = PB2_GRPC.read_text(encoding="utf-8")
 
     assert "# Protobuf Python Version: 5.29.0" in pb2
-    assert "GRPC_GENERATED_VERSION = '1.70.0'" in pb2_grpc
-    assert _locked_package_version("grpcio-tools") == "1.70.0"
+    assert "GRPC_GENERATED_VERSION = '1.84.0'" in pb2_grpc
+    assert _locked_package_version("grpcio-tools") == "1.84.0"

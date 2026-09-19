@@ -29,7 +29,8 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Install conformance test dependencies
-        run: python -m pip install pytest pytest-asyncio jsonschema 'grpcio-tools==1.70.0'
+        # 与 sidecar 的 grpc-build owner 保持同一生成器版本，避免 CI 生成物漂移。
+        run: python -m pip install pytest pytest-asyncio jsonschema 'grpcio-tools==1.84.0'
       - name: Install local Python packages
         run: |
           python -m pip install -e contracts/python

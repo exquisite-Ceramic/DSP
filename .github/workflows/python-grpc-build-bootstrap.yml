@@ -1,0 +1,42 @@
+name: Python gRPC maintenance bootstrap
+
+on:
+  push:
+    branches:
+      - chore/python-grpc-build-stack
+    paths:
+      - "hosts/autocad/sidecar/pyproject.toml"
+      - ".github/workflows/python-grpc-build-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-generated-state:
+    # 只允许人工/连接器提交触发一次；bot 回写生成物后不再递归执行。
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: chore/python-grpc-build-stack
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Refresh lock and Python transport stubs
+        run: |
+          # uv.lock 由根 workspace 统一解析；代码生成器使用 sidecar owner 的 exact pin。
+          python -m pip install uv 'grpcio-tools==1.84.0'
+          uv lock
+          python tools/generate_host_transport.py
+      - name: Commit generated state
+        shell: bash
+        run: |
+          if git diff --quiet -- uv.lock hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock hosts/autocad/sidecar/src/autocad_sidecar/ipc/generated
+          git commit -m "Build: refresh Python gRPC generated state"
+          git push origin HEAD:chore/python-grpc-build-stack
