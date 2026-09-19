@@ -17,6 +17,7 @@
 - 不改变 ADR-008 / ADR-009 / ADR-010 已冻结 authoritative ownership。
 - Workflow checkpoint 只能保存 workflow-local navigation state + stable refs，不能成为 ChangeSet / Approval / Saga / Host / Semantic truth 的第二 source of truth。
 - Stage A 最多 2 个工作日、最多 3 个 inventory tasks、恰好 1 个 dedicated inventory PR。
+- Stage A 首个 commit 前 `dedicated_inventory_pr=PENDING` 是唯一允许的 bootstrap 值；Draft PR 创建后必须立即回填真实 `#<number>`，Task 3 closeout 必须机器验证真实 PR identity。
 - 超过 inventory 任一硬上限仍缺证据的 item 必须进入 `BLOCKED`，记录缺失证据、owner、解除条件；禁止继续无限考古。
 - 每个 compatibility item 只能处于 `KEEP / ADAPTER_ONLY / CUTOVER_READY / BLOCKED / RETIREABLE` 之一。
 - `grep` 无调用不足以证明 `RETIREABLE`；public export、runtime caller、adapter、persisted identity、schema/proto、tests、CI/runbook、real-Host boundary 都算 consumer。
@@ -50,7 +51,7 @@
 
 - `docs/superpowers/modernization/canonical-v2-convergence-ledger.md` — Phase II compatibility disposition ledger；至少包含 spec §5 的 20 个事实字段，并额外保存 exact-head / merged-main observation 字段。
 - `docs/superpowers/modernization/canonical-v2-convergence-evidence.md` — workflow run/job、Host、PostgreSQL、crash-recovery evidence 索引，不复制业务 truth。
-- `tests/architecture/test_canonical_v2_inventory.py` — ledger schema、row parser、inventory budget、consumer census closeout。
+- `tests/architecture/test_canonical_v2_inventory.py` — ledger schema、row parser、inventory budget、mandatory-area completeness、consumer census closeout。
 - `tests/architecture/test_canonical_v2_boundaries.py` — production root discovery、AST import census、`KEEP / ADAPTER_ONLY / BLOCKED` guard。
 - `tests/architecture/test_canonical_v2_cutover_evidence.py` — exact-head / merged-main / retirement authorization。
 - `tests/architecture/test_phase_ii_ownership_handoffs.py` — checkpoint / compensation / GC ownership contract guard。
@@ -94,6 +95,22 @@ merged_main_run
 observation_status
 ```
 
+Stage A closeout 的 `area` 列必须至少覆盖 spec §5.1 的全部 mandatory scope，使用下列稳定值：
+
+```text
+execution_planning
+materialization_planning_seam
+provider_binding
+gateway_authorization
+execution_coordination
+execution_reconciliation
+execution_saga
+convergence_compensation
+orchestrator
+workflow_test_ops
+real_host_acceptance
+```
+
 约定：
 
 - Python importable contract 使用 `module:symbol`，例如 `design_execution_planning:ExecutionPlan`。
@@ -105,7 +122,7 @@ observation_status
 
 ---
 
-### Task 1: Stage A1 — Freeze ledger contract, parser, inventory budget, and inventory PR identity
+### Task 1: Stage A1 — Freeze ledger contract, parser, inventory budget, and inventory PR bootstrap
 
 **Files:**
 - Create: `docs/superpowers/modernization/canonical-v2-convergence-ledger.md`
@@ -114,13 +131,14 @@ observation_status
 
 **Interfaces:**
 - Consumes: Phase II spec §5/§6/§9/§10、MOD-016。
-- Produces: 23-column ledger contract、row parser、inventory budget block、dedicated Stage A PR identity。
+- Produces: 23-column ledger contract、row parser、inventory budget block、Stage A PR bootstrap identity。
 
 - [ ] **Step 1: 写 ledger RED test，完整冻结 20+3 schema**
 
 ```python
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -183,7 +201,8 @@ def test_inventory_budget_is_machine_readable_and_bounded() -> None:
     status = _inventory_status(LEDGER.read_text(encoding="utf-8"))
     assert status["working_day_budget"] == "2"
     assert status["task_budget"] == "3"
-    assert status["dedicated_inventory_pr"].startswith("#")
+    pr_identity = status["dedicated_inventory_pr"]
+    assert pr_identity == "PENDING" or re.fullmatch(r"#\d+", pr_identity)
     assert int(status["tasks_used"]) <= 3
 ```
 
@@ -201,17 +220,13 @@ Expected: FAIL，因为 ledger 尚不存在。
 start_date=2026-09-19
 working_day_budget=2
 task_budget=3
-dedicated_inventory_pr=#<实际 PR 号>
+dedicated_inventory_pr=PENDING
 tasks_used=1
 ```
 
 表格 header 使用 `REQUIRED_COLUMNS` 的全部 23 列。Task 1 只创建 schema，不写猜测 consumer 事实。
 
-- [ ] **Step 4: 打开 Stage A dedicated inventory PR，并回填真实 PR 号**
-
-PR base=`main`，head=当前 Phase II inventory branch。PR body 明确 Stage A 只允许 Tasks 1–3，不允许产品迁移。将真实 `#<number>` 写入 `dedicated_inventory_pr` 后再运行 GREEN。
-
-- [ ] **Step 5: GREEN + Ruff**
+- [ ] **Step 4: GREEN + Ruff，允许 bootstrap identity 仍为 PENDING**
 
 ```bash
 uv run pytest tests/architecture/test_canonical_v2_inventory.py -q
@@ -220,14 +235,31 @@ uv run ruff check tests/architecture/test_canonical_v2_inventory.py
 
 Expected: PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: 提交首个 Stage A commit 并 push 分支**
 
 ```bash
 git add docs/superpowers/modernization/canonical-v2-convergence-ledger.md \
   docs/superpowers/modernization/architecture-modernization-review-input.md \
   tests/architecture/test_canonical_v2_inventory.py
 git commit -m "docs: establish Phase II convergence inventory"
+git push -u origin <stage-a-inventory-branch>
 ```
+
+- [ ] **Step 6: 打开 Stage A Draft PR，立即回填真实 PR identity**
+
+PR base=`main`，head=`<stage-a-inventory-branch>`。PR body 明确 Stage A 只允许 Tasks 1–3，不允许产品迁移。创建 Draft PR 后将 `dedicated_inventory_pr` 从 `PENDING` 改为真实 `#<number>`。
+
+- [ ] **Step 7: 再跑 GREEN，并提交 PR identity 回填**
+
+```bash
+uv run pytest tests/architecture/test_canonical_v2_inventory.py -q
+uv run ruff check tests/architecture/test_canonical_v2_inventory.py
+git add docs/superpowers/modernization/canonical-v2-convergence-ledger.md
+git commit -m "docs: record Stage A inventory PR identity"
+git push
+```
+
+Task 1 完成后 `PENDING` 不得再次出现。
 
 ---
 
@@ -360,7 +392,7 @@ Commit: `docs: inventory canonical contract surfaces`
 - Consumes: Task 2 producer/public census。
 - Produces: runtime/test/Host/persistence/ops consumer census；Stage A terminal ledger；`tasks_used=3`。
 
-- [ ] **Step 1: 写 row-aware closeout RED**
+- [ ] **Step 1: 写 row-aware closeout RED，并机器强制 spec §5.1 mandatory areas**
 
 ```python
 ALLOWED_DISPOSITIONS = {
@@ -371,11 +403,34 @@ ALLOWED_DISPOSITIONS = {
     "RETIREABLE",
 }
 
+REQUIRED_INVENTORY_AREAS = {
+    "execution_planning",
+    "materialization_planning_seam",
+    "provider_binding",
+    "gateway_authorization",
+    "execution_coordination",
+    "execution_reconciliation",
+    "execution_saga",
+    "convergence_compensation",
+    "orchestrator",
+    "workflow_test_ops",
+    "real_host_acceptance",
+}
 
-def test_inventory_closeout_rows_are_terminal_and_owned() -> None:
-    """Stage A 不允许空字段或 UNKNOWN/TBD；缺证据只能作为受约束 BLOCKED。"""
-    rows = _ledger_rows(LEDGER.read_text(encoding="utf-8"))
+
+def test_inventory_closeout_rows_are_terminal_owned_and_complete() -> None:
+    """Stage A 必须覆盖 spec mandatory areas，并把未知项收口成受约束 BLOCKED。"""
+    text = LEDGER.read_text(encoding="utf-8")
+    rows = _ledger_rows(text)
     assert rows
+
+    observed_areas = {row["area"] for row in rows}
+    assert REQUIRED_INVENTORY_AREAS <= observed_areas
+
+    status = _inventory_status(text)
+    assert re.fullmatch(r"#\d+", status["dedicated_inventory_pr"])
+    assert status["tasks_used"] == "3"
+
     for row in rows:
         assert row["disposition"] in ALLOWED_DISPOSITIONS
         for field in (
@@ -419,7 +474,7 @@ checkpoint persistence / retention hooks
 
 - [ ] **Step 4: 在 budget 边界强制收口**
 
-将 `tasks_used=3` 写回 ledger。仍无法证明的 item 立即 `BLOCKED`，写 concrete missing evidence、owner、解除条件；不得创建第 4 个 inventory task。
+将 `tasks_used=3` 写回 ledger。仍无法证明的 item 立即 `BLOCKED`，写 concrete missing evidence、owner、解除条件；不得创建第 4 个 inventory task。Stage A closeout 前必须保证 `REQUIRED_INVENTORY_AREAS` 每个 area 至少有一个 ledger row；不能只靠 prose 声称已覆盖。
 
 - [ ] **Step 5: Stage A verification**
 
@@ -439,6 +494,7 @@ PR body 必须记录：
 tasks_used = 3
 working_day_budget <= 2
 one dedicated inventory PR only
+all mandatory inventory areas covered
 all BLOCKED rows have owner + release condition
 no inventory-time product migration
 ```
@@ -917,6 +973,8 @@ git commit -m "docs: close Phase II canonical convergence"
 
 - **Spec coverage:** Stage A–E、五种 disposition、完整 cutover protocol、2 工作日 / 3 tasks / 1 inventory PR、PR #55 四项债务、Capability Phase successor 均映射到明确 Task。
 - **Ledger schema:** spec §5 的 20/20 字段全部进入 enforceable test；额外 3 个 evidence 字段支持 exact-head / merged-main gate。
+- **Inventory area completeness:** spec §5.1 的 11 个 mandatory scopes 都映射到稳定 `area` 值，并在 Task 3 closeout 由 set inclusion 机器强制。
+- **PR bootstrap reachability:** Task 1 首个 commit 允许 `dedicated_inventory_pr=PENDING`；branch push 后创建 Draft PR、立即回填真实 `#<number>`，Task 3 closeout 强制真实 PR identity，消除 clean-branch PR/commit 循环。
 - **RED -> GREEN reachability:** inventory budget test 与 skeleton 使用同一 machine-readable `inventory-status`；不存在 Task 1 的字符串/下划线对撞。
 - **Blocked evidence semantics:** `EVIDENCE_MISSING:<具体证据>` 是合法 `BLOCKED` terminal blocker；closeout 解析 row，不再做全文 substring 禁令。
 - **Boundary coverage:** production roots 从 repo metadata 派生，覆盖 AutoCAD/Revit sidecar、platform packages、providers、contracts/python 与 tools；AST import guard 不依赖字符串搜索。
