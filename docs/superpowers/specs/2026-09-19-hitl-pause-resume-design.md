@@ -1,6 +1,6 @@
 # Capability Phase — HITL Pause / Resume Design
 
-**Status:** Proposed — written-spec review pending  
+**Status:** Approved design  
 **Date:** 2026-09-19  
 **Base:** `main@32f1f1f1c7982a63bb68be25d7ac6ea208e92457`  
 **Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`  
