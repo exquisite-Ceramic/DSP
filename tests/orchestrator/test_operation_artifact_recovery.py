@@ -4,7 +4,8 @@
 
 1. 已存在的 durable ``ResolutionResult`` 必须直接复用，不能重新运行 resolver；
 2. v2 checkpoint 的 artifact 缺失必须 fail closed，禁止用 owner read model 偷偷重建；
-3. 只有明确允许 legacy rehydrate、且旧 ref hash 与真实重建结果精确一致时，才能写入新 codec artifact；
+3. 只有明确允许 legacy rehydrate、且旧 ref hash 与真实重建结果精确一致时，
+   才能写入新 codec artifact；
 4. legacy ref 缺 hash 或 hash 不匹配时必须保持 unavailable，不能制造新的 authoritative truth。
 
 LangGraph checkpoint migration 与 interrupt projection 属于 Task 7 后续步骤，不在本文件覆盖。
