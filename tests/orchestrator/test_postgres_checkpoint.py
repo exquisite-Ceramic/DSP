@@ -3,6 +3,10 @@
 这里使用真实 PostgreSQL，验证两件事：LangGraph checkpoint 表只能由 orchestrator 自己的
 schema 持有；进程级 runtime/checkpointer 重建后，workflow 仍能从同一个 durable checkpoint
 恢复，而不是依赖内存对象存活。
+
+本文件刻意只隔离验证 checkpoint owner。Task 8 的完整 human-pause process restart 会在
+``test_workflow_end_to_end.py`` 同时重建真实 PostgreSQL checkpointer 与 artifact store，并证明
+同一个 durable Operation Proposal artifact 可被新 runtime 继续消费。
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ class _RestartServices:
         """Checkpoint-owner 测试桩按协议返回当前 operation ref 的 durable exact hit。
 
         本文件只验证 PostgreSQL checkpoint ownership/restart；真实 artifact store 的持久化与
-        restart acceptance 属于 Task 8，因此这里不重复跨 owner 行为，只补全当前 runtime 契约。
+        human-pause restart durability 由 Task 8 E2E acceptance 覆盖，这里不复制跨 owner 行为。
         """
 
         del context_snapshot_ref, allow_legacy_rehydrate
