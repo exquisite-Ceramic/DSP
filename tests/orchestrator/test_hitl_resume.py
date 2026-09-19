@@ -11,7 +11,6 @@ import hashlib
 import json
 
 import pytest
-
 from design_orchestrator.hitl_resume import (
     synthetic_legacy_operation_proposal_pause,
     validate_resume_mode,
