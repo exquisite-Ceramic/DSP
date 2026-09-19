@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from importlib import import_module
 from typing import Any
 from uuid import UUID
 
-import psycopg
 import pytest
-from design_orchestrator.artifact_postgres import create_postgres_artifact_store
 from design_orchestrator.canonical_operations import MOVE_V1
 from design_orchestrator.operation_resolver import (
     OperationResolver,
@@ -23,6 +22,16 @@ from design_orchestrator.workflow_artifacts import (
     workflow_artifact_content_hash,
 )
 from design_orchestrator.workflow_contracts import StableRef
+
+# 该文件只属于真实 PostgreSQL 验证 lane。旧的非 PostgreSQL workflow 不安装 psycopg，
+# 因此必须在加载 PostgreSQL adapter 前做模块级 skip，避免可选依赖污染无关测试收集。
+psycopg = pytest.importorskip(
+    "psycopg",
+    reason="psycopg is required for PostgreSQL artifact tests",
+)
+create_postgres_artifact_store = import_module(
+    "design_orchestrator.artifact_postgres"
+).create_postgres_artifact_store
 
 _OWNER_SCHEMA = "orchestrator_artifact"
 _DSN = os.getenv("DSP_TEST_POSTGRES_DSN")
@@ -102,6 +111,8 @@ def _resolution() -> ResolutionResult:
 
 
 def _put_resolution() -> tuple[object, StableRef, ResolutionResult]:
+    """写入一个真实 resolution artifact，并返回 store、引用和原始对象。"""
+
     resolution = _resolution()
     store = create_postgres_artifact_store(_dsn())
     ref = store.put(
