@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 
 LEDGER = Path("docs/superpowers/modernization/canonical-v2-convergence-ledger.md")
@@ -64,5 +63,6 @@ def test_inventory_budget_is_machine_readable_and_bounded() -> None:
     assert status["working_day_budget"] == "2"
     assert status["task_budget"] == "3"
     pr_identity = status["dedicated_inventory_pr"]
-    assert pr_identity == "PENDING" or re.fullmatch(r"#\d+", pr_identity)
+    has_numeric_pr = pr_identity.startswith("#") and pr_identity[1:].isdigit()
+    assert pr_identity == "PENDING" or has_numeric_pr
     assert int(status["tasks_used"]) <= 3
