@@ -1,0 +1,45 @@
+name: Workflow orchestrator PostgreSQL verification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  orchestrator-checkpoint-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dsp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack from committed lock
+        run: |
+          # 统一从 committed uv.lock 重建 workspace，避免 PostgreSQL lane 漂移依赖版本。
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run orchestrator PostgreSQL restart and recovery acceptance
+        env:
+          DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
+        run: |
+          # Task 9 在真实 PostgreSQL 上同时验证 checkpoint ownership、authoritative resume 与端到端恢复不变量。
+          uv run python -m pytest \
+            tests/orchestrator/test_postgres_checkpoint.py \
+            tests/orchestrator/test_workflow_resume_authoritative_truth.py \
+            tests/orchestrator/test_workflow_end_to_end.py -q

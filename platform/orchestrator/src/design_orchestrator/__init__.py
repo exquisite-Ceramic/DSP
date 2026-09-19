@@ -10,6 +10,13 @@ from design_orchestrator.canonical_operations import (
     SET_WALL_THICKNESS_V1,
     SlotBindingClass,
 )
+from design_orchestrator.default_workflow_services import (
+    DefaultWorkflowServices,
+    ExternalOwnerPorts,
+    OperationResolutionInputs,
+    ParameterBindingInputs,
+    WorkflowArtifactStore,
+)
 from design_orchestrator.interactive_binding import (
     InteractionBindingContext,
     InteractionRequired,
@@ -44,8 +51,20 @@ from design_orchestrator.parameter_binder import (
     SlotBindingEvidence,
     SlotBindingRecipe,
 )
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationKind,
+    AsyncOperationRef,
+    StableRef,
+    WorkflowCheckpointView,
+    WorkflowPhase,
+    WorkflowResumeCommand,
+    WorkflowStartRequest,
+)
+from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 
 __all__ = [
+    "AsyncOperationKind",
+    "AsyncOperationRef",
     "BindingError",
     "BindingResolverKind",
     "BoundOperationProposal",
@@ -55,6 +74,8 @@ __all__ = [
     "CanonicalOperationRef",
     "CapabilityConflictError",
     "ContextSnapshotRef",
+    "DefaultWorkflowServices",
+    "ExternalOwnerPorts",
     "InteractionBindingContext",
     "InteractionRequired",
     "InteractiveParameterResolver",
@@ -68,9 +89,11 @@ __all__ = [
     "OperationInteractionRecipe",
     "OperationPolicy",
     "OperationProposal",
+    "OperationResolutionInputs",
     "OperationResolver",
     "ParameterBinder",
     "ParameterBindingContext",
+    "ParameterBindingInputs",
     "PlanningRequirements",
     "ResolutionContext",
     "ResolutionResult",
@@ -81,5 +104,12 @@ __all__ = [
     "SlotBindingEvidence",
     "SlotBindingRecipe",
     "SlotInteractionRecipe",
+    "StableRef",
     "TaskConstraints",
+    "WorkflowArtifactStore",
+    "WorkflowCheckpointView",
+    "WorkflowOrchestratorPort",
+    "WorkflowPhase",
+    "WorkflowResumeCommand",
+    "WorkflowStartRequest",
 ]

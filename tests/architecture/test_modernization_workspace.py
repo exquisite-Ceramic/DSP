@@ -2,6 +2,7 @@
 
 本测试只消费 M0 已冻结的事实清单，不根据当前 import 是否成功来推断 workspace 成员。
 这样可以避免把仅由根 pytest ``pythonpath`` 暴露的源码树误判为正式 Python distribution。
+ADR-010 后续只通过显式 architecture-approved delta 扩展该历史基线。
 """
 
 from __future__ import annotations
@@ -14,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 INVENTORY = ROOT / "docs" / "superpowers" / "modernization" / "dependency-inventory.md"
 ROOT_PYPROJECT = ROOT / "pyproject.toml"
 UV_LOCK = ROOT / "uv.lock"
+
+# ADR-010 正式把 Workflow Orchestrator 提升为独立 runtime owner distribution；
+# 这里显式记录批准后的增量，不能回写 M0 inventory 假装该 manifest 在历史基线已经存在。
+ARCHITECTURE_APPROVED_WORKSPACE_ADDITIONS = {"platform/orchestrator"}
 
 
 def _m0_package_managed_members() -> set[str]:
@@ -38,30 +43,29 @@ def _m0_package_managed_members() -> set[str]:
 
 
 def test_uv_workspace_matches_m0_package_manifest_inventory() -> None:
-    """workspace 成员必须与 M0 已确认的 package-managed 子项目一一对应。"""
+    """workspace 必须等于 M0 历史基线加上经过架构批准的显式增量。"""
 
     pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
     workspace = pyproject.get("tool", {}).get("uv", {}).get("workspace")
 
     assert workspace is not None, "缺少 [tool.uv.workspace]"
     actual_members = set(workspace.get("members", []))
-    expected_members = _m0_package_managed_members()
+    expected_members = _m0_package_managed_members() | ARCHITECTURE_APPROVED_WORKSPACE_ADDITIONS
 
     assert actual_members == expected_members
 
-    # 这四个源码树在 M0 中被明确记录为没有 package-local manifest，当前只能依赖根配置暴露。
-    # M1 Task 4 不允许借 workspace 迁移顺手把它们升级为正式 distribution。
+    # 这些源码树在 M0 中被明确记录为没有 package-local manifest；ADR-010 只批准 orchestrator，
+    # 不允许借本次 runtime 工作顺手把其他 source-only 子树升级为正式 distribution。
     forbidden_members = {
         "platform/approval_scope",
         "platform/impact",
         "platform/interaction",
-        "platform/orchestrator",
     }
     assert actual_members.isdisjoint(forbidden_members)
 
 
 def test_workspace_preserves_python_floor_and_ruff_target() -> None:
-    """M1 只建立解析/锁定与 CI 消费机制，不提高 Python 支持下限。"""
+    """ADR-010 引入 runtime package，但不提高 Python 支持下限或 Ruff 目标版本。"""
 
     pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
 
@@ -70,13 +74,13 @@ def test_workspace_preserves_python_floor_and_ruff_target() -> None:
 
 
 def test_workspace_declares_default_dev_tooling_for_locked_verification() -> None:
-    """默认 locked sync 必须安装 canonical Python 验证工具链。"""
+    """默认 locked sync 必须继续安装 canonical Python 验证工具链。"""
 
     pyproject = tomllib.loads(ROOT_PYPROJECT.read_text(encoding="utf-8"))
     dev_group = set(pyproject.get("dependency-groups", {}).get("dev", []))
 
     # uv 默认同步 dependency-groups.dev，而不会默认同步 project.optional-dependencies extras。
-    # Task 5 canonical CI 不能再额外漂移安装 pytest 或 Ruff，因此这些工具必须进入共享 lock。
+    # canonical CI 不能再额外漂移安装 pytest 或 Ruff，因此这些工具必须进入共享 lock。
     assert {
         "pytest>=8.0",
         "pytest-asyncio>=0.23",

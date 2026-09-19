@@ -19,9 +19,8 @@ dev = [
     "ruff",
 ]
 
-# M1 只把 M0 已确认存在 package-local pyproject.toml 的第一方 distribution 纳入 workspace。
-# 根项目本身天然是 workspace root，因此 members 只列子项目；不得把仅靠 pytest pythonpath
-# 暴露的 platform/approval_scope、impact、interaction、orchestrator 当作正式 package 加入。
+# M1 仍以冻结的 package-managed 清单为历史基线；ADR-010 只新增经过架构批准的
+# platform/orchestrator distribution，不借此把其他 source-only 子树升级成 workspace member。
 [tool.uv.workspace]
 members = [
     "contracts/python",
@@ -35,6 +34,7 @@ members = [
     "platform/gateway_authorization",
     "platform/materialization_planning",
     "platform/materialization_topology",
+    "platform/orchestrator",
     "platform/provider_binding",
     "platform/semantic_mcp",
     "platform/semantic_runtime",
