@@ -51,5 +51,7 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
-      - name: Run Step 18 .NET contract tests
-        run: dotnet test contracts/dotnet/DesignFactContracts.Tests/DesignFactContracts.Tests.csproj --configuration Release
+      - name: Run .NET contract tests
+        run: |
+          dotnet test contracts/dotnet/DesignFactContracts.Tests/DesignFactContracts.Tests.csproj --configuration Release
+          dotnet test contracts/dotnet/HostContracts.Tests/HostContracts.Tests.csproj --configuration Release
