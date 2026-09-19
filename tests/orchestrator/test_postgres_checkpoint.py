@@ -21,7 +21,11 @@ from design_orchestrator.workflow_contracts import (
     WorkflowResumeCommand,
     WorkflowStartRequest,
 )
-from design_orchestrator.workflow_services import ExecutionOwnerView, ExecutionSagaView
+from design_orchestrator.workflow_services import (
+    ExecutionOwnerView,
+    ExecutionSagaView,
+    OperationArtifactResolution,
+)
 
 _OWNER_SCHEMA = "orchestrator_checkpoint"
 _DSN = os.getenv("DSP_TEST_POSTGRES_DSN")
@@ -43,6 +47,22 @@ class _RestartServices:
 
     def resolve_operations(self, snapshot_ref: StableRef) -> StableRef:
         return StableRef("operation-postgres", "b" * 64)
+
+    def ensure_operation_artifact(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> OperationArtifactResolution:
+        """Checkpoint-owner 测试桩按协议返回当前 operation ref 的 durable exact hit。
+
+        本文件只验证 PostgreSQL checkpoint ownership/restart；真实 artifact store 的持久化与
+        restart acceptance 属于 Task 8，因此这里不重复跨 owner 行为，只补全当前 runtime 契约。
+        """
+
+        del context_snapshot_ref, allow_legacy_rehydrate
+        return OperationArtifactResolution(ref=operation_ref, source="durable")
 
     def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
         return AsyncOperationRef(
