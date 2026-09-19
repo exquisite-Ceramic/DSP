@@ -8,7 +8,7 @@
 start_date=2026-09-19
 working_day_budget=2
 task_budget=3
-dedicated_inventory_pr=PENDING
+dedicated_inventory_pr=#65
 tasks_used=1
 ```
 
@@ -22,4 +22,4 @@ tasks_used=1
 - 本文件在 Task 1 只冻结 schema、inventory budget 与 dedicated PR bootstrap identity，不填写未经 census 验证的 consumer 事实。
 - 不适用字段在后续 inventory row 中使用 `N/A:<reason>`；不得使用空值、`UNKNOWN` 或 `TBD`。
 - `EVIDENCE_MISSING:<具体证据>` 仅允许用于 `BLOCKED` row 的 evidence/blocker 字段，并必须同时记录 owner 与解除条件。
-- `dedicated_inventory_pr=PENDING` 只允许存在到 Stage A Draft PR 创建；Task 1 closeout 后必须回填真实 `#<number>`。
+- `dedicated_inventory_pr` 已回填真实 Stage A PR identity；后续 inventory tasks 不得恢复 bootstrap placeholder。
