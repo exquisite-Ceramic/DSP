@@ -1,12 +1,13 @@
 """Task 7 Step 7：v2 human resume 的 durable artifact preflight 契约。
 
-这些测试冻结三个边界：
+这些测试冻结四个边界：
 
 1. v2 human command 在进入 LangGraph 前，必须以 ``allow_legacy_rehydrate=False`` 验证
    当前 pending subject 对应的 durable Operation Resolution artifact；
 2. artifact unavailable 时必须稳定归一为 ``WORKFLOW_ARTIFACT_UNAVAILABLE``，保留原始 cause，
    并且 checkpoint 与 binder side effect 都保持不变；
-3. external-owner async wait 的 poll 与显式 legacy async command 都不能因为存在 LangGraph
+3. v2 只接受 ``source == durable`` 且 ``ref == pending.subject_ref`` 的精确 authority 命中；
+4. external-owner async wait 的 poll 与显式 legacy async command 都不能因为存在 LangGraph
    interrupt 就误触 operation-artifact recovery。
 """
 
@@ -133,6 +134,20 @@ def _accepted(pause_id: str) -> WorkflowResumeCommand:
     )
 
 
+def _snapshot_identity(
+    runtime: LangGraphWorkflowRuntime,
+    task_id: str,
+) -> tuple[dict[str, object], tuple[object, ...]]:
+    """提取 durable values/interrupt payload，证明 fail-closed 不会移动当前 human pause。"""
+
+    snapshot = runtime._load_snapshot(task_id)
+    assert snapshot is not None
+    return (
+        dict(snapshot.values),
+        tuple(item.value for item in snapshot.interrupts),
+    )
+
+
 def test_v2_human_resume_validates_durable_artifact_before_graph_continuation() -> None:
     """v2 ACCEPT 必须先 durable-only preflight，再允许 binder/async continuation。"""
 
@@ -203,6 +218,56 @@ def test_v2_artifact_unavailable_fails_before_graph_and_preserves_checkpoint() -
     assert dict(snapshot_after.values) == values_before
     assert tuple(item.value for item in snapshot_after.interrupts) == interrupts_before
     assert runtime.get_checkpoint(task_id) == paused
+
+
+@pytest.mark.parametrize(
+    ("artifact_resolution", "case_name"),
+    [
+        (
+            OperationArtifactResolution(
+                ref=StableRef("operation-v2", "b" * 64),
+                source="rehydrated",
+            ),
+            "rehydrated-source",
+        ),
+        (
+            OperationArtifactResolution(
+                ref=StableRef("different-operation", "d" * 64),
+                source="durable",
+            ),
+            "different-ref",
+        ),
+    ],
+)
+def test_v2_artifact_authority_mismatch_fails_closed_before_graph_continuation(
+    artifact_resolution: OperationArtifactResolution,
+    case_name: str,
+) -> None:
+    """v2 human continuation 只接受 exact durable identity，不能 rehydrate 或替换 ref。"""
+
+    task_id = f"task-v2-artifact-{case_name}"
+    services = _V2ArtifactServices()
+    services.artifact_resolution = artifact_resolution
+    runtime = _runtime(services)
+    paused = runtime.start(_request(task_id))
+    assert paused.pending_interaction is not None
+    before_checkpoint = runtime.get_checkpoint(task_id)
+    before_identity = _snapshot_identity(runtime, task_id)
+    services.calls.clear()
+
+    with pytest.raises(WorkflowStateError) as captured:
+        runtime.resume(
+            task_id,
+            _accepted(paused.pending_interaction.pause_id),
+        )
+
+    assert captured.value.code == "WORKFLOW_ARTIFACT_UNAVAILABLE"
+    assert services.artifact_calls == [
+        (services.operation_ref, services.context_ref, False),
+    ]
+    assert services.bind_count == 0
+    assert runtime.get_checkpoint(task_id) == before_checkpoint
+    assert _snapshot_identity(runtime, task_id) == before_identity
 
 
 @pytest.mark.parametrize(
