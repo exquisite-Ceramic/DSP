@@ -22,7 +22,6 @@ from design_orchestrator.parameter_binder import (
     ParameterBindingContext,
 )
 
-
 _LEGACY_RESOLUTION_HASH = "694069001bda7b1ee84937e488ba594a7804833a046e0df228abdb493daa4251"
 
 
