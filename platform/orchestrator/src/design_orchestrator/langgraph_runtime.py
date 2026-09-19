@@ -7,10 +7,12 @@ framework-neutral 的 start/resume/get_checkpoint 契约与 WorkflowStateError �
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from langgraph.types import Command
 
+from design_orchestrator.hitl_resume import synthetic_legacy_operation_proposal_pause
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.langgraph_state import (
     CHECKPOINT_CONTRACT_VERSION,
@@ -77,6 +79,45 @@ def _resume_payload(command: WorkflowResumeCommand) -> dict[str, object]:
         "resume_kind": command.resume_kind,
         "payload": dict(command.payload),
     }
+
+
+def _project_checkpoint_snapshot(snapshot: Any) -> WorkflowCheckpointView:
+    """把 persisted values 与真实 interrupt 共同投影为公共 checkpoint。
+
+    ``graph_state_to_checkpoint_view()`` 继续只解释 state 本身，绝不根据 phase 猜测 pause。
+    runtime 只有在看到精确历史 Operation Proposal interrupt payload 时，才为未版本化旧状态
+    合成 deterministic human pause identity；其他 legacy interrupt 形状由后续 fail-closed RED
+    单独冻结，避免本步骤一次引入尚未验证的行为。
+    """
+
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, Mapping) or not values:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "checkpoint values must be a non-empty mapping",
+        )
+
+    checkpoint = graph_state_to_checkpoint_view(values)
+    if values.get("checkpoint_contract_version") is not None:
+        return checkpoint
+
+    interrupts = tuple(getattr(snapshot, "interrupts", ()) or ())
+    if len(interrupts) != 1 or checkpoint.operation_ref is None:
+        return checkpoint
+
+    interrupt_value = getattr(interrupts[0], "value", None)
+    expected = {
+        "kind": "OPERATION_PROPOSAL",
+        "operation_ref": _encode_stable_ref(checkpoint.operation_ref),
+    }
+    if interrupt_value != expected:
+        return checkpoint
+
+    pending = synthetic_legacy_operation_proposal_pause(
+        task_id=checkpoint.task_id,
+        operation_ref=checkpoint.operation_ref,
+    )
+    return replace(checkpoint, pending_interaction=pending)
 
 
 class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
@@ -181,14 +222,8 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
         if snapshot is None:
             return None
 
-        values = getattr(snapshot, "values", None)
-        if not isinstance(values, Mapping) or not values:
-            raise WorkflowStateError(
-                "WORKFLOW_CHECKPOINT_INVALID",
-                "checkpoint values must be a non-empty mapping",
-            )
         try:
-            checkpoint = graph_state_to_checkpoint_view(values)
+            checkpoint = _project_checkpoint_snapshot(snapshot)
         except WorkflowStateError:
             raise
         except Exception as exc:
