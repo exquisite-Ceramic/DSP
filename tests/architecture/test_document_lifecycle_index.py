@@ -44,9 +44,9 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
     assert "Phase I — latest completed capability phase" in text
     assert "Technology Modernization — COMPLETED" in text
     assert "Architecture Modernization Phase II — COMPLETED" in text
+    assert "Next capability phase — NOT YET DEFINED" in text
     assert (
-        "Capability Phase — HITL pause/resume Design APPROVED; "
+        "Capability Phase candidate — HITL pause/resume Design APPROVED; "
         "Implementation Plan UNDER REVIEW"
     ) in text
     assert "Capability Phase successor after HITL — real E2E workflow, NOT YET STARTED" in text
-    assert "Next capability phase — NOT YET DEFINED" not in text
