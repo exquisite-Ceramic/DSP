@@ -7,7 +7,8 @@
 - Phase I — latest completed capability phase
 - Technology Modernization — COMPLETED
 - Architecture Modernization Phase II — COMPLETED
-- Capability Phase — HITL pause/resume Design APPROVED; Implementation Plan UNDER REVIEW
+- Next capability phase — NOT YET DEFINED
+- Capability Phase candidate — HITL pause/resume Design APPROVED; Implementation Plan UNDER REVIEW
 - Capability Phase successor after HITL — real E2E workflow, NOT YET STARTED
 
 ## 主规格 authority
@@ -108,5 +109,5 @@
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；Capability Phase 的 HITL pause/resume Design Spec 已批准，Implementation Plan 正在评审。
+- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；HITL pause/resume Design Spec 已批准、Implementation Plan 正在评审，但在 plan 获得书面批准并进入 implementation 前，治理层仍保持 `Next capability phase — NOT YET DEFINED`。
 - HITL Implementation Plan 未完成 review 前不得进入 production implementation；HITL 完成后才进入 successor `real E2E workflow`。
