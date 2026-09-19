@@ -9,6 +9,7 @@ from __future__ import annotations
 from design_orchestrator.hitl_resume import synthetic_legacy_operation_proposal_pause
 from design_orchestrator.langgraph_runtime import (
     LangGraphWorkflowRuntime,
+    _checkpoint_lookup_config,
     _runtime_config,
 )
 from design_orchestrator.langgraph_state import (
@@ -291,8 +292,9 @@ def test_real_legacy_operation_proposal_interrupt_projects_synthetic_pause() -> 
         _runtime_config(task_id),
     )
 
-    # 先证明 fixture 自己产生了真实 LangGraph interrupt，而不是直接写 checkpoint values。
-    legacy_snapshot = legacy_graph.get_state(_runtime_config(task_id))
+    # 旧 root checkpoint 实际写在 checkpoint_ns=""；应用级 namespace 仅用于 invoke config。
+    # 这里显式使用 runtime 自己的 root lookup helper，确保 fixture 验证的是同一持久化坐标。
+    legacy_snapshot = legacy_graph.get_state(_checkpoint_lookup_config(task_id))
     assert legacy_snapshot.values.get("checkpoint_contract_version") is None
     assert legacy_snapshot.values.get("pending_interaction") is None
     assert len(legacy_snapshot.interrupts) == 1
@@ -333,8 +335,8 @@ def test_real_legacy_async_interrupt_remains_external_owner_wait() -> None:
         _runtime_config(task_id),
     )
 
-    # 与 human fixture 一样，必须证明这是旧 graph 真实 interrupt，而不是只测试一个 state dict。
-    legacy_snapshot = legacy_graph.get_state(_runtime_config(task_id))
+    # 与 human fixture 一样，直接按 root checkpoint 坐标读取旧 graph 的真实 interrupt。
+    legacy_snapshot = legacy_graph.get_state(_checkpoint_lookup_config(task_id))
     assert legacy_snapshot.values.get("checkpoint_contract_version") is None
     assert len(legacy_snapshot.interrupts) == 1
     assert legacy_snapshot.interrupts[0].value == {
