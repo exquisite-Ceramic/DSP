@@ -408,15 +408,19 @@ def test_real_runtime_survives_hitl_async_restart_and_keeps_refs_only() -> None:
     proposal_wait = runtime_a.start(_request(task_id))
     assert proposal_wait.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
     assert proposal_wait.operation_ref is not None
+    assert proposal_wait.pending_interaction is not None
 
+    # proposal ACCEPT 必须与当前持久化 human pause 精确相关；不再使用旧的隐式 accepted payload。
     async_wait = runtime_a.resume(
         task_id,
         WorkflowResumeCommand(
             resume_kind="OPERATION_PROPOSAL_ACCEPTED",
-            payload={"accepted": True},
+            payload={},
+            pause_id=proposal_wait.pending_interaction.pause_id,
         ),
     )
     assert async_wait.phase is WorkflowPhase.ENSURE_OPERATION_FRESHNESS
+    assert async_wait.pending_interaction is None
     assert async_wait.async_operation_ref == AsyncOperationRef(
         kind=AsyncOperationKind.RECONSTRUCTION_JOB,
         owner="semantic-runtime",
