@@ -177,7 +177,7 @@ def test_factory_creates_all_checkpoint_tables_in_orchestrator_owner_schema() ->
 
 
 def test_restart_reopens_same_checkpoint_and_resumes_after_interrupt() -> None:
-    """关闭第一个 saver 后，新 runtime 必须从 PostgreSQL 恢复并继续同一 task。"""
+    """关闭第一个 saver 后，新 runtime 必须恢复同一 durable pause identity 后再继续 task。"""
 
     _reset_owner_schema()
     services = _RestartServices()
@@ -186,6 +186,7 @@ def test_restart_reopens_same_checkpoint_and_resumes_after_interrupt() -> None:
     runtime_a = LangGraphWorkflowRuntime(services=services, checkpointer=saver_a)
     checkpoint_before = runtime_a.start(_start_request())
     assert checkpoint_before.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+    assert checkpoint_before.pending_interaction is not None
     saver_a.close()
 
     saver_b = create_postgres_checkpointer(_dsn())
@@ -193,16 +194,22 @@ def test_restart_reopens_same_checkpoint_and_resumes_after_interrupt() -> None:
         runtime_b = LangGraphWorkflowRuntime(services=services, checkpointer=saver_b)
         reopened = runtime_b.get_checkpoint("task-postgres-restart")
         assert reopened == checkpoint_before
+        assert reopened is not None
+        assert reopened.pending_interaction is not None
 
+        # 重启后的 ACCEPT 必须携带数据库中恢复出的同一个 pause_id；
+        # 这证明 durable checkpoint 保存的是可相关联的人机等待，而不是进程内临时状态。
         resumed = runtime_b.resume(
             "task-postgres-restart",
             WorkflowResumeCommand(
                 resume_kind="OPERATION_PROPOSAL_ACCEPTED",
-                payload={"accepted": True},
+                payload={},
+                pause_id=reopened.pending_interaction.pause_id,
             ),
         )
         assert resumed.phase is WorkflowPhase.PARAMETER_BINDING
         assert resumed.phase is not checkpoint_before.phase
+        assert resumed.pending_interaction is None
         assert resumed.async_operation_ref == AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
             owner="interaction",
