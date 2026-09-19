@@ -15,18 +15,21 @@ from typing import Any
 
 import psycopg
 import pytest
+from design_orchestrator.artifact_postgres import create_postgres_artifact_store
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
     OperationResolutionInputs,
     ParameterBindingInputs,
+    WorkflowArtifactStore,
 )
 from design_orchestrator.langgraph_graph import build_workflow_graph
 from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import (
     OperationResolver,
     ResolutionContext,
+    ResolutionResult,
     SemanticEligibilityContext,
 )
 from design_orchestrator.parameter_binder import (
@@ -48,10 +51,12 @@ from design_orchestrator.workflow_services import (
     ExecutionSagaView,
     HostDispatchRecoveryState,
     HostDispatchRecoveryView,
+    WorkflowStateError,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-_OWNER_SCHEMA = "orchestrator_checkpoint"
+_CHECKPOINT_OWNER_SCHEMA = "orchestrator_checkpoint"
+_ARTIFACT_OWNER_SCHEMA = "orchestrator_artifact"
 _DSN = os.getenv("DSP_TEST_POSTGRES_DSN")
 _SLICE_HASH = "a" * 64
 
@@ -131,6 +136,8 @@ class _ScenarioOwners:
         self.recovery_state = recovery_state
         self.begin_count = 0
         self.verify_count = 0
+        self.resolution_input_loads = 0
+        self.binding_input_loads = 0
         self.execution_refreshes: list[str] = []
         self.dispatch_intent_ids: list[str] = []
 
@@ -140,6 +147,7 @@ class _ScenarioOwners:
     ) -> OperationResolutionInputs:
         """给真实 resolver 提供 snapshot-bound provider/context read model。"""
 
+        self.resolution_input_loads += 1
         return OperationResolutionInputs(
             profiles=(_Profile(),),
             context=ResolutionContext(
@@ -160,6 +168,7 @@ class _ScenarioOwners:
     ) -> ParameterBindingInputs:
         """给真实 binder 提供用户 proposal 与同一 snapshot-bound binding context。"""
 
+        self.binding_input_loads += 1
         return ParameterBindingInputs(
             proposal=OperationProposal(
                 "move.v1",
@@ -291,7 +300,7 @@ class _ScenarioOwners:
 def _service(
     owners: _ScenarioOwners,
     *,
-    store: _MemoryArtifactStore | None = None,
+    store: WorkflowArtifactStore | None = None,
 ) -> DefaultWorkflowServices:
     """用真实 resolver/binder 和 fake external owners 组装生产 DefaultWorkflowServices。"""
 
@@ -313,11 +322,12 @@ def _dsn() -> str:
     return _DSN
 
 
-def _reset_owner_schema() -> None:
-    """每个 PostgreSQL acceptance case 都从空 owner schema 开始。"""
+def _reset_owner_schemas() -> None:
+    """每个 PostgreSQL acceptance case 都从空 checkpoint/artifact owner schema 开始。"""
 
     with psycopg.connect(_dsn(), autocommit=True) as conn:
-        conn.execute(f"DROP SCHEMA IF EXISTS {_OWNER_SCHEMA} CASCADE")
+        conn.execute(f"DROP SCHEMA IF EXISTS {_CHECKPOINT_OWNER_SCHEMA} CASCADE")
+        conn.execute(f"DROP SCHEMA IF EXISTS {_ARTIFACT_OWNER_SCHEMA} CASCADE")
 
 
 def _request(task_id: str) -> WorkflowStartRequest:
@@ -367,11 +377,12 @@ def test_task9_ci_executes_end_to_end_postgres_gate() -> None:
 
     assert "postgres:17" in workflow
     assert "DSP_TEST_POSTGRES_DSN" in workflow
+    assert "tests/orchestrator/test_artifact_postgres.py" in workflow
     assert "tests/orchestrator/test_workflow_end_to_end.py" in workflow
 
 
 def test_recovery_runbook_freezes_owner_boundaries_and_operator_procedure() -> None:
-    """恢复手册必须明确三个 truth owner 以及禁止手改 checkpoint 的操作边界。"""
+    """恢复手册必须明确 checkpoint/artifact 以及 execution-side truth owner 的恢复边界。"""
 
     runbook_path = ROOT / "docs" / "runbooks" / "workflow-orchestrator-recovery.md"
     assert runbook_path.is_file()
@@ -384,7 +395,12 @@ def test_recovery_runbook_freezes_owner_boundaries_and_operator_procedure() -> N
         "ExecutionOwnerView",
         "OUTCOME_UNKNOWN",
         "orchestrator_checkpoint",
+        "orchestrator_artifact",
         "AsyncOperationRef",
+        "WORKFLOW_ARTIFACT_UNAVAILABLE",
+        "GC forbidden",
+        "legacy-only rehydration",
+        "exact legacy hash equality",
         "Temporal",
         "禁止手工修改",
     )
@@ -394,14 +410,15 @@ def test_recovery_runbook_freezes_owner_boundaries_and_operator_procedure() -> N
 
 @requires_postgres
 def test_real_runtime_survives_hitl_async_restart_and_keeps_refs_only() -> None:
-    """真实 runtime 跨 PostgreSQL 重启后继续同一 HITL/async workflow，并最终只持久化稳定引用。"""
+    """真实 runtime 在 human pause 处跨 PostgreSQL 重建，并继续原 HITL/async workflow。"""
 
-    _reset_owner_schema()
+    _reset_owner_schemas()
     task_id = "task9-e2e-main"
     owners_a = _ScenarioOwners(operation_ready=False)
     saver_a = create_postgres_checkpointer(_dsn())
+    artifact_store_a = create_postgres_artifact_store(_dsn())
     runtime_a = LangGraphWorkflowRuntime(
-        services=_service(owners_a),
+        services=_service(owners_a, store=artifact_store_a),
         checkpointer=saver_a,
     )
 
@@ -409,36 +426,57 @@ def test_real_runtime_survives_hitl_async_restart_and_keeps_refs_only() -> None:
     assert proposal_wait.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
     assert proposal_wait.operation_ref is not None
     assert proposal_wait.pending_interaction is not None
+    original_pending = proposal_wait.pending_interaction
+    subject_ref = original_pending.subject_ref
+    assert isinstance(artifact_store_a.get(subject_ref), ResolutionResult)
+    assert owners_a.resolution_input_loads == 1
+    assert owners_a.binding_input_loads == 0
 
-    # proposal ACCEPT 必须与当前持久化 human pause 精确相关；不再使用旧的隐式 accepted payload。
-    async_wait = runtime_a.resume(
-        task_id,
-        WorkflowResumeCommand(
-            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
-            payload={},
-            pause_id=proposal_wait.pending_interaction.pause_id,
-        ),
-    )
-    assert async_wait.phase is WorkflowPhase.ENSURE_OPERATION_FRESHNESS
-    assert async_wait.pending_interaction is None
-    assert async_wait.async_operation_ref == AsyncOperationRef(
-        kind=AsyncOperationKind.RECONSTRUCTION_JOB,
-        owner="semantic-runtime",
-        operation_id="reconstruction-task9",
-    )
+    # 进程边界发生在 human pause：checkpoint 与 deterministic artifact owner 都显式关闭。
     saver_a.close()
+    artifact_store_a.close()
 
-    # 模拟进程重建：新的 runtime、checkpointer、service 和 artifact store 不复用旧进程对象。
-    owners_b = _ScenarioOwners(operation_ready=True)
+    owners_b = _ScenarioOwners(operation_ready=False)
     saver_b = create_postgres_checkpointer(_dsn())
+    artifact_store_b = create_postgres_artifact_store(_dsn())
     try:
         runtime_b = LangGraphWorkflowRuntime(
-            services=_service(owners_b),
+            services=_service(owners_b, store=artifact_store_b),
             checkpointer=saver_b,
         )
         reopened = runtime_b.get_checkpoint(task_id)
-        assert reopened == async_wait
+        assert reopened == proposal_wait
+        assert reopened is not None
+        assert reopened.pending_interaction == original_pending
+        assert isinstance(artifact_store_b.get(subject_ref), ResolutionResult)
+        assert owners_b.resolution_input_loads == 0
 
+        accept_command = WorkflowResumeCommand(
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+            payload={},
+            pause_id=original_pending.pause_id,
+        )
+        async_wait = runtime_b.resume(task_id, accept_command)
+        assert async_wait.phase is WorkflowPhase.ENSURE_OPERATION_FRESHNESS
+        assert async_wait.pending_interaction is None
+        assert async_wait.async_operation_ref == AsyncOperationRef(
+            kind=AsyncOperationKind.RECONSTRUCTION_JOB,
+            owner="semantic-runtime",
+            operation_id="reconstruction-task9",
+        )
+        # ACCEPT 必须真实从 durable operation artifact 进入 ParameterBinder，而不是只移动 phase。
+        assert owners_b.binding_input_loads == 1
+        assert owners_b.resolution_input_loads == 0
+
+        # 原 human command 已消费；即使当前等待是 async，带旧 pause_id 的重放也必须 stale。
+        with pytest.raises(WorkflowStateError) as stale_exc:
+            runtime_b.resume(task_id, accept_command)
+        assert stale_exc.value.code == "WORKFLOW_RESUME_STALE"
+        assert runtime_b.get_checkpoint(task_id) == async_wait
+        assert owners_b.binding_input_loads == 1
+        assert owners_b.begin_count == 0
+
+        owners_b.operation_ready = True
         completed = runtime_b.resume(
             task_id,
             WorkflowResumeCommand(
@@ -486,6 +524,66 @@ def test_real_runtime_survives_hitl_async_restart_and_keeps_refs_only() -> None:
             forbidden_keys
         )
     finally:
+        artifact_store_b.close()
+        saver_b.close()
+
+
+@requires_postgres
+def test_v2_human_resume_fails_closed_when_durable_artifact_is_missing() -> None:
+    """v2 human artifact 丢失时不得 rehydrate、消费 pause 或触发任何 downstream owner mutation。"""
+
+    _reset_owner_schemas()
+    task_id = "task9-e2e-missing-artifact"
+    owners_a = _ScenarioOwners(operation_ready=False)
+    saver_a = create_postgres_checkpointer(_dsn())
+    artifact_store_a = create_postgres_artifact_store(_dsn())
+    runtime_a = LangGraphWorkflowRuntime(
+        services=_service(owners_a, store=artifact_store_a),
+        checkpointer=saver_a,
+    )
+    proposal_wait = runtime_a.start(_request(task_id))
+    assert proposal_wait.pending_interaction is not None
+    pending = proposal_wait.pending_interaction
+    subject_ref = pending.subject_ref
+    saver_a.close()
+    artifact_store_a.close()
+
+    # 模拟 durable v2 artifact 丢失；checkpoint/pause 本身保持完整。
+    with psycopg.connect(_dsn(), autocommit=True) as conn:
+        conn.execute(
+            f"DELETE FROM {_ARTIFACT_OWNER_SCHEMA}.workflow_artifact "
+            "WHERE artifact_id = %s",
+            (subject_ref.ref_id,),
+        )
+
+    owners_b = _ScenarioOwners(operation_ready=False)
+    saver_b = create_postgres_checkpointer(_dsn())
+    artifact_store_b = create_postgres_artifact_store(_dsn())
+    try:
+        runtime_b = LangGraphWorkflowRuntime(
+            services=_service(owners_b, store=artifact_store_b),
+            checkpointer=saver_b,
+        )
+        reopened = runtime_b.get_checkpoint(task_id)
+        assert reopened == proposal_wait
+
+        with pytest.raises(WorkflowStateError) as unavailable_exc:
+            runtime_b.resume(
+                task_id,
+                WorkflowResumeCommand(
+                    resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+                    payload={},
+                    pause_id=pending.pause_id,
+                ),
+            )
+        assert unavailable_exc.value.code == "WORKFLOW_ARTIFACT_UNAVAILABLE"
+        assert runtime_b.get_checkpoint(task_id) == reopened
+        assert owners_b.resolution_input_loads == 0
+        assert owners_b.binding_input_loads == 0
+        assert owners_b.begin_count == 0
+        assert owners_b.verify_count == 0
+    finally:
+        artifact_store_b.close()
         saver_b.close()
 
 
@@ -509,7 +607,7 @@ def test_restart_with_existing_saga_refreshes_owner_without_second_execution(
 ) -> None:
     """Saga 已存在时，重启只能 refresh/reconcile/wait，绝不能凭 checkpoint 位置再次开始执行。"""
 
-    _reset_owner_schema()
+    _reset_owner_schemas()
     task_id = f"task9-existing-saga-{status.lower()}-{recovery_state or 'none'}"
     owners = _ScenarioOwners(
         operation_ready=True,
