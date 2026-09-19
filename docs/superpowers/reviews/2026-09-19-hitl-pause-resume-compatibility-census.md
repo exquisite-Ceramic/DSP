@@ -1,8 +1,8 @@
 # HITL Pause / Resume Compatibility Census
 
-**Date:** 2026-09-19  
-**Scope:** approved HITL design §14 / implementation plan Task 1  
-**Evidence checkout:** `356241dd63f55528a03923e2bea5196f1c0f5fca`  
+**Date:** 2026-09-19
+**Scope:** approved HITL design §14 / implementation plan Task 1
+**Evidence checkout:** `356241dd63f55528a03923e2bea5196f1c0f5fca`
 **Method:** 在 GitHub Actions exact checkout 上用 temporary Python diagnostic 对计划指定目录与正则做 recursive scan，并额外用 AST 枚举结构化 `CapabilityProfile` 与 `WorkflowArtifactStore` shape。随后在 `0f14085bb2f83cff2ca5e627be1bcb0b4739dd9c` 尝试逐字执行计划中的 `rg` 查询，hosted runner 明确返回 `FileNotFoundError: rg`；因此本文不把该失败尝试描述成成功执行。临时 diagnostic 已从最终分支删除。
 
 ## Six-area census
