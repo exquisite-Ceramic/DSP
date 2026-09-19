@@ -12,12 +12,9 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+
 import pytest
-from design_orchestrator.langgraph_runtime import (
-    LangGraphWorkflowRuntime,
-    _checkpoint_lookup_config,
-    _runtime_config,
-)
 from design_orchestrator.langgraph_state import (
     WorkflowGraphState,
     _decode_stable_ref,
@@ -25,9 +22,24 @@ from design_orchestrator.langgraph_state import (
 )
 from design_orchestrator.workflow_contracts import StableRef, WorkflowPhase
 from design_orchestrator.workflow_services import WorkflowStateError
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+
+# Step36 的轻量验证 lane 不安装 LangGraph。该文件只验证 runtime-private LangGraph
+# checkpoint 行为，因此必须在动态加载 runtime/graph 类型前做模块级 skip，避免可选依赖
+# 污染无关的 orchestrator 收集；Repository regression 安装 LangGraph 后仍会执行全部断言。
+pytest.importorskip(
+    "langgraph",
+    reason="langgraph is required for legacy interrupt projection tests",
+)
+_runtime_module = import_module("design_orchestrator.langgraph_runtime")
+LangGraphWorkflowRuntime = _runtime_module.LangGraphWorkflowRuntime
+_checkpoint_lookup_config = _runtime_module._checkpoint_lookup_config
+_runtime_config = _runtime_module._runtime_config
+InMemorySaver = import_module("langgraph.checkpoint.memory").InMemorySaver
+_graph_module = import_module("langgraph.graph")
+END = _graph_module.END
+START = _graph_module.START
+StateGraph = _graph_module.StateGraph
+interrupt = import_module("langgraph.types").interrupt
 
 
 class _UnusedServices:
