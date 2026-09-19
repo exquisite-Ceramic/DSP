@@ -45,9 +45,18 @@ public enum AsyncOperationType
 /// <summary>Deadline rules (AR-024): absolute UTC timestamps; child &lt;= parent.</summary>
 public static class DeadlineRules
 {
-    public static bool IsValidUtc(string value) =>
-        DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto)
-        && dto.Offset == TimeSpan.Zero;
+    public static bool IsValidUtc(string value)
+    {
+        var hasExplicitUtc = value.EndsWith("Z", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("+00:00", StringComparison.Ordinal);
+        return hasExplicitUtc
+            && DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var dto)
+            && dto.Offset == TimeSpan.Zero;
+    }
 
     public static bool IsWithinParent(string? child, string? parent)
     {
