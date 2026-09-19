@@ -59,6 +59,7 @@
 | [`2026-09-19-hitl-payload-ownership-contract.md`](specs/2026-09-19-hitl-payload-ownership-contract.md) | CURRENT |
 | [`2026-09-19-compensation-execution-ownership.md`](specs/2026-09-19-compensation-execution-ownership.md) | CURRENT |
 | [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
+| [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
 
 ## Implementation Plans
 
