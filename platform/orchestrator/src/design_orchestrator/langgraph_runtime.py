@@ -417,8 +417,8 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
             event_resume_mode = resume_mode
 
             if resume_mode == "human" and checkpoint.pending_interaction is not None:
-                # 只有 command 已通过 correlation/shape 校验后，日志上下文才允许带 artifact identity；
-                # stale/mismatch/invalid 因而不会泄露或误示 artifact preflight 已发生。
+                # 只有 command 已通过 correlation/shape 校验后，日志上下文才允许带
+                # artifact identity；stale/mismatch/invalid 因而不会泄露或误示 artifact preflight 已发生。
                 artifact_ref = checkpoint.pending_interaction.subject_ref
 
             if checkpoint_version is None and resume_mode == "human":
@@ -465,8 +465,8 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
                         },
                         as_node="prepare_operation_proposal_pause",
                     )
-                    # ``as_node`` 只声明“prepare 已完成”；随后从其后继 await node 建立真实 interrupt，
-                    # 绝不能重新执行 prepare node，否则会生成新的随机 pause_id。
+                    # ``as_node`` 只声明“prepare 已完成”；随后从其后继 await node
+                    # 建立真实 interrupt，绝不能重新执行 prepare node，否则会生成新的随机 pause_id。
                     self._graph.invoke(None, migrated_config)
                 except WorkflowStateError:
                     raise
