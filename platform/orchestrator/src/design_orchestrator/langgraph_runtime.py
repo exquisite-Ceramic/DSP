@@ -212,6 +212,43 @@ def _require_v2_human_interrupt(
         )
 
 
+def _validate_v2_human_artifact_authority(
+    services: WorkflowServices,
+    checkpoint: WorkflowCheckpointView,
+) -> None:
+    """在消费 v2 human command 前验证 pending subject 的 exact durable authority。
+
+    v2 checkpoint 已经承诺 durable continuation identity，因此这里禁止 legacy rehydrate；
+    artifact 缺失、来源不是 durable 或返回 ref 漂移都必须在 graph invocation 前 fail closed。
+    """
+
+    pending = checkpoint.pending_interaction
+    context_snapshot_ref = checkpoint.context_snapshot_ref
+    if pending is None or context_snapshot_ref is None:
+        raise WorkflowStateError(
+            "WORKFLOW_CHECKPOINT_INVALID",
+            "v2 human checkpoint is missing artifact authority references",
+        )
+
+    try:
+        resolution = services.ensure_operation_artifact(
+            pending.subject_ref,
+            context_snapshot_ref,
+            allow_legacy_rehydrate=False,
+        )
+    except WorkflowArtifactUnavailableError as exc:
+        raise WorkflowStateError(
+            "WORKFLOW_ARTIFACT_UNAVAILABLE",
+            "operation artifact required for human resume is unavailable",
+        ) from exc
+
+    if resolution.source != "durable" or resolution.ref != pending.subject_ref:
+        raise WorkflowStateError(
+            "WORKFLOW_ARTIFACT_UNAVAILABLE",
+            "v2 human resume requires the exact durable operation artifact",
+        )
+
+
 class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
     """把 ADR-010 deterministic graph 封装在 framework-neutral orchestrator port 后面。"""
 
@@ -354,6 +391,12 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
             validate_resume_mode(checkpoint=migrated_checkpoint, command=command)
             snapshot = migrated_snapshot
             checkpoint = migrated_checkpoint
+
+        # 只有调用 resume() 时原 checkpoint 已经是 v2 human pause 才做 durable-only preflight。
+        # legacy human 在上方已经完成一次 allow_legacy_rehydrate=True 的迁移恢复；同一次 resume
+        # 不应重复访问 artifact store。async/poll 也保持既有 external-owner 恢复语义。
+        if checkpoint_version == CHECKPOINT_CONTRACT_VERSION and resume_mode == "human":
+            _validate_v2_human_artifact_authority(self._services, checkpoint)
 
         graph_input: object
         if resume_mode == "poll":
