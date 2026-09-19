@@ -31,6 +31,7 @@ from design_orchestrator.workflow_contracts import (
 from design_orchestrator.workflow_services import (
     ExecutionOwnerView,
     ExecutionSagaView,
+    OperationArtifactResolution,
     WorkflowStateError,
 )
 from langgraph.checkpoint.memory import InMemorySaver
@@ -64,6 +65,22 @@ class _RuntimeServices:
 
     def resolve_operations(self, snapshot_ref: StableRef) -> StableRef:
         return StableRef("operation-1", "b" * 64)
+
+    def ensure_operation_artifact(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> OperationArtifactResolution:
+        """通用 runtime fixture 按协议返回传入 operation ref 的 durable exact hit。
+
+        Step 7 的专用 authority 测试负责精确断言 context、rehydrate flag 与失败分支；这里仅让
+        复用多种新旧 checkpoint 场景的基础 fixture 完整实现 WorkflowServices 契约。
+        """
+
+        del context_snapshot_ref, allow_legacy_rehydrate
+        return OperationArtifactResolution(ref=operation_ref, source="durable")
 
     def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
         return AsyncOperationRef(
