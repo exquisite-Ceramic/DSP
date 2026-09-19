@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 from autocad_sidecar.capability.profile import DesignCapabilityProfile
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
-from design_orchestrator.default_workflow_services import _artifact_content_hash
 from design_orchestrator.operation_resolver import (
     OperationResolver,
     ResolutionContext,
@@ -101,7 +100,7 @@ def _bound_proposal() -> BoundOperationProposal:
 
 
 def _codec_api() -> tuple[Any, ...]:
-    """延迟导入新模块，使 legacy-hash characterization 能先在 RED 中独立执行。"""
+    """集中读取 codec public API，characterization 不依赖旧 service private helper。"""
 
     from design_orchestrator.workflow_artifacts import (
         PERSISTED_CAPABILITY_PROFILE_FIELDS,
@@ -127,13 +126,14 @@ def _codec_api() -> tuple[Any, ...]:
 def test_legacy_hash_characterizes_prechange_resolution_fixture() -> None:
     """冻结迁移前 generic artifact hash，后续 ref migration 只能调用等价 legacy 算法。"""
 
+    _, _, _, _, _, legacy_hash, _ = _codec_api()
     resolution = _resolution()
 
-    assert _artifact_content_hash(resolution) == _LEGACY_RESOLUTION_HASH
+    assert legacy_hash(resolution) == _LEGACY_RESOLUTION_HASH
 
     changed_profile = replace(_profile(), description="Changed description")
     changed_resolution = _resolution(profile=changed_profile)
-    assert _artifact_content_hash(changed_resolution) != _LEGACY_RESOLUTION_HASH
+    assert legacy_hash(changed_resolution) != _LEGACY_RESOLUTION_HASH
 
 
 def test_operation_resolution_codec_round_trips_all_observed_profile_fields() -> None:
