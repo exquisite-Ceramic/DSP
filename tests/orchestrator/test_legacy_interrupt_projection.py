@@ -77,12 +77,12 @@ def _build_legacy_non_interrupt_graph(checkpointer: InMemorySaver):
 
 
 def _build_unrecognized_legacy_interrupt_graph(checkpointer: InMemorySaver):
-    """构造真实 interrupt，但 payload 不属于冻结的 human/async legacy 闭集。"""
+    """用真实历史 node name 构造 payload 不属于冻结闭集的 legacy interrupt。"""
 
     builder = StateGraph(WorkflowGraphState)
 
     def await_unknown_legacy_interrupt(state: WorkflowGraphState) -> dict[str, object]:
-        """产生未知 kind；runtime 必须拒绝，不能只返回 values 中的旧 checkpoint。"""
+        """保留旧 await node identity，但产生未知 kind，runtime 必须 fail closed。"""
 
         operation_ref = _decode_stable_ref(state["operation_ref"], "operation_ref")
         assert operation_ref is not None
@@ -94,9 +94,11 @@ def _build_unrecognized_legacy_interrupt_graph(checkpointer: InMemorySaver):
         )
         return {"phase": WorkflowPhase.PARAMETER_BINDING.value}
 
-    builder.add_node("await_unknown_legacy_interrupt", await_unknown_legacy_interrupt)
-    builder.add_edge(START, "await_unknown_legacy_interrupt")
-    builder.add_edge("await_unknown_legacy_interrupt", END)
+    # 当前 runtime 只能可靠恢复历史 topology 闭集内的 pending task。这里故意复用真实旧
+    # node name，仅篡改 interrupt payload，才能准确验证“可恢复但未知的 legacy shape”。
+    builder.add_node("await_operation_proposal", await_unknown_legacy_interrupt)
+    builder.add_edge(START, "await_operation_proposal")
+    builder.add_edge("await_operation_proposal", END)
     return builder.compile(checkpointer=checkpointer)
 
 
@@ -138,7 +140,7 @@ def test_unversioned_operation_phase_without_interrupt_does_not_guess_human_paus
 
 
 def test_unrecognized_real_legacy_interrupt_fails_closed() -> None:
-    """未知真实 legacy interrupt 不能被 current runtime 静默当成普通 unversioned state。"""
+    """历史 node 上的未知真实 interrupt 不能被静默当成普通 unversioned state。"""
 
     task_id = "task-legacy-unknown-interrupt"
     operation_ref = StableRef("legacy-operation", "b" * 64)
