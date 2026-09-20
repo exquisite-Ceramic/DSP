@@ -145,9 +145,8 @@ def test_technology_modernization_closeout_is_terminal_and_handoff_only() -> Non
 
     root_readme = ROOT_README.read_text(encoding="utf-8")
     lifecycle = SUPERPOWERS_README.read_text(encoding="utf-8")
-    assert "Next capability phase:** NOT YET DEFINED" in root_readme
-    assert "Next capability phase — NOT YET DEFINED" in lifecycle
-    assert "Technology Modernization — COMPLETED" in root_readme
+    assert "Technology Modernization — COMPLETED" in lifecycle
+    assert "**Current engineering activity:** Technology Modernization" not in root_readme
     assert (
         "2026-09-13-dsp-modernization-design.md`]"
         "(specs/2026-09-13-dsp-modernization-design.md) | COMPLETED"
