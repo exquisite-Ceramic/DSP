@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-- **Latest completed capability phase:** Phase I
-- **Current engineering activity:** Technology Modernization — COMPLETED
-- **Next capability phase:** NOT YET DEFINED
+- **Latest completed capability phase:** HITL pause/resume
+- **Current engineering activity:** HITL pause/resume — COMPLETED
+- **Next capability phase:** real E2E workflow — NOT YET STARTED
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
 - 已完成 Technology Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)
 - v0.5 已由 v0.6 取代，保留为历史规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md)
