@@ -766,7 +766,7 @@ Run at least:
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
   tests/orchestrator/test_real_owner_workflow_end_to_end.py \
-  tests/orchestrator/test_checkpoint_postgres.py \
+  tests/orchestrator/test_postgres_checkpoint.py \
   tests/orchestrator/test_artifact_postgres.py \
   -q
 ```
