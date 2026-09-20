@@ -36,6 +36,7 @@ from semantic_runtime.identity import (
     SemanticIdentity,
 )
 from semantic_runtime.journal import ChangeJournal, DirtyMap, HostDeltaRecord, JournalEntry
+from semantic_runtime.revision_barrier import HostRevisionObservationPort, RevisionBarrier
 
 __all__ = [
     "AspectGuarantee",
@@ -56,10 +57,12 @@ __all__ = [
     "GeometryLevel",
     "HostBinding",
     "HostDeltaRecord",
+    "HostRevisionObservationPort",
     "IdentityConflictError",
     "IdentityRegistry",
     "JournalEntry",
     "ReconstructionResult",
+    "RevisionBarrier",
     "RevisionChangedError",
     "SemanticAspect",
     "SemanticDepth",
