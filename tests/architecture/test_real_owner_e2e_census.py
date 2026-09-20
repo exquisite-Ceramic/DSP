@@ -37,7 +37,11 @@ PLACEHOLDERS = {"TODO", "TBD", "UNKNOWN"}
 def _census_rows() -> list[dict[str, str]]:
     """解析 census 的 machine-readable owner 表，并在文档缺失时明确 RED。"""
     assert CENSUS.is_file(), f"missing real-owner census: {CENSUS.relative_to(ROOT)}"
-    lines = [line for line in CENSUS.read_text(encoding="utf-8").splitlines() if line.startswith("|")]
+    lines = [
+        line
+        for line in CENSUS.read_text(encoding="utf-8").splitlines()
+        if line.startswith("|")
+    ]
     header_index = next(
         index for index, line in enumerate(lines) if line.startswith("| area |")
     )
