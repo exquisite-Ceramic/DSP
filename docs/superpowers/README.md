@@ -63,6 +63,7 @@
 | [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
 | [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
 | [`2026-09-19-hitl-pause-resume-design.md`](specs/2026-09-19-hitl-pause-resume-design.md) | COMPLETED |
+| [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | CURRENT |
 
 ## Implementation Plans
 
