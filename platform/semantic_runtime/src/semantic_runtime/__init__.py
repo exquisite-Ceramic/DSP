@@ -37,6 +37,7 @@ from semantic_runtime.identity import (
 )
 from semantic_runtime.journal import ChangeJournal, DirtyMap, HostDeltaRecord, JournalEntry
 from semantic_runtime.revision_barrier import HostRevisionObservationPort, RevisionBarrier
+from semantic_runtime.snapshot_registry import InMemorySnapshotRegistry, SnapshotRegistryError
 
 __all__ = [
     "AspectGuarantee",
@@ -60,6 +61,7 @@ __all__ = [
     "HostRevisionObservationPort",
     "IdentityConflictError",
     "IdentityRegistry",
+    "InMemorySnapshotRegistry",
     "JournalEntry",
     "ReconstructionResult",
     "RevisionBarrier",
@@ -71,6 +73,7 @@ __all__ = [
     "SemanticProjectionRef",
     "SemanticSnapshot",
     "SnapshotKind",
+    "SnapshotRegistryError",
     "SnapshotSet",
     "SnapshotSetError",
     "build_context_contract",
