@@ -104,6 +104,7 @@
 | [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
 | [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | COMPLETED |
 | [`2026-09-19-hitl-pause-resume.md`](plans/2026-09-19-hitl-pause-resume.md) | COMPLETED |
+| [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | CURRENT |
 
 ## 使用规则
 
