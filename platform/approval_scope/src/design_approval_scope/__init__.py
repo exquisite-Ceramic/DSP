@@ -35,6 +35,7 @@ from .hashing import (
     validate_approval_scope_definition_v2,
 )
 from .planner import ApprovalScopePlanner, direct_existing_rule_id, recipe_existing_rule_id
+from .store import InMemoryApprovalScopeStore
 
 __all__ = [
     "ApprovalScopeBoundary",
@@ -55,6 +56,7 @@ __all__ = [
     "EntitySelector",
     "ExecutionSliceScopeRule",
     "ExistingEntityRule",
+    "InMemoryApprovalScopeStore",
     "PredicateField",
     "PredicateOperator",
     "PredicateTerm",
