@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from design_interaction import (
@@ -128,6 +132,45 @@ def _resolver() -> InteractiveParameterResolver:
         binding_recipes=(POINT_BINDING_RECIPE,),
         interaction_recipes=(POINT_INTERACTION_RECIPE,),
     )
+
+
+def test_base_orchestrator_import_does_not_require_postgres_adapter_dependency() -> None:
+    """基础 Orchestrator/D6 消费方不得因未使用的 PostgreSQL adapter 缺依赖而导入失败。"""
+
+    script = """
+import builtins
+
+_real_import = builtins.__import__
+
+
+def _guarded_import(name, *args, **kwargs):
+    if name == "psycopg" or name.startswith("psycopg."):
+        raise ModuleNotFoundError("psycopg intentionally unavailable")
+    return _real_import(name, *args, **kwargs)
+
+
+builtins.__import__ = _guarded_import
+import design_orchestrator
+from design_orchestrator.interactive_binding import InteractiveParameterResolver
+
+assert InteractiveParameterResolver is not None
+assert design_orchestrator.MOVE_V1.canonical_operation == "move.v1"
+"""
+
+    # pytest 的测试引导会把源码目录加入当前解释器 sys.path；
+    # 子进程必须显式继承这组路径，才能只隔离 psycopg，而不是把被测包本身也隔离掉。
+    child_env = os.environ.copy()
+    child_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=child_env,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_missing_required_interactive_intent_returns_interaction_required() -> None:

@@ -99,6 +99,39 @@ class StableRef:
         )
 
 
+class PendingInteractionKind(str, Enum):
+    """Workflow Orchestrator 自己拥有的人机暂停交互种类。"""
+
+    OPERATION_PROPOSAL = "OPERATION_PROPOSAL"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingInteractionView:
+    """可跨 runtime 重启观察和相关的人机暂停稳定视图。"""
+
+    pause_id: str
+    kind: PendingInteractionKind
+    subject_ref: StableRef
+    allowed_resume_kinds: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "pause_id", _required_text(self.pause_id, "pause_id"))
+        object.__setattr__(self, "kind", PendingInteractionKind(self.kind))
+        if not isinstance(self.subject_ref, StableRef):
+            raise TypeError("subject_ref must be a StableRef")
+        if not isinstance(self.allowed_resume_kinds, tuple):
+            raise ValueError("allowed_resume_kinds must be a tuple")
+        normalized = tuple(
+            _required_text(item, "allowed_resume_kinds")
+            for item in self.allowed_resume_kinds
+        )
+        if not normalized:
+            raise ValueError("allowed_resume_kinds must not be empty")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("allowed_resume_kinds must not contain duplicates")
+        object.__setattr__(self, "allowed_resume_kinds", normalized)
+
+
 class WorkflowPhase(str, Enum):
     """DSP v0.6 Workflow Orchestrator 的稳定导航阶段。"""
 
@@ -119,6 +152,7 @@ class WorkflowPhase(str, Enum):
     EXECUTION_GRANT = "EXECUTION_GRANT"
     APPLY_WAIT = "APPLY_WAIT"
     VERIFY_RECONCILE = "VERIFY_RECONCILE"
+    CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
@@ -138,6 +172,7 @@ class WorkflowCheckpointView:
     saga_id: str | None = None
     async_operation_ref: AsyncOperationRef | None = None
     error_code: str | None = None
+    pending_interaction: PendingInteractionView | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "task_id", _required_text(self.task_id, "task_id"))
@@ -148,6 +183,13 @@ class WorkflowCheckpointView:
             "error_code",
             _optional_text(self.error_code, "error_code"),
         )
+        if self.pending_interaction is not None:
+            if not isinstance(self.pending_interaction, PendingInteractionView):
+                raise TypeError("pending_interaction must be a PendingInteractionView")
+            if self.async_operation_ref is not None or self.interaction_ref is not None:
+                raise ValueError(
+                    "pending_interaction is mutually exclusive with external waits"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +216,7 @@ class WorkflowResumeCommand:
 
     resume_kind: str
     payload: Mapping[str, object] = field(default_factory=dict)
+    pause_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -182,11 +225,18 @@ class WorkflowResumeCommand:
             _required_text(self.resume_kind, "resume_kind"),
         )
         object.__setattr__(self, "payload", _copy_mapping(self.payload, "payload"))
+        object.__setattr__(
+            self,
+            "pause_id",
+            _optional_text(self.pause_id, "pause_id"),
+        )
 
 
 __all__ = [
     "AsyncOperationKind",
     "AsyncOperationRef",
+    "PendingInteractionKind",
+    "PendingInteractionView",
     "StableRef",
     "WorkflowCheckpointView",
     "WorkflowPhase",

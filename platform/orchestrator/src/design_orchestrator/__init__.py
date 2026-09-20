@@ -1,5 +1,9 @@
 """Host-neutral orchestrator components."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from design_orchestrator.canonical_operations import (
     CanonicalCreationContract,
     CanonicalExistenceEffect,
@@ -54,6 +58,8 @@ from design_orchestrator.parameter_binder import (
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    PendingInteractionKind,
+    PendingInteractionView,
     StableRef,
     WorkflowCheckpointView,
     WorkflowPhase,
@@ -61,6 +67,27 @@ from design_orchestrator.workflow_contracts import (
     WorkflowStartRequest,
 )
 from design_orchestrator.workflow_port import WorkflowOrchestratorPort
+
+if TYPE_CHECKING:
+    # PostgreSQL adapter 是可选的 durable infrastructure dependency。
+    # 仅在静态类型检查阶段导入，避免普通 Orchestrator/D6 消费方在运行时被迫安装 psycopg。
+    from design_orchestrator.artifact_postgres import (
+        PostgresWorkflowArtifactStore,
+        create_postgres_artifact_store,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """按需暴露 PostgreSQL artifact adapter，保持基础包导入与 psycopg 解耦。"""
+
+    if name in {"PostgresWorkflowArtifactStore", "create_postgres_artifact_store"}:
+        # 只有调用方真正访问 PostgreSQL adapter 公共符号时才加载 psycopg。
+        # 这样既保留既有 package-level public API，也不会污染不使用 PostgreSQL 的执行路径。
+        from design_orchestrator import artifact_postgres
+
+        return getattr(artifact_postgres, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AsyncOperationKind",
@@ -94,7 +121,10 @@ __all__ = [
     "ParameterBinder",
     "ParameterBindingContext",
     "ParameterBindingInputs",
+    "PendingInteractionKind",
+    "PendingInteractionView",
     "PlanningRequirements",
+    "PostgresWorkflowArtifactStore",
     "ResolutionContext",
     "ResolutionResult",
     "ResolvedOperation",
@@ -112,4 +142,5 @@ __all__ = [
     "WorkflowPhase",
     "WorkflowResumeCommand",
     "WorkflowStartRequest",
+    "create_postgres_artifact_store",
 ]

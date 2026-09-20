@@ -7,6 +7,7 @@ Command、checkpointer 等类型必须留在 runtime adapter 内部，不能进�
 from __future__ import annotations
 
 import inspect
+from dataclasses import fields
 
 import pytest
 from design_orchestrator import workflow_contracts, workflow_port
@@ -115,6 +116,144 @@ def test_start_and_resume_requests_copy_workflow_local_payloads() -> None:
 
     assert request.request_data == {"intent_text": "thicken wall"}
     assert command.payload == {"approved": True}
+
+
+def test_pending_interaction_contract_normalizes_identity_and_allowed_kinds() -> None:
+    """Human pause 必须有稳定 pause identity、typed kind 与非空唯一 resume kind 集合。"""
+
+    pending_kind = workflow_contracts.PendingInteractionKind
+    pending_view = workflow_contracts.PendingInteractionView
+    subject = StableRef("operation-space-1", "d" * 64)
+
+    pending = pending_view(
+        pause_id="  pause-1  ",
+        kind="OPERATION_PROPOSAL",
+        subject_ref=subject,
+        allowed_resume_kinds=(
+            "  OPERATION_PROPOSAL_ACCEPTED  ",
+            "OPERATION_PROPOSAL_REJECTED",
+        ),
+    )
+
+    assert pending.pause_id == "pause-1"
+    assert pending.kind is pending_kind.OPERATION_PROPOSAL
+    assert pending.subject_ref is subject
+    assert pending.allowed_resume_kinds == (
+        "OPERATION_PROPOSAL_ACCEPTED",
+        "OPERATION_PROPOSAL_REJECTED",
+    )
+
+    for factory in (
+        lambda: pending_view(
+            pause_id=" ",
+            kind=pending_kind.OPERATION_PROPOSAL,
+            subject_ref=subject,
+            allowed_resume_kinds=("OPERATION_PROPOSAL_ACCEPTED",),
+        ),
+        lambda: pending_view(
+            pause_id="pause-1",
+            kind=pending_kind.OPERATION_PROPOSAL,
+            subject_ref=subject,
+            allowed_resume_kinds=(),
+        ),
+        lambda: pending_view(
+            pause_id="pause-1",
+            kind=pending_kind.OPERATION_PROPOSAL,
+            subject_ref=subject,
+            allowed_resume_kinds=("OPERATION_PROPOSAL_ACCEPTED", " "),
+        ),
+        lambda: pending_view(
+            pause_id="pause-1",
+            kind=pending_kind.OPERATION_PROPOSAL,
+            subject_ref=subject,
+            allowed_resume_kinds=(
+                "OPERATION_PROPOSAL_ACCEPTED",
+                "OPERATION_PROPOSAL_ACCEPTED",
+            ),
+        ),
+        lambda: pending_view(
+            pause_id="pause-1",
+            kind=pending_kind.OPERATION_PROPOSAL,
+            subject_ref="operation-space-1",
+            allowed_resume_kinds=("OPERATION_PROPOSAL_ACCEPTED",),
+        ),
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            factory()
+
+
+def test_hitl_additions_preserve_resume_command_source_compatibility() -> None:
+    """pause_id 只能 trailing additive；既有 async resume construction 必须继续合法。"""
+
+    assert [field.name for field in fields(WorkflowResumeCommand)] == [
+        "resume_kind",
+        "payload",
+        "pause_id",
+    ]
+
+    command = WorkflowResumeCommand(
+        resume_kind="ASYNC_OPERATION_COMPLETED",
+        payload={"operation_id": "op-1"},
+    )
+    assert command.pause_id is None
+
+    human = WorkflowResumeCommand(
+        resume_kind=" OPERATION_PROPOSAL_ACCEPTED ",
+        payload={},
+        pause_id=" pause-1 ",
+    )
+    assert human.resume_kind == "OPERATION_PROPOSAL_ACCEPTED"
+    assert human.pause_id == "pause-1"
+
+    with pytest.raises(ValueError):
+        WorkflowResumeCommand(
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+            pause_id=" ",
+        )
+
+
+def test_checkpoint_human_wait_is_mutually_exclusive_with_external_waits() -> None:
+    """Public checkpoint 不得同时宣称 human pending 与 external async/interaction wait。"""
+
+    pending = workflow_contracts.PendingInteractionView(
+        pause_id="pause-1",
+        kind=workflow_contracts.PendingInteractionKind.OPERATION_PROPOSAL,
+        subject_ref=StableRef("operation-space-1", "e" * 64),
+        allowed_resume_kinds=("OPERATION_PROPOSAL_ACCEPTED",),
+    )
+    external = AsyncOperationRef(
+        kind=AsyncOperationKind.INTERACTION_SESSION,
+        owner="interaction",
+        operation_id="interaction-1",
+    )
+
+    view = WorkflowCheckpointView(
+        task_id="task-1",
+        phase="AWAIT_OPERATION_PROPOSAL",
+        pending_interaction=pending,
+    )
+    assert view.pending_interaction is pending
+
+    for kwargs in (
+        {"pending_interaction": pending, "async_operation_ref": external},
+        {"pending_interaction": pending, "interaction_ref": external},
+    ):
+        with pytest.raises(ValueError):
+            WorkflowCheckpointView(
+                task_id="task-1",
+                phase="AWAIT_OPERATION_PROPOSAL",
+                **kwargs,
+            )
+
+
+def test_cancelled_is_a_stable_workflow_phase_projection() -> None:
+    """Human REJECT 后需要 framework-neutral terminal CANCELLED phase。"""
+
+    assert WorkflowPhase.CANCELLED.value == "CANCELLED"
+    assert WorkflowCheckpointView(
+        task_id="task-1",
+        phase="CANCELLED",
+    ).phase is WorkflowPhase.CANCELLED
 
 
 def test_public_workflow_contracts_do_not_expose_langgraph_types() -> None:

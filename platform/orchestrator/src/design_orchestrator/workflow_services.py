@@ -64,6 +64,27 @@ class OwnerStateView:
 
 
 @dataclass(frozen=True, slots=True)
+class OperationArtifactResolution:
+    """Operation Resolution artifact 可用性检查的稳定结果。
+
+    ``ref`` 始终指向当前可供 v2 workflow 使用的 durable artifact；``source`` 只记录该
+    artifact 是直接命中 durable store，还是由经过 legacy hash 校验的历史状态重建而来。
+    完整 ``ResolutionResult`` 不跨越这个 framework-neutral service 边界。
+    """
+
+    ref: StableRef
+    source: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ref, StableRef):
+            raise ValueError("ref must be a StableRef")
+        normalized_source = _required_text(self.source, "source")
+        if normalized_source not in {"durable", "rehydrated"}:
+            raise ValueError("source must be 'durable' or 'rehydrated'")
+        object.__setattr__(self, "source", normalized_source)
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionSagaView:
     """Execution Saga owner 暴露给 workflow 的只读执行投影。"""
 
@@ -153,6 +174,14 @@ class WorkflowServices(Protocol):
 
     def resolve_operations(self, snapshot_ref: StableRef) -> StableRef: ...
 
+    def ensure_operation_artifact(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> OperationArtifactResolution: ...
+
     def bind_parameters(
         self,
         operation_ref: StableRef,
@@ -236,6 +265,7 @@ __all__ = [
     "ExecutionSagaView",
     "HostDispatchRecoveryState",
     "HostDispatchRecoveryView",
+    "OperationArtifactResolution",
     "OwnerStateView",
     "WorkflowServices",
     "WorkflowStateError",

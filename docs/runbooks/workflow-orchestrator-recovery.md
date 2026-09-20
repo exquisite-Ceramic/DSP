@@ -46,7 +46,11 @@ Checkpoint 不是 ChangeSet、Approval、Execution Saga、Host dispatch 或 Sema
 4. 只有不存在 durable Saga，或者 authoritative view 明确允许创建第一次执行时，才进入新的 execution start；
 5. 已经存在 Saga identity 时，禁止仅根据 checkpoint 位置调用第二次 `begin_execution`。
 
-## 2. PostgreSQL checkpoint ownership
+## 2. PostgreSQL workflow persistence ownership
+
+Workflow Orchestrator 在 PostgreSQL 中拥有两个彼此独立但可通过稳定引用关联的 persistence owner。它们都不是 execution、Gateway、semantic runtime 或 Host dispatch recovery 的 authoritative business state。
+
+### 2.1 Checkpoint owner：navigation / wait
 
 LangGraph checkpoint 表只属于 Workflow Orchestrator，其 PostgreSQL schema 为：
 
@@ -58,6 +62,33 @@ orchestrator_checkpoint
 
 其他 authoritative owner（例如 execution Saga、Gateway、semantic runtime、Host dispatch recovery）不得直接读写 `orchestrator_checkpoint` 表。反过来，Workflow Orchestrator 也不得通过 SQL 修改这些 owner 的业务表来完成恢复。
 
+### 2.2 Artifact owner：deterministic continuation artifact
+
+Operation Proposal、ParameterBinder 等确定性 continuation 所需的 workflow-local artifact 由独立 PostgreSQL schema 持有：
+
+```text
+orchestrator_artifact
+```
+
+`orchestrator_artifact` 保存的是可由 checkpoint 中 `StableRef` 精确寻址的 **workflow-local deterministic continuation artifact**。它允许进程在 human pause 边界完全退出后，以新的 artifact store 实例重新打开同一 continuation 输入；它不是 ChangeSet、Approval、Execution Saga、Host dispatch 或 SemanticProjection 的第二份 authoritative copy。
+
+v0.6 的恢复与保留规则冻结为：
+
+```text
+orchestrator_checkpoint = navigation/wait
+orchestrator_artifact   = workflow-local deterministic continuation artifact
+active/paused reachable artifact ref => GC forbidden
+WORKFLOW_ARTIFACT_UNAVAILABLE => no manual row editing
+legacy-only rehydration = authoritative inputs + exact legacy hash equality
+```
+
+因此：
+
+- 任何从 active / paused Workflow checkpoint 可达的 artifact `StableRef` 都是 GC root；对应 artifact **GC forbidden**，不能在任务仍可恢复时删除。
+- v2 human pause resume 必须命中 pending subject 所指向的 exact durable artifact。artifact 缺失、损坏、来源不再是 durable，或返回引用发生漂移时，runtime 必须以 `WORKFLOW_ARTIFACT_UNAVAILABLE` fail closed，并保持原 pause 可重试。
+- `WORKFLOW_ARTIFACT_UNAVAILABLE` 不是修改数据库行的授权。operator 不得手工补写 `orchestrator_artifact`，不得改 checkpoint 的 subject ref，也不得清掉 pending interaction 来绕过 durable authority。
+- rehydration 只允许用于明确的 legacy migration；该 **legacy-only rehydration** 必须重新读取 authoritative inputs，并要求 **exact legacy hash equality**。当前 v2 pause 不得因为 artifact 缺失而自动 rehydrate。
+
 ### 禁止操作
 
 - **禁止手工修改 checkpoint 行来强制业务成功。**
@@ -65,6 +96,8 @@ orchestrator_checkpoint
 - 禁止删除 `saga_id` 来迫使 Orchestrator 重新调用 `begin_execution`。
 - 禁止通过 SQL 把 `AsyncOperationRef` 清空并假装远程 operation 已完成。
 - 禁止从 checkpoint 的 Apply 邻近位置推断 Host 没有产生副作用。
+- 禁止删除 active / paused checkpoint 仍可达的 artifact row。
+- 禁止在 v2 human resume 失败时手工制造“看起来等价”的 artifact row 或替换其 `StableRef`。
 
 需要人工诊断时可以只读检查数据库运行状况，但业务恢复必须走受支持的 runtime/service API。
 
@@ -72,16 +105,17 @@ orchestrator_checkpoint
 
 当 Orchestrator 进程退出、容器重启或调用方在 external side effect 完成前断开时：
 
-1. 使用相同 PostgreSQL 数据库重新创建 owner-scoped checkpointer；
-2. 创建新的 `LangGraphWorkflowRuntime`，不要复用旧进程内存对象作为恢复依据；
+1. 使用相同 PostgreSQL 数据库重新创建 owner-scoped checkpointer；若 checkpoint 可达 workflow artifact，同时创建新的 owner-scoped artifact store，不能依赖旧进程内存对象；
+2. 创建新的 `LangGraphWorkflowRuntime` 与新的 service graph，不要复用旧进程对象作为恢复依据；
 3. 使用 `get_checkpoint(task_id)` 读取 durable Workflow checkpoint；
-4. 根据 checkpoint 中的稳定 ref，从对应 authoritative owner 重新加载最新事实；
-5. 若存在 `saga_id`，在任何新的 execution side effect 之前重新查询完整 `ExecutionOwnerView`；
-6. owner truth 为 terminal execution state 时进入 verify/reconcile；
-7. owner truth 为 active / recovery state 时进入 recover-or-wait；
-8. 仅在没有 durable Saga、且正常 topology 到达首次执行边界时，才允许调用 `begin_execution`。
+4. 对 human pause，确认恢复出的 `PendingInteraction` 与 pause 前一致，并通过其 subject `StableRef` 从 `orchestrator_artifact` 读取 exact durable artifact；
+5. 根据 checkpoint 中其余稳定 ref，从对应 authoritative owner 重新加载最新事实；
+6. 若存在 `saga_id`，在任何新的 execution side effect 之前重新查询完整 `ExecutionOwnerView`；
+7. owner truth 为 terminal execution state 时进入 verify/reconcile；
+8. owner truth 为 active / recovery state 时进入 recover-or-wait；
+9. 仅在没有 durable Saga、且正常 topology 到达首次执行边界时，才允许调用 `begin_execution`。
 
-核心原则：**resume 先重新查询 authoritative truth，再 retry / replan；checkpoint 不是外部副作用完成情况的证据。**
+核心原则：**resume 先恢复自己的 durable continuation identity，再重新查询 authoritative truth，最后才 retry / replan；checkpoint 不是外部副作用完成情况的证据。**
 
 ## 4. 卡住的 AsyncOperationRef：operator procedure
 
@@ -132,23 +166,30 @@ HITL interrupt 的 continuation data 必须显式通过 `WorkflowResumeCommand` 
 恢复时应确认：
 
 1. `task_id` 指向原 durable workflow；
-2. checkpoint 当前确实存在 pending interrupt；
-3. resume kind/payload 表示用户或外部 owner 已完成的 continuation signal；
-4. 后续 deterministic service 仍通过 stable ref 重新读取需要的 authoritative facts。
+2. checkpoint 当前确实存在同一个 `PendingInteraction` / `pause_id`；
+3. v2 pending subject 的 exact durable artifact 仍可从 `orchestrator_artifact` 读取，且返回的 `StableRef` 与 pending subject 完全一致；
+4. resume kind / pause correlation / payload shape 已通过公共校验；
+5. ACCEPT 后真实 deterministic continuation（例如 ParameterBinder）从该 durable artifact 继续执行，而不是只手工移动 phase；
+6. 后续 deterministic service 仍通过 stable ref 重新读取需要的 authoritative facts。
+
+如果 exact durable artifact 不可用，runtime 返回 `WORKFLOW_ARTIFACT_UNAVAILABLE`，原 pause 保持不变。operator 应修复 artifact owner 的可用性或从备份恢复同一 durable artifact；**禁止手工修改** checkpoint/artifact row 来伪造 continuation。只有 legacy checkpoint migration 可以走 legacy-only rehydration，并且必须满足 authoritative inputs + exact legacy hash equality。
+
+同一个 human ACCEPT 在成功消费后再次提交必须按 stale command 拒绝；如果 workflow 此时已经转入 async wait，也不能把旧 `pause_id` 解释成新的异步 wake identity。
 
 ## 8. 故障诊断边界
 
-遇到重复等待或无法推进时，分别问三个问题：
+遇到重复等待或无法推进时，分别问四个问题：
 
 1. **Workflow checkpoint**：任务导航现在在哪里、持有哪些 refs？
-2. **Execution Saga**：execution owner 认为 Saga 发生了什么？
-3. **Host dispatch recovery**：当前 Host effect outcome 是否已知、当前 recovery identity 是什么？
+2. **Workflow artifact**：active / paused checkpoint 可达的 deterministic continuation artifact 是否仍以 exact `StableRef` 存在？
+3. **Execution Saga**：execution owner 认为 Saga 发生了什么？
+4. **Host dispatch recovery**：当前 Host effect outcome 是否已知、当前 recovery identity 是什么？
 
-不要把三个问题压成一个“checkpoint 看起来像什么”的判断。`ExecutionOwnerView` 的价值正是让 Orchestrator 获得完整 read boundary，同时仍然保留两个 execution-side owner projection 的区别。
+不要把这些问题压成一个“checkpoint 看起来像什么”的判断。`orchestrator_artifact` 也不能替代 execution-side authoritative truth；`ExecutionOwnerView` 的价值仍是让 Orchestrator 获得完整 execution-side read boundary，同时保留两个 execution-side owner projection 的区别。
 
 ## 9. v0.6 技术边界
 
-LangGraph + PostgreSQL checkpoint 是 v0.6 的业务 workflow runtime/persistence 组合。**Temporal 不属于 v0.6 recovery procedure**，本手册不要求也不允许通过新增 Temporal workflow history 来补偿现有 checkpoint/Saga/dispatch recovery 语义。
+LangGraph + PostgreSQL checkpoint 是 v0.6 的业务 workflow runtime/persistence 组合；`orchestrator_artifact` 是同一版本中独立的 durable deterministic continuation owner。**Temporal 不属于 v0.6 recovery procedure**，本手册不要求也不允许通过新增 Temporal workflow history 来补偿现有 checkpoint/artifact/Saga/dispatch recovery 语义。
 
 如果未来架构 ADR 明确引入新的 workflow engine，必须重新冻结 ownership、history 与 migration 契约；在此之前，operator 只使用本文定义的 LangGraph/owner API 恢复路径。
 
@@ -157,6 +198,7 @@ LangGraph + PostgreSQL checkpoint 是 v0.6 的业务 workflow runtime/persistenc
 只有同时满足以下条件，才可以认为一次故障恢复完成：
 
 - Workflow checkpoint 已通过正常 runtime transition 到达期望 phase；
+- active / paused checkpoint 可达的 workflow-local artifact 仍能通过 exact durable `StableRef` 读取；
 - 所有被引用 authoritative owner 的状态均可重新读取且彼此一致；
 - 已有 Saga 的恢复过程中没有产生未经 owner 授权的第二次 `begin_execution`；
 - `OUTCOME_UNKNOWN` 已由 Host dispatch recovery / reconciliation 事实消解，而不是被人工覆盖；

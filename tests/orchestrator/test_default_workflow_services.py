@@ -24,6 +24,7 @@ from design_orchestrator.parameter_binder import (
     ParameterBinder,
     ParameterBindingContext,
 )
+from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 from design_orchestrator.workflow_contracts import StableRef
 
 
@@ -169,6 +170,7 @@ def test_operation_resolver_adapter_persists_resolution_and_returns_only_ref() -
     assert [item.canonical_operation for item in stored.resolved_operations] == ["move.v1"]
     assert stored.provider_candidates
     assert operation_space_ref.content_hash == store.hashes[operation_space_ref.ref_id]
+    assert operation_space_ref.content_hash == workflow_artifact_content_hash(stored)
     assert operation_space_ref.content_hash is not None
     assert len(operation_space_ref.content_hash) == 64
 
@@ -202,6 +204,7 @@ def test_parameter_binder_adapter_persists_bound_proposal_and_returns_only_ref()
         "targets": ["S-001", "S-002"],
         "displacement": [300, 0, 0],
     }
+    assert bound_ref.content_hash == workflow_artifact_content_hash(stored)
     assert bound_ref.content_hash is not None
     assert len(bound_ref.content_hash) == 64
 

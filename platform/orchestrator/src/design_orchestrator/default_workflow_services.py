@@ -9,11 +9,7 @@ transition 规则。
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass
-from enum import Enum
-from hashlib import sha256
+from dataclasses import dataclass
 from typing import Protocol
 
 from design_orchestrator.operation_resolver import (
@@ -28,8 +24,16 @@ from design_orchestrator.parameter_binder import (
     ParameterBinder,
     ParameterBindingContext,
 )
+from design_orchestrator.workflow_artifacts import (
+    WorkflowArtifactUnavailableError,
+    legacy_workflow_artifact_content_hash,
+    workflow_artifact_content_hash,
+)
 from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
-from design_orchestrator.workflow_services import ExecutionOwnerView
+from design_orchestrator.workflow_services import (
+    ExecutionOwnerView,
+    OperationArtifactResolution,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,81 +135,6 @@ class ExternalOwnerPorts(Protocol):
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView: ...
 
 
-def _normalize_for_hash(value: object) -> object:
-    """把 workflow-local artifact 递归投影成确定性的 JSON-compatible 结构。
-
-    这里的 hash 只服务于 Workflow Orchestrator 自己的 artifact 完整性引用，不替代任何
-    领域 owner 的 canonical hash。遇到无法稳定序列化的对象时 fail closed，避免把进程地址、
-    repr 或其他非确定性信息写进 checkpoint-facing ``StableRef``。
-    """
-
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Enum):
-        return _normalize_for_hash(value.value)
-    if isinstance(value, Mapping):
-        normalized_items: dict[str, object] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise TypeError("workflow artifact mappings require string keys")
-            normalized_items[key] = _normalize_for_hash(item)
-        return {key: normalized_items[key] for key in sorted(normalized_items)}
-    if isinstance(value, (tuple, list)):
-        return [_normalize_for_hash(item) for item in value]
-    if isinstance(value, (set, frozenset)):
-        normalized = [_normalize_for_hash(item) for item in value]
-        return sorted(
-            normalized,
-            key=lambda item: json.dumps(
-                item,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ),
-        )
-    if is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: _normalize_for_hash(getattr(value, field.name))
-            for field in fields(value)
-        }
-
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        try:
-            dumped = model_dump(mode="json")
-        except TypeError:
-            dumped = model_dump()
-        return _normalize_for_hash(dumped)
-
-    attributes = getattr(value, "__dict__", None)
-    if isinstance(attributes, Mapping):
-        public_attributes = {
-            str(key): item
-            for key, item in attributes.items()
-            if not str(key).startswith("_")
-        }
-        if public_attributes:
-            return _normalize_for_hash(public_attributes)
-
-    raise TypeError(
-        "workflow-local artifact contains a value without deterministic serialization"
-    )
-
-
-def _artifact_content_hash(value: object) -> str:
-    """计算 workflow-local artifact 的 lowercase SHA-256 内容摘要。"""
-
-    normalized = _normalize_for_hash(value)
-    payload = json.dumps(
-        normalized,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
-    return sha256(payload).hexdigest()
-
-
 class DefaultWorkflowServices:
     """ADR-010 的默认 service 组合器。
 
@@ -262,7 +191,98 @@ class DefaultWorkflowServices:
         return self._artifact_store.put(
             kind="operation_resolution",
             value=resolution,
-            content_hash=_artifact_content_hash(resolution),
+            content_hash=workflow_artifact_content_hash(resolution),
+        )
+
+    def ensure_operation_artifact(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> OperationArtifactResolution:
+        """确保 Operation Resolution artifact 在继续 HITL resume 前真实可用。
+
+        v2 checkpoint 只允许直接读取 durable artifact；artifact 缺失或损坏时必须 fail closed，
+        不能用当前 owner facts 重算后静默继续。只有显式进入 legacy migration 时，才允许依据
+        checkpoint 绑定的 snapshot inputs 重新运行真实 ``OperationResolver``，并且重建结果的
+        legacy hash 必须与旧 ``operation_ref`` 精确一致，之后才能写入新 codec artifact。
+        """
+
+        if not isinstance(operation_ref, StableRef):
+            raise TypeError("operation_ref must be a StableRef")
+        if not isinstance(context_snapshot_ref, StableRef):
+            raise TypeError("context_snapshot_ref must be a StableRef")
+        if not isinstance(allow_legacy_rehydrate, bool):
+            raise TypeError("allow_legacy_rehydrate must be a boolean")
+
+        # 首选 durable truth。即使调用方允许 legacy migration，已经存在的 durable artifact
+        # 仍必须直接复用，不能再次读取 owner facts 或制造新的 artifact identity。
+        unavailable: WorkflowArtifactUnavailableError
+        try:
+            persisted = self._artifact_store.get(operation_ref)
+        except WorkflowArtifactUnavailableError as exc:
+            unavailable = exc
+        else:
+            if isinstance(persisted, ResolutionResult):
+                return OperationArtifactResolution(
+                    ref=operation_ref,
+                    source="durable",
+                )
+            unavailable = WorkflowArtifactUnavailableError(
+                "operation artifact does not contain a ResolutionResult"
+            )
+
+        # v2 状态禁止 rehydrate。这里重新抛出 durable store 的不可用错误，保留其原始 cause，
+        # 让上层后续统一归一为稳定 workflow error，同时保证 checkpoint 不被修改。
+        if not allow_legacy_rehydrate:
+            raise unavailable
+
+        # Legacy migration 必须有旧 content hash 才能证明“当前重建结果就是历史 artifact”。
+        # 缺少 hash 时在读取任何 owner facts 之前 fail closed，避免以当前世界状态补写历史事实。
+        legacy_hash = operation_ref.content_hash
+        if legacy_hash is None:
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation artifact ref is missing content_hash"
+            ) from unavailable
+
+        try:
+            inputs = self._external_owners.load_operation_resolution_inputs(
+                context_snapshot_ref
+            )
+        except WorkflowArtifactUnavailableError:
+            raise
+        if not isinstance(inputs, OperationResolutionInputs):
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation resolution inputs are unavailable or invalid"
+            )
+
+        # 只调用 production resolver，不复制或简化 eligibility 逻辑。只有旧 hash 完全匹配时，
+        # 才证明这次 deterministic reconstruction 与 checkpoint 中的历史 identity 等价。
+        resolution = self._operation_resolver.resolve(inputs.profiles, inputs.context)
+        rebuilt_legacy_hash = legacy_workflow_artifact_content_hash(resolution)
+        if rebuilt_legacy_hash != legacy_hash:
+            raise WorkflowArtifactUnavailableError(
+                "legacy operation artifact hash does not match reconstructed resolution"
+            )
+
+        canonical_hash = workflow_artifact_content_hash(resolution)
+        migrated_ref = self._artifact_store.put(
+            kind="operation_resolution",
+            value=resolution,
+            content_hash=canonical_hash,
+        )
+        if not isinstance(migrated_ref, StableRef):
+            raise WorkflowArtifactUnavailableError(
+                "workflow artifact store returned an invalid migrated reference"
+            )
+        if migrated_ref.content_hash != canonical_hash:
+            raise WorkflowArtifactUnavailableError(
+                "migrated operation artifact reference hash does not match canonical hash"
+            )
+        return OperationArtifactResolution(
+            ref=migrated_ref,
+            source="rehydrated",
         )
 
     def bind_parameters(
@@ -300,7 +320,7 @@ class DefaultWorkflowServices:
         return self._artifact_store.put(
             kind="bound_operation_proposal",
             value=bound,
-            content_hash=_artifact_content_hash(bound),
+            content_hash=workflow_artifact_content_hash(bound),
         )
 
     def ensure_operation_freshness(
