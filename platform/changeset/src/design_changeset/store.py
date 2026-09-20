@@ -13,7 +13,10 @@ def _validate_reference(changeset: CanonicalChangeSet) -> None:
     """Validate stable reference fields without pulling Step28 into this owner store."""
     if not isinstance(changeset, CanonicalChangeSet):
         raise TypeError("changeset must be CanonicalChangeSet")
-    if not changeset.changeset_id.strip() or _HASH_PATTERN.fullmatch(changeset.changeset_hash) is None:
+    if (
+        not changeset.changeset_id.strip()
+        or _HASH_PATTERN.fullmatch(changeset.changeset_hash) is None
+    ):
         raise ChangeSetError(
             "CHANGESET_REFERENCE_INTEGRITY_INVALID",
             "ChangeSet reference requires a stable id and lowercase SHA-256 hash",
