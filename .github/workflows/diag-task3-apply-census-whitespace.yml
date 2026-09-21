@@ -1,0 +1,43 @@
+name: Diagnostic apply census whitespace fix
+
+on:
+  push:
+    branches:
+      - "diag/task3-ruff-import-canonical"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-exact-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: "feat/capability-real-owner-e2e-workflow"
+          fetch-depth: 0
+      - name: Lock exact feature HEAD
+        run: |
+          test "$(git rev-parse HEAD)" = "60b444744d3de263de8254b09d7f6fd980a87522"
+      - name: Remove only census trailing whitespace
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md")
+          text = path.read_text(encoding="utf-8")
+          fixed = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
+          path.write_text(fixed, encoding="utf-8")
+          PY
+          test "$(git diff --name-only)" = "docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md"
+          test "$(git diff --numstat)" = $'3\t3\tdocs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md'
+          git diff --check
+          git diff -- docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md
+      - name: Commit exact fix to feature branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md
+          git commit -m "docs: remove census trailing whitespace"
+          git push origin HEAD:refs/heads/feat/capability-real-owner-e2e-workflow
