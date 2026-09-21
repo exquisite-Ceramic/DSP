@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,56 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER = ROOT / "platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py"
 REAL_OWNER_E2E = ROOT / "tests/orchestrator/test_real_owner_workflow_end_to_end.py"
+CENSUS = ROOT / "docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md"
+
+# Task 5 只允许 production/reference adapter 从 owner 的 package root 消费公开契约。
+# 这些 root 来自 Task 1 frozen census；子模块路径一律视为实现细节，不能成为新 consumer。
+OWNER_ROOTS = {
+    "semantic_runtime",
+    "design_impact",
+    "design_approval_scope",
+    "design_changeset",
+    "design_materialization_topology",
+    "design_materialization_planning",
+    "design_execution_planning",
+    "design_gateway_authorization",
+    "design_provider_binding",
+    "design_execution_reconciliation",
+    "design_execution_coordination",
+    "design_convergence",
+}
+
+# Census 冻结在 Task 1 exact head；Task 2/3 按已批准 Plan 新增了这些 package-root public
+# surfaces。这里只登记已经完成并通过 exact-head gate 的新增 API，不预先为后续 Task 开口子。
+POST_CENSUS_PUBLIC_SURFACE = {
+    ("semantic_runtime", "RevisionBarrier"),
+    ("semantic_runtime", "HostRevisionObservationPort"),
+    ("semantic_runtime", "InMemorySnapshotRegistry"),
+    ("design_impact", "InMemoryImpactAnalysisStore"),
+    ("design_approval_scope", "InMemoryApprovalScopeStore"),
+    ("design_changeset", "InMemoryChangeSetStore"),
+    ("design_materialization_planning", "InMemoryMaterializationPlanStore"),
+    ("design_execution_planning", "InMemoryExecutionPlanV2Store"),
+    ("design_provider_binding", "InMemoryProviderBindingSetV2Store"),
+}
+
+# 这些名字属于 authoritative owners 的确定性算法/状态机实现。Adapter 可以导入并调用
+# package-root public symbol，但不能在本地重新定义同名 evaluator/builder/coordinator。
+OWNER_SEMANTIC_IMPLEMENTATION_NAMES = {
+    "ChangeSetBuilder",
+    "GatewayAuthorizationService",
+    "GatewayAuthorizationServiceV2",
+    "MaterializedExecutionSagaCoordinator",
+    "ExecutionReconciliationService",
+    "ExecutionReconciliationServiceV2",
+    "CrossHostConvergenceVerifier",
+    "plan_materialized_execution",
+    "resolve_provider_bindings_v2",
+    "validate_changeset_integrity_v2",
+    "validate_execution_plan_v2",
+}
+
+_PUBLIC_SURFACE_PATTERN = re.compile(r"`([A-Za-z0-9_.]+):([A-Za-z0-9_]+)`")
 
 
 @pytest.mark.parametrize(
@@ -75,27 +126,121 @@ def test_scenario_owner_is_forbidden_from_real_owner_surfaces() -> None:
 
     for path in targets:
         source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(path))
-        identifiers = {
-            node.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-        }
-        defined_classes = {
-            node.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef)
-        }
-        imported_names = {
-            alias.name
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.Import, ast.ImportFrom))
-            for alias in node.names
-        }
-        assert "_ScenarioOwners" not in identifiers | defined_classes | imported_names
+        assert not any(
+            "test-or-scenario-dependency" in violation
+            for violation in _boundary_violations(source)
+        ), path
+
+
+def _census_public_surface() -> dict[str, set[str]]:
+    """从 Task 1 machine-readable census 派生 package-root module:symbol allowlist。"""
+
+    approved = {root: set() for root in OWNER_ROOTS}
+    for line in CENSUS.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 6 or cells[0] in {"area", "---"}:
+            continue
+        for module, symbol in _PUBLIC_SURFACE_PATTERN.findall(cells[1]):
+            if module in OWNER_ROOTS:
+                approved[module].add(symbol)
+
+    for module, symbol in POST_CENSUS_PUBLIC_SURFACE:
+        approved[module].add(symbol)
+    return approved
+
+
+def _is_postgres_implementation(module: str) -> bool:
+    """数据库 driver 与 owner-private PostgreSQL adapter 都不能成为 composition import。"""
+
+    return (
+        module == "psycopg"
+        or module.startswith("psycopg.")
+        or any(part.startswith("postgres") for part in module.split("."))
+    )
+
+
+def _is_test_or_scenario_module(module: str) -> bool:
+    return module == "tests" or module.startswith("tests.")
+
+
+def _is_host_implementation(module: str) -> bool:
+    return (
+        module == "autocad_sidecar"
+        or module.startswith("autocad_sidecar.")
+        or module == "revit_sidecar"
+        or module.startswith("revit_sidecar.")
+        or module.startswith("hosts.autocad")
+        or module.startswith("hosts.revit")
+    )
+
+
+def _module_violation(module: str) -> str | None:
+    """先判定绝对禁止的依赖，再判断 owner package-root/private boundary。"""
+
+    if _is_test_or_scenario_module(module):
+        return f"test-or-scenario-dependency:{module}"
+    if _is_postgres_implementation(module):
+        return f"postgres-implementation:{module}"
+    if _is_host_implementation(module):
+        return f"host-implementation:{module}"
+
+    root = module.split(".", 1)[0]
+    if root in OWNER_ROOTS and module != root:
+        return f"owner-private-module:{module}"
+    return None
 
 
 def _boundary_violations(source: str) -> tuple[str, ...]:
-    """Task 5 RED：下一步实现 AST boundary detector，再让 mutation tests 转绿。"""
+    """返回 adapter source 对 frozen owner/public-surface boundary 的全部违规。"""
 
-    raise NotImplementedError("Task 5 RED: real-owner boundary detector is not implemented")
+    tree = ast.parse(source)
+    approved = _census_public_surface()
+    violations: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            module = node.module
+            module_problem = _module_violation(module)
+            if module_problem is not None:
+                violations.add(module_problem)
+                continue
+
+            root = module.split(".", 1)[0]
+            if root in OWNER_ROOTS:
+                for alias in node.names:
+                    if alias.name == "*" or alias.name not in approved[root]:
+                        violations.add(
+                            f"legacy-or-unapproved-symbol:{module}:{alias.name}"
+                        )
+
+            if any(alias.name == "_ScenarioOwners" for alias in node.names):
+                violations.add("test-or-scenario-dependency:_ScenarioOwners")
+
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                module = alias.name
+                module_problem = _module_violation(module)
+                if module_problem is not None:
+                    violations.add(module_problem)
+                    continue
+
+                root = module.split(".", 1)[0]
+                if root in OWNER_ROOTS:
+                    # `import owner` 会绕过 module:symbol whitelist，因此 production adapter
+                    # 必须使用 `from owner import ApprovedSymbol` 的显式消费形式。
+                    violations.add(f"unscoped-owner-import:{module}")
+
+        if isinstance(node, ast.Name) and node.id == "_ScenarioOwners":
+            violations.add("test-or-scenario-dependency:_ScenarioOwners")
+
+    # 只检查本模块实际定义的 class/function 名，不把合法 import 的 owner symbol 误判为复制。
+    for node in tree.body:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name in OWNER_SEMANTIC_IMPLEMENTATION_NAMES:
+                violations.add(f"duplicated-owner-semantics:{node.name}")
+            if node.name == "_ScenarioOwners":
+                violations.add("test-or-scenario-dependency:_ScenarioOwners")
+
+    return tuple(sorted(violations))
