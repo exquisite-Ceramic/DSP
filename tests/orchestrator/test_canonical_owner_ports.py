@@ -64,7 +64,7 @@ class _Preview:
     def preview(self, changeset_ref: StableRef) -> StableRef:
         return StableRef(
             ref_id=f"preview:{changeset_ref.ref_id}",
-            content_hash="p" * 64,
+            content_hash="b" * 64,
         )
 
 
@@ -165,7 +165,7 @@ def test_canonical_owner_ports_delegates_only_narrow_task4_boundaries() -> None:
     )
     assert adapter.preview(changeset_ref) == StableRef(
         "preview:changeset-1",
-        "p" * 64,
+        "b" * 64,
     )
     assert adapter.request_approval(changeset_ref) == StableRef(
         "approval:changeset-1",
