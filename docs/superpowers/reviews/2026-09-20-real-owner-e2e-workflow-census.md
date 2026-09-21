@@ -1,8 +1,8 @@
 # Real-Owner E2E Workflow — Exact-Head Census
 
-**Status:** Frozen implementation input  
-**Implementation base:** `main@41079eee452c4bb17588179366298fb41c9a0d0f`  
-**Feature RED head inspected:** `b5770632338a6f252fa54d331ac03500e1561d66`  
+**Status:** Frozen implementation input
+**Implementation base:** `main@41079eee452c4bb17588179366298fb41c9a0d0f`
+**Feature RED head inspected:** `b5770632338a6f252fa54d331ac03500e1561d66`
 **Authority:** `docs/superpowers/plans/2026-09-20-real-owner-e2e-workflow.md`
 
 本文把 Implementation Plan Task 1 的 owner/public-surface census 固化为可被架构测试解析的 implementation input。表内 `approved_public_surface` 是 production/reference composition 允许消费的 package-root public contract；`forbidden_surface` 记录 legacy、private implementation 或 test-only surface。后续 adapter 若需要表外 owner API，必须先更新 census 并证明与 approved Design/Plan 一致，不能在实现中静默扩张边界。
