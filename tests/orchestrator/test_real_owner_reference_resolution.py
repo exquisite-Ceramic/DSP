@@ -49,7 +49,6 @@ from semantic_runtime import (
     SnapshotSet,
     build_operation_contract,
 )
-
 from tests.execution_planning._support import build_phase_i_execution_inputs
 from tests.materialization_planning._support import build_case
 from tests.provider_binding._support import build_phase_i_binding_inputs
