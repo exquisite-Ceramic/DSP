@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
@@ -18,7 +17,6 @@ from design_orchestrator.default_workflow_services import (
 from design_orchestrator.operation_resolver import OperationResolver
 from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
 from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
-
 
 _OWNER_DEPENDENCY_NAMES = (
     "snapshot_registry",
