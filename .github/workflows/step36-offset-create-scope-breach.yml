@@ -116,11 +116,6 @@ jobs:
       - name: Enforce no new Step36 Ruff diagnostics
         run: |
           git worktree add /tmp/dsp-main origin/main
-          # Task 4 临时诊断：打印 Ruff 对唯一新增 I001 的精确 JSON fix edits；
-          # 取证后本 workflow 改动必须在最终 Task 4 HEAD 前完全撤销。
-          ruff check --select I --output-format=json \
-            tests/orchestrator/test_canonical_owner_ports.py > /tmp/task4-ruff.json || true
-          cat /tmp/task4-ruff.json
           (
             cd /tmp/dsp-main
             ruff check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/main-ruff.json || true
