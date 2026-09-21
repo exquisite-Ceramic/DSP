@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
@@ -101,11 +102,16 @@ def _adapter_kwargs() -> dict[str, object]:
     return values
 
 
-def _public_method_shape(cls: type[object]) -> dict[str, tuple[tuple[str, inspect._ParameterKind], ...]]:
+def _public_method_shape(
+    cls: type[object],
+) -> dict[str, tuple[tuple[str, inspect._ParameterKind], ...]]:
     """只比较既有 structural seam 的参数名与 kind，不把 annotation 文本当架构契约。"""
 
     return {
-        name: tuple((param.name, param.kind) for param in inspect.signature(member).parameters.values())
+        name: tuple(
+            (param.name, param.kind)
+            for param in inspect.signature(member).parameters.values()
+        )
         for name, member in inspect.getmembers(cls, predicate=inspect.isfunction)
         if not name.startswith("_")
     }
