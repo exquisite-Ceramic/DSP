@@ -1,0 +1,25 @@
+name: Diagnostic dispatch Task3 exact-head gates
+
+on:
+  push:
+    branches:
+      - "diag/task3-ruff-import-canonical"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch exact feature-branch verification workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: feat/capability-real-owner-e2e-workflow
+        run: |
+          gh workflow run repository-regression.yml --repo exquisite-Ceramic/DSP --ref "$TARGET_REF"
+          gh workflow run workflow-orchestrator.yml --repo exquisite-Ceramic/DSP --ref "$TARGET_REF"
+          gh workflow run durable-persistence.yml --repo exquisite-Ceramic/DSP --ref "$TARGET_REF"
+          gh workflow run step36-offset-create-scope-breach.yml --repo exquisite-Ceramic/DSP --ref "$TARGET_REF"
