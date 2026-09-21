@@ -62,6 +62,13 @@ from design_orchestrator.workflow_contracts import (
 from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 
 if TYPE_CHECKING:
+    # PostgreSQL adapter 是可选的 durable infrastructure dependency。
+    # 仅在静态类型检查阶段导入，避免普通 Orchestrator/D6 消费方在运行时被迫安装 psycopg。
+    from design_orchestrator.artifact_postgres import (
+        PostgresWorkflowArtifactStore,
+        create_postgres_artifact_store,
+    )
+
     # Interaction 子树当前仍是 repository source-only package，并非 uv workspace distribution。
     # 静态类型检查可以看到这些公共符号；普通 Orchestrator 消费方只有真正访问它们时才加载。
     from design_orchestrator.interactive_binding import (
@@ -70,13 +77,6 @@ if TYPE_CHECKING:
         InteractiveParameterResolver,
         OperationInteractionRecipe,
         SlotInteractionRecipe,
-    )
-
-    # PostgreSQL adapter 是可选的 durable infrastructure dependency。
-    # 仅在静态类型检查阶段导入，避免普通 Orchestrator/D6 消费方在运行时被迫安装 psycopg。
-    from design_orchestrator.artifact_postgres import (
-        PostgresWorkflowArtifactStore,
-        create_postgres_artifact_store,
     )
 
 
