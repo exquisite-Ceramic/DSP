@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import inspect
+import os
 import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
@@ -179,7 +181,7 @@ def test_canonical_owner_ports_delegates_only_narrow_task4_boundaries() -> None:
 
 
 def test_canonical_owner_ports_import_smoke_blocks_database_and_test_imports() -> None:
-    """导入 composition module 不得隐式加载 psycopg、PostgreSQL adapter 或 tests。"""
+    """隔离导入 composition module，不得隐式加载数据库实现或测试 helper。"""
 
     script = textwrap.dedent(
         """
@@ -200,11 +202,26 @@ def test_canonical_owner_ports_import_smoke_blocks_database_and_test_imports() -
         import design_orchestrator.canonical_owner_ports
         """
     )
+
+    # Step36 通过 pytest source path 运行 orchestrator tests，但不会把 orchestrator
+    # 安装为 distribution；子进程不会继承 pytest 对父进程 sys.path 的注入。
+    # 显式只加入 orchestrator/src，使本测试隔离验证“模块导入副作用”，而非 CI 安装布局。
+    repo_root = Path(__file__).resolve().parents[2]
+    orchestrator_src = repo_root / "platform" / "orchestrator" / "src"
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(orchestrator_src)
+        if not existing_pythonpath
+        else os.pathsep.join((str(orchestrator_src), existing_pythonpath))
+    )
+
     completed = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
     assert completed.returncode == 0, completed.stderr
