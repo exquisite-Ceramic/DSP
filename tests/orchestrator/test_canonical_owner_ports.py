@@ -12,6 +12,13 @@ from pathlib import Path
 import pytest
 from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
+from design_execution_planning import (
+    HostRuntimeRef,
+    InMemoryExecutionPlanV2Store,
+    MaterializationRoutingEvidence,
+    MaterializationRuntimeRoute,
+    compute_materialization_routing_hash,
+)
 from design_gateway_authorization import (
     ApprovalAdmission,
     GatewayAuthorizationServiceV2,
@@ -19,6 +26,10 @@ from design_gateway_authorization import (
     compute_admission_fingerprint,
 )
 from design_impact import ImpactAnalyzer, ImpactError, InMemoryImpactAnalysisStore
+from design_materialization_planning import (
+    InMemoryMaterializationPlanStore,
+    MaterializationPlanner,
+)
 from design_materialization_topology import (
     MaterializationRequirement,
     MaterializationSlot,
@@ -592,6 +603,104 @@ def test_task7_request_approval_consumes_real_gateway_v2_admission() -> None:
     assert stored.record.changeset_hash == changeset.changeset_hash
     assert stored.record.approved_scope_hash == boundary.scope_hash
     assert admission_port.calls == [changeset_ref]
+
+
+class _Task7Routing:
+    """只提供运行时路由事实；Execution Planning V2 仍拥有计划语义。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def resolve(self, materialization_plan, topology_snapshot):
+        intent = materialization_plan.intents[0]
+        slot = next(
+            item
+            for item in topology_snapshot.slots
+            if item.materialization_slot_id == intent.materialization_slot_id
+        )
+        route = MaterializationRuntimeRoute(
+            materialization_id=intent.materialization_id,
+            host_runtime_ref=HostRuntimeRef(
+                host_type=intent.required_host_type,
+                host_instance_id="REVIT-TASK7",
+                document_ref=slot.document_ref,
+            ),
+        )
+        self.calls.append(
+            (materialization_plan.materialization_plan_hash, topology_snapshot.topology_snapshot_hash)
+        )
+        return MaterializationRoutingEvidence(
+            routing_snapshot_id="ROUTING-TASK7",
+            routes=(route,),
+            routing_snapshot_hash=compute_materialization_routing_hash((route,)),
+        )
+
+
+def test_task7_plan_execution_uses_real_materialization_and_execution_owners() -> None:
+    """真实 MaterializationPlanner 与 Execution Planning V2 必须产出可解析 owner refs。"""
+
+    gateway_store = InMemoryGatewayAuthorizationStoreV2()
+    gateway = GatewayAuthorizationServiceV2(gateway_store)
+    admission_port = _Task7ApprovalAdmission()
+    materialization_store = InMemoryMaterializationPlanStore()
+    execution_store = InMemoryExecutionPlanV2Store()
+    routing = _Task7Routing()
+    (
+        adapter,
+        bound_ref,
+        impact_ref,
+        _,
+        _,
+        approval_scope_store,
+        changeset_store,
+        _,
+    ) = _task6_real_impact_case(
+        overrides={
+            "gateway_authorization": gateway,
+            "gateway_authorization_store": gateway_store,
+            "coordination_clock": _Task7Clock(),
+            "approval_admission": admission_port,
+            "materialization_planner": MaterializationPlanner(),
+            "materialization_plan_store": materialization_store,
+            "execution_plan_store": execution_store,
+            "materialization_routing": routing,
+        }
+    )
+    changeset_ref = adapter.build_changeset("task-6", bound_ref, impact_ref)
+    changeset = changeset_store.get(changeset_ref.ref_id)
+    boundary = approval_scope_store.get_boundary(f"SCOPE-{changeset.changeset_id}")
+    draft = ApprovalAdmission(
+        admission_id="ADM-TASK7-PLANNING",
+        changeset_hash=changeset.changeset_hash,
+        approved_scope_hash=boundary.scope_hash,
+        semantic_environment_ref=changeset.semantic_environment_ref,
+        approver="user:task7-planning",
+        policy_snapshot_hash="8" * 64,
+        policy_allowed_operations=(changeset.root_operation.canonical_operation,),
+        approved_at="2026-09-06T09:00:00Z",
+        expires_at="2026-09-06T17:00:00Z",
+        admission_fingerprint="0" * 64,
+    )
+    admission_port.admission = replace(
+        draft,
+        admission_fingerprint=compute_admission_fingerprint(draft),
+    )
+    approval_ref = adapter.request_approval(changeset_ref)
+    assert isinstance(approval_ref, StableRef)
+
+    plan_ref = adapter.plan_execution(changeset_ref, approval_ref)
+
+    plan = execution_store.get(plan_ref.ref_id)
+    materialization = materialization_store.get(plan.materialization_plan_hash)
+    assert plan_ref.content_hash == plan.execution_plan_hash
+    assert plan.changeset_hash == changeset.changeset_hash
+    assert plan.approval_scope_ref.scope_hash == boundary.scope_hash
+    assert plan.topology_snapshot_hash == _task6_topology().topology_snapshot_hash
+    assert materialization.changeset_hash == changeset.changeset_hash
+    assert materialization.approved_scope_hash == boundary.scope_hash
+    assert routing.calls == [
+        (materialization.materialization_plan_hash, plan.topology_snapshot_hash)
+    ]
 
 
 def test_task7_seam_carries_authorization_store_clock_and_grant_lineage() -> None:
