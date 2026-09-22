@@ -56,6 +56,10 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
+      - name: Apply exact Ruff import formatting
+        run: >-
+          uv run ruff check --select I --fix
+          tests/orchestrator/test_canonical_owner_ports.py
       - name: Run approval and orchestrator regressions
         run: |
           uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py -q
