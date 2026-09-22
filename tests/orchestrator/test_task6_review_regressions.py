@@ -15,7 +15,6 @@ from design_orchestrator.default_workflow_services import (
     OperationResolutionInputs,
     ParameterBindingInputs,
 )
-from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import (
     OperationResolver,
     ResolutionContext,
@@ -33,7 +32,6 @@ from design_orchestrator.workflow_contracts import (
     WorkflowPhase,
     WorkflowStartRequest,
 )
-from langgraph.checkpoint.memory import InMemorySaver
 from semantic_runtime import DirtyMap, FreshnessResolver
 from tests.orchestrator.test_canonical_owner_ports import (
     _ApprovalAdmission,
@@ -271,6 +269,12 @@ def test_task6_adapter_has_no_process_local_required_lineage_maps() -> None:
 
 def test_task6_real_runtime_start_reaches_operation_proposal_hitl() -> None:
     """真实 runtime 必须穿过 context freshness 与真实 OperationResolver，而不是在前置 loader 阻断。"""
+
+    # Step23/Step36 的轻量回归 lane 不安装 LangGraph；其它 4 条 Task 6 review
+    # regression 仍必须继续执行。只有这一条真实 runtime proof 在缺少可选依赖时单独跳过。
+    pytest.importorskip("langgraph")
+    from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
+    from langgraph.checkpoint.memory import InMemorySaver
 
     (
         _,
