@@ -13,6 +13,7 @@ from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
 from design_impact import ImpactAnalyzer, InMemoryImpactAnalysisStore, ImpactError
 from design_materialization_topology import (
+    MaterializationRequirement,
     MaterializationSlot,
     MaterializationTopologyRegistry,
     MaterializationTopologySnapshot,
@@ -214,11 +215,11 @@ def _task6_topology() -> MaterializationTopologySnapshot:
         topology_revision=1,
         slots=(
             MaterializationSlot(
-                slot_id="SLOT-TASK6",
-                host_kind="REVIT",
-                host_instance_id="revit-task6",
+                materialization_slot_id="SLOT-TASK6",
+                semantic_target_ref="WALL-001",
+                required_host_type="revit",
                 document_ref="DOC-TASK6",
-                authoritative_for=("WALL-001",),
+                requirement=MaterializationRequirement.REQUIRED,
             ),
         ),
         topology_snapshot_hash="0" * 64,
