@@ -6,11 +6,18 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
+from design_gateway_authorization import (
+    ApprovalAdmission,
+    GatewayAuthorizationServiceV2,
+    InMemoryGatewayAuthorizationStoreV2,
+    compute_admission_fingerprint,
+)
 from design_impact import ImpactAnalyzer, ImpactError, InMemoryImpactAnalysisStore
 from design_materialization_topology import (
     MaterializationRequirement,
@@ -228,7 +235,11 @@ def _task6_topology() -> MaterializationTopologySnapshot:
     return replace(draft, topology_snapshot_hash=compute_topology_snapshot_hash(draft))
 
 
-def _task6_adapter(*, changeset_builder: object | None = None):
+def _task6_adapter(
+    *,
+    changeset_builder: object | None = None,
+    overrides: dict[str, object] | None = None,
+):
     from design_approval_scope import ApprovalScopePlanner
     from design_changeset import ChangeSetBuilder
     from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
@@ -264,6 +275,8 @@ def _task6_adapter(*, changeset_builder: object | None = None):
             "approval_admission": _ApprovalAdmission(),
         }
     )
+    if overrides is not None:
+        values.update(overrides)
     adapter = CanonicalWorkflowOwnerPorts(**values)
     return (
         adapter,
@@ -293,7 +306,10 @@ def _task6_bound_operation(context_ref: StableRef):
     )
 
 
-def _task6_real_impact_case():
+def _task6_real_impact_case(
+    *,
+    overrides: dict[str, object] | None = None,
+):
     (
         adapter,
         artifact_store,
@@ -302,7 +318,7 @@ def _task6_real_impact_case():
         approval_scope_store,
         changeset_store,
         semantic_reconstruction,
-    ) = _task6_adapter()
+    ) = _task6_adapter(overrides=overrides)
     context_request_ref = adapter.resolve_host_context("task-6")
     context_ref = adapter.ensure_context_freshness(context_request_ref)
     assert isinstance(context_ref, StableRef)
@@ -407,11 +423,6 @@ def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> No
         "preview:changeset-1",
         "b" * 64,
     )
-    assert adapter.request_approval(changeset_ref) == StableRef(
-        "approval:changeset-1",
-        "a" * 64,
-    )
-
     with pytest.raises(CanonicalOwnerPortNotWiredError) as exc_info:
         adapter.plan_execution(
             StableRef("changeset-1", "1" * 64),
@@ -505,6 +516,82 @@ def test_task6_missing_impact_ref_fails_closed_before_changeset_builder() -> Non
         )
     assert exc_info.value.code == "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND"
     assert builder.calls == 0
+
+
+class _Task7ApprovalAdmission:
+    """只提供 human/policy admission；不生成 Gateway approval truth。"""
+
+    def __init__(self) -> None:
+        self.admission: ApprovalAdmission | None = None
+        self.calls: list[StableRef] = []
+
+    def request_approval(self, changeset_ref: StableRef) -> ApprovalAdmission:
+        self.calls.append(changeset_ref)
+        if self.admission is None:
+            raise AssertionError("Task 7 approval admission fixture is not configured")
+        return self.admission
+
+
+class _Task7Clock:
+    """为 Gateway consume/issue/admit 提供确定性的共享 UTC 时钟。"""
+
+    def now(self) -> datetime:
+        return datetime.fromisoformat("2026-09-06T10:00:00+00:00")
+
+
+def test_task7_request_approval_consumes_real_gateway_v2_admission() -> None:
+    """Admission 只能作为输入；workflow approval_ref 必须来自真实 Gateway V2。"""
+
+    gateway_store = InMemoryGatewayAuthorizationStoreV2()
+    gateway = GatewayAuthorizationServiceV2(gateway_store)
+    admission_port = _Task7ApprovalAdmission()
+    (
+        adapter,
+        bound_ref,
+        impact_ref,
+        _,
+        _,
+        approval_scope_store,
+        changeset_store,
+        _,
+    ) = _task6_real_impact_case(
+        overrides={
+            "gateway_authorization": gateway,
+            "gateway_authorization_store": gateway_store,
+            "coordination_clock": _Task7Clock(),
+            "approval_admission": admission_port,
+        }
+    )
+    changeset_ref = adapter.build_changeset("task-6", bound_ref, impact_ref)
+    changeset = changeset_store.get(changeset_ref.ref_id)
+    boundary = approval_scope_store.get_boundary(f"SCOPE-{changeset.changeset_id}")
+
+    draft = ApprovalAdmission(
+        admission_id="ADM-TASK7",
+        changeset_hash=changeset.changeset_hash,
+        approved_scope_hash=boundary.scope_hash,
+        semantic_environment_ref=changeset.semantic_environment_ref,
+        approver="user:task7-approver",
+        policy_snapshot_hash="7" * 64,
+        policy_allowed_operations=(changeset.root_operation.canonical_operation,),
+        approved_at="2026-09-06T09:00:00Z",
+        expires_at="2026-09-06T17:00:00Z",
+        admission_fingerprint="0" * 64,
+    )
+    admission_port.admission = replace(
+        draft,
+        admission_fingerprint=compute_admission_fingerprint(draft),
+    )
+
+    approval_ref = adapter.request_approval(changeset_ref)
+
+    assert isinstance(approval_ref, StableRef)
+    stored = gateway_store.get_approval(approval_ref.ref_id)
+    assert stored is not None
+    assert approval_ref.content_hash == stored.record.approval_hash
+    assert stored.record.changeset_hash == changeset.changeset_hash
+    assert stored.record.approved_scope_hash == boundary.scope_hash
+    assert admission_port.calls == [changeset_ref]
 
 
 def test_task7_seam_carries_authorization_store_clock_and_grant_lineage() -> None:
