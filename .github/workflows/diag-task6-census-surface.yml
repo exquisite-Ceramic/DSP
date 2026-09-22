@@ -1,0 +1,80 @@
+name: Diagnostic Task6 census surface
+
+on:
+  push:
+    branches:
+      - diag/task6-census-surface
+
+permissions:
+  contents: write
+
+jobs:
+  patch-census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/capability-real-owner-e2e-workflow
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply exact Task6 public-surface census patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="2f29d669ef16f98f499118a93d5099863ea1e97c"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              "`semantic_runtime:SnapshotSet` |": (
+                  "`semantic_runtime:SnapshotSet`<br>"
+                  "`semantic_runtime:ReconstructionResult`<br>"
+                  "`semantic_runtime:requirements_from_mappings` |"
+              ),
+              "`design_impact:ImpactAnalysis` |": (
+                  "`design_impact:ImpactAnalysis`<br>"
+                  "`design_impact:IntentBoundary`<br>"
+                  "`design_impact:PlanningSnapshotBinding`<br>"
+                  "`design_impact:SnapshotSetBinding`<br>"
+                  "`design_impact:SemanticEnvironmentBinding` |"
+              ),
+              "`design_approval_scope:validate_approval_scope_boundary_v2` |": (
+                  "`design_approval_scope:validate_approval_scope_boundary_v2`<br>"
+                  "`design_approval_scope:CanonicalAspect`<br>"
+                  "`design_approval_scope:CanonicalEffectEvidence`<br>"
+                  "`design_approval_scope:DirectEntityEffect`<br>"
+                  "`design_approval_scope:ExecutionSliceScopeRule`<br>"
+                  "`design_approval_scope:direct_existing_rule_id` |"
+              ),
+              "`design_changeset:validate_changeset_integrity_v2` |": (
+                  "`design_changeset:validate_changeset_integrity_v2`<br>"
+                  "`design_changeset:BoundOperationEvidence`<br>"
+                  "`design_changeset:CanonicalOperationContractEvidence`<br>"
+                  "`design_changeset:compute_bound_operation_fingerprint`<br>"
+                  "`design_changeset:compute_bound_operation_evidence_fingerprint`<br>"
+                  "`design_changeset:compute_contract_definition_fingerprint` |"
+              ),
+              "`design_materialization_topology:compute_materialization_topology_hash`": (
+                  "`design_materialization_topology:compute_topology_snapshot_hash`"
+              ),
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one census token for {old!r}, found {count}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          test "$(git diff --name-only)" = "docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md"
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md
+          git commit -m "docs: extend Task6 owner public surface census"
+          git push origin HEAD:feat/capability-real-owner-e2e-workflow
