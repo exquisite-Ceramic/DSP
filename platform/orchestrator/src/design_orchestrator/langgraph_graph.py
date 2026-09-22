@@ -279,7 +279,13 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         }
 
     def build_changeset(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.build_changeset(_require_stable_ref(state, "impact_ref"))
+        """显式携带 task/operation/impact lineage，禁止从 content-addressed owner truth 反推 task。"""
+
+        result = services.build_changeset(
+            cast(str, state["task_id"]),
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "impact_ref"),
+        )
         return {
             "changeset_ref": _encode_stable_ref(result),
             "phase": WorkflowPhase.PREVIEW.value,
