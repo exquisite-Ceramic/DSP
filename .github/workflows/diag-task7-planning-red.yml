@@ -1,0 +1,69 @@
+name: Task7 planning RED diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task7-planning-red
+
+permissions:
+  contents: write
+
+jobs:
+  focused-red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-planning-red
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Add real materialization and execution planning RED test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/orchestrator/test_canonical_owner_ports.py")
+          text = path.read_text()
+          text = text.replace(
+              "from design_gateway_authorization import (\n",
+              "from design_execution_planning import (\n"
+              "    HostRuntimeRef,\n"
+              "    InMemoryExecutionPlanV2Store,\n"
+              "    MaterializationRoutingEvidence,\n"
+              "    MaterializationRuntimeRoute,\n"
+              "    compute_materialization_routing_hash,\n"
+              ")\n"
+              "from design_gateway_authorization import (\n",
+          )
+          text = text.replace(
+              "from design_materialization_topology import (\n",
+              "from design_materialization_planning import (\n"
+              "    InMemoryMaterializationPlanStore,\n"
+              "    MaterializationPlanner,\n"
+              ")\n"
+              "from design_materialization_topology import (\n",
+          )
+
+          marker = "def test_task7_seam_carries_authorization_store_clock_and_grant_lineage() -> None:\n"
+          test = '''class _Task7Routing:\n    \"\"\"只提供运行时路由事实；Execution Planning V2 仍拥有计划语义。\"\"\"\n\n    def __init__(self) -> None:\n        self.calls: list[tuple[str, str]] = []\n\n    def resolve(self, materialization_plan, topology_snapshot):\n        intent = materialization_plan.intents[0]\n        slot = next(\n            item\n            for item in topology_snapshot.slots\n            if item.materialization_slot_id == intent.materialization_slot_id\n        )\n        route = MaterializationRuntimeRoute(\n            materialization_id=intent.materialization_id,\n            host_runtime_ref=HostRuntimeRef(\n                host_type=intent.required_host_type,\n                host_instance_id=\"REVIT-TASK7\",\n                document_ref=slot.document_ref,\n            ),\n        )\n        self.calls.append(\n            (materialization_plan.materialization_plan_hash, topology_snapshot.topology_snapshot_hash)\n        )\n        return MaterializationRoutingEvidence(\n            routing_snapshot_id=\"ROUTING-TASK7\",\n            routes=(route,),\n            routing_snapshot_hash=compute_materialization_routing_hash((route,)),\n        )\n\n\ndef test_task7_plan_execution_uses_real_materialization_and_execution_owners() -> None:\n    \"\"\"真实 MaterializationPlanner 与 Execution Planning V2 必须产出可解析 owner refs。\"\"\"\n\n    gateway_store = InMemoryGatewayAuthorizationStoreV2()\n    gateway = GatewayAuthorizationServiceV2(gateway_store)\n    admission_port = _Task7ApprovalAdmission()\n    materialization_store = InMemoryMaterializationPlanStore()\n    execution_store = InMemoryExecutionPlanV2Store()\n    routing = _Task7Routing()\n    (\n        adapter,\n        bound_ref,\n        impact_ref,\n        _,\n        _,\n        approval_scope_store,\n        changeset_store,\n        _,\n    ) = _task6_real_impact_case(\n        overrides={\n            \"gateway_authorization\": gateway,\n            \"gateway_authorization_store\": gateway_store,\n            \"coordination_clock\": _Task7Clock(),\n            \"approval_admission\": admission_port,\n            \"materialization_planner\": MaterializationPlanner(),\n            \"materialization_plan_store\": materialization_store,\n            \"execution_plan_store\": execution_store,\n            \"materialization_routing\": routing,\n        }\n    )\n    changeset_ref = adapter.build_changeset(\"task-6\", bound_ref, impact_ref)\n    changeset = changeset_store.get(changeset_ref.ref_id)\n    boundary = approval_scope_store.get_boundary(f\"SCOPE-{changeset.changeset_id}\")\n    draft = ApprovalAdmission(\n        admission_id=\"ADM-TASK7-PLANNING\",\n        changeset_hash=changeset.changeset_hash,\n        approved_scope_hash=boundary.scope_hash,\n        semantic_environment_ref=changeset.semantic_environment_ref,\n        approver=\"user:task7-planning\",\n        policy_snapshot_hash=\"8\" * 64,\n        policy_allowed_operations=(changeset.root_operation.canonical_operation,),\n        approved_at=\"2026-09-06T09:00:00Z\",\n        expires_at=\"2026-09-06T17:00:00Z\",\n        admission_fingerprint=\"0\" * 64,\n    )\n    admission_port.admission = replace(\n        draft,\n        admission_fingerprint=compute_admission_fingerprint(draft),\n    )\n    approval_ref = adapter.request_approval(changeset_ref)\n    assert isinstance(approval_ref, StableRef)\n\n    plan_ref = adapter.plan_execution(changeset_ref, approval_ref)\n\n    plan = execution_store.get(plan_ref.ref_id)\n    materialization = materialization_store.get(plan.materialization_plan_hash)\n    assert plan_ref.content_hash == plan.execution_plan_hash\n    assert plan.changeset_hash == changeset.changeset_hash\n    assert plan.approval_scope_ref.scope_hash == boundary.scope_hash\n    assert plan.topology_snapshot_hash == _task6_topology().topology_snapshot_hash\n    assert materialization.changeset_hash == changeset.changeset_hash\n    assert materialization.approved_scope_hash == boundary.scope_hash\n    assert routing.calls == [\n        (materialization.materialization_plan_hash, plan.topology_snapshot_hash)\n    ]\n\n\n'''
+          if "test_task7_plan_execution_uses_real_materialization_and_execution_owners" not in text:
+              text = text.replace(marker, test + marker)
+          path.write_text(text)
+          PY
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused Task7 planning RED
+        run: >-
+          uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py -q
+          -k task7_plan_execution_uses_real_materialization_and_execution_owners
+      - name: Commit RED test after expected failure
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m "test: add Task7 real planning RED"
+          git push origin HEAD:diag/task7-planning-red
