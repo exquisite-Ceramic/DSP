@@ -1,0 +1,168 @@
+name: Task7 planning GREEN diagnostic v3
+
+on:
+  push:
+    branches:
+      - diag/task7-planning-green-v3
+
+permissions:
+  contents: write
+
+jobs:
+  focused-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-planning-green-v3
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Apply minimal Task7 planning implementation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          adapter = Path("platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py")
+          text = adapter.read_text(encoding="utf-8")
+          start = text.index("    def plan_execution(\n")
+          end = text.index("\n    def check_revision_barrier", start)
+          replacement = '''    def plan_execution(
+        self,
+        changeset_ref: StableRef,
+        approval_ref: StableRef,
+    ) -> StableRef:
+        """组合真实 materialization / execution-planning owners 并发布不可变计划引用。
+
+        本方法只解析 authoritative refs、组装 owner request 与校验跨 owner identity join；
+        convergence profile、materialization 规则与 execution planning 规则仍由各自 owner
+        的 package-root public API 决定，adapter 不复制任何选择或排序算法。
+        """
+
+        from design_convergence import (
+            ConvergenceProfileBuildRequest,
+            build_convergence_profile,
+        )
+        from design_execution_planning import (
+            ExecutionPlanningRequestV2,
+            MaterializationRoutingEvidence,
+            plan_materialized_execution,
+        )
+        from design_materialization_planning import MaterializationPlanningRequest
+
+        changeset = self._changeset_store.get(changeset_ref.ref_id)
+        self._ref_hash_matches(
+            changeset_ref,
+            changeset.changeset_hash,
+            kind="CanonicalChangeSet",
+        )
+        boundary = self._approval_scope_store.get_boundary(
+            f"SCOPE-{changeset.changeset_id}"
+        )
+
+        # approval_ref 必须解析到 Gateway owner 已消费并持有的真实 approval；这里仅做
+        # content identity join，不自行解释 approval lifecycle 或 policy semantics。
+        stored_approval = self._gateway_authorization_store.get_approval(
+            approval_ref.ref_id
+        )
+        if stored_approval is None:
+            raise ValueError("Gateway approval StableRef is unresolved")
+        approval = stored_approval.record
+        self._ref_hash_matches(
+            approval_ref,
+            approval.approval_hash,
+            kind="GatewayApproval",
+        )
+        if approval.changeset_hash != changeset.changeset_hash:
+            raise ValueError("Gateway approval does not reference this ChangeSet")
+        if approval.approved_scope_hash != boundary.scope_hash:
+            raise ValueError("Gateway approval does not reference this approval scope")
+
+        topology = self._topology_registry.get(
+            self._topology_environment_id,
+            self._topology_revision,
+        )
+        definition = self._canonical_definition(
+            changeset.root_operation.canonical_operation,
+            changeset.root_operation.canonical_operation_version,
+        )
+        convergence_profile = build_convergence_profile(
+            ConvergenceProfileBuildRequest(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                canonical_operation_definition=definition,
+            )
+        )
+        materialization_plan = self._materialization_planner.plan(
+            MaterializationPlanningRequest(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                topology_snapshot=topology,
+                convergence_profile=convergence_profile,
+            )
+        )
+        self._materialization_plan_store.put(materialization_plan)
+
+        # Runtime routing 是明确的环境边界；adapter 只要求它返回 owner public contract，
+        # 不在这里选择 Host、排序 route 或推断 provider eligibility。
+        routing = self._materialization_routing.routing_evidence(
+            materialization_plan,
+            topology,
+        )
+        if not isinstance(routing, MaterializationRoutingEvidence):
+            raise TypeError(
+                "materialization_routing must return MaterializationRoutingEvidence"
+            )
+        execution_plan = plan_materialized_execution(
+            ExecutionPlanningRequestV2(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                materialization_plan=materialization_plan,
+                topology_snapshot=topology,
+                runtime_routing_evidence=routing,
+            )
+        )
+        self._execution_plan_store.put(execution_plan)
+        return StableRef(
+            execution_plan.execution_plan_id,
+            execution_plan.execution_plan_hash,
+        )
+'''
+          adapter.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+          census = Path("docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md")
+          census_text = census.read_text(encoding="utf-8")
+          old_surface = "`design_convergence:ConvergenceComparisonProfile`<br>`design_convergence:build_convergence_profile`"
+          new_surface = "`design_convergence:ConvergenceComparisonProfile`<br>`design_convergence:ConvergenceProfileBuildRequest`<br>`design_convergence:build_convergence_profile`"
+          if old_surface not in census_text:
+              raise SystemExit("convergence census surface marker not found")
+          census.write_text(census_text.replace(old_surface, new_surface, 1), encoding="utf-8")
+          PY
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused Task7 planning GREEN
+        run: uv run python -m pytest tests/orchestrator/test_task7_planning.py -q
+      - name: Run real-owner architecture guard
+        run: >-
+          uv run python -m pytest
+          tests/architecture/test_real_owner_workflow_boundaries.py
+          tests/architecture/test_canonical_v2_boundaries.py -q
+      - name: Run focused Ruff
+        run: >-
+          uv run ruff check
+          platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py
+          tests/orchestrator/test_task7_planning.py
+          tests/architecture/test_real_owner_workflow_boundaries.py
+      - name: Commit verified planning GREEN without diagnostic workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/diag-task7-planning-green-v3.yml
+          git add \
+            platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+            docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md \
+            tests/orchestrator/test_task7_planning.py
+          git commit -m "feat: wire real Task7 planning owners"
+          git push origin HEAD:diag/task7-planning-green-v3
