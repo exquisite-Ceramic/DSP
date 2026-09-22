@@ -457,7 +457,7 @@ def test_task6_real_impact_scope_v2_and_changeset_v2_preserve_lineage() -> None:
 
     (
         adapter,
-        _,
+        bound_ref,
         impact_ref,
         _,
         impact_store,
@@ -466,7 +466,7 @@ def test_task6_real_impact_scope_v2_and_changeset_v2_preserve_lineage() -> None:
         _,
     ) = _task6_real_impact_case()
 
-    changeset_ref = adapter.build_changeset(impact_ref)
+    changeset_ref = adapter.build_changeset("task-6", bound_ref, impact_ref)
     changeset = changeset_store.get(changeset_ref.ref_id)
     analysis = impact_store.get(impact_ref.ref_id)
     definition = approval_scope_store.get_definition(
@@ -497,7 +497,11 @@ def test_task6_missing_impact_ref_fails_closed_before_changeset_builder() -> Non
     adapter, *_ = _task6_adapter(changeset_builder=builder)
 
     with pytest.raises(ImpactError) as exc_info:
-        adapter.build_changeset(StableRef("IA-MISSING", "f" * 64))
+        adapter.build_changeset(
+            "task-6",
+            StableRef("artifact:missing-bound-operation", "e" * 64),
+            StableRef("IA-MISSING", "f" * 64),
+        )
     assert exc_info.value.code == "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND"
     assert builder.calls == 0
 
