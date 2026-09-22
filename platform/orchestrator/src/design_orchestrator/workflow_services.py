@@ -194,7 +194,12 @@ class WorkflowServices(Protocol):
 
     def analyze_impact(self, operation_ref: StableRef) -> StableRef: ...
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef: ...
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef: ...
 
     def preview(self, changeset_ref: StableRef) -> StableRef: ...
 
