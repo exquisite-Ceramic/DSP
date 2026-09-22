@@ -252,8 +252,13 @@ class _ScenarioOwners:
 
         return StableRef("provider-binding-task9", "7" * 64)
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:
-        """Gateway owner 返回 ExecutionGrant 引用。"""
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef:
+        """Gateway owner 返回 ExecutionGrant 引用；测试 fake 仅跟随显式 lineage seam。"""
 
         return StableRef("grant-task9", "8" * 64)
 
