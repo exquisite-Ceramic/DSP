@@ -218,7 +218,12 @@ class WorkflowServices(Protocol):
 
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef: ...
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef: ...
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef: ...
 
     def begin_execution(
         self,
