@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch-and-verify:
-    if: github.event.head_commit.message != 'test: advance Task7 fail-closed boundary'
+    if: "github.event.head_commit.message != 'test: advance Task7 fail-closed boundary'"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
