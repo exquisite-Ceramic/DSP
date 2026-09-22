@@ -6,10 +6,10 @@ on:
       - diag/task6-review-ruff
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  ruff-autofix-diff:
+  ruff-autofix-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,13 +18,60 @@ jobs:
           python-version: "3.11"
       - name: Install Ruff
         run: python -m pip install ruff==0.16.8
-      - name: Print exact Ruff autofix diff
+      - name: Apply exact Ruff and E501 fixes
         run: |
           ruff check --select E,F,I --fix \
             platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
             tests/orchestrator/test_canonical_owner_ports.py \
             tests/orchestrator/test_task6_review_regressions.py || true
-          git diff -- \
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("platform/orchestrator/src/design_orchestrator/langgraph_graph.py"): (
+                  '        """显式携带 task/operation/impact lineage，禁止从 content-addressed owner truth 反推 task。"""',
+                  '        """显式携带 task/operation/impact lineage。\n\n        禁止从 content-addressed owner truth 反推 task。\n        """',
+              ),
+              Path("tests/orchestrator/test_task6_review_regressions.py"): (
+                  (
+                      '    """composition object 不得保存 task/snapshot、operation/freshness 或 impact/operation 必需映射。"""',
+                      '    """composition object 不得保存必需的 process-local lineage 映射。\n\n    包括 task/snapshot、operation/freshness 与 impact/operation 三类反查状态。\n    """',
+                  ),
+                  (
+                      '    """真实 runtime 必须穿过 context freshness 与真实 OperationResolver，而不是在前置 loader 阻断。"""',
+                      '    """真实 runtime 必须穿过 context freshness 与真实 OperationResolver。\n\n    前置 read-model loader 不得阻断 workflow 到达 proposal HITL。\n    """',
+                  ),
+              ),
+          }
+
+          for path, rules in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              if isinstance(rules[0], str):
+                  rules = (rules,)
+              for old, new in rules:
+                  if old not in text:
+                      raise SystemExit(f"expected text not found: {path}: {old}")
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+          ruff check --select E,F,I \
             platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
             tests/orchestrator/test_canonical_owner_ports.py \
             tests/orchestrator/test_task6_review_regressions.py
+      - name: Commit diagnostic fixes
+        run: |
+          if git diff --quiet -- \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/orchestrator/test_task6_review_regressions.py; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/orchestrator/test_task6_review_regressions.py
+          git commit -m "style: apply exact Task6 Ruff fixes"
+          git push origin HEAD:diag/task6-review-ruff
