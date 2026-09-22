@@ -1,0 +1,43 @@
+name: Task7 Step23 compatibility fix v2
+
+on:
+  push:
+    branches:
+      - diag/task7-planning-step23-fix-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.head_commit.message != 'test: advance Task7 fail-closed boundary'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-planning-step23-fix-v2
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Patch obsolete fail-closed assertion
+        env:
+          OLD_BLOCK_B64: ZGVmIHRlc3RfY2Fub25pY2FsX293bmVyX3BvcnRzX2tlZXBzX3Rhc2s3X3BsdXNfZG9tYWluX2NhbGxzX2ZhaWxfY2xvc2VkKCkgLT4gTm9uZToKICAgICIiIlRhc2sgNiDmjqUgZnJlc2huZXNzL2ltcGFjdC9jaGFuZ2VzZXTvvJtwbGFubmluZyDkuYvlkI7nmoTpoobln58gb3duZXIg5LuN6aG7IGZhaWwgY2xvc2Vk44CCIiIiCgogICAgZnJvbSBkZXNpZ25fb3JjaGVzdHJhdG9yLmNhbm9uaWNhbF9vd25lcl9wb3J0cyBpbXBvcnQgKAogICAgICAgIENhbm9uaWNhbE93bmVyUG9ydE5vdFdpcmVkRXJyb3IsCiAgICAgICAgQ2Fub25pY2FsV29ya2Zsb3dPd25lclBvcnRzLAogICAgKQoKICAgIGFkYXB0ZXIgPSBDYW5vbmljYWxXb3JrZmxvd093bmVyUG9ydHMoKipfYWRhcHRlcl9rd2FyZ3MoKSkKICAgIGNoYW5nZXNldF9yZWYgPSBTdGFibGVSZWYoImNoYW5nZXNldC0xIiwgIjEiICogNjQpCgogICAgYXNzZXJ0IGFkYXB0ZXIucmVzb2x2ZV9ob3N0X2NvbnRleHQoInRhc2stNCIpID09IFN0YWJsZVJlZigKICAgICAgICAiY29udGV4dDp0YXNrLTQiLAogICAgICAgICJjIiAqIDY0LAogICAgKQogICAgYXNzZXJ0IGFkYXB0ZXIucHJldmlldyhjaGFuZ2VzZXRfcmVmKSA9PSBTdGFibGVSZWYoCiAgICAgICAgInByZXZpZXc6Y2hhbmdlc2V0LTEiLAogICAgICAgICJiIiAqIDY0LAogICAgKQogICAgd2l0aCBweXRlc3QucmFpc2VzKENhbm9uaWNhbE93bmVyUG9ydE5vdFdpcmVkRXJyb3IpIGFzIGV4Y19pbmZvOgogICAgICAgIGFkYXB0ZXIucGxhbl9leGVjdXRpb24oCiAgICAgICAgICAgIFN0YWJsZVJlZigiY2hhbmdlc2V0LTEiLCAiMSIgKiA2NCksCiAgICAgICAgICAgIFN0YWJsZVJlZigiYXBwcm92YWwtMSIsICIyIiAqIDY0KSwKICAgICAgICApCiAgICBhc3NlcnQgZXhjX2luZm8udmFsdWUuY29kZSA9PSAiQ0FOT05JQ0FMX09XTkVSX1BPUlRfTk9UX1dJUkVEIgogICAgYXNzZXJ0ICJwbGFuX2V4ZWN1dGlvbiIgaW4gc3RyKGV4Y19pbmZvLnZhbHVlKQo=
+          NEW_BLOCK_B64: ZGVmIHRlc3RfY2Fub25pY2FsX293bmVyX3BvcnRzX2tlZXBzX3Bvc3RfcGxhbm5pbmdfZG9tYWluX2NhbGxzX2ZhaWxfY2xvc2VkKCkgLT4gTm9uZToKICAgICIiIlRhc2sgNyBwbGFubmluZyDlt7LmjqXnnJ/lrp4gb3duZXLvvJtyZXZpc2lvbiBiYXJyaWVyIOWPiuWFtuWQjueahOmihuWfn+iwg+eUqOS7jemhuyBmYWlsIGNsb3NlZOOAgiIiIgoKICAgIGZyb20gZGVzaWduX29yY2hlc3RyYXRvci5jYW5vbmljYWxfb3duZXJfcG9ydHMgaW1wb3J0ICgKICAgICAgICBDYW5vbmljYWxPd25lclBvcnROb3RXaXJlZEVycm9yLAogICAgICAgIENhbm9uaWNhbFdvcmtmbG93T3duZXJQb3J0cywKICAgICkKCiAgICBhZGFwdGVyID0gQ2Fub25pY2FsV29ya2Zsb3dPd25lclBvcnRzKCoqX2FkYXB0ZXJfa3dhcmdzKCkpCiAgICBjaGFuZ2VzZXRfcmVmID0gU3RhYmxlUmVmKCJjaGFuZ2VzZXQtMSIsICIxIiAqIDY0KQogICAgZXhlY3V0aW9uX3BsYW5fcmVmID0gU3RhYmxlUmVmKCJleGVjdXRpb24tcGxhbi0xIiwgIjIiICogNjQpCgogICAgYXNzZXJ0IGFkYXB0ZXIucmVzb2x2ZV9ob3N0X2NvbnRleHQoInRhc2stNCIpID09IFN0YWJsZVJlZigKICAgICAgICAiY29udGV4dDp0YXNrLTQiLAogICAgICAgICJjIiAqIDY0LAogICAgKQogICAgYXNzZXJ0IGFkYXB0ZXIucHJldmlldyhjaGFuZ2VzZXRfcmVmKSA9PSBTdGFibGVSZWYoCiAgICAgICAgInByZXZpZXc6Y2hhbmdlc2V0LTEiLAogICAgICAgICJiIiAqIDY0LAogICAgKQogICAgd2l0aCBweXRlc3QucmFpc2VzKENhbm9uaWNhbE93bmVyUG9ydE5vdFdpcmVkRXJyb3IpIGFzIGV4Y19pbmZvOgogICAgICAgIGFkYXB0ZXIuY2hlY2tfcmV2aXNpb25fYmFycmllcihleGVjdXRpb25fcGxhbl9yZWYpCiAgICBhc3NlcnQgZXhjX2luZm8udmFsdWUuY29kZSA9PSAiQ0FOT05JQ0FMX09XTkVSX1BPUlRfTk9UX1dJUkVEIgogICAgYXNzZXJ0ICJjaGVja19yZXZpc2lvbl9iYXJyaWVyIiBpbiBzdHIoZXhjX2luZm8udmFsdWUpCg==
+        run: |
+          python -c 'import base64, os, pathlib; p=pathlib.Path("tests/orchestrator/test_canonical_owner_ports.py"); s=p.read_text(); old=base64.b64decode(os.environ["OLD_BLOCK_B64"]).decode(); new=base64.b64decode(os.environ["NEW_BLOCK_B64"]).decode(); assert s.count(old)==1, s.count(old); p.write_text(s.replace(old,new))'
+      - name: Install locked workspace
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused owner-port regression
+        run: uv run python -m pytest -q tests/orchestrator/test_canonical_owner_ports.py
+      - name: Run focused Ruff
+        run: uv run ruff check tests/orchestrator/test_canonical_owner_ports.py --ignore TRY004
+      - name: Commit verified test migration
+        run: |
+          git config user.name FangBin
+          git config user.email 52097203+exquisite-Ceramic@users.noreply.github.com
+          git add tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m 'test: advance Task7 fail-closed boundary'
+          git push origin HEAD:diag/task7-planning-step23-fix-v2
