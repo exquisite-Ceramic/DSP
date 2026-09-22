@@ -143,8 +143,8 @@ jobs:
           uv sync --locked --all-packages
       - name: Run Task7 seam and orchestrator regressions
         run: |
-          uv run pytest tests/orchestrator/test_canonical_owner_ports.py -q
-          uv run pytest tests/orchestrator -q
+          uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py -q
+          uv run python -m pytest tests/orchestrator -q
       - name: Run focused Ruff
         run: >-
           uv run ruff check --select E,F,I
