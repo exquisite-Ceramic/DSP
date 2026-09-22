@@ -122,37 +122,37 @@ class CanonicalWorkflowOwnerPorts:
     """
 
     __slots__ = (
-        "_snapshot_registry",
-        "_freshness_resolver",
-        "_workflow_artifact_store",
-        "_host_revision_observation",
-        "_canonical_operations",
-        "_impact_analyzer",
-        "_impact_store",
+        "_approval_admission",
         "_approval_scope_planner",
         "_approval_scope_store",
+        "_canonical_operations",
         "_changeset_builder",
         "_changeset_store",
-        "_materialization_planner",
-        "_materialization_plan_store",
-        "_topology_registry",
-        "_topology_environment_id",
-        "_topology_revision",
+        "_convergence_verifier",
+        "_coordination_clock",
+        "_execution_coordinator",
         "_execution_plan_store",
-        "_revision_barrier",
+        "_freshness_resolver",
         "_gateway_authorization",
         "_gateway_authorization_store",
-        "_coordination_clock",
-        "_provider_binding_store",
-        "_saga_store",
-        "_execution_coordinator",
-        "_reconciliation_service",
-        "_convergence_verifier",
-        "_semantic_reconstruction",
-        "_preview_port",
-        "_approval_admission",
+        "_host_revision_observation",
+        "_impact_analyzer",
+        "_impact_store",
+        "_materialization_plan_store",
+        "_materialization_planner",
         "_materialization_routing",
+        "_preview_port",
+        "_provider_binding_store",
         "_provider_execution_snapshot",
+        "_reconciliation_service",
+        "_revision_barrier",
+        "_saga_store",
+        "_semantic_reconstruction",
+        "_snapshot_registry",
+        "_topology_environment_id",
+        "_topology_registry",
+        "_topology_revision",
+        "_workflow_artifact_store",
     )
 
     def __init__(
@@ -753,7 +753,101 @@ class CanonicalWorkflowOwnerPorts:
         changeset_ref: StableRef,
         approval_ref: StableRef,
     ) -> StableRef:
-        raise self._not_wired("plan_execution")
+        """组合真实 materialization / execution-planning owners 并发布不可变计划引用。
+
+        本方法只解析 authoritative refs、组装 owner request 与校验跨 owner identity join；
+        convergence profile、materialization 规则与 execution planning 规则仍由各自 owner
+        的 package-root public API 决定，adapter 不复制任何选择或排序算法。
+        """
+
+        from design_convergence import (
+            ConvergenceProfileBuildRequest,
+            build_convergence_profile,
+        )
+        from design_execution_planning import (
+            ExecutionPlanningRequestV2,
+            MaterializationRoutingEvidence,
+            plan_materialized_execution,
+        )
+        from design_materialization_planning import MaterializationPlanningRequest
+
+        changeset = self._changeset_store.get(changeset_ref.ref_id)
+        self._ref_hash_matches(
+            changeset_ref,
+            changeset.changeset_hash,
+            kind="CanonicalChangeSet",
+        )
+        boundary = self._approval_scope_store.get_boundary(
+            f"SCOPE-{changeset.changeset_id}"
+        )
+
+        # approval_ref 必须解析到 Gateway owner 已消费并持有的真实 approval；这里仅做
+        # content identity join，不自行解释 approval lifecycle 或 policy semantics。
+        stored_approval = self._gateway_authorization_store.get_approval(
+            approval_ref.ref_id
+        )
+        if stored_approval is None:
+            raise ValueError("Gateway approval StableRef is unresolved")
+        approval = stored_approval.record
+        self._ref_hash_matches(
+            approval_ref,
+            approval.approval_hash,
+            kind="GatewayApproval",
+        )
+        if approval.changeset_hash != changeset.changeset_hash:
+            raise ValueError("Gateway approval does not reference this ChangeSet")
+        if approval.approved_scope_hash != boundary.scope_hash:
+            raise ValueError("Gateway approval does not reference this approval scope")
+
+        topology = self._topology_registry.get(
+            self._topology_environment_id,
+            self._topology_revision,
+        )
+        definition = self._canonical_definition(
+            changeset.root_operation.canonical_operation,
+            changeset.root_operation.canonical_operation_version,
+        )
+        convergence_profile = build_convergence_profile(
+            ConvergenceProfileBuildRequest(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                canonical_operation_definition=definition,
+            )
+        )
+        materialization_plan = self._materialization_planner.plan(
+            MaterializationPlanningRequest(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                topology_snapshot=topology,
+                convergence_profile=convergence_profile,
+            )
+        )
+        self._materialization_plan_store.put(materialization_plan)
+
+        # Runtime routing 是明确的环境边界；adapter 只要求它返回 owner public contract，
+        # 不在这里选择 Host、排序 route 或推断 provider eligibility。
+        routing = self._materialization_routing.routing_evidence(
+            materialization_plan,
+            topology,
+        )
+        if not isinstance(routing, MaterializationRoutingEvidence):
+            raise TypeError(
+                "materialization_routing must return MaterializationRoutingEvidence"
+            )
+        execution_plan = plan_materialized_execution(
+            ExecutionPlanningRequestV2(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                materialization_plan=materialization_plan,
+                topology_snapshot=topology,
+                runtime_routing_evidence=routing,
+            )
+        )
+        self._execution_plan_store.put(execution_plan)
+        return StableRef(
+            execution_plan.execution_plan_id,
+            execution_plan.execution_plan_hash,
+        )
 
     def check_revision_barrier(self, execution_plan_ref: StableRef) -> None:
         raise self._not_wired("check_revision_barrier")
