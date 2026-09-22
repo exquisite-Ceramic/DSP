@@ -33,6 +33,7 @@ from design_orchestrator.workflow_contracts import (
     WorkflowStartRequest,
 )
 from semantic_runtime import DirtyMap, FreshnessResolver
+
 from tests.orchestrator.test_canonical_owner_ports import (
     _ApprovalAdmission,
     _Dependency,
