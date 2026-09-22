@@ -1,0 +1,101 @@
+name: Task7 planning Step23 compatibility fix
+
+on:
+  push:
+    branches:
+      - diag/task7-planning-step23-fix
+
+permissions:
+  contents: write
+
+jobs:
+  focused-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-planning-step23-fix
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Update stale Task6 fail-closed expectation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/orchestrator/test_canonical_owner_ports.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> None:
+    """Task 6 接 freshness/impact/changeset；planning 之后的领域 owner 仍须 fail closed。"""
+
+    from design_orchestrator.canonical_owner_ports import (
+        CanonicalOwnerPortNotWiredError,
+        CanonicalWorkflowOwnerPorts,
+    )
+
+    adapter = CanonicalWorkflowOwnerPorts(**_adapter_kwargs())
+    changeset_ref = StableRef("changeset-1", "1" * 64)
+
+    assert adapter.resolve_host_context("task-4") == StableRef(
+        "context:task-4",
+        "c" * 64,
+    )
+    assert adapter.preview(changeset_ref) == StableRef(
+        "preview:changeset-1",
+        "b" * 64,
+    )
+    with pytest.raises(CanonicalOwnerPortNotWiredError) as exc_info:
+        adapter.plan_execution(
+            StableRef("changeset-1", "1" * 64),
+            StableRef("approval-1", "2" * 64),
+        )
+    assert exc_info.value.code == "CANONICAL_OWNER_PORT_NOT_WIRED"
+    assert "plan_execution" in str(exc_info.value)
+'''
+          new = '''def test_canonical_owner_ports_keeps_post_planning_domain_calls_fail_closed() -> None:
+    """Task 7 已接 planning；revision barrier 及后续 owner 在对应步骤前仍须 fail closed。"""
+
+    from design_orchestrator.canonical_owner_ports import (
+        CanonicalOwnerPortNotWiredError,
+        CanonicalWorkflowOwnerPorts,
+    )
+
+    adapter = CanonicalWorkflowOwnerPorts(**_adapter_kwargs())
+    changeset_ref = StableRef("changeset-1", "1" * 64)
+
+    assert adapter.resolve_host_context("task-4") == StableRef(
+        "context:task-4",
+        "c" * 64,
+    )
+    assert adapter.preview(changeset_ref) == StableRef(
+        "preview:changeset-1",
+        "b" * 64,
+    )
+    with pytest.raises(CanonicalOwnerPortNotWiredError) as exc_info:
+        adapter.check_revision_barrier(
+            StableRef("execution-plan-1", "2" * 64)
+        )
+    assert exc_info.value.code == "CANONICAL_OWNER_PORT_NOT_WIRED"
+    assert "check_revision_barrier" in str(exc_info.value)
+'''
+          if old not in text:
+              raise SystemExit("stale Task6 expectation block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused orchestrator regressions
+        run: uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py tests/orchestrator/test_task7_planning.py -q
+      - name: Run real-owner architecture guard
+        run: uv run python -m pytest tests/architecture/test_real_owner_workflow_boundaries.py tests/architecture/test_canonical_v2_boundaries.py -q
+      - name: Run focused Ruff
+        run: uv run ruff check --ignore TRY004 tests/orchestrator/test_canonical_owner_ports.py platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py tests/orchestrator/test_task7_planning.py
+      - name: Commit verified test migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/diag-task7-planning-step23-fix.yml
+          git add tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m "test: advance Task7 fail-closed boundary"
+          git push origin HEAD:diag/task7-planning-step23-fix
