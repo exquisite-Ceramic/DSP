@@ -1,0 +1,60 @@
+name: Task7 planning GREEN diagnostic v4
+
+on:
+  push:
+    branches:
+      - diag/task7-planning-green-v4
+
+permissions:
+  contents: write
+
+jobs:
+  focused-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-planning-green-v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Apply minimal Task7 planning implementation
+        env:
+          REPLACEMENT_B64: "ICAgIGRlZiBwbGFuX2V4ZWN1dGlvbigKICAgICAgICBzZWxmLAogICAgICAgIGNoYW5nZXNldF9yZWY6IFN0YWJsZVJlZiwKICAgICAgICBhcHByb3ZhbF9yZWY6IFN0YWJsZVJlZiwKICAgICkgLT4gU3RhYmxlUmVmOgogICAgICAgICIiIue7hOWQiOecn+WuniBtYXRlcmlhbGl6YXRpb24gLyBleGVjdXRpb24tcGxhbm5pbmcgb3duZXJzIOW5tuWPkeW4g+S4jeWPr+WPmOiuoeWIkuW8leeUqOOAggoKICAgICAgICDmnKzmlrnms5Xlj6rop6PmnpAgYXV0aG9yaXRhdGl2ZSByZWZz44CB57uE6KOFIG93bmVyIHJlcXVlc3Qg5LiO5qCh6aqM6LeoIG93bmVyIGlkZW50aXR5IGpvaW7vvJsKICAgICAgICBjb252ZXJnZW5jZSBwcm9maWxl44CBbWF0ZXJpYWxpemF0aW9uIOinhOWImeS4jiBleGVjdXRpb24gcGxhbm5pbmcg6KeE5YiZ5LuN55Sx5ZCE6IeqIG93bmVyCiAgICAgICAg55qEIHBhY2thZ2Utcm9vdCBwdWJsaWMgQVBJIOWGs+Wumu+8jGFkYXB0ZXIg5LiN5aSN5Yi25Lu75L2V6YCJ5oup5oiW5o6S5bqP566X5rOV44CCCiAgICAgICAgIiIiCgogICAgICAgIGZyb20gZGVzaWduX2NvbnZlcmdlbmNlIGltcG9ydCAoCiAgICAgICAgICAgIENvbnZlcmdlbmNlUHJvZmlsZUJ1aWxkUmVxdWVzdCwKICAgICAgICAgICAgYnVpbGRfY29udmVyZ2VuY2VfcHJvZmlsZSwKICAgICAgICApCiAgICAgICAgZnJvbSBkZXNpZ25fZXhlY3V0aW9uX3BsYW5uaW5nIGltcG9ydCAoCiAgICAgICAgICAgIEV4ZWN1dGlvblBsYW5uaW5nUmVxdWVzdFYyLAogICAgICAgICAgICBNYXRlcmlhbGl6YXRpb25Sb3V0aW5nRXZpZGVuY2UsCiAgICAgICAgICAgIHBsYW5fbWF0ZXJpYWxpemVkX2V4ZWN1dGlvbiwKICAgICAgICApCiAgICAgICAgZnJvbSBkZXNpZ25fbWF0ZXJpYWxpemF0aW9uX3BsYW5uaW5nIGltcG9ydCBNYXRlcmlhbGl6YXRpb25QbGFubmluZ1JlcXVlc3QKCiAgICAgICAgY2hhbmdlc2V0ID0gc2VsZi5fY2hhbmdlc2V0X3N0b3JlLmdldChjaGFuZ2VzZXRfcmVmLnJlZl9pZCkKICAgICAgICBzZWxmLl9yZWZfaGFzaF9tYXRjaGVzKAogICAgICAgICAgICBjaGFuZ2VzZXRfcmVmLAogICAgICAgICAgICBjaGFuZ2VzZXQuY2hhbmdlc2V0X2hhc2gsCiAgICAgICAgICAgIGtpbmQ9IkNhbm9uaWNhbENoYW5nZVNldCIsCiAgICAgICAgKQogICAgICAgIGJvdW5kYXJ5ID0gc2VsZi5fYXBwcm92YWxfc2NvcGVfc3RvcmUuZ2V0X2JvdW5kYXJ5KAogICAgICAgICAgICBmIlNDT1BFLXtjaGFuZ2VzZXQuY2hhbmdlc2V0X2lkfSIKICAgICAgICApCgogICAgICAgICMgYXBwcm92YWxfcmVmIOW/hemhu+ino+aekOWIsCBHYXRld2F5IG93bmVyIOW3sua2iOi0ueW5tuaMgeacieeahOecn+WuniBhcHByb3ZhbO+8m+i/memHjOS7heWBmgogICAgICAgICMgY29udGVudCBpZGVudGl0eSBqb2lu77yM5LiN6Ieq6KGM6Kej6YeKIGFwcHJvdmFsIGxpZmVjeWNsZSDmiJYgcG9saWN5IHNlbWFudGljc+OAggogICAgICAgIHN0b3JlZF9hcHByb3ZhbCA9IHNlbGYuX2dhdGV3YXlfYXV0aG9yaXphdGlvbl9zdG9yZS5nZXRfYXBwcm92YWwoCiAgICAgICAgICAgIGFwcHJvdmFsX3JlZi5yZWZfaWQKICAgICAgICApCiAgICAgICAgaWYgc3RvcmVkX2FwcHJvdmFsIGlzIE5vbmU6CiAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoIkdhdGV3YXkgYXBwcm92YWwgU3RhYmxlUmVmIGlzIHVucmVzb2x2ZWQiKQogICAgICAgIGFwcHJvdmFsID0gc3RvcmVkX2FwcHJvdmFsLnJlY29yZAogICAgICAgIHNlbGYuX3JlZl9oYXNoX21hdGNoZXMoCiAgICAgICAgICAgIGFwcHJvdmFsX3JlZiwKICAgICAgICAgICAgYXBwcm92YWwuYXBwcm92YWxfaGFzaCwKICAgICAgICAgICAga2luZD0iR2F0ZXdheUFwcHJvdmFsIiwKICAgICAgICApCiAgICAgICAgaWYgYXBwcm92YWwuY2hhbmdlc2V0X2hhc2ggIT0gY2hhbmdlc2V0LmNoYW5nZXNldF9oYXNoOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJHYXRld2F5IGFwcHJvdmFsIGRvZXMgbm90IHJlZmVyZW5jZSB0aGlzIENoYW5nZVNldCIpCiAgICAgICAgaWYgYXBwcm92YWwuYXBwcm92ZWRfc2NvcGVfaGFzaCAhPSBib3VuZGFyeS5zY29wZV9oYXNoOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJHYXRld2F5IGFwcHJvdmFsIGRvZXMgbm90IHJlZmVyZW5jZSB0aGlzIGFwcHJvdmFsIHNjb3BlIikKCiAgICAgICAgdG9wb2xvZ3kgPSBzZWxmLl90b3BvbG9neV9yZWdpc3RyeS5nZXQoCiAgICAgICAgICAgIHNlbGYuX3RvcG9sb2d5X2Vudmlyb25tZW50X2lkLAogICAgICAgICAgICBzZWxmLl90b3BvbG9neV9yZXZpc2lvbiwKICAgICAgICApCiAgICAgICAgZGVmaW5pdGlvbiA9IHNlbGYuX2Nhbm9uaWNhbF9kZWZpbml0aW9uKAogICAgICAgICAgICBjaGFuZ2VzZXQucm9vdF9vcGVyYXRpb24uY2Fub25pY2FsX29wZXJhdGlvbiwKICAgICAgICAgICAgY2hhbmdlc2V0LnJvb3Rfb3BlcmF0aW9uLmNhbm9uaWNhbF9vcGVyYXRpb25fdmVyc2lvbiwKICAgICAgICApCiAgICAgICAgY29udmVyZ2VuY2VfcHJvZmlsZSA9IGJ1aWxkX2NvbnZlcmdlbmNlX3Byb2ZpbGUoCiAgICAgICAgICAgIENvbnZlcmdlbmNlUHJvZmlsZUJ1aWxkUmVxdWVzdCgKICAgICAgICAgICAgICAgIGNhbm9uaWNhbF9jaGFuZ2VzZXQ9Y2hhbmdlc2V0LAogICAgICAgICAgICAgICAgYXBwcm92YWxfc2NvcGVfYm91bmRhcnk9Ym91bmRhcnksCiAgICAgICAgICAgICAgICBjYW5vbmljYWxfb3BlcmF0aW9uX2RlZmluaXRpb249ZGVmaW5pdGlvbiwKICAgICAgICAgICAgKQogICAgICAgICkKICAgICAgICBtYXRlcmlhbGl6YXRpb25fcGxhbiA9IHNlbGYuX21hdGVyaWFsaXphdGlvbl9wbGFubmVyLnBsYW4oCiAgICAgICAgICAgIE1hdGVyaWFsaXphdGlvblBsYW5uaW5nUmVxdWVzdCgKICAgICAgICAgICAgICAgIGNhbm9uaWNhbF9jaGFuZ2VzZXQ9Y2hhbmdlc2V0LAogICAgICAgICAgICAgICAgYXBwcm92YWxfc2NvcGVfYm91bmRhcnk9Ym91bmRhcnksCiAgICAgICAgICAgICAgICB0b3BvbG9neV9zbmFwc2hvdD10b3BvbG9neSwKICAgICAgICAgICAgICAgIGNvbnZlcmdlbmNlX3Byb2ZpbGU9Y29udmVyZ2VuY2VfcHJvZmlsZSwKICAgICAgICAgICAgKQogICAgICAgICkKICAgICAgICBzZWxmLl9tYXRlcmlhbGl6YXRpb25fcGxhbl9zdG9yZS5wdXQobWF0ZXJpYWxpemF0aW9uX3BsYW4pCgogICAgICAgICMgUnVudGltZSByb3V0aW5nIOaYr+aYjuehrueahOeOr+Wig+i+ueeVjO+8m2FkYXB0ZXIg5Y+q6KaB5rGC5a6D6L+U5ZueIG93bmVyIHB1YmxpYyBjb250cmFjdO+8jAogICAgICAgICMg5LiN5Zyo6L+Z6YeM6YCJ5oupIEhvc3TjgIHmjpLluo8gcm91dGUg5oiW5o6o5patIHByb3ZpZGVyIGVsaWdpYmlsaXR544CCCiAgICAgICAgcm91dGluZyA9IHNlbGYuX21hdGVyaWFsaXphdGlvbl9yb3V0aW5nLnJvdXRpbmdfZXZpZGVuY2UoCiAgICAgICAgICAgIG1hdGVyaWFsaXphdGlvbl9wbGFuLAogICAgICAgICAgICB0b3BvbG9neSwKICAgICAgICApCiAgICAgICAgaWYgbm90IGlzaW5zdGFuY2Uocm91dGluZywgTWF0ZXJpYWxpemF0aW9uUm91dGluZ0V2aWRlbmNlKToKICAgICAgICAgICAgcmFpc2UgVHlwZUVycm9yKAogICAgICAgICAgICAgICAgIm1hdGVyaWFsaXphdGlvbl9yb3V0aW5nIG11c3QgcmV0dXJuIE1hdGVyaWFsaXphdGlvblJvdXRpbmdFdmlkZW5jZSIKICAgICAgICAgICAgKQogICAgICAgIGV4ZWN1dGlvbl9wbGFuID0gcGxhbl9tYXRlcmlhbGl6ZWRfZXhlY3V0aW9uKAogICAgICAgICAgICBFeGVjdXRpb25QbGFubmluZ1JlcXVlc3RWMigKICAgICAgICAgICAgICAgIGNhbm9uaWNhbF9jaGFuZ2VzZXQ9Y2hhbmdlc2V0LAogICAgICAgICAgICAgICAgYXBwcm92YWxfc2NvcGVfYm91bmRhcnk9Ym91bmRhcnksCiAgICAgICAgICAgICAgICBtYXRlcmlhbGl6YXRpb25fcGxhbj1tYXRlcmlhbGl6YXRpb25fcGxhbiwKICAgICAgICAgICAgICAgIHRvcG9sb2d5X3NuYXBzaG90PXRvcG9sb2d5LAogICAgICAgICAgICAgICAgcnVudGltZV9yb3V0aW5nX2V2aWRlbmNlPXJvdXRpbmcsCiAgICAgICAgICAgICkKICAgICAgICApCiAgICAgICAgc2VsZi5fZXhlY3V0aW9uX3BsYW5fc3RvcmUucHV0KGV4ZWN1dGlvbl9wbGFuKQogICAgICAgIHJldHVybiBTdGFibGVSZWYoCiAgICAgICAgICAgIGV4ZWN1dGlvbl9wbGFuLmV4ZWN1dGlvbl9wbGFuX2lkLAogICAgICAgICAgICBleGVjdXRpb25fcGxhbi5leGVjdXRpb25fcGxhbl9oYXNoLAogICAgICAgICkK"
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          adapter = Path("platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py")
+          text = adapter.read_text(encoding="utf-8")
+          start = text.index("    def plan_execution(\n")
+          end = text.index("\n    def check_revision_barrier", start)
+          replacement = base64.b64decode(os.environ["REPLACEMENT_B64"]).decode("utf-8")
+          adapter.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          census = Path("docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md")
+          census_text = census.read_text(encoding="utf-8")
+          old = "`design_convergence:ConvergenceComparisonProfile`<br>`design_convergence:build_convergence_profile`"
+          new = "`design_convergence:ConvergenceComparisonProfile`<br>`design_convergence:ConvergenceProfileBuildRequest`<br>`design_convergence:build_convergence_profile`"
+          if old not in census_text:
+              raise SystemExit("convergence census marker not found")
+          census.write_text(census_text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused Task7 planning GREEN
+        run: uv run python -m pytest tests/orchestrator/test_task7_planning.py -q
+      - name: Run real-owner architecture guard
+        run: uv run python -m pytest tests/architecture/test_real_owner_workflow_boundaries.py tests/architecture/test_canonical_v2_boundaries.py -q
+      - name: Run focused Ruff
+        run: uv run ruff check platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py tests/orchestrator/test_task7_planning.py tests/architecture/test_real_owner_workflow_boundaries.py
+      - name: Commit verified planning GREEN without diagnostic workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/diag-task7-planning-green-v4.yml
+          git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md tests/orchestrator/test_task7_planning.py
+          git commit -m "feat: wire real Task7 planning owners"
+          git push origin HEAD:diag/task7-planning-green-v4
