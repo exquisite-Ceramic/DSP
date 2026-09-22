@@ -51,11 +51,25 @@ class ContextFreshnessInputs:
 
 
 class SemanticReconstructionPort(Protocol):
-    """Semantic reconstruction IO 的窄环境边界；freshness 语义仍归 Semantic Runtime。"""
+    """Semantic/environment 输入的窄边界；领域判断仍归真实 resolver/binder/freshness owner。
+
+    这里允许提供 OperationResolver / ParameterBinder 所需的 snapshot-bound read model，
+    但实现不得复制 eligibility、slot binding 或 schema validation 规则。
+    """
 
     def resolve_host_context(self, task_id: str) -> StableRef: ...
 
     def load_context_inputs(self, context_ref: StableRef) -> ContextFreshnessInputs: ...
+
+    def load_operation_resolution_inputs(
+        self,
+        snapshot_ref: StableRef,
+    ) -> OperationResolutionInputs: ...
+
+    def load_parameter_binding_inputs(
+        self,
+        operation_space_ref: StableRef,
+    ) -> ParameterBindingInputs: ...
 
     def reconstruct(self, contract: object, expected_host_revision: str) -> object: ...
 
@@ -103,7 +117,8 @@ class CanonicalWorkflowOwnerPorts:
     """现有 ``ExternalOwnerPorts`` 的真实 owner composition adapter。
 
     Constructor 显式列出 production/reference composition dependencies；对象本身只保存 owner
-    service/store 与 StableRef 导航元数据，不缓存 authoritative domain body。
+    service/store 依赖，不保存 transition 正确性所必需的 task/operation/impact 私有 lineage。
+    所有可恢复 lineage 必须来自 workflow 显式 StableRef 或 authoritative owner-local store。
     """
 
     __slots__ = (
@@ -136,9 +151,6 @@ class CanonicalWorkflowOwnerPorts:
         "_approval_admission",
         "_materialization_routing",
         "_provider_execution_snapshot",
-        "_task_ids_by_context_snapshot",
-        "_freshness_refs_by_operation",
-        "_operation_refs_by_impact",
     )
 
     def __init__(
@@ -204,11 +216,6 @@ class CanonicalWorkflowOwnerPorts:
         self._approval_admission = approval_admission
         self._materialization_routing = materialization_routing
         self._provider_execution_snapshot = provider_execution_snapshot
-
-        # 仅保存 ref/navigation lineage；authoritative bodies 始终从各 owner store 重新解析。
-        self._task_ids_by_context_snapshot: dict[str, str] = {}
-        self._freshness_refs_by_operation: dict[str, tuple[StableRef, StableRef]] = {}
-        self._operation_refs_by_impact: dict[str, StableRef] = {}
 
     @staticmethod
     def _not_wired(method_name: str) -> CanonicalOwnerPortNotWiredError:
@@ -278,17 +285,64 @@ class CanonicalWorkflowOwnerPorts:
             raise ValueError("bound operation requires at least one canonical target")
         return targets
 
+    def _operation_freshness_contract(self, bound: BoundOperationProposal):
+        """由 bound operation + authoritative ContextSnapshot 重建相同 owner contract identity。
+
+        该 helper 只组装 Semantic Runtime public contract，不执行 freshness 决策；因此 adapter
+        重建后可以按 contract identity 查询 owner registry，而不依赖 process-local 映射。
+        """
+
+        from semantic_runtime import build_operation_contract, requirements_from_mappings
+
+        context_snapshot = self._snapshot_registry.get_snapshot(
+            bound.context_snapshot_ref.context_snapshot_id
+        )
+        if bound.context_snapshot_ref.context_snapshot_hash != context_snapshot.hash:
+            raise ValueError(
+                "bound operation context snapshot hash does not match Semantic Runtime truth"
+            )
+        requirement_mappings = (
+            *bound.planning_requirements.operation_freshness_requirements,
+            *bound.planning_requirements.coverage_requirements,
+            *bound.planning_requirements.assurance_requirements,
+        )
+        contract = build_operation_contract(
+            project_id=context_snapshot.project_id,
+            document_ref=bound.context_snapshot_ref.document_ref,
+            canonical_operation=bound.operation.canonical_operation,
+            targets=self._bound_targets(bound),
+            arguments=dict(bound.arguments),
+            requirements=requirements_from_mappings(requirement_mappings),
+        )
+        return contract, context_snapshot
+
     def load_operation_resolution_inputs(
         self,
         snapshot_ref: StableRef,
     ) -> OperationResolutionInputs:
-        raise self._not_wired("load_operation_resolution_inputs")
+        """把 snapshot-bound read-model 装配委托给显式环境边界，再交给真实 resolver。"""
+
+        inputs = self._semantic_reconstruction.load_operation_resolution_inputs(snapshot_ref)
+        if not isinstance(inputs, OperationResolutionInputs):
+            raise TypeError(
+                "load_operation_resolution_inputs must return OperationResolutionInputs"
+            )
+        return inputs
 
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
     ) -> ParameterBindingInputs:
-        raise self._not_wired("load_parameter_binding_inputs")
+        """把 proposal/context read-model 装配委托给边界，再交给真实 ParameterBinder。"""
+
+        inputs = self._semantic_reconstruction.load_parameter_binding_inputs(
+            operation_space_ref
+        )
+        if not isinstance(inputs, ParameterBindingInputs):
+            raise TypeError(
+                "load_parameter_binding_inputs must return ParameterBindingInputs"
+            )
+        return inputs
 
     def resolve_host_context(self, task_id: str) -> StableRef:
         """把 Host/context reconstruction request 原样委托给明确的环境端口。"""
@@ -322,7 +376,6 @@ class CanonicalWorkflowOwnerPorts:
             return resolved
 
         self._snapshot_registry.put_snapshot(resolved)
-        self._task_ids_by_context_snapshot[resolved.snapshot_id] = inputs.task_id
         return StableRef(resolved.snapshot_id, resolved.hash)
 
     def ensure_operation_freshness(
@@ -331,38 +384,10 @@ class CanonicalWorkflowOwnerPorts:
     ) -> StableRef | AsyncOperationRef:
         """用真实 Operation Freshness contract 生成 PlanningSnapshot/SnapshotSet。"""
 
-        from semantic_runtime import (
-            SnapshotSet,
-            build_operation_contract,
-            requirements_from_mappings,
-        )
+        from semantic_runtime import SnapshotSet
 
         bound = self._bound_operation(operation_ref)
-        context_snapshot = self._snapshot_registry.get_snapshot(
-            bound.context_snapshot_ref.context_snapshot_id
-        )
-        if bound.context_snapshot_ref.context_snapshot_hash != context_snapshot.hash:
-            raise ValueError(
-                "bound operation context snapshot hash does not match Semantic Runtime truth"
-            )
-
-        definition = self._canonical_definition(
-            bound.operation.canonical_operation,
-            bound.operation.version,
-        )
-        requirement_mappings = (
-            *bound.planning_requirements.operation_freshness_requirements,
-            *bound.planning_requirements.coverage_requirements,
-            *bound.planning_requirements.assurance_requirements,
-        )
-        contract = build_operation_contract(
-            project_id=context_snapshot.project_id,
-            document_ref=bound.context_snapshot_ref.document_ref,
-            canonical_operation=bound.operation.canonical_operation,
-            targets=self._bound_targets(bound),
-            arguments=dict(bound.arguments),
-            requirements=requirements_from_mappings(requirement_mappings),
-        )
+        contract, _ = self._operation_freshness_contract(bound)
         expected_revision = self._host_revision_observation.current_revision(
             bound.context_snapshot_ref.document_ref
         )
@@ -376,14 +401,10 @@ class CanonicalWorkflowOwnerPorts:
         self._snapshot_registry.put_snapshot(resolved)
         snapshot_set = SnapshotSet.create((resolved,))
         self._snapshot_registry.put_snapshot_set(snapshot_set)
-        self._freshness_refs_by_operation[operation_ref.ref_id] = (
-            StableRef(resolved.snapshot_id, resolved.hash),
-            StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
-        )
         return operation_ref
 
     def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        """解析 owner refs 后调用真实 ImpactAnalyzer，并只返回稳定分析引用。"""
+        """从 owner-local freshness lineage 解析 refs 后调用真实 ImpactAnalyzer。"""
 
         from design_impact import (
             ImpactAnalysisRequest,
@@ -394,19 +415,14 @@ class CanonicalWorkflowOwnerPorts:
         )
 
         bound = self._bound_operation(operation_ref)
-        try:
-            planning_ref, snapshot_set_ref = self._freshness_refs_by_operation[
-                operation_ref.ref_id
-            ]
-        except KeyError as exc:
-            raise ValueError(
-                "operation freshness lineage is unresolved before Impact analysis"
-            ) from exc
-
-        planning = self._snapshot_registry.get_snapshot(planning_ref.ref_id)
-        snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
-        self._ref_hash_matches(planning_ref, planning.hash, kind="PlanningSnapshot")
-        self._ref_hash_matches(snapshot_set_ref, snapshot_set.hash, kind="SnapshotSet")
+        contract, _ = self._operation_freshness_contract(bound)
+        planning = self._snapshot_registry.get_snapshot_for_freshness_contract(
+            contract.contract_id,
+            contract.hash,
+        )
+        snapshot_set = self._snapshot_registry.get_snapshot_set_for_member(
+            planning.snapshot_id
+        )
 
         environment = SemanticEnvironmentBinding(
             planning.semantic_environment_ref.environment_id,
@@ -448,7 +464,6 @@ class CanonicalWorkflowOwnerPorts:
             )
         )
         self._impact_store.put(analysis)
-        self._operation_refs_by_impact[analysis.analysis_id] = operation_ref
         return StableRef(analysis.analysis_id, analysis.analysis_fingerprint)
 
     @staticmethod
@@ -477,8 +492,18 @@ class CanonicalWorkflowOwnerPorts:
             for slot, evidence in bound.binding_evidence.items()
         }
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef:
-        """组合真实 Approval Scope V2 与 ChangeSet V2，并持久化 owner truth。"""
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef:
+        """组合真实 Approval Scope V2 与 ChangeSet V2，并持久化 owner truth。
+
+        ``task_id`` 与 ``operation_ref`` 是 workflow 已拥有的显式导航 lineage；不得从内容寻址
+        SemanticSnapshot 或 adapter 私有字典反推。Impact/Planning/SnapshotSet body 始终重新从
+        authoritative owner stores 解析并校验。
+        """
 
         from design_approval_scope import (
             ApprovalScopePlanRequest,
@@ -498,40 +523,62 @@ class CanonicalWorkflowOwnerPorts:
             compute_contract_definition_fingerprint,
             validate_changeset_integrity_v2,
         )
-        from design_impact import ImpactError, IntentBoundary
+        from design_impact import IntentBoundary
 
-        # 必须先解析 authoritative Impact；缺失 ref 时 ChangeSet owner 绝不能被调用。
+        normalized_task_id = str(task_id).strip()
+        if not normalized_task_id:
+            raise ValueError("task_id is required")
+
+        # 必须先解析 authoritative Impact；缺失 ref 时后续 owner 绝不能被调用。
         analysis = self._impact_store.get(impact_ref.ref_id)
         if (
             impact_ref.content_hash is not None
             and impact_ref.content_hash != analysis.analysis_fingerprint
         ):
-            raise ImpactError(
-                "IMPACT_ANALYSIS_REFERENCE_INTEGRITY_INVALID",
-                "impact StableRef hash does not match authoritative analysis",
+            raise ValueError(
+                "ImpactAnalysis StableRef hash does not match authoritative owner content"
             )
-        try:
-            operation_ref = self._operation_refs_by_impact[analysis.analysis_id]
-        except KeyError as exc:
-            raise ImpactError(
-                "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND",
-                "impact operation lineage is unavailable in this process",
-            ) from exc
 
+        # operation_ref 由 workflow 显式携带，并用 Impact owner 已冻结的 material fingerprint
+        # 校验同一条 lineage；这样重建 adapter 后不需要 ``impact -> operation`` 私有映射。
         bound = self._bound_operation(operation_ref)
-        try:
-            planning_ref, _ = self._freshness_refs_by_operation[operation_ref.ref_id]
-        except KeyError as exc:
-            raise ImpactError(
-                "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND",
-                "impact freshness lineage is unavailable in this process",
-            ) from exc
+        arguments = dict(bound.arguments)
+        material_fingerprint = compute_bound_operation_fingerprint(
+            bound.operation.canonical_operation,
+            bound.operation.version,
+            arguments,
+        )
+        if material_fingerprint != analysis.bound_operation_fingerprint:
+            raise ValueError(
+                "operation StableRef does not match authoritative ImpactAnalysis lineage"
+            )
+
+        planning_binding = analysis.planning_snapshot_ref
+        planning_ref = StableRef(
+            planning_binding.snapshot_id,
+            planning_binding.snapshot_hash,
+        )
         planning_snapshot = self._snapshot_registry.get_snapshot(planning_ref.ref_id)
         self._ref_hash_matches(
             planning_ref,
             planning_snapshot.hash,
             kind="PlanningSnapshot",
         )
+        snapshot_set_binding = analysis.snapshot_set_ref
+        snapshot_set_ref = StableRef(
+            snapshot_set_binding.snapshot_set_id,
+            snapshot_set_binding.snapshot_set_hash,
+        )
+        snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
+        self._ref_hash_matches(
+            snapshot_set_ref,
+            snapshot_set.hash,
+            kind="SnapshotSet",
+        )
+        if planning_snapshot.snapshot_id not in snapshot_set.member_snapshot_ids:
+            raise ValueError(
+                "ImpactAnalysis planning snapshot is outside authoritative SnapshotSet"
+            )
 
         definition = self._canonical_definition(
             bound.operation.canonical_operation,
@@ -584,12 +631,6 @@ class CanonicalWorkflowOwnerPorts:
 
         planning_requirements = self._planning_requirement_payload(bound)
         binding_evidence = self._binding_evidence_payload(bound)
-        arguments = dict(bound.arguments)
-        material_fingerprint = compute_bound_operation_fingerprint(
-            bound.operation.canonical_operation,
-            bound.operation.version,
-            arguments,
-        )
         evidence_fingerprint = compute_bound_operation_evidence_fingerprint(
             canonical_operation=bound.operation.canonical_operation,
             canonical_operation_version=bound.operation.version,
@@ -631,18 +672,9 @@ class CanonicalWorkflowOwnerPorts:
             definition_fingerprint=definition_fingerprint,
         )
 
-        try:
-            task_id = self._task_ids_by_context_snapshot[
-                bound.context_snapshot_ref.context_snapshot_id
-            ]
-        except KeyError as exc:
-            raise ValueError(
-                "context snapshot task lineage is unavailable in this process"
-            ) from exc
-
         changeset = self._changeset_builder.build(
             ChangeSetBuildRequest(
-                task_id=task_id,
+                task_id=normalized_task_id,
                 project_id=planning_snapshot.project_id,
                 bound_operation_evidence=bound_evidence,
                 impact_analysis=analysis,
