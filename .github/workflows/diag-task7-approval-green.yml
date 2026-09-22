@@ -1,0 +1,77 @@
+name: Task7 approval GREEN diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task7-approval-green
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-approval-green
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Wire real Gateway approval consumption
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py")
+          text = path.read_text()
+
+          old = '''    def request_approval(\n        self,\n        changeset_ref: StableRef,\n    ) -> StableRef | AsyncOperationRef: ...\n'''
+          new = '''    def request_approval(\n        self,\n        changeset_ref: StableRef,\n    ) -> object | AsyncOperationRef: ...\n'''
+          if old not in text:
+              raise SystemExit("ApprovalAdmissionPort signature not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    def _canonical_definition(self, canonical_operation: str, version: str):\n'''
+          helper = '''    def _coordination_timestamp(self) -> str:\n        \"\"\"把共享 CoordinationClock 的 UTC 时间投影为 owner request 时间戳。\"\"\"\n\n        current = self._coordination_clock.now()\n        value = current.isoformat()\n        if value.endswith(\"+00:00\"):\n            return f\"{value[:-6]}Z\"\n        return value\n\n    def _canonical_definition(self, canonical_operation: str, version: str):\n'''
+          if old not in text:
+              raise SystemExit("canonical definition marker not found")
+          text = text.replace(old, helper, 1)
+
+          old = '''    def request_approval(\n        self,\n        changeset_ref: StableRef,\n    ) -> StableRef | AsyncOperationRef:\n        \"\"\"只收集 approval admission 输入；Gateway 授权规则不在此实现。\"\"\"\n\n        return self._approval_admission.request_approval(changeset_ref)\n'''
+          new = '''    def request_approval(\n        self,\n        changeset_ref: StableRef,\n    ) -> StableRef | AsyncOperationRef:\n        \"\"\"收集 human/policy admission，并由真实 Gateway V2 生成 approval truth。\"\"\"\n\n        from design_gateway_authorization import ApprovalConsumptionRequestV2\n\n        admission = self._approval_admission.request_approval(changeset_ref)\n        if isinstance(admission, AsyncOperationRef):\n            return admission\n\n        # ChangeSet 与 final Boundary 都从 authoritative owner-local stores 重新解析；\n        # adapter 不接受 admission 内自带的副本作为跨 owner truth。\n        changeset = self._changeset_store.get(changeset_ref.ref_id)\n        self._ref_hash_matches(\n            changeset_ref,\n            changeset.changeset_hash,\n            kind=\"CanonicalChangeSet\",\n        )\n        boundary = self._approval_scope_store.get_boundary(\n            f\"SCOPE-{changeset.changeset_id}\"\n        )\n        approval = self._gateway_authorization.consume_approval(\n            ApprovalConsumptionRequestV2(\n                admission=admission,\n                canonical_changeset=changeset,\n                approval_scope_boundary=boundary,\n                consumed_at=self._coordination_timestamp(),\n            )\n        )\n        return StableRef(approval.approval_id, approval.approval_hash)\n'''
+          if old not in text:
+              raise SystemExit("request_approval implementation not found")
+          path.write_text(text.replace(old, new, 1))
+
+          test_path = Path("tests/orchestrator/test_canonical_owner_ports.py")
+          tests = test_path.read_text()
+          old = '''    assert adapter.request_approval(changeset_ref) == StableRef(\n        \"approval:changeset-1\",\n        \"a\" * 64,\n    )\n\n'''
+          if old not in tests:
+              raise SystemExit("legacy Task6 approval assertion not found")
+          test_path.write_text(tests.replace(old, "", 1))
+          PY
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run approval and orchestrator regressions
+        run: |
+          uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py -q
+          uv run python -m pytest tests/orchestrator -q
+          uv run python -m pytest tests/architecture/test_real_owner_workflow_boundaries.py -q
+      - name: Run focused Ruff
+        run: >-
+          uv run ruff check --select E,F,I
+          platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py
+          tests/orchestrator/test_canonical_owner_ports.py
+      - name: Commit verified approval wiring
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+            tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m "feat: consume real Gateway V2 approval admission"
+          git push origin HEAD:diag/task7-approval-green
