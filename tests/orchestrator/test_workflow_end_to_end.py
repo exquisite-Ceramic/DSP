@@ -212,9 +212,15 @@ class _ScenarioOwners:
 
         return StableRef("impact-task9", "2" * 64)
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef:
-        """ChangeSet owner 保留完整对象，只返回 canonical ref。"""
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef:
+        """接收显式 workflow lineage；fake 仍只返回稳定 ChangeSet ref。"""
 
+        del task_id, operation_ref, impact_ref
         return StableRef("changeset-task9", "3" * 64)
 
     def preview(self, changeset_ref: StableRef) -> StableRef:
