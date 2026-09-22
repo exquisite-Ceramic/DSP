@@ -505,6 +505,34 @@ def test_task6_missing_impact_ref_fails_closed_before_changeset_builder() -> Non
     assert builder.calls == 0
 
 
+def test_task7_seam_carries_authorization_store_clock_and_grant_lineage() -> None:
+    """Task 7 必须显式携带授权 owner、时钟与 grant 所需的全部 StableRef。"""
+
+    from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
+    from design_orchestrator.workflow_services import WorkflowServices
+
+    constructor = inspect.signature(CanonicalWorkflowOwnerPorts)
+    assert "gateway_authorization_store" in constructor.parameters
+    assert "coordination_clock" in constructor.parameters
+
+    expected_grant_parameters = (
+        "self",
+        "execution_plan_ref",
+        "approval_ref",
+        "provider_binding_ref",
+    )
+    for owner_type in (
+        WorkflowServices,
+        ExternalOwnerPorts,
+        DefaultWorkflowServices,
+        CanonicalWorkflowOwnerPorts,
+    ):
+        parameters = tuple(
+            inspect.signature(owner_type.issue_execution_grant).parameters
+        )
+        assert parameters == expected_grant_parameters
+
+
 def test_canonical_owner_ports_import_smoke_blocks_database_and_test_imports() -> None:
     """隔离导入 composition module，不得隐式加载数据库实现或测试 helper。"""
 
