@@ -103,7 +103,12 @@ class ExternalOwnerPorts(Protocol):
 
     def analyze_impact(self, operation_ref: StableRef) -> StableRef: ...
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef: ...
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef: ...
 
     def preview(self, changeset_ref: StableRef) -> StableRef: ...
 
@@ -336,10 +341,24 @@ class DefaultWorkflowServices:
 
         return self._external_owners.analyze_impact(operation_ref)
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef:
-        """委托 ChangeSet owner；workflow 只接收稳定引用。"""
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef:
+        """显式携带 workflow task 与 operation lineage，再委托 ChangeSet composition。
 
-        return self._external_owners.build_changeset(impact_ref)
+        ``SemanticSnapshot`` 是内容寻址 owner truth，不能反向承担 workflow ``task_id`` 身份；
+        ``ImpactAnalysis`` 也不应依赖 adapter 私有字典找回 bound operation。因此这里把 graph
+        已经拥有的三个稳定导航值一起传给 external owner adapter。
+        """
+
+        return self._external_owners.build_changeset(
+            task_id,
+            operation_ref,
+            impact_ref,
+        )
 
     def preview(self, changeset_ref: StableRef) -> StableRef:
         """委托 preview owner，并保持 ChangeSet authoritative truth 不进入 checkpoint。"""
