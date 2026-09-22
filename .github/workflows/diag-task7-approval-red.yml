@@ -1,0 +1,92 @@
+name: Task7 approval RED diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task7-approval-red
+
+permissions:
+  contents: write
+
+jobs:
+  focused-red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-approval-red
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Add real Gateway approval RED test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/orchestrator/test_canonical_owner_ports.py")
+          text = path.read_text()
+
+          text = text.replace(
+              "from dataclasses import dataclass, replace\n",
+              "from dataclasses import dataclass, replace\nfrom datetime import datetime\n",
+          )
+          text = text.replace(
+              "import pytest\n",
+              "import pytest\nfrom design_gateway_authorization import (\n"
+              "    ApprovalAdmission,\n"
+              "    GatewayAuthorizationServiceV2,\n"
+              "    InMemoryGatewayAuthorizationStoreV2,\n"
+              "    compute_admission_fingerprint,\n"
+              ")\n",
+          )
+
+          text = text.replace(
+              "def _task6_adapter(*, changeset_builder: object | None = None):\n",
+              "def _task6_adapter(\n"
+              "    *,\n"
+              "    changeset_builder: object | None = None,\n"
+              "    overrides: dict[str, object] | None = None,\n"
+              "):\n",
+          )
+          text = text.replace(
+              "    adapter = CanonicalWorkflowOwnerPorts(**values)\n",
+              "    if overrides is not None:\n"
+              "        values.update(overrides)\n"
+              "    adapter = CanonicalWorkflowOwnerPorts(**values)\n",
+              1,
+          )
+          text = text.replace(
+              "def _task6_real_impact_case():\n",
+              "def _task6_real_impact_case(\n"
+              "    *,\n"
+              "    overrides: dict[str, object] | None = None,\n"
+              "):\n",
+          )
+          text = text.replace(
+              "    ) = _task6_adapter()\n",
+              "    ) = _task6_adapter(overrides=overrides)\n",
+              1,
+          )
+
+          marker = "def test_task7_seam_carries_authorization_store_clock_and_grant_lineage() -> None:\n"
+          test = '''class _Task7ApprovalAdmission:\n    \"\"\"只提供 human/policy admission；不生成 Gateway approval truth。\"\"\"\n\n    def __init__(self) -> None:\n        self.admission: ApprovalAdmission | None = None\n        self.calls: list[StableRef] = []\n\n    def request_approval(self, changeset_ref: StableRef) -> ApprovalAdmission:\n        self.calls.append(changeset_ref)\n        if self.admission is None:\n            raise AssertionError(\"Task 7 approval admission fixture is not configured\")\n        return self.admission\n\n\nclass _Task7Clock:\n    \"\"\"为 Gateway consume/issue/admit 提供确定性的共享 UTC 时钟。\"\"\"\n\n    def now(self) -> datetime:\n        return datetime.fromisoformat(\"2026-09-06T10:00:00+00:00\")\n\n\ndef test_task7_request_approval_consumes_real_gateway_v2_admission() -> None:\n    \"\"\"Admission 只能作为输入；workflow approval_ref 必须来自真实 Gateway V2。\"\"\"\n\n    gateway_store = InMemoryGatewayAuthorizationStoreV2()\n    gateway = GatewayAuthorizationServiceV2(gateway_store)\n    admission_port = _Task7ApprovalAdmission()\n    (\n        adapter,\n        bound_ref,\n        impact_ref,\n        _,\n        _,\n        approval_scope_store,\n        changeset_store,\n        _,\n    ) = _task6_real_impact_case(\n        overrides={\n            \"gateway_authorization\": gateway,\n            \"gateway_authorization_store\": gateway_store,\n            \"coordination_clock\": _Task7Clock(),\n            \"approval_admission\": admission_port,\n        }\n    )\n    changeset_ref = adapter.build_changeset(\"task-6\", bound_ref, impact_ref)\n    changeset = changeset_store.get(changeset_ref.ref_id)\n    boundary = approval_scope_store.get_boundary(f\"SCOPE-{changeset.changeset_id}\")\n\n    draft = ApprovalAdmission(\n        admission_id=\"ADM-TASK7\",\n        changeset_hash=changeset.changeset_hash,\n        approved_scope_hash=boundary.scope_hash,\n        semantic_environment_ref=changeset.semantic_environment_ref,\n        approver=\"user:task7-approver\",\n        policy_snapshot_hash=\"7\" * 64,\n        policy_allowed_operations=(changeset.root_operation.canonical_operation,),\n        approved_at=\"2026-09-06T09:00:00Z\",\n        expires_at=\"2026-09-06T17:00:00Z\",\n        admission_fingerprint=\"0\" * 64,\n    )\n    admission_port.admission = replace(\n        draft,\n        admission_fingerprint=compute_admission_fingerprint(draft),\n    )\n\n    approval_ref = adapter.request_approval(changeset_ref)\n\n    assert isinstance(approval_ref, StableRef)\n    stored = gateway_store.get_approval(approval_ref.ref_id)\n    assert stored is not None\n    assert approval_ref.content_hash == stored.record.approval_hash\n    assert stored.record.changeset_hash == changeset.changeset_hash\n    assert stored.record.approved_scope_hash == boundary.scope_hash\n    assert admission_port.calls == [changeset_ref]\n\n\n'''
+          if "test_task7_request_approval_consumes_real_gateway_v2_admission" not in text:
+              text = text.replace(marker, test + marker)
+          path.write_text(text)
+          PY
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused Task7 approval RED
+        run: >-
+          uv run python -m pytest tests/orchestrator/test_canonical_owner_ports.py -q
+          -k task7_request_approval_consumes_real_gateway_v2_admission
+      - name: Commit RED test after expected failure
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m "test: add Task7 real Gateway approval RED"
+          git push origin HEAD:diag/task7-approval-red
