@@ -92,7 +92,7 @@ class ApprovalAdmissionPort(Protocol):
     def request_approval(
         self,
         changeset_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef: ...
+    ) -> object | AsyncOperationRef: ...
 
 
 class CanonicalOwnerPortNotWiredError(RuntimeError):
@@ -235,6 +235,15 @@ class CanonicalWorkflowOwnerPorts:
 
         if ref.content_hash is not None and ref.content_hash != actual_hash:
             raise ValueError(f"{kind} StableRef hash does not match authoritative owner content")
+
+    def _coordination_timestamp(self) -> str:
+        """把共享 CoordinationClock 的 UTC 时间投影为 owner request 时间戳。"""
+
+        current = self._coordination_clock.now()
+        value = current.isoformat()
+        if value.endswith("+00:00"):
+            return f"{value[:-6]}Z"
+        return value
 
     def _canonical_definition(self, canonical_operation: str, version: str):
         """按 exact operation/version 解析 platform-owned canonical definition。"""
@@ -710,9 +719,34 @@ class CanonicalWorkflowOwnerPorts:
         self,
         changeset_ref: StableRef,
     ) -> StableRef | AsyncOperationRef:
-        """只收集 approval admission 输入；Gateway 授权规则不在此实现。"""
+        """收集 human/policy admission，并由真实 Gateway V2 生成 approval truth。"""
 
-        return self._approval_admission.request_approval(changeset_ref)
+        from design_gateway_authorization import ApprovalConsumptionRequestV2
+
+        admission = self._approval_admission.request_approval(changeset_ref)
+        if isinstance(admission, AsyncOperationRef):
+            return admission
+
+        # ChangeSet 与 final Boundary 都从 authoritative owner-local stores 重新解析；
+        # adapter 不接受 admission 内自带的副本作为跨 owner truth。
+        changeset = self._changeset_store.get(changeset_ref.ref_id)
+        self._ref_hash_matches(
+            changeset_ref,
+            changeset.changeset_hash,
+            kind="CanonicalChangeSet",
+        )
+        boundary = self._approval_scope_store.get_boundary(
+            f"SCOPE-{changeset.changeset_id}"
+        )
+        approval = self._gateway_authorization.consume_approval(
+            ApprovalConsumptionRequestV2(
+                admission=admission,
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                consumed_at=self._coordination_timestamp(),
+            )
+        )
+        return StableRef(approval.approval_id, approval.approval_hash)
 
     def plan_execution(
         self,

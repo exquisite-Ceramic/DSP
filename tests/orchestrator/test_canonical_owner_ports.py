@@ -10,14 +10,14 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from design_approval_scope import InMemoryApprovalScopeStore
+from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
 from design_gateway_authorization import (
     ApprovalAdmission,
     GatewayAuthorizationServiceV2,
     InMemoryGatewayAuthorizationStoreV2,
     compute_admission_fingerprint,
 )
-from design_approval_scope import InMemoryApprovalScopeStore
-from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
 from design_impact import ImpactAnalyzer, ImpactError, InMemoryImpactAnalysisStore
 from design_materialization_topology import (
     MaterializationRequirement,
@@ -423,11 +423,6 @@ def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> No
         "preview:changeset-1",
         "b" * 64,
     )
-    assert adapter.request_approval(changeset_ref) == StableRef(
-        "approval:changeset-1",
-        "a" * 64,
-    )
-
     with pytest.raises(CanonicalOwnerPortNotWiredError) as exc_info:
         adapter.plan_execution(
             StableRef("changeset-1", "1" * 64),
