@@ -24,9 +24,9 @@ from design_materialization_planning import (
 from design_orchestrator.workflow_contracts import StableRef
 
 from tests.orchestrator.test_canonical_owner_ports import (
+    _task6_real_impact_case,
     _Task7ApprovalAdmission,
     _Task7Clock,
-    _task6_real_impact_case,
 )
 
 
