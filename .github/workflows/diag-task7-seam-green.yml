@@ -1,0 +1,167 @@
+name: Task7 seam GREEN diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task7-seam-green
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-seam-green
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Show existing grant seam implementations
+        run: grep -R "def issue_execution_grant" -n platform/orchestrator tests/orchestrator || true
+      - name: Apply minimal Task7 seam migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path_str: str, old: str, new: str) -> None:
+              path = Path(path_str)
+              text = path.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path_str}: {old!r}")
+              path.write_text(text.replace(old, new))
+
+          replace_exact(
+              "platform/orchestrator/src/design_orchestrator/workflow_services.py",
+              "    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef: ...\n",
+              "    def issue_execution_grant(\n"
+              "        self,\n"
+              "        execution_plan_ref: StableRef,\n"
+              "        approval_ref: StableRef,\n"
+              "        provider_binding_ref: StableRef,\n"
+              "    ) -> StableRef: ...\n",
+          )
+
+          replace_exact(
+              "platform/orchestrator/src/design_orchestrator/default_workflow_services.py",
+              "    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef: ...\n",
+              "    def issue_execution_grant(\n"
+              "        self,\n"
+              "        execution_plan_ref: StableRef,\n"
+              "        approval_ref: StableRef,\n"
+              "        provider_binding_ref: StableRef,\n"
+              "    ) -> StableRef: ...\n",
+          )
+          replace_exact(
+              "platform/orchestrator/src/design_orchestrator/default_workflow_services.py",
+              "    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:\n"
+              "        \"\"\"委托 Gateway owner 签发 ExecutionGrant。\"\"\"\n\n"
+              "        return self._external_owners.issue_execution_grant(execution_plan_ref)\n",
+              "    def issue_execution_grant(\n"
+              "        self,\n"
+              "        execution_plan_ref: StableRef,\n"
+              "        approval_ref: StableRef,\n"
+              "        provider_binding_ref: StableRef,\n"
+              "    ) -> StableRef:\n"
+              "        \"\"\"显式携带审批与 binding lineage，再委托 Gateway owner 签发 grant。\"\"\"\n\n"
+              "        return self._external_owners.issue_execution_grant(\n"
+              "            execution_plan_ref,\n"
+              "            approval_ref,\n"
+              "            provider_binding_ref,\n"
+              "        )\n",
+          )
+
+          replace_exact(
+              "platform/orchestrator/src/design_orchestrator/langgraph_graph.py",
+              "        result = services.issue_execution_grant(\n"
+              "            _require_stable_ref(state, \"execution_plan_ref\")\n"
+              "        )\n",
+              "        result = services.issue_execution_grant(\n"
+              "            _require_stable_ref(state, \"execution_plan_ref\"),\n"
+              "            _require_stable_ref(state, \"approval_ref\"),\n"
+              "            _require_stable_ref(state, \"provider_binding_ref\"),\n"
+              "        )\n",
+          )
+
+          canonical = Path("platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py")
+          text = canonical.read_text()
+          replacements = [
+              (
+                  '        "_gateway_authorization",\n        "_provider_binding_store",\n',
+                  '        "_gateway_authorization",\n        "_gateway_authorization_store",\n'
+                  '        "_coordination_clock",\n        "_provider_binding_store",\n',
+              ),
+              (
+                  "        gateway_authorization: object,\n        provider_binding_store: object,\n",
+                  "        gateway_authorization: object,\n        gateway_authorization_store: object,\n"
+                  "        coordination_clock: object,\n        provider_binding_store: object,\n",
+              ),
+              (
+                  "        self._gateway_authorization = gateway_authorization\n"
+                  "        self._provider_binding_store = provider_binding_store\n",
+                  "        self._gateway_authorization = gateway_authorization\n"
+                  "        self._gateway_authorization_store = gateway_authorization_store\n"
+                  "        self._coordination_clock = coordination_clock\n"
+                  "        self._provider_binding_store = provider_binding_store\n",
+              ),
+              (
+                  "    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:\n"
+                  "        raise self._not_wired(\"issue_execution_grant\")\n",
+                  "    def issue_execution_grant(\n"
+                  "        self,\n"
+                  "        execution_plan_ref: StableRef,\n"
+                  "        approval_ref: StableRef,\n"
+                  "        provider_binding_ref: StableRef,\n"
+                  "    ) -> StableRef:\n"
+                  "        raise self._not_wired(\"issue_execution_grant\")\n",
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"expected canonical owner seam text not found: {old!r}")
+              text = text.replace(old, new)
+          canonical.write_text(text)
+
+          test_path = Path("tests/orchestrator/test_canonical_owner_ports.py")
+          text = test_path.read_text()
+          old = '    "gateway_authorization",\n    "provider_binding_store",\n'
+          new = (
+              '    "gateway_authorization",\n'
+              '    "gateway_authorization_store",\n'
+              '    "coordination_clock",\n'
+              '    "provider_binding_store",\n'
+          )
+          if old not in text:
+              raise SystemExit("expected dependency tuple seam not found")
+          test_path.write_text(text.replace(old, new))
+          PY
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task7 seam and orchestrator regressions
+        run: |
+          uv run pytest tests/orchestrator/test_canonical_owner_ports.py -q
+          uv run pytest tests/orchestrator -q
+      - name: Run focused Ruff
+        run: >-
+          uv run ruff check --select E,F,I
+          platform/orchestrator/src/design_orchestrator/workflow_services.py
+          platform/orchestrator/src/design_orchestrator/default_workflow_services.py
+          platform/orchestrator/src/design_orchestrator/langgraph_graph.py
+          platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py
+          tests/orchestrator/test_canonical_owner_ports.py
+      - name: Commit verified seam migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            platform/orchestrator/src/design_orchestrator/workflow_services.py \
+            platform/orchestrator/src/design_orchestrator/default_workflow_services.py \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+            tests/orchestrator/test_canonical_owner_ports.py
+          git commit -m "refactor: carry Task7 grant lineage refs"
+          git push origin HEAD:diag/task7-seam-green
