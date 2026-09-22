@@ -1,29 +1,69 @@
-"""Real-owner workflow 的 production/reference composition skeleton。
+"""Real-owner workflow 的 production/reference composition adapter。
 
-本模块实现现有 ``ExternalOwnerPorts`` structural seam，但 Task 4 只建立 composition
-形状与最窄的 environment/presentation 委托。Impact、ChangeSet、Gateway、Execution
-Planning、Provider Binding、Saga 与 Reconciliation 的真实业务调用分别留给后续任务。
+本模块实现现有 ``ExternalOwnerPorts`` structural seam。Task 6 接通真实 Semantic
+Runtime freshness、Impact、Approval Scope V2 与 ChangeSet V2；Task 7 之后的 execution
+planning/provider/Saga/reconciliation 仍显式 fail closed。
 
-这里不得复制 authoritative owner 的领域规则，也不得通过通用 service locator 隐藏依赖。
-所有未来需要的 owner/service/store 都以显式 keyword-only constructor dependency 固定下来。
+这里允许做 request assembly、StableRef 解析与跨 owner dependency composition，但不得复制
+authoritative owner 的领域规则，也不得通过通用 service locator 隐藏依赖。source-only owner
+package 仅在方法执行时按需导入，使 adapter 本身保持 import-time 轻量。
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from design_orchestrator.default_workflow_services import (
     OperationResolutionInputs,
     ParameterBindingInputs,
 )
+from design_orchestrator.parameter_binder import BoundOperationProposal
 from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
 from design_orchestrator.workflow_services import ExecutionOwnerView
 
 
+@dataclass(frozen=True, slots=True)
+class ContextFreshnessInputs:
+    """Semantic Runtime context freshness 所需的最小环境输入。"""
+
+    task_id: str
+    project_id: str
+    document_ref: str
+    root_entities: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for field_name in ("task_id", "project_id", "document_ref"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        roots = tuple(
+            item.strip()
+            for item in self.root_entities
+            if isinstance(item, str) and item.strip()
+        )
+        if not roots:
+            raise ValueError("root_entities requires at least one semantic id")
+        if len(set(roots)) != len(roots):
+            raise ValueError("root_entities values must be unique")
+        object.__setattr__(self, "root_entities", roots)
+
+
 class SemanticReconstructionPort(Protocol):
-    """Host/context reconstruction 的窄环境边界。"""
+    """Semantic reconstruction IO 的窄环境边界；freshness 语义仍归 Semantic Runtime。"""
 
     def resolve_host_context(self, task_id: str) -> StableRef: ...
+
+    def load_context_inputs(self, context_ref: StableRef) -> ContextFreshnessInputs: ...
+
+    def reconstruct(self, contract: object, expected_host_revision: str) -> object: ...
+
+
+class HostRevisionObservationPort(Protocol):
+    """读取当前 Host document revision 的窄环境边界。"""
+
+    def current_revision(self, document_ref: str) -> str: ...
 
 
 class PreviewPort(Protocol):
@@ -42,26 +82,36 @@ class ApprovalAdmissionPort(Protocol):
 
 
 class CanonicalOwnerPortNotWiredError(RuntimeError):
-    """Task 4 skeleton 对尚未接入的 authoritative owner 调用统一 fail closed。"""
+    """尚未接入的 authoritative owner 调用统一 fail closed。"""
 
     code = "CANONICAL_OWNER_PORT_NOT_WIRED"
 
     def __init__(self, method_name: str) -> None:
         self.method_name = method_name
-        super().__init__(
-            f"canonical workflow owner port is not wired in Task 4 skeleton: {method_name}"
-        )
+        super().__init__(f"canonical workflow owner port is not wired yet: {method_name}")
+
+
+class _ReconstructionPending(RuntimeError):
+    """把异步 reconstruction wait 从同步 FreshnessResolver callback 中带回 workflow。"""
+
+    def __init__(self, operation_ref: AsyncOperationRef) -> None:
+        self.operation_ref = operation_ref
+        super().__init__(operation_ref.operation_id)
 
 
 class CanonicalWorkflowOwnerPorts:
-    """现有 ``ExternalOwnerPorts`` 的真实 owner composition adapter skeleton。
+    """现有 ``ExternalOwnerPorts`` 的真实 owner composition adapter。
 
-    Constructor 故意完整列出 owner dependencies。Task 4 不调用尚未冻结 wiring 的领域服务；
-    保存这些依赖只是先冻结 production/reference composition shape，后续 Task 6-8 再逐段接通。
+    Constructor 显式列出 production/reference composition dependencies；对象本身只保存 owner
+    service/store 与 StableRef 导航元数据，不缓存 authoritative domain body。
     """
 
     __slots__ = (
         "_snapshot_registry",
+        "_freshness_resolver",
+        "_workflow_artifact_store",
+        "_host_revision_observation",
+        "_canonical_operations",
         "_impact_analyzer",
         "_impact_store",
         "_approval_scope_planner",
@@ -71,6 +121,8 @@ class CanonicalWorkflowOwnerPorts:
         "_materialization_planner",
         "_materialization_plan_store",
         "_topology_registry",
+        "_topology_environment_id",
+        "_topology_revision",
         "_execution_plan_store",
         "_revision_barrier",
         "_gateway_authorization",
@@ -84,12 +136,19 @@ class CanonicalWorkflowOwnerPorts:
         "_approval_admission",
         "_materialization_routing",
         "_provider_execution_snapshot",
+        "_task_ids_by_context_snapshot",
+        "_freshness_refs_by_operation",
+        "_operation_refs_by_impact",
     )
 
     def __init__(
         self,
         *,
         snapshot_registry: object,
+        freshness_resolver: object,
+        workflow_artifact_store: object,
+        host_revision_observation: HostRevisionObservationPort,
+        canonical_operations: object,
         impact_analyzer: object,
         impact_store: object,
         approval_scope_planner: object,
@@ -99,6 +158,8 @@ class CanonicalWorkflowOwnerPorts:
         materialization_planner: object,
         materialization_plan_store: object,
         topology_registry: object,
+        topology_environment_id: object,
+        topology_revision: object,
         execution_plan_store: object,
         revision_barrier: object,
         gateway_authorization: object,
@@ -113,8 +174,12 @@ class CanonicalWorkflowOwnerPorts:
         materialization_routing: object,
         provider_execution_snapshot: object,
     ) -> None:
-        # Task 4 不做 service discovery；每个依赖都保留独立字段，后续 wiring 可逐项审计。
+        # 兼容 Task 4 shape tests：constructor 不执行 service discovery 或 eagerly validate fakes。
         self._snapshot_registry = snapshot_registry
+        self._freshness_resolver = freshness_resolver
+        self._workflow_artifact_store = workflow_artifact_store
+        self._host_revision_observation = host_revision_observation
+        self._canonical_operations = canonical_operations
         self._impact_analyzer = impact_analyzer
         self._impact_store = impact_store
         self._approval_scope_planner = approval_scope_planner
@@ -124,6 +189,8 @@ class CanonicalWorkflowOwnerPorts:
         self._materialization_planner = materialization_planner
         self._materialization_plan_store = materialization_plan_store
         self._topology_registry = topology_registry
+        self._topology_environment_id = topology_environment_id
+        self._topology_revision = topology_revision
         self._execution_plan_store = execution_plan_store
         self._revision_barrier = revision_barrier
         self._gateway_authorization = gateway_authorization
@@ -138,11 +205,78 @@ class CanonicalWorkflowOwnerPorts:
         self._materialization_routing = materialization_routing
         self._provider_execution_snapshot = provider_execution_snapshot
 
+        # 仅保存 ref/navigation lineage；authoritative bodies 始终从各 owner store 重新解析。
+        self._task_ids_by_context_snapshot: dict[str, str] = {}
+        self._freshness_refs_by_operation: dict[str, tuple[StableRef, StableRef]] = {}
+        self._operation_refs_by_impact: dict[str, StableRef] = {}
+
     @staticmethod
     def _not_wired(method_name: str) -> CanonicalOwnerPortNotWiredError:
         """未接线的领域调用必须显式失败，禁止生成伪 owner truth。"""
 
         return CanonicalOwnerPortNotWiredError(method_name)
+
+    @staticmethod
+    def _ref_hash_matches(ref: StableRef, actual_hash: str, *, kind: str) -> None:
+        """StableRef 带 hash 时必须与 owner artifact 精确一致。"""
+
+        if ref.content_hash is not None and ref.content_hash != actual_hash:
+            raise ValueError(f"{kind} StableRef hash does not match authoritative owner content")
+
+    def _canonical_definition(self, canonical_operation: str, version: str):
+        """按 exact operation/version 解析 platform-owned canonical definition。"""
+
+        for definition in self._canonical_operations:
+            if (
+                definition.canonical_operation == canonical_operation
+                and definition.version == version
+            ):
+                return definition
+        raise ValueError(
+            "canonical operation definition is unresolved: "
+            f"{canonical_operation}@{version}"
+        )
+
+    def _resolve_freshness(self, contract: object, *, expected_host_revision: str):
+        """始终经过真实 FreshnessResolver；异步 IO 只把 wait ref 带回 workflow。"""
+
+        def reconstruct(owner_contract: object, expected_revision: str):
+            result = self._semantic_reconstruction.reconstruct(
+                owner_contract,
+                expected_revision,
+            )
+            if isinstance(result, AsyncOperationRef):
+                raise _ReconstructionPending(result)
+            return result
+
+        try:
+            return self._freshness_resolver.resolve(
+                contract,
+                expected_host_revision=expected_host_revision,
+                reconstruct=reconstruct,
+            )
+        except _ReconstructionPending as pending:
+            return pending.operation_ref
+
+    def _bound_operation(self, operation_ref: StableRef) -> BoundOperationProposal:
+        """从 workflow-local artifact store 解析 Orchestrator-owned bound proposal。"""
+
+        value = self._workflow_artifact_store.get(operation_ref)
+        if not isinstance(value, BoundOperationProposal):
+            raise TypeError("workflow operation ref must resolve to BoundOperationProposal")
+        return value
+
+    @staticmethod
+    def _bound_targets(bound: BoundOperationProposal) -> tuple[str, ...]:
+        """读取 binder 已冻结的 canonical targets，不重新解释 intent。"""
+
+        raw_targets = bound.arguments.get("targets")
+        if not isinstance(raw_targets, (tuple, list)):
+            raise ValueError("bound operation requires canonical targets")
+        targets = tuple(str(item).strip() for item in raw_targets if str(item).strip())
+        if not targets:
+            raise ValueError("bound operation requires at least one canonical target")
+        return targets
 
     def load_operation_resolution_inputs(
         self,
@@ -157,7 +291,7 @@ class CanonicalWorkflowOwnerPorts:
         raise self._not_wired("load_parameter_binding_inputs")
 
     def resolve_host_context(self, task_id: str) -> StableRef:
-        """把 Host/context reconstruction 原样委托给明确的环境端口。"""
+        """把 Host/context reconstruction request 原样委托给明确的环境端口。"""
 
         return self._semantic_reconstruction.resolve_host_context(task_id)
 
@@ -165,19 +299,369 @@ class CanonicalWorkflowOwnerPorts:
         self,
         snapshot_ref: StableRef,
     ) -> StableRef | AsyncOperationRef:
-        raise self._not_wired("ensure_context_freshness")
+        """用真实 Context Freshness contract 生成 authoritative ContextSnapshot。"""
+
+        from semantic_runtime import build_context_contract
+
+        inputs = self._semantic_reconstruction.load_context_inputs(snapshot_ref)
+        if not isinstance(inputs, ContextFreshnessInputs):
+            raise TypeError("load_context_inputs must return ContextFreshnessInputs")
+        contract = build_context_contract(
+            inputs.document_ref,
+            inputs.root_entities,
+            project_id=inputs.project_id,
+        )
+        expected_revision = self._host_revision_observation.current_revision(
+            inputs.document_ref
+        )
+        resolved = self._resolve_freshness(
+            contract,
+            expected_host_revision=expected_revision,
+        )
+        if isinstance(resolved, AsyncOperationRef):
+            return resolved
+
+        self._snapshot_registry.put_snapshot(resolved)
+        self._task_ids_by_context_snapshot[resolved.snapshot_id] = inputs.task_id
+        return StableRef(resolved.snapshot_id, resolved.hash)
 
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
     ) -> StableRef | AsyncOperationRef:
-        raise self._not_wired("ensure_operation_freshness")
+        """用真实 Operation Freshness contract 生成 PlanningSnapshot/SnapshotSet。"""
+
+        from semantic_runtime import (
+            SnapshotSet,
+            build_operation_contract,
+            requirements_from_mappings,
+        )
+
+        bound = self._bound_operation(operation_ref)
+        context_snapshot = self._snapshot_registry.get_snapshot(
+            bound.context_snapshot_ref.context_snapshot_id
+        )
+        if bound.context_snapshot_ref.context_snapshot_hash != context_snapshot.hash:
+            raise ValueError(
+                "bound operation context snapshot hash does not match Semantic Runtime truth"
+            )
+
+        definition = self._canonical_definition(
+            bound.operation.canonical_operation,
+            bound.operation.version,
+        )
+        requirement_mappings = (
+            *bound.planning_requirements.operation_freshness_requirements,
+            *bound.planning_requirements.coverage_requirements,
+            *bound.planning_requirements.assurance_requirements,
+        )
+        contract = build_operation_contract(
+            project_id=context_snapshot.project_id,
+            document_ref=bound.context_snapshot_ref.document_ref,
+            canonical_operation=bound.operation.canonical_operation,
+            targets=self._bound_targets(bound),
+            arguments=dict(bound.arguments),
+            requirements=requirements_from_mappings(requirement_mappings),
+        )
+        expected_revision = self._host_revision_observation.current_revision(
+            bound.context_snapshot_ref.document_ref
+        )
+        resolved = self._resolve_freshness(
+            contract,
+            expected_host_revision=expected_revision,
+        )
+        if isinstance(resolved, AsyncOperationRef):
+            return resolved
+
+        self._snapshot_registry.put_snapshot(resolved)
+        snapshot_set = SnapshotSet.create((resolved,))
+        self._snapshot_registry.put_snapshot_set(snapshot_set)
+        self._freshness_refs_by_operation[operation_ref.ref_id] = (
+            StableRef(resolved.snapshot_id, resolved.hash),
+            StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
+        )
+        return operation_ref
 
     def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        raise self._not_wired("analyze_impact")
+        """解析 owner refs 后调用真实 ImpactAnalyzer，并只返回稳定分析引用。"""
+
+        from design_impact import (
+            ImpactAnalysisRequest,
+            IntentBoundary,
+            PlanningSnapshotBinding,
+            SemanticEnvironmentBinding,
+            SnapshotSetBinding,
+        )
+
+        bound = self._bound_operation(operation_ref)
+        try:
+            planning_ref, snapshot_set_ref = self._freshness_refs_by_operation[
+                operation_ref.ref_id
+            ]
+        except KeyError as exc:
+            raise ValueError(
+                "operation freshness lineage is unresolved before Impact analysis"
+            ) from exc
+
+        planning = self._snapshot_registry.get_snapshot(planning_ref.ref_id)
+        snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
+        self._ref_hash_matches(planning_ref, planning.hash, kind="PlanningSnapshot")
+        self._ref_hash_matches(snapshot_set_ref, snapshot_set.hash, kind="SnapshotSet")
+
+        environment = SemanticEnvironmentBinding(
+            planning.semantic_environment_ref.environment_id,
+            planning.semantic_environment_ref.content_hash,
+        )
+        planning_binding = PlanningSnapshotBinding(
+            planning.snapshot_id,
+            planning.hash,
+            planning.document_ref,
+            environment,
+        )
+        snapshot_set_binding = SnapshotSetBinding(
+            snapshot_set.snapshot_set_id,
+            snapshot_set.hash,
+            snapshot_set.member_snapshot_ids,
+            environment,
+        )
+
+        definition = self._canonical_definition(
+            bound.operation.canonical_operation,
+            bound.operation.version,
+        )
+        intent = IntentBoundary(
+            direct_targets=self._bound_targets(bound),
+            allowed_canonical_effects=tuple(
+                getattr(item, "value", str(item)) for item in definition.effects
+            ),
+            allowed_existence_effects=tuple(
+                item.value for item in definition.existence_effects
+            ),
+        )
+        analysis = self._impact_analyzer.analyze(
+            ImpactAnalysisRequest(
+                bound_operation=bound,
+                planning_snapshot_ref=planning_binding,
+                snapshot_set_ref=snapshot_set_binding,
+                semantic_environment_ref=environment,
+                intent_boundary=intent,
+            )
+        )
+        self._impact_store.put(analysis)
+        self._operation_refs_by_impact[analysis.analysis_id] = operation_ref
+        return StableRef(analysis.analysis_id, analysis.analysis_fingerprint)
+
+    @staticmethod
+    def _planning_requirement_payload(bound: BoundOperationProposal) -> dict[str, object]:
+        """把 binder value contract 投影成 ChangeSet owner 已冻结的 evidence shape。"""
+
+        requirements = bound.planning_requirements
+        return {
+            "operation_freshness_requirements": (
+                requirements.operation_freshness_requirements
+            ),
+            "coverage_requirements": requirements.coverage_requirements,
+            "assurance_requirements": requirements.assurance_requirements,
+        }
+
+    @staticmethod
+    def _binding_evidence_payload(bound: BoundOperationProposal) -> dict[str, object]:
+        """保持 binder evidence 原值；不在 adapter 内重判 slot 来源。"""
+
+        return {
+            slot: {
+                "binding_class": evidence.binding_class.value,
+                "source": evidence.source,
+                "source_ref": evidence.source_ref,
+            }
+            for slot, evidence in bound.binding_evidence.items()
+        }
 
     def build_changeset(self, impact_ref: StableRef) -> StableRef:
-        raise self._not_wired("build_changeset")
+        """组合真实 Approval Scope V2 与 ChangeSet V2，并持久化 owner truth。"""
+
+        from design_approval_scope import (
+            ApprovalScopePlanRequest,
+            CanonicalEffectEvidence,
+            DirectEntityEffect,
+            ExecutionSliceScopeRule,
+            bind_changeset_v2,
+            bind_topology_snapshot_v2,
+            direct_existing_rule_id,
+        )
+        from design_changeset import (
+            BoundOperationEvidence,
+            CanonicalOperationContractEvidence,
+            ChangeSetBuildRequest,
+            compute_bound_operation_evidence_fingerprint,
+            compute_bound_operation_fingerprint,
+            compute_contract_definition_fingerprint,
+            validate_changeset_integrity_v2,
+        )
+        from design_impact import ImpactError, IntentBoundary
+
+        # 必须先解析 authoritative Impact；缺失 ref 时 ChangeSet owner 绝不能被调用。
+        analysis = self._impact_store.get(impact_ref.ref_id)
+        if (
+            impact_ref.content_hash is not None
+            and impact_ref.content_hash != analysis.analysis_fingerprint
+        ):
+            raise ImpactError(
+                "IMPACT_ANALYSIS_REFERENCE_INTEGRITY_INVALID",
+                "impact StableRef hash does not match authoritative analysis",
+            )
+        try:
+            operation_ref = self._operation_refs_by_impact[analysis.analysis_id]
+        except KeyError as exc:
+            raise ImpactError(
+                "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND",
+                "impact operation lineage is unavailable in this process",
+            ) from exc
+
+        bound = self._bound_operation(operation_ref)
+        try:
+            planning_ref, _ = self._freshness_refs_by_operation[operation_ref.ref_id]
+        except KeyError as exc:
+            raise ImpactError(
+                "IMPACT_ANALYSIS_REFERENCE_NOT_FOUND",
+                "impact freshness lineage is unavailable in this process",
+            ) from exc
+        planning_snapshot = self._snapshot_registry.get_snapshot(planning_ref.ref_id)
+        self._ref_hash_matches(
+            planning_ref,
+            planning_snapshot.hash,
+            kind="PlanningSnapshot",
+        )
+
+        definition = self._canonical_definition(
+            bound.operation.canonical_operation,
+            bound.operation.version,
+        )
+        if definition.existence_effects:
+            # Task 6 不扩展 CREATE/DELETE product scenarios；不得临时发明 scope recipe。
+            raise self._not_wired("build_changeset.existence_effects")
+
+        topology = self._topology_registry.get(
+            self._topology_environment_id,
+            self._topology_revision,
+        )
+        targets = self._bound_targets(bound)
+        effect_values = tuple(
+            getattr(item, "value", str(item)) for item in definition.effects
+        )
+        intent = IntentBoundary(
+            direct_targets=targets,
+            allowed_canonical_effects=effect_values,
+        )
+        rule_ids = tuple(direct_existing_rule_id(target) for target in targets)
+        document_refs = tuple(sorted({slot.document_ref for slot in topology.slots}))
+        scope_v1 = self._approval_scope_planner.plan(
+            ApprovalScopePlanRequest(
+                canonical_effect_evidence=CanonicalEffectEvidence(
+                    definition.canonical_operation,
+                    definition.version,
+                    effect_values,
+                ),
+                impact_analysis=analysis,
+                intent_boundary=intent,
+                direct_entity_effects=tuple(
+                    DirectEntityEffect(target, effect_values) for target in targets
+                ),
+                execution_slice_scope_rules=tuple(
+                    ExecutionSliceScopeRule(
+                        f"SLICE-SCOPE-{index}",
+                        document_ref,
+                        existing_rule_ids=rule_ids,
+                    )
+                    for index, document_ref in enumerate(document_refs, start=1)
+                ),
+            )
+        )
+        scope_v2 = bind_topology_snapshot_v2(
+            scope_v1,
+            topology.topology_snapshot_hash,
+        )
+
+        planning_requirements = self._planning_requirement_payload(bound)
+        binding_evidence = self._binding_evidence_payload(bound)
+        arguments = dict(bound.arguments)
+        material_fingerprint = compute_bound_operation_fingerprint(
+            bound.operation.canonical_operation,
+            bound.operation.version,
+            arguments,
+        )
+        evidence_fingerprint = compute_bound_operation_evidence_fingerprint(
+            canonical_operation=bound.operation.canonical_operation,
+            canonical_operation_version=bound.operation.version,
+            arguments=arguments,
+            context_snapshot_id=bound.context_snapshot_ref.context_snapshot_id,
+            context_snapshot_hash=bound.context_snapshot_ref.context_snapshot_hash,
+            document_ref=bound.context_snapshot_ref.document_ref,
+            semantic_environment_id=bound.semantic_environment_ref,
+            planning_requirements=planning_requirements,
+            binding_evidence=binding_evidence,
+        )
+        bound_evidence = BoundOperationEvidence(
+            canonical_operation=bound.operation.canonical_operation,
+            canonical_operation_version=bound.operation.version,
+            arguments=arguments,
+            context_snapshot_id=bound.context_snapshot_ref.context_snapshot_id,
+            context_snapshot_hash=bound.context_snapshot_ref.context_snapshot_hash,
+            document_ref=bound.context_snapshot_ref.document_ref,
+            semantic_environment_id=bound.semantic_environment_ref,
+            planning_requirements=planning_requirements,
+            binding_evidence=binding_evidence,
+            bound_operation_fingerprint=material_fingerprint,
+            bound_operation_evidence_fingerprint=evidence_fingerprint,
+        )
+
+        definition_fingerprint = compute_contract_definition_fingerprint(
+            canonical_operation=definition.canonical_operation,
+            canonical_operation_version=definition.version,
+            argument_schema=definition.input_schema,
+            effects=definition.effects,
+            verification_contract=definition.verification_contract,
+        )
+        contract_evidence = CanonicalOperationContractEvidence(
+            canonical_operation=definition.canonical_operation,
+            canonical_operation_version=definition.version,
+            argument_schema=definition.input_schema,
+            effects=definition.effects,
+            verification_contract=definition.verification_contract,
+            definition_fingerprint=definition_fingerprint,
+        )
+
+        try:
+            task_id = self._task_ids_by_context_snapshot[
+                bound.context_snapshot_ref.context_snapshot_id
+            ]
+        except KeyError as exc:
+            raise ValueError(
+                "context snapshot task lineage is unavailable in this process"
+            ) from exc
+
+        changeset = self._changeset_builder.build(
+            ChangeSetBuildRequest(
+                task_id=task_id,
+                project_id=planning_snapshot.project_id,
+                bound_operation_evidence=bound_evidence,
+                impact_analysis=analysis,
+                approval_scope_definition=scope_v2,
+                canonical_operation_contracts=(contract_evidence,),
+            )
+        )
+        boundary = bind_changeset_v2(
+            scope_v2,
+            changeset.changeset_hash,
+            f"SCOPE-{changeset.changeset_id}",
+        )
+        validate_changeset_integrity_v2(changeset, boundary)
+
+        # 只有所有 owner deterministic validators 通过后才发布 immutable reference truth。
+        self._approval_scope_store.put_definition(scope_v2)
+        self._changeset_store.put(changeset)
+        self._approval_scope_store.put_boundary(boundary)
+        return StableRef(changeset.changeset_id, changeset.changeset_hash)
 
     def preview(self, changeset_ref: StableRef) -> StableRef:
         """Preview 只走 presentation boundary，不解释 ChangeSet 内容。"""
@@ -220,3 +704,14 @@ class CanonicalWorkflowOwnerPorts:
 
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView:
         raise self._not_wired("verify_reconcile")
+
+
+__all__ = [
+    "ApprovalAdmissionPort",
+    "CanonicalOwnerPortNotWiredError",
+    "CanonicalWorkflowOwnerPorts",
+    "ContextFreshnessInputs",
+    "HostRevisionObservationPort",
+    "PreviewPort",
+    "SemanticReconstructionPort",
+]
