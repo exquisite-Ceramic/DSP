@@ -1,0 +1,70 @@
+name: Task7 PostgreSQL grant signature diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task7-postgres-grant-signature
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dsp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: diag/task7-postgres-grant-signature
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Migrate legacy scenario fake grant signature
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/orchestrator/test_workflow_end_to_end.py")
+          text = path.read_text()
+          old = '''    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:\n        \"\"\"Gateway owner 返回 ExecutionGrant 引用。\"\"\"\n\n        return StableRef(\"grant-task9\", \"8\" * 64)\n'''
+          new = '''    def issue_execution_grant(\n        self,\n        execution_plan_ref: StableRef,\n        approval_ref: StableRef,\n        provider_binding_ref: StableRef,\n    ) -> StableRef:\n        \"\"\"Gateway owner 返回 ExecutionGrant 引用；测试 fake 仅跟随显式 lineage seam。\"\"\"\n\n        return StableRef(\"grant-task9\", \"8\" * 64)\n'''
+          if old not in text:
+              raise SystemExit("legacy _ScenarioOwners grant signature not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Re-run exact PostgreSQL restart regression
+        run: >-
+          uv run python -m pytest
+          tests/orchestrator/test_workflow_end_to_end.py::test_real_runtime_survives_hitl_async_restart_and_keeps_refs_only
+          -q
+      - name: Run workflow E2E file and Ruff
+        run: |
+          uv run python -m pytest tests/orchestrator/test_workflow_end_to_end.py -q
+          uv run ruff check --select E,F,I tests/orchestrator/test_workflow_end_to_end.py
+      - name: Commit verified compatibility migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/orchestrator/test_workflow_end_to_end.py
+          git commit -m "test: migrate scenario grant lineage seam"
+          git push origin HEAD:diag/task7-postgres-grant-signature
