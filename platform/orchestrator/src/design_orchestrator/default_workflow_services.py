@@ -127,7 +127,12 @@ class ExternalOwnerPorts(Protocol):
 
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef: ...
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef: ...
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef: ...
 
     def begin_execution(
         self,
@@ -392,10 +397,19 @@ class DefaultWorkflowServices:
 
         return self._external_owners.bind_providers(execution_plan_ref)
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:
-        """委托 Gateway owner 签发 ExecutionGrant。"""
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef:
+        """显式携带审批与 binding lineage，再委托 Gateway owner 签发 grant。"""
 
-        return self._external_owners.issue_execution_grant(execution_plan_ref)
+        return self._external_owners.issue_execution_grant(
+            execution_plan_ref,
+            approval_ref,
+            provider_binding_ref,
+        )
 
     def begin_execution(
         self,

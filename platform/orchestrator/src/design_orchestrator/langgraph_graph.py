@@ -338,7 +338,9 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
 
     def execution_grant(state: WorkflowGraphState) -> dict[str, object]:
         result = services.issue_execution_grant(
-            _require_stable_ref(state, "execution_plan_ref")
+            _require_stable_ref(state, "execution_plan_ref"),
+            _require_stable_ref(state, "approval_ref"),
+            _require_stable_ref(state, "provider_binding_ref"),
         )
         return {
             "grant_ref": _encode_stable_ref(result),

@@ -71,6 +71,8 @@ _OWNER_DEPENDENCY_NAMES = (
     "execution_plan_store",
     "revision_barrier",
     "gateway_authorization",
+    "gateway_authorization_store",
+    "coordination_clock",
     "provider_binding_store",
     "saga_store",
     "execution_coordinator",

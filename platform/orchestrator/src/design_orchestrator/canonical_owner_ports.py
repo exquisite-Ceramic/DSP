@@ -141,6 +141,8 @@ class CanonicalWorkflowOwnerPorts:
         "_execution_plan_store",
         "_revision_barrier",
         "_gateway_authorization",
+        "_gateway_authorization_store",
+        "_coordination_clock",
         "_provider_binding_store",
         "_saga_store",
         "_execution_coordinator",
@@ -175,6 +177,8 @@ class CanonicalWorkflowOwnerPorts:
         execution_plan_store: object,
         revision_barrier: object,
         gateway_authorization: object,
+        gateway_authorization_store: object,
+        coordination_clock: object,
         provider_binding_store: object,
         saga_store: object,
         execution_coordinator: object,
@@ -206,6 +210,8 @@ class CanonicalWorkflowOwnerPorts:
         self._execution_plan_store = execution_plan_store
         self._revision_barrier = revision_barrier
         self._gateway_authorization = gateway_authorization
+        self._gateway_authorization_store = gateway_authorization_store
+        self._coordination_clock = coordination_clock
         self._provider_binding_store = provider_binding_store
         self._saga_store = saga_store
         self._execution_coordinator = execution_coordinator
@@ -721,7 +727,12 @@ class CanonicalWorkflowOwnerPorts:
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef:
         raise self._not_wired("bind_providers")
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef:
         raise self._not_wired("issue_execution_grant")
 
     def begin_execution(
