@@ -1,0 +1,30 @@
+name: Task6 review Ruff diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task6-review-ruff
+
+permissions:
+  contents: read
+
+jobs:
+  ruff-autofix-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install Ruff
+        run: python -m pip install ruff==0.16.8
+      - name: Print exact Ruff autofix diff
+        run: |
+          ruff check --select E,F,I --fix \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/orchestrator/test_task6_review_regressions.py || true
+          git diff -- \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/orchestrator/test_task6_review_regressions.py
