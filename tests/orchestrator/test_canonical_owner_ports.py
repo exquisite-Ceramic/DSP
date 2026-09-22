@@ -404,8 +404,8 @@ def test_canonical_owner_ports_constructor_is_explicit_and_default_services_acce
     assert service is not None
 
 
-def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> None:
-    """Task 6 接 freshness/impact/changeset；planning 之后的领域 owner 仍须 fail closed。"""
+def test_canonical_owner_ports_keeps_post_planning_domain_calls_fail_closed() -> None:
+    """Task 7 planning 已接真实 owner；revision barrier 及其后的领域调用仍须 fail closed。"""
 
     from design_orchestrator.canonical_owner_ports import (
         CanonicalOwnerPortNotWiredError,
@@ -414,6 +414,7 @@ def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> No
 
     adapter = CanonicalWorkflowOwnerPorts(**_adapter_kwargs())
     changeset_ref = StableRef("changeset-1", "1" * 64)
+    execution_plan_ref = StableRef("execution-plan-1", "2" * 64)
 
     assert adapter.resolve_host_context("task-4") == StableRef(
         "context:task-4",
@@ -424,12 +425,9 @@ def test_canonical_owner_ports_keeps_task7_plus_domain_calls_fail_closed() -> No
         "b" * 64,
     )
     with pytest.raises(CanonicalOwnerPortNotWiredError) as exc_info:
-        adapter.plan_execution(
-            StableRef("changeset-1", "1" * 64),
-            StableRef("approval-1", "2" * 64),
-        )
+        adapter.check_revision_barrier(execution_plan_ref)
     assert exc_info.value.code == "CANONICAL_OWNER_PORT_NOT_WIRED"
-    assert "plan_execution" in str(exc_info.value)
+    assert "check_revision_barrier" in str(exc_info.value)
 
 
 def test_task6_real_freshness_wait_and_impact_use_owner_truth() -> None:
