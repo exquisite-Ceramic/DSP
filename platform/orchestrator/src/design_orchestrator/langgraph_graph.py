@@ -279,7 +279,10 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         }
 
     def build_changeset(state: WorkflowGraphState) -> dict[str, object]:
-        """显式携带 task/operation/impact lineage，禁止从 content-addressed owner truth 反推 task。"""
+        """显式携带 task/operation/impact lineage。
+
+        禁止从 content-addressed owner truth 反推 task。
+        """
 
         result = services.build_changeset(
             cast(str, state["task_id"]),

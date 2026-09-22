@@ -35,16 +35,16 @@ from design_orchestrator.workflow_contracts import (
 from semantic_runtime import DirtyMap, FreshnessResolver
 
 from tests.orchestrator.test_canonical_owner_ports import (
+    _OWNER_DEPENDENCY_NAMES,
+    _TASK6_ENVIRONMENT,
     _ApprovalAdmission,
     _Dependency,
     _HostRevisionObservation,
-    _OWNER_DEPENDENCY_NAMES,
     _Preview,
-    _TASK6_ENVIRONMENT,
-    _Task6SemanticReconstruction,
     _task6_adapter,
     _task6_bound_operation,
     _task6_topology,
+    _Task6SemanticReconstruction,
 )
 
 
@@ -258,7 +258,10 @@ def test_task6_adapter_rebuild_preserves_required_lineage_via_refs_and_owner_sto
 
 
 def test_task6_adapter_has_no_process_local_required_lineage_maps() -> None:
-    """composition object 不得保存 task/snapshot、operation/freshness 或 impact/operation 必需映射。"""
+    """composition object 不得保存必需的 process-local lineage 映射。
+
+    包括 task/snapshot、operation/freshness 与 impact/operation 三类反查状态。
+    """
 
     forbidden = {
         "_task_ids_by_context_snapshot",
@@ -269,7 +272,10 @@ def test_task6_adapter_has_no_process_local_required_lineage_maps() -> None:
 
 
 def test_task6_real_runtime_start_reaches_operation_proposal_hitl() -> None:
-    """真实 runtime 必须穿过 context freshness 与真实 OperationResolver，而不是在前置 loader 阻断。"""
+    """真实 runtime 必须穿过 context freshness 与真实 OperationResolver。
+
+    前置 read-model loader 不得阻断 workflow 到达 proposal HITL。
+    """
 
     # Step23/Step36 的轻量回归 lane 不安装 LangGraph；其它 4 条 Task 6 review
     # regression 仍必须继续执行。只有这一条真实 runtime proof 在缺少可选依赖时单独跳过。

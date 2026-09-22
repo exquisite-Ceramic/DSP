@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
-from design_impact import ImpactAnalyzer, InMemoryImpactAnalysisStore, ImpactError
+from design_impact import ImpactAnalyzer, ImpactError, InMemoryImpactAnalysisStore
 from design_materialization_topology import (
     MaterializationRequirement,
     MaterializationSlot,
@@ -22,7 +22,6 @@ from design_materialization_topology import (
 from design_orchestrator.canonical_operations import (
     MOVE_V1,
     MVP_CANONICAL_OPERATIONS,
-    SET_WALL_THICKNESS_V1,
 )
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
