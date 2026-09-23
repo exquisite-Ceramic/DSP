@@ -2,12 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Every production-code task is TDD RED → GREEN → focused verification → exact-head verification → commit. Do not collapse gates.
 
-**Status:** Baseline implementation in progress — Amendment A written-plan review pending  
+**Status:** Baseline implementation in progress — Amendment A written-plan review pending
 **Date:** 2026-09-20  
-**Amendment A date:** 2026-09-23  
-**Original base:** `main@f5ffd4633fbb28c2a54bbc4417df805fac9c2d6c`  
-**Amendment base:** `feat/capability-real-owner-e2e-workflow@1cce9ce7cbb6afef3feabb464118b952b1ecb114`  
-**Spec:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md` §21 Amendment A  
+**Amendment A date:** 2026-09-23
+**Original base:** `main@f5ffd4633fbb28c2a54bbc4417df805fac9c2d6c`
+**Amendment base:** `feat/capability-real-owner-e2e-workflow@1cce9ce7cbb6afef3feabb464118b952b1ecb114`
+**Spec:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md` §21 Amendment A
 **Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
 **Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
 **Delivery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
