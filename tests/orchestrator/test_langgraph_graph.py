@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
+import pytest
 from design_orchestrator import workflow_contracts as workflow_contracts_module
 from design_orchestrator.langgraph_graph import MAIN_PATH, build_workflow_graph
 from design_orchestrator.langgraph_state import (
@@ -548,3 +549,109 @@ def test_operation_freshness_async_wait_clears_stale_pair_then_writes_new_tuple(
     assert services.impact_calls == [
         (services.bound_ref, services.planning_ref, services.snapshot_set_ref)
     ]
+
+
+
+def _freshness_graph_before_impact():
+    """使用真实 InMemorySaver 把 production graph 停在 analyze_impact 执行前。"""
+
+    services = _FreshnessGraphServices(async_first=False)
+    saver = InMemorySaver()
+    graph = build_workflow_graph(services).compile(checkpointer=saver)
+    config = {
+        "configurable": {
+            "thread_id": "task-freshness-before-impact",
+            "checkpoint_ns": "",
+        }
+    }
+    initial_state = {
+        "checkpoint_contract_version": 2,
+        "task_id": "task-freshness-before-impact",
+        "phase": WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
+    }
+    graph.invoke(initial_state, config=config)
+    pause_id = graph.get_state(config).values["pending_interaction"]["pause_id"]
+    graph.invoke(
+        Command(
+            resume={
+                "pause_id": pause_id,
+                "resume_kind": "OPERATION_PROPOSAL_ACCEPTED",
+                "payload": {},
+            }
+        ),
+        config=config,
+        interrupt_before=["analyze_impact"],
+    )
+    return services, saver, graph, config
+
+
+def _round_trip_exact_refs(values: dict[str, object]) -> dict[str, StableRef]:
+    """只从 saver 读回的 JSON-compatible values 重建三个 StableRef。"""
+
+    persisted = {
+        field_name: values[field_name]
+        for field_name in (
+            "operation_ref",
+            "planning_snapshot_ref",
+            "snapshot_set_ref",
+        )
+    }
+    restored = json.loads(json.dumps(persisted, sort_keys=True))
+    return {
+        field_name: StableRef(**restored[field_name])
+        for field_name in persisted
+    }
+
+
+def test_task6r3_saver_backed_exact_refs_survive_json_round_trip() -> None:
+    """真实 LangGraph saver 中的三个 exact refs 必须可经 JSON round-trip 恢复。"""
+
+    services, _, graph, config = _freshness_graph_before_impact()
+    snapshot = graph.get_state(config)
+
+    assert snapshot.next == ("analyze_impact",)
+    assert FORBIDDEN_KEYS.isdisjoint(snapshot.values)
+    restored = _round_trip_exact_refs(snapshot.values)
+    assert restored == {
+        "operation_ref": services.bound_ref,
+        "planning_snapshot_ref": services.planning_ref,
+        "snapshot_set_ref": services.snapshot_set_ref,
+    }
+    assert services.impact_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("operation_ref", None),
+        ("planning_snapshot_ref", None),
+        ("snapshot_set_ref", None),
+        ("operation_ref", {"ref_id": "", "content_hash": "a" * 64}),
+        ("planning_snapshot_ref", {"ref_id": "PS-42", "content_hash": "invalid"}),
+        ("snapshot_set_ref", {"ref_id": "PSS-42", "unexpected": "value"}),
+    ),
+    ids=(
+        "missing-operation",
+        "missing-planning",
+        "missing-snapshot-set",
+        "malformed-operation-id",
+        "malformed-planning-hash",
+        "malformed-snapshot-set-shape",
+    ),
+)
+def test_task6r3_graph_rejects_missing_or_malformed_ref_before_service_dispatch(
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    """graph 只对缺失/编码非法 ref fail closed，且不得调用 WorkflowServices Impact seam。"""
+
+    services, _, graph, config = _freshness_graph_before_impact()
+    graph.update_state(
+        config,
+        {field_name: invalid_value},
+        as_node="ensure_operation_freshness",
+    )
+
+    with pytest.raises(ValueError):
+        graph.invoke(None, config=config)
+    assert services.impact_calls == []
