@@ -1,599 +1,727 @@
 # Capability Phase — Real-Owner E2E Workflow Implementation Plan
 
-**Status:** Proposed — written-plan review pending  
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Every production-code task is TDD RED → GREEN → focused verification → exact-head verification → commit. Do not collapse gates.
+
+**Status:** Baseline implementation in progress — Amendment A written-plan review pending  
 **Date:** 2026-09-20  
-**Base:** `main@f5ffd4633fbb28c2a54bbc4417df805fac9c2d6c`  
-**Design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`  
+**Amendment A date:** 2026-09-23  
+**Original base:** `main@f5ffd4633fbb28c2a54bbc4417df805fac9c2d6c`  
+**Amendment base:** `feat/capability-real-owner-e2e-workflow@1cce9ce7cbb6afef3feabb464118b952b1ecb114`  
+**Spec:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md` §21 Amendment A  
 **Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
 **Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
 **Delivery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Every production-code task is TDD RED → GREEN → exact-head verification → commit. Do not collapse gates.
-
 ## Goal
 
-把已经通过 HITL pause/resume 的 LangGraph workflow 从 test-side `_ScenarioOwners` composition 提升为可复用的 production/reference **real-owner composition**：
+完成 real-owner workflow reference composition，但在继续 Task 7 Step 3 之前，先修复 Task 6 rereview 暴露的 operation freshness → Impact exact-lineage 缺口：successful freshness 必须显式携带 exact `operation_ref + planning_snapshot_ref + snapshot_set_ref`，Impact 必须只消费这组 refs，并在调用真实 Impact owner 前验证三者属于同一次合法 operation freshness 结果。
+
+本 Amendment 不推翻已经完成的 composition 主干，也不回滚 Task 7 Step 1/2。它只重开 Task 6 的 freshness→Impact boundary，并把 checkpoint/recovery evidence 收紧到实际 graph checkpoint 序列化路径。
+
+## Architecture
+
+Baseline 调用栈仍是：
 
 ```text
 LangGraphWorkflowRuntime
   → DefaultWorkflowServices
     → CanonicalWorkflowOwnerPorts
-      → real Semantic Runtime freshness / revision authority
-      → real Impact
-      → real Approval Scope V2
-      → real ChangeSet V2
-      → real Materialization Planning / Topology
-      → real Execution Planning V2
-      → real Gateway V2
-      → real Provider Binding V2
-      → real Execution Saga V2 / coordination
-      → real Reconciliation V2 / convergence
+      → authoritative owner public APIs
 ```
 
-只有真实的 environment / IO / presentation boundary 可以保留窄、确定性的 test ports。完成标准不是“把 scenario fake 写得更像 production”，而是 `CanonicalWorkflowOwnerPorts` 真正调用 repository owner public APIs，workflow checkpoint 继续只保存 refs/navigation，owner ref 无法解析时 fail closed，并用真实 durable Saga 路径证明 recovery 不会重复 Host execution。
-
-## Architecture
-
-`WorkflowServices`、`DefaultWorkflowServices` 与现有 LangGraph topology 保持不变。新 adapter 实现现有 `ExternalOwnerPorts` structural protocol；Operation Resolver 与 Parameter Binder 继续由 `DefaultWorkflowServices` 直接拥有，不再包装一层。
-
-`CanonicalWorkflowOwnerPorts` 只做：
+Amendment A 只允许修改两个 workflow-facing seam：
 
 ```text
-request assembly
-StableRef ↔ owner-local identity/hash conversion
-owner-local object resolution
-read-model projection
-cross-owner dependency wiring
-workflow-facing error translation
+ensure_operation_freshness(operation_ref)
+  -> OperationFreshnessResult | AsyncOperationRef
+
+analyze_impact(
+  operation_ref,
+  planning_snapshot_ref,
+  snapshot_set_ref,
+)
+  -> StableRef
 ```
 
-它不得实现：approval policy、ChangeSet semantics、revision comparison policy、provider selection policy、grant authorization、Saga transition、unknown-outcome、reconciliation、DIVERGED、compensation 或 Host commit truth。
+其中 `OperationFreshnessResult` 是 Workflow Orchestrator 自己拥有的 navigation envelope，不是新的 authoritative artifact。它只包含三个 owner-issued `StableRef`。LangGraph private state 允许保存这三个 refs 的 JSON-compatible 编码，但不能保存 `SemanticSnapshot`、`SnapshotSet`、freshness contract body 或 Impact owner object。
 
-Owner object body 不得复制进 workflow checkpoint，也不得进入 adapter-owned generic truth cache。若某个 owner 当前缺少可解析的 reference surface，本计划只允许增加 **owner-local typed repository/registry surface**；不允许在 orchestrator 内建立一个跨 owner `dict[str, object]` 作为第二 truth。
+Task 6 repair 完成前，Task 7 Step 3 及后续 product implementation 保持暂停。
 
 ## Tech Stack
 
-Python 3.11 / 3.14、LangGraph 1.2.x、`langgraph-checkpoint-postgres` 3.x、PostgreSQL 17、pytest、Ruff、GitHub Actions；保持现有 .NET 10 / Revit Core repository regression。版本以实施时 lockfile / exact-head CI 为准，本计划不借 capability phase 做依赖升级。
+Python 3.11 / 3.14、LangGraph 1.2.x、`langgraph-checkpoint-postgres` 3.x、PostgreSQL 17、pytest、Ruff、GitHub Actions；保持现有 .NET 10 / Revit Core repository regression。版本以 exact-head lockfile/CI 为准，本 Amendment 不做依赖升级。
+
+---
+
+## Current Execution Checkpoint
+
+Amendment A 从以下 exact branch 状态继续：
+
+```text
+feature branch: feat/capability-real-owner-e2e-workflow
+amendment base: 1cce9ce7cbb6afef3feabb464118b952b1ecb114
+```
+
+当前代码事实：
+
+```text
+CanonicalWorkflowOwnerPorts 已存在
+Task 6 real freshness / Impact / ChangeSet 主干已接入，但 freshness→Impact lineage 有 P1 ambiguity
+Task 7 Step 1 approval 已接入
+Task 7 Step 2 planning 已接入
+Task 7 当前 fail-closed boundary 已推进到 check_revision_barrier()
+Task 7 Step 3 尚未开始
+```
+
+已保留的 Task 7 Step 2 产品基线为 `a6b31a82ee975330a103081c5714a2c2d0c14fa7`；测试边界迁移基线为 `c0c7b45d828910af2242d232e5817bef188b9c38`。Amendment A 的两个设计提交位于其后，仅修改设计文档。
+
+### Execution rule
+
+- Baseline Tasks 1–5 不重跑、不回滚；只有 Task 6 repair 触发的真实 regression 才允许最小兼容修改。
+- 原 Task 6 标记为 **REOPENED**，不是重新实现整个 Task 6。
+- Task 7 Step 1/2 作为 retained capability；repair 必须证明它们没有回退。
+- Task 7 Step 3 只有在 Task 6 repair exact-head GREEN 后才能恢复。
+- Tasks 8–10 保持原顺序，在 Task 7 完成后继续。
+
+---
+
+## Amendment A Supersession Rules
+
+本节显式覆盖原 Plan 中已经不再成立的表述；其余 baseline Plan/Design 约束继续有效。
+
+1. 原 Architecture / Global Constraints 中“`WorkflowServices`、`DefaultWorkflowServices`、`ExternalOwnerPorts` shape 完全不变”被收窄为：**只有 `ensure_operation_freshness` 与 `analyze_impact` 两个 seam 可按 §21.4 修改；其它 method signatures 继续冻结。**
+2. 原 Task 4 “实现 exact existing `ExternalOwnerPorts` signature”是当时的历史实现要求；Task 6R 必须把 structural conformance test 迁移到 Amendment A 的新两个签名，其它方法不得变化。
+3. 原 Task 6 中“planning SnapshotSet → Impact”若通过 freshness-contract reverse lookup 或 member reverse lookup 实现，现被 §21.6/§21.9 明确禁止。success path 必须使用 exact refs。
+4. 原“fresh process / rebuilt adapter”表述必须拆开：同一 in-memory owner stores 上重建 adapter 只证明没有 adapter-private lineage；跨进程恢复仍受 Design §12 的 owner resolvability 条件约束。
+5. graph topology 的节点顺序不变，但 `ensure_operation_freshness` 可以在一次 node update 中新增 `planning_snapshot_ref`、`snapshot_set_ref` private navigation fields。
 
 ---
 
 ## Global Constraints
 
-- `Workflow Orchestrator` 仍是 workflow progression / checkpoint / HITL / wait-reentry logical owner；LangGraph 只是 reference runtime。
-- `CanonicalWorkflowOwnerPorts` **MUST implement the existing `ExternalOwnerPorts` shape**；不得修改 graph node ownership 来适配 adapter。
-- `DefaultWorkflowServices` 继续直接使用真实 `OperationResolver` 与 `ParameterBinder`。
-- workflow checkpoint 只保存 stable refs、navigation、pending interaction / async operation metadata；禁止保存完整 `ImpactAnalysis`、Approval Scope、`CanonicalChangeSet`、`ApprovalRecord`、`ExecutionPlanV2`、`ProviderBindingSetV2`、`ExecutionGrantV2`、Saga state、ActualDelta。
-- authoritative owner output 必须由 owner-local repository/registry/service 解析；adapter 只能持有依赖引用，不能变成 owner store。
-- 不要求本阶段把所有 owner 迁 PostgreSQL。process-local owner ref 在 fresh process 无法解析时必须 fail closed；不得从 checkpoint 重建 truth。
-- Existing durable Workflow Orchestrator checkpoint/artifact PostgreSQL path 与 Execution Saga PostgreSQL path 必须用于 acceptance。
-- Preview 仍是 presentation boundary；test preview port 可以是 deterministic double，但不能产出第二份 ChangeSet truth。
-- Human/policy admission、semantic reconstruction IO、current Host revision observation、provider runtime snapshot、Host readiness/execute/read-back 与 presentation preview 是允许的 narrow boundary ports；这些 doubles 不得重写 domain semantics。
-- `_ScenarioOwners` 保留在 fast orchestration regression；real-owner acceptance 不能 import、construct、subclass 或 delegate 到它。
+- `Workflow Orchestrator` 仍是 workflow progression/checkpoint/HITL/wait-reentry logical owner；LangGraph 只是 reference runtime。
+- `OperationFreshnessResult` 只能位于 framework-neutral workflow contract 层，不能成为 Semantic Runtime owner、store 或第二份 truth。
+- 三个 freshness refs 是一个不可拆分的 success tuple，必须由同一次 `ensure_operation_freshness` graph node update 写入。
+- async freshness wait/re-entry 必须清除旧 `planning_snapshot_ref` / `snapshot_set_ref`，禁止 stale pair 与新结果拼接。
+- `CanonicalWorkflowOwnerPorts.analyze_impact(...)` 必须先解析并验证 exact refs，再调用真实 `ImpactAnalyzer`。
+- production/reference success path 禁止调用 `get_snapshot_for_freshness_contract()`、`get_snapshot_set_for_member()` 或等价 latest/current/reverse lookup。
+- adapter 禁止维护 `operation_ref -> snapshot`、`snapshot -> set`、`impact -> task` 等 process-local lineage truth map。
+- authoritative owner output 必须由 owner-local repository/registry/service 解析；checkpoint 只持有 stable refs/navigation。
+- 新增 Python 代码必须有完整中文注释/文档字符串，并满足当前 Ruff/typing 风格。
+- 不新增 owner-wide PostgreSQL migration，不把 rebuilt-adapter test 描述成 cross-process durability proof。
+- `_ScenarioOwners` 只保留 fast orchestration regression；real-owner path 不得 import/construct/delegate 到它。
 - V1 consumer surfaces 禁止重新进入 production/reference adapter。
-- owner-private modules（例如 `*_v2.py`、`postgres_*`、`saga_transitions_v2.py` 等实现文件）不是 adapter dependency contract；adapter 只依赖 approved package public exports。
-- 不新增 outbox/inbox owner，不重做 replay protocol，不扩张 ADR-009 owner-wide crash matrix。
-- `DIVERGED` 只作为 terminal observable truth；本阶段不做自动 compensation，CV2-008 保持 blocked。
-- 不实现 MCP/Agent front door，不执行 real AutoCAD/Revit acceptance，不把本 capability 宣称为完整 semantic product scenario。
-- 所有新增 Python 代码必须保留完整中文注释/文档字符串，并遵守当前 Ruff/typing 风格。
+- 不实现 MCP/Agent front door、real AutoCAD/Revit acceptance、automatic compensation、V1 retirement、new outbox/inbox/replay architecture 或 support-matrix expansion。
 
 ---
 
-## Exact-Head Census Freeze
+## File Structure Freeze for Amendment A
 
-本 Plan 的 owner/public-API census 基于：
+| File | Responsibility in this repair |
+| --- | --- |
+| `platform/orchestrator/src/design_orchestrator/workflow_contracts.py` | 定义 non-authoritative `OperationFreshnessResult` typed navigation envelope |
+| `platform/orchestrator/src/design_orchestrator/workflow_services.py` | 只迁移两个 approved workflow-facing signatures |
+| `platform/orchestrator/src/design_orchestrator/default_workflow_services.py` | 只代理两个 approved signatures，不增加 domain logic |
+| `platform/orchestrator/src/design_orchestrator/langgraph_state.py` | 增加 private `planning_snapshot_ref` / `snapshot_set_ref` StableRef fields；不扩 authoritative body |
+| `platform/orchestrator/src/design_orchestrator/langgraph_graph.py` | successful freshness 原子写三 refs；async path 清 stale pair；Impact exact three-ref call |
+| `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py` | 返回 exact freshness refs；exact owner resolution + frozen lineage validation；删除该 success path reverse lookup |
+| `platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py` | 继续提供 exact `get_snapshot(id)` / `get_snapshot_set(id)`；不为本 repair 新增 mutable current binding |
+| `tests/orchestrator/test_default_workflow_services.py` | 两个 seam 的 delegation/shape regression |
+| `tests/orchestrator/test_langgraph_graph.py` | atomic state update、stale-pair negative、actual LangGraph saver round-trip、refs-only assertions |
+| `tests/orchestrator/test_canonical_owner_ports.py` | interleaved two-revision、四类 mismatch、rebuilt-adapter no-private-state proof、Task 7 Step 1/2 compatibility |
+| `tests/architecture/test_real_owner_workflow_boundaries.py` | 禁止 production adapter 使用 reverse-lookup success path / hidden lineage / V1/private surfaces |
 
-```text
-main@f5ffd4633fbb28c2a54bbc4417df805fac9c2d6c
-```
-
-以下表格是 implementation dependency freeze。实施 Task 1 必须把它变成 machine-readable census；若 exact implementation branch 的 main baseline 已变化，先做 compare，任何 surface contradiction 都停止实现并回到 Plan amendment。
-
-| Area | Approved public surface / fact | Decision |
-| --- | --- | --- |
-| Orchestrator service seam | `design_orchestrator.default_workflow_services.ExternalOwnerPorts` | `CanonicalWorkflowOwnerPorts` 实现现有 seam；不改 graph contract |
-| Orchestrator deterministic services | `OperationResolver`, `ParameterBinder`, `DefaultWorkflowServices` | 继续真实使用；不重复包装 |
-| Semantic freshness | `semantic_runtime.FreshnessResolver`, `build_context_contract`, `build_operation_contract`, `SemanticSnapshot`, `SnapshotSet` | real-owner path 使用真实 freshness semantics；reconstructor 是 environment boundary |
-| Revision authority | `SemanticSnapshot.base_host_revision`; `FreshnessResolver.resolve(... expected_host_revision=...)`; `RevisionChangedError` | 不新增 canonical revision 字段；在 Semantic Runtime owner 暴露 revision-barrier public API，current revision observation 为窄环境 port |
-| Impact | `design_impact.ImpactAnalyzer`, `ImpactAnalysisRequest`, `ImpactAnalysis` | 使用 package public surface |
-| Approval Scope | `ApprovalScopePlanner`, `ApprovalScopePlanRequest`, `ApprovalScopeDefinitionV2`, `ApprovalScopeBoundaryV2`, `bind_changeset_v2`, `bind_topology_snapshot_v2`, V2 validators | ChangeSet V2 的真实支撑 authority；不是新 graph node |
-| ChangeSet | package-root canonical `ChangeSetBuilder`, `ChangeSetBuildRequest`, `CanonicalChangeSet`, `validate_changeset_integrity_v2` | 不 import `builder_v2.py` |
-| Materialization Topology | `MaterializationTopologyRegistry`, `MaterializationTopologySnapshot`, public hash/validator | registry 是 real owner surface；topology revision != Host document revision |
-| Materialization Planning | `MaterializationPlanner`, `MaterializationPlanningRequest`, `MaterializationPlan` | real deterministic owner |
-| Execution Planning | `ExecutionPlanningRequestV2`, `ExecutionPlanV2`, `ExecutionSliceV2`, `MaterializationRoutingEvidence`, `plan_materialized_execution`, V2 validator | package root 同时有 legacy/V2，guard 做 symbol whitelist |
-| Gateway | `GatewayAuthorizationServiceV2`, `ApprovalConsumptionRequestV2`, `ExecutionGrantRequestV2`, `ExecutionGrantV2`, `AdmittedExecutionAuthorityV2`, V2 store contracts | package root 同时有 V1/V2，adapter 只允许 V2 symbols |
-| Provider Binding | `ProviderExecutionSnapshotV2`, `ProviderBindingSetV2`, `resolve_provider_bindings_v2`, V2 validators | provider runtime snapshot 是 environment/provider boundary；selection semantics 仍由 owner function |
-| Reconciliation / Saga | `ExecutionReconciliationServiceV2`, `ExecutionSagaStoreV2`, `create_execution_saga_store_v2`, `ExecutionSagaStatusV2`, V2 public contracts | PostgreSQL store 通过 public factory / injected store；adapter 禁止 import `postgres_*` internals |
-| Coordination | `MaterializedExecutionSagaCoordinator`, public readiness/Host/evidence ports | real coordinator；Host/readiness/evidence 可 deterministic boundary double |
-| Convergence | `CrossHostConvergenceVerifier`, `ConvergenceComparisonProfile`, public evidence builders | real convergence semantics |
-| Scenario fake | `tests/orchestrator/test_workflow_end_to_end.py::_ScenarioOwners` | fast regression only；real-owner path machine-forbidden |
-| Architecture precedent | `tests/architecture/test_canonical_v2_boundaries.py` AST `module:symbol` checks | 新 guard 复用同一 machine-enforced style |
-| Existing durable workflow | PostgreSQL checkpointer + PostgreSQL `WorkflowArtifactStore` | real-owner E2E 必须使用 |
-| Existing durable Saga | Execution Saga V2 PostgreSQL + durable dispatch-intent recovery | no-double-Host acceptance 必须使用 |
-
-### Missing public/reference surfaces frozen by census
-
-Exact HEAD 还缺以下可直接供 production/reference composition 使用的 surface：
-
-1. Semantic Runtime 没有独立公开的 `RevisionBarrier` service；现有 authority 足够（`SemanticSnapshot.base_host_revision`），因此补 public API，不补新领域字段。
-2. Impact / Approval Scope / ChangeSet / Materialization Planning / Execution Planning / Provider Binding 主要暴露纯 deterministic builder/value API，没有统一的 owner-local ref resolution surface；workflow 却跨 node 只传 `StableRef`。因此需要最小 typed repository/registry contract，且 store 归各自 owner，不归 orchestrator。
-3. `platform/orchestrator/pyproject.toml` 没有声明这些 source-tree owners 为 distribution dependency；root repository test 通过 `pythonpath` 暴露它们。实施必须增加 import smoke / packaging evidence，但不得顺带把整个 repository 做 packaging modernization。只有 exact smoke 证明 reference composition 无法被正常导入时，才允许最小 capability prerequisite packaging change。
-
----
-
-## Execution Topology
-
-当前 branch `architecture/real-owner-e2e-workflow-plan` 是 **artifact-only planning branch**。在 written-plan review 通过前，不得写 production implementation。
-
-批准后的流程冻结为：
-
-```text
-freeze approved Implementation Plan
-→ docs/architecture PR: architecture/real-owner-e2e-workflow-plan -> main
-→ merge exact approved plan head
-→ verify merged-main SHA
-→ create feat/capability-real-owner-e2e-workflow from merged main
-→ Tasks 1–10, each RED → GREEN → exact-head evidence → commit
-→ implementation PR -> main
-→ exact-head CI + review
-→ merge exact implementation head
-→ merged-main observation
-→ docs-only lifecycle closeout
-→ mark real E2E workflow COMPLETED
-→ successor semantic -> plan -> approve -> execute -> reconcile remains NOT STARTED until its own gate
-```
-
-如果 Task 1 exact census、Task 2 revision authority、或任意后续 RED evidence 证明 approved Design Spec 的 owner assumption 错误：
-
-```text
-STOP implementation
-→ document contradiction
-→ return to Design/Plan amendment
-```
-
-不得在 implementation PR 中偷偷改变 ownership。
+`WorkflowCheckpointView` 公共字段不因本 Amendment 自动扩张。只有在真实 runtime recovery test 证明 private graph state 无法通过 LangGraph saver 恢复这两个 refs 时，才允许停下并回到 Design/Plan；不得为了测试便利把它们无条件提升为新的 public checkpoint contract。
 
 ---
 
 ## Review Focus
 
-1. **ExternalOwnerPorts preserved:** adapter 实现现有 seam，不通过扩展 graph protocol 绕开真实 owner wiring。
-2. **Revision authority:** barrier 必须比较 `SemanticSnapshot.base_host_revision` 与 authoritative current revision observation；不得把 topology revision、checkpoint phase 或 provider timestamp 当 Host revision。
-3. **StableRef resolution:** owner-local typed repositories 保存/读取 owner truth；adapter 不持有 generic object cache。
-4. **Canonical/V2 only:** package root 同时暴露 V1/V2 的 package 必须 symbol-whitelist；不得只做 `module.startswith(...)` 粗粒度放行。
-5. **No fake laundering:** `_ScenarioOwners` 与 tests support 不得被 production adapter import；允许的 test double 必须位于真正的 IO/environment/presentation seam。
-6. **Real durable recovery:** Orchestrator checkpoint/artifact 与 Execution Saga/dispatch recovery 用真实 PostgreSQL；fresh process 对非 durable owner ref 无法解析时 fail closed。
-7. **No duplicate Host call:** unknown-outcome/recovery acceptance 证明 durable evidence 已足够时不会再次执行 Host。
-8. **No scope creep:** 不引入 compensation executor、MCP front door、real Host acceptance、owner-wide database migration 或 ADR-009 redesign。
+1. **Interleaved revisions:** `freshness@42 → freshness@43 → Impact@42 → Impact@43` 时，后一次 freshness 不能污染前一个 workflow 的 exact refs。
+2. **Cross-ref integrity:** 三个 ref 各自合法但关系错误时，必须在 `ImpactAnalyzer.analyze()` 前 fail closed，且 Impact call count 为 0。
+3. **Async stale pair:** wait/re-entry 期间旧 planning/snapshot-set refs 不能残留并与新 operation freshness success 混用。
+4. **Checkpoint evidence:** recovery proof 必须从 LangGraph saver 实际 persisted/deserialized `StateSnapshot.values` 恢复 refs，不能只复用测试局部变量。
+5. **Recovery claim boundary:** rebuilt adapter + same in-memory stores 只能证明 no-private-state；fresh-process durability 只有 owner stores 真正跨进程可解析时才能声称。
+
+每一项都在 Task 6R 对应 RED/GREEN 中有直接测试，不留给最终 E2E 才发现。
 
 ---
 
-### Task 1: Freeze machine-readable real-owner census and public-surface allowlist
+# Amendment A Execution Tasks
+
+### Task 6R.1: Freeze the new workflow contract and graph-state atomicity
 
 **Files:**
-- Create: `docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md`
-- Create: `tests/architecture/test_real_owner_e2e_census.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/workflow_contracts.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/workflow_services.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/default_workflow_services.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/langgraph_state.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/langgraph_graph.py`
+- Modify: `tests/orchestrator/test_default_workflow_services.py`
+- Modify: `tests/orchestrator/test_langgraph_graph.py`
 
-**Purpose:** 把本 Plan 的 exact-head census 变成 machine-enforced implementation input，避免后续 task 用猜测的 module/symbol。
+**Consumes:** existing `StableRef`, `AsyncOperationRef`, existing LangGraph private state codec.
 
-- [ ] **Step 1: Write RED census coverage test**
-
-要求 census 至少覆盖：
-
-```text
-orchestrator_seam
-semantic_freshness
-revision_authority
-impact
-approval_scope_v2
-changeset_v2
-materialization_topology
-materialization_planning
-execution_planning_v2
-gateway_v2
-provider_binding_v2
-saga_v2
-coordination
-reconciliation_v2
-convergence
-owner_ref_surfaces
-scenario_fake_boundary
-import_time_dependencies
-```
-
-Test 解析表格并拒绝 `TODO/TBD/UNKNOWN`。
-
-- [ ] **Step 2: Verify RED**
-
-```bash
-uv run pytest tests/architecture/test_real_owner_e2e_census.py -q
-```
-
-Expected: FAIL because census document is absent.
-
-- [ ] **Step 3: Re-run exact implementation-branch census**
-
-Use exact commands equivalent to:
-
-```bash
-rg -n "class ExternalOwnerPorts|class DefaultWorkflowServices|class WorkflowServices" platform/orchestrator
-rg -n "FreshnessResolver|SemanticSnapshot|base_host_revision|RevisionChangedError" platform/semantic_runtime
-rg -n "ImpactAnalyzer|ApprovalScopePlanner|ChangeSetBuilder|plan_materialized_execution" platform
-rg -n "GatewayAuthorizationServiceV2|resolve_provider_bindings_v2" platform
-rg -n "ExecutionReconciliationServiceV2|MaterializedExecutionSagaCoordinator" platform
-rg -n "_ScenarioOwners" tests platform
-rg -n "postgres_|saga_transitions_v2|builder_v2|/v2.py" platform/orchestrator platform/*/src
-```
-
-Census 每个 owner 记录：approved package-root exports、legacy symbols to forbid、private implementation modules、current store/ref surface、import-time optional dependency。
-
-- [ ] **Step 4: Freeze machine-readable allowlist**
-
-Census 必须包含 `module:symbol` 形式 allowlist；Gateway / Execution Planning / Provider Binding / Reconciliation 不能只写 module name，因为 package root 同时公开 legacy 与 V2。
-
-- [ ] **Step 5: GREEN + commit**
-
-```bash
-uv run pytest tests/architecture/test_real_owner_e2e_census.py -q
-uv run ruff check tests/architecture/test_real_owner_e2e_census.py
-
-git add docs/superpowers/reviews/2026-09-20-real-owner-e2e-workflow-census.md \
-  tests/architecture/test_real_owner_e2e_census.py
-git commit -m "docs: freeze real-owner workflow census"
-```
-
-**Stop gate:** any contradiction with the approved Design Spec stops before Task 2.
-
----
-
-### Task 2: Expose Semantic Runtime revision-barrier authority without inventing revision truth
-
-**Files:**
-- Create: `platform/semantic_runtime/src/semantic_runtime/revision_barrier.py`
-- Modify: `platform/semantic_runtime/src/semantic_runtime/__init__.py`
-- Create: `tests/semantic_runtime/test_revision_barrier.py`
-
-**Interfaces:**
+**Produces:**
 
 ```python
-class HostRevisionObservationPort(Protocol):
-    def current_revision(self, document_ref: str) -> str: ...
+@dataclass(frozen=True, slots=True)
+class OperationFreshnessResult:
+    """成功 operation freshness 的 workflow-local exact navigation refs。"""
 
-
-class RevisionBarrier:
-    def __init__(self, revisions: HostRevisionObservationPort) -> None: ...
-    def check(self, snapshot_set: SnapshotSet) -> None: ...
+    operation_ref: StableRef
+    planning_snapshot_ref: StableRef
+    snapshot_set_ref: StableRef
 ```
 
-The owner must reuse existing `RevisionChangedError` / stable `REVISION_CONFLICT` mapping policy at the workflow boundary. The authoritative expected value is each `SemanticSnapshot.base_host_revision` in the exact planning `SnapshotSet`.
-
-- [ ] **Step 1: RED tests**
-
-Cover:
-
-```text
-same document revision       -> pass
-one changed revision         -> RevisionChangedError
-missing/empty observation    -> fail closed
-multiple documents           -> every planning snapshot checked
-context snapshot substituted -> reject; SnapshotSet contains planning snapshots only
-```
-
-- [ ] **Step 2: Verify RED**
-
-```bash
-uv run pytest tests/semantic_runtime/test_revision_barrier.py -q
-```
-
-- [ ] **Step 3: Implement owner service**
-
-Rules:
-
-```text
-expected revision = SemanticSnapshot.base_host_revision
-current revision  = HostRevisionObservationPort.current_revision(document_ref)
-expected != current -> RevisionChangedError
-```
-
-Do not read topology revision. Do not infer revision from checkpoint or provider snapshot. Do not import AutoCAD/Revit code.
-
-- [ ] **Step 4: Public export + GREEN**
-
-```bash
-uv run pytest tests/semantic_runtime/test_revision_barrier.py -q
-uv run ruff check \
-  platform/semantic_runtime/src/semantic_runtime/revision_barrier.py \
-  tests/semantic_runtime/test_revision_barrier.py
-
-git add platform/semantic_runtime/src/semantic_runtime/revision_barrier.py \
-  platform/semantic_runtime/src/semantic_runtime/__init__.py \
-  tests/semantic_runtime/test_revision_barrier.py
-git commit -m "feat: expose semantic revision barrier"
-```
-
----
-
-### Task 3: Add owner-local immutable reference repositories required by workflow StableRefs
-
-**Files:**
-- Create: `platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py`
-- Create: `platform/impact/src/design_impact/store.py`
-- Create: `platform/approval_scope/src/design_approval_scope/store.py`
-- Create: `platform/changeset/src/design_changeset/store.py`
-- Create: `platform/materialization_planning/src/design_materialization_planning/store.py`
-- Create: `platform/execution_planning/src/design_execution_planning/store_v2.py`
-- Create: `platform/provider_binding/src/design_provider_binding/store_v2.py`
-- Modify corresponding package `__init__.py` files
-- Create: `tests/orchestrator/test_real_owner_reference_resolution.py`
-
-**Purpose:** workflow node boundaries use `StableRef`, while these owners currently primarily expose deterministic value APIs. Add the minimum owner-owned lookup surface; do not add owner-wide PostgreSQL migration.
-
-**Repository rule:** each store validates the object’s own stable identity/hash on `put()` and again on `get()` where a public validator/hash function exists. Same identity + same content is replay-safe; same identity + different content is conflict/fail closed.
-
-Suggested owner-specific identity mapping:
-
-```text
-SemanticSnapshot      -> snapshot_id / hash
-SnapshotSet           -> snapshot_set_id / hash
-ImpactAnalysis        -> analysis_id / analysis_fingerprint
-ApprovalScope V2      -> owner-defined id / scope hash
-CanonicalChangeSet    -> changeset_id / changeset_hash
-MaterializationPlan   -> owner-defined plan id/hash
-ExecutionPlanV2       -> execution_plan_id / execution_plan_hash
-ProviderBindingSetV2  -> binding_set_id / binding_set_hash
-```
-
-Do not make these packages depend on `design_orchestrator.StableRef`. Adapter converts owner identity/hash to `StableRef`.
-
-- [ ] **Step 1: RED replay/conflict/not-found tests**
-
-For each store category prove:
-
-```text
-put -> get exact object
-same identity + same content -> idempotent
-same identity + different hash/body -> owner-specific conflict
-unknown identity -> owner-specific not-found
-```
-
-The test must also assert there is no single cross-owner `dict[str, object]` repository in orchestrator.
-
-- [ ] **Step 2: Verify RED**
-
-```bash
-uv run pytest tests/orchestrator/test_real_owner_reference_resolution.py -q
-```
-
-- [ ] **Step 3: Implement minimal in-memory reference implementations**
-
-These are current reference owner stores, not durable guarantees. Do not introduce SQL/migrations in this task.
-
-- [ ] **Step 4: Public exports + GREEN**
-
-```bash
-uv run pytest tests/orchestrator/test_real_owner_reference_resolution.py -q
-uv run ruff check \
-  platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py \
-  platform/impact/src/design_impact/store.py \
-  platform/approval_scope/src/design_approval_scope/store.py \
-  platform/changeset/src/design_changeset/store.py \
-  platform/materialization_planning/src/design_materialization_planning/store.py \
-  platform/execution_planning/src/design_execution_planning/store_v2.py \
-  platform/provider_binding/src/design_provider_binding/store_v2.py
-
-git add platform tests/orchestrator/test_real_owner_reference_resolution.py
-git commit -m "feat: add owner-local workflow reference stores"
-```
-
-**Scope guard:** adding PostgreSQL stores here requires a separate approved persistence change; it is not part of this capability.
-
----
-
-### Task 4: Add `CanonicalWorkflowOwnerPorts` composition adapter skeleton
-
-**Files:**
-- Create: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
-- Create: `tests/orchestrator/test_canonical_owner_ports.py`
-- Modify: `platform/orchestrator/src/design_orchestrator/__init__.py` only if a lazy public export is required
-
-**Interfaces:** preserve the exact `ExternalOwnerPorts` structural methods. Add only narrow dependency protocols needed for environment/presentation seams, for example:
+and exactly these two service signatures:
 
 ```python
-class SemanticReconstructionPort(Protocol): ...
-class PreviewPort(Protocol): ...
-class ApprovalAdmissionPort(Protocol): ...
-class MaterializationRoutingPort(Protocol): ...
-class ProviderExecutionSnapshotPort(Protocol): ...
-class HostRevisionObservationPort(Protocol): ...
+def ensure_operation_freshness(
+    self,
+    operation_ref: StableRef,
+) -> OperationFreshnessResult | AsyncOperationRef: ...
+
+
+def analyze_impact(
+    self,
+    operation_ref: StableRef,
+    planning_snapshot_ref: StableRef,
+    snapshot_set_ref: StableRef,
+) -> StableRef: ...
 ```
 
-Prefer reusing existing public coordination/readiness/Host/evidence protocols instead of duplicating them.
+`OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics.
 
-Constructor dependencies must be explicit owner services/stores/registries; no service locator and no `dict[str, object]` bag.
+- [ ] **Step 1: Add contract/delegation RED tests**
 
-- [ ] **Step 1: RED structural conformance test**
+In `tests/orchestrator/test_default_workflow_services.py`, import the new type and freeze the exact delegation shape. The fake external owner should return:
 
-Instantiate adapter with minimal deterministic dependencies and assert every `ExternalOwnerPorts` method is callable with the existing signature. Also assert `DefaultWorkflowServices(... external_owners=adapter ...)` constructs without changing `WorkflowServices`.
-
-- [ ] **Step 2: RED import smoke**
-
-Run a subprocess import that blocks optional database-driver import unless explicitly needed. Importing `design_orchestrator.canonical_owner_ports` must not eagerly construct PostgreSQL resources or import test modules.
-
-```bash
-uv run python -c "import design_orchestrator.canonical_owner_ports"
+```python
+OperationFreshnessResult(
+    operation_ref=StableRef("operation-1", "a" * 64),
+    planning_snapshot_ref=StableRef("PS-42", "b" * 64),
+    snapshot_set_ref=StableRef("PSS-42", "c" * 64),
+)
 ```
 
-If exact packaging evidence proves a source-only owner cannot be imported in the supported repository/runtime layout, stop and make the smallest capability-prerequisite packaging change. Do not turn this into workspace modernization.
+Assert `DefaultWorkflowServices.ensure_operation_freshness(...)` returns the same typed value and `analyze_impact(...)` forwards all three refs in order.
 
-- [ ] **Step 3: Implement skeleton + error translation helpers**
+- [ ] **Step 2: Add graph atomic-success RED**
 
-At this task, methods may call narrowly injected ports/stores but must not yet contain domain rules. Keep package-root export lazy if exposing it would otherwise pull the full owner graph at `import design_orchestrator` time.
+In `tests/orchestrator/test_langgraph_graph.py`, add a narrow service fixture that reaches `ensure_operation_freshness`, returns one `OperationFreshnessResult`, and captures the arguments received by `analyze_impact`.
 
-- [ ] **Step 4: GREEN + commit**
+Assert the persisted state visible from the compiled graph/checkpointer contains all three refs from the same result:
 
-```bash
-uv run pytest tests/orchestrator/test_canonical_owner_ports.py -q
-uv run ruff check \
-  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
-  tests/orchestrator/test_canonical_owner_ports.py
-
-git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
-  platform/orchestrator/src/design_orchestrator/__init__.py \
-  tests/orchestrator/test_canonical_owner_ports.py
-git commit -m "feat: add canonical workflow owner ports"
+```python
+assert snapshot.values["operation_ref"] == {
+    "ref_id": "operation-42",
+    "content_hash": "a" * 64,
+}
+assert snapshot.values["planning_snapshot_ref"] == {
+    "ref_id": "PS-42",
+    "content_hash": "b" * 64,
+}
+assert snapshot.values["snapshot_set_ref"] == {
+    "ref_id": "PSS-42",
+    "content_hash": "c" * 64,
+}
 ```
 
----
+and captured Impact arguments equal the exact tuple. Do not assert only Python-local return values.
 
-### Task 5: Add semantic public-surface architecture guard for the production/reference adapter
+- [ ] **Step 3: Add async stale-pair RED**
 
-**Files:**
-- Create: `tests/architecture/test_real_owner_workflow_boundaries.py`
-- Modify: `tests/architecture/test_canonical_v2_boundaries.py` only if a shared helper is clearly reusable
+Seed a graph state with an old pair, then make `ensure_operation_freshness()` return an `AsyncOperationRef`. The resulting checkpoint must contain:
 
-**Purpose:** adapter and architecture guard remain separate, independently reviewable changes.
-
-- [ ] **Step 1: RED forbidden-consumer tests**
-
-Using AST import inspection, enforce:
-
-```text
-ALLOW: exact census-approved package-root canonical/V2 symbols
-DENY: legacy V1 symbols
-DENY: owner-private implementation modules
-DENY: postgres_* implementation imports from adapter
-DENY: tests.*, _ScenarioOwners, test support helpers
-DENY: AutoCAD/Revit Host implementation modules
+```python
+assert snapshot.values.get("planning_snapshot_ref") is None
+assert snapshot.values.get("snapshot_set_ref") is None
+assert snapshot.values["async_operation_ref"]["operation_id"] == "reconstruct-43"
 ```
 
-For package roots that export both V1 and V2, compare `module:symbol` rather than module prefix.
+Resume/poll with a new successful result and assert the new pair is written together before Impact receives it. A partial tuple must not reach `analyze_impact`.
 
-- [ ] **Step 2: Explicit `_ScenarioOwners` negative guard**
-
-Guard the real-owner adapter and new real-owner E2E test so neither imports nor constructs `_ScenarioOwners`.
-
-- [ ] **Step 3: Adapter ownership guard**
-
-AST/source guard must reject obvious duplicated semantic implementations such as local functions/classes named as Gateway/ChangeSet/Saga transition evaluators. Keep this narrow: enforce dependency boundary, not brittle filename conventions.
-
-- [ ] **Step 4: GREEN + commit**
+- [ ] **Step 4: Run RED and record the expected failures**
 
 ```bash
 uv run pytest \
-  tests/architecture/test_real_owner_workflow_boundaries.py \
-  tests/architecture/test_canonical_v2_boundaries.py -q
-uv run ruff check tests/architecture/test_real_owner_workflow_boundaries.py
-
-git add tests/architecture/test_real_owner_workflow_boundaries.py \
-  tests/architecture/test_canonical_v2_boundaries.py
-git commit -m "test: guard real-owner workflow boundaries"
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py -q
 ```
 
----
+Expected before implementation: import/signature/state assertions fail because `OperationFreshnessResult` and the two private state refs are absent.
 
-### Task 6: Wire real freshness → Impact → Approval Scope V2 → ChangeSet V2
+- [ ] **Step 5: Implement the minimal contract/seam/state changes**
 
-**Files:**
-- Modify: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
-- Modify: `tests/orchestrator/test_canonical_owner_ports.py`
-- Add/modify only owner tests necessary for newly exposed stores
+In `workflow_contracts.py`, add/export `OperationFreshnessResult` immediately after `StableRef` so it remains a framework-neutral navigation type.
 
-**Required real calls:**
+In `workflow_services.py` and `default_workflow_services.py`, change only the two approved signatures/imports. `DefaultWorkflowServices` must remain a delegator; no snapshot resolution or lineage validation belongs there.
 
-```text
-FreshnessResolver
-ImpactAnalyzer.analyze
-ApprovalScopePlanner.plan
-Approval Scope V2 binding/validation
-ChangeSetBuilder.build
-validate_changeset_integrity_v2
+In `langgraph_state.py`, add only:
+
+```python
+planning_snapshot_ref: dict[str, object] | None
+snapshot_set_ref: dict[str, object] | None
 ```
 
-- [ ] **Step 1: RED freshness tests**
+to `WorkflowGraphState` private fields.
 
-`resolve_host_context()` / `ensure_context_freshness()` / `ensure_operation_freshness()` must use real freshness contract/resolver semantics with deterministic reconstruction boundary. Resulting `SemanticSnapshot` / `SnapshotSet` goes to Semantic Runtime owner registry; workflow receives refs/read model only.
+In `langgraph_graph.py`, success must return one update containing all three refs:
 
-Include one async reconstruction wait/re-entry path using existing `AsyncOperationRef` contract; do not create a new workflow async model.
-
-- [ ] **Step 2: RED impact/scope/changeset lineage test**
-
-From a real `BoundOperationProposal`, prove:
-
-```text
-planning SnapshotSet
-→ real ImpactAnalysis
-→ real ApprovalScopeDefinitionV2/BoundaryV2
-→ real CanonicalChangeSet
+```python
+return {
+    "operation_ref": _encode_stable_ref(result.operation_ref),
+    "planning_snapshot_ref": _encode_stable_ref(result.planning_snapshot_ref),
+    "snapshot_set_ref": _encode_stable_ref(result.snapshot_set_ref),
+    "async_operation_ref": None,
+    "resume_node": None,
+}
 ```
 
-StableRef content hash must equal owner hash/fingerprint. A stale/missing upstream owner ref must fail closed before the next owner runs.
+The async branch must explicitly clear stale pair fields:
 
-- [ ] **Step 3: Implement request assembly only**
+```python
+return {
+    "planning_snapshot_ref": None,
+    "snapshot_set_ref": None,
+    "async_operation_ref": _encode_async_ref(result),
+    "resume_node": "ensure_operation_freshness",
+    "phase": WorkflowPhase.ENSURE_OPERATION_FRESHNESS.value,
+}
+```
 
-Adapter may translate bound-operation evidence into public owner request contracts. It must not reproduce impact propagation, scope admission, ChangeSet hashing, or validation algorithms.
+`analyze_impact` must `_require_stable_ref(...)` all three refs and call the new service signature. Do not make the graph inspect snapshot bodies or compare lineage.
 
-- [ ] **Step 4: GREEN + commit**
+- [ ] **Step 6: Run GREEN**
 
 ```bash
-uv run pytest tests/orchestrator/test_canonical_owner_ports.py -q
+uv run pytest \
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py -q
 uv run ruff check \
-  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
-  tests/orchestrator/test_canonical_owner_ports.py
+  platform/orchestrator/src/design_orchestrator/workflow_contracts.py \
+  platform/orchestrator/src/design_orchestrator/workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/default_workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py
+```
 
-git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
-  tests/orchestrator/test_canonical_owner_ports.py
-git commit -m "feat: wire real semantic and changeset owners"
+- [ ] **Step 7: Commit Task 6R.1**
+
+```bash
+git add \
+  platform/orchestrator/src/design_orchestrator/workflow_contracts.py \
+  platform/orchestrator/src/design_orchestrator/workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/default_workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py
+git commit -m "feat: carry exact operation freshness refs"
 ```
 
 ---
 
-### Task 7: Wire real Gateway V2 → materialization/planning → revision barrier → Provider Binding V2 → grant
+### Task 6R.2: Replace reverse lookup with exact owner resolution and frozen lineage validation
+
+**Files:**
+- Modify: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
+- Modify: `tests/orchestrator/test_canonical_owner_ports.py`
+- Modify: `tests/architecture/test_real_owner_workflow_boundaries.py`
+- Do not modify `snapshot_registry.py` unless an exact-id lookup defect is proven; current `get_snapshot(id)` / `get_snapshot_set(id)` are the approved path.
+
+**Consumes:** Task 6R.1 `OperationFreshnessResult`; Semantic Runtime `SemanticSnapshot`, `SnapshotSet`, `build_operation_contract`; existing workflow artifact store and `_operation_freshness_contract(...)` helper.
+
+**Produces:** exact freshness refs and fail-closed pre-Impact relation validation with no reverse-lookup success path.
+
+- [ ] **Step 1: Write the interleaved two-revision RED**
+
+Extend `tests/orchestrator/test_canonical_owner_ports.py` with one real FreshnessResolver/ImpactAnalyzer fixture that deliberately keeps both immutable histories:
+
+```text
+same bound operation / same operation freshness contract
+freshness@42 -> PS-42 / PSS-42
+freshness@43 -> PS-43 / PSS-43
+Impact@42
+Impact@43
+```
+
+The fixture must vary Host revision/reconstruction result without deleting PS-42/PSS-42. Store both `OperationFreshnessResult` values and invoke Impact later in the interleaved order.
+
+Assert the Impact request capture sees:
+
+```text
+Impact@42 -> planning PS-42 and set PSS-42
+Impact@43 -> planning PS-43 and set PSS-43
+```
+
+and no `SNAPSHOT_CONTRACT_REFERENCE_AMBIGUOUS` is raised.
+
+- [ ] **Step 2: Verify the interleaved RED**
+
+```bash
+uv run pytest \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  -k "interleaved and freshness and impact" -q
+```
+
+Expected on the pre-repair implementation: FAIL because successful freshness still returns `operation_ref` and Impact reverse-resolves by reusable contract identity.
+
+- [ ] **Step 3: Add four pre-Impact mismatch RED cases**
+
+Add a counting/capturing Impact analyzer and prove `analyze()` call count remains `0` for each case:
+
+```text
+A. ref/hash mismatch
+   exact owner object exists, but StableRef.content_hash is changed
+
+B. SnapshotSet membership mismatch
+   planning_snapshot_ref points to PS-42 while snapshot_set_ref points to a valid PSS that does not contain PS-42
+
+C. document/environment mismatch
+   exact refs resolve, but selected planning/set belongs to a different valid document or SemanticEnvironment than the current bound operation/context
+
+D. freshness-contract ↔ bound-operation mismatch
+   exact refs resolve to a valid planning snapshot created for another bound operation contract
+```
+
+Each test must assert failure occurs before real Impact analyzer invocation. Do not satisfy the test by catching a later Impact validation error.
+
+- [ ] **Step 4: Implement successful freshness return shape**
+
+In `CanonicalWorkflowOwnerPorts.ensure_operation_freshness(...)`, after existing real `FreshnessResolver` success and owner registry writes, return:
+
+```python
+OperationFreshnessResult(
+    operation_ref=operation_ref,
+    planning_snapshot_ref=StableRef(resolved.snapshot_id, resolved.hash),
+    snapshot_set_ref=StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
+)
+```
+
+The async path remains `AsyncOperationRef` and must not synthesize snapshot refs.
+
+- [ ] **Step 5: Implement exact-id resolution only**
+
+Change `CanonicalWorkflowOwnerPorts.analyze_impact(...)` to resolve:
+
+```python
+bound = self._bound_operation(operation_ref)
+planning = self._snapshot_registry.get_snapshot(planning_snapshot_ref.ref_id)
+snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
+contract, context_snapshot = self._operation_freshness_contract(bound)
+```
+
+Immediately verify supplied hashes against the authoritative objects with the existing `_ref_hash_matches(...)` helper. Delete this success path's calls to:
+
+```text
+get_snapshot_for_freshness_contract
+g​et_snapshot_set_for_member
+```
+
+The registry methods themselves may remain for other consumers; this task does not delete public history/query APIs merely to satisfy the adapter.
+
+- [ ] **Step 6: Implement the four frozen relation checks before Impact**
+
+Use existing public object fields/canonical contract construction; do not add a new policy engine. The pre-Impact guard must establish at least:
+
+```python
+# exact ref/hash integrity
+planning.snapshot_id == planning_snapshot_ref.ref_id
+snapshot_set.snapshot_set_id == snapshot_set_ref.ref_id
+
+# membership includes the exact member identity/hash
+matching_members = [
+    member
+    for member in snapshot_set.members
+    if member.snapshot_id == planning.snapshot_id and member.hash == planning.hash
+]
+assert len(matching_members) == 1
+
+# document/environment consistency
+planning.document_ref == contract.coverage.document_ref
+planning.project_id == contract.project_id
+planning.semantic_environment_ref == snapshot_set.semantic_environment_ref
+planning.semantic_environment_ref == context_snapshot.semantic_environment_ref
+
+# freshness contract belongs to this bound operation
+planning.freshness_contract_id == contract.contract_id
+planning.freshness_contract_hash == contract.hash
+```
+
+Implementation must raise a stable workflow-boundary failure before constructing/calling the real Impact analyzer when any condition fails. Reuse existing owner/public validation exceptions where one already expresses the invariant; otherwise use a narrow adapter integrity error translated by the existing workflow error boundary. Do not compare revisions and choose a winner.
+
+- [ ] **Step 7: Add architecture RED/GREEN for the old reverse path**
+
+In `tests/architecture/test_real_owner_workflow_boundaries.py`, inspect the production adapter and fail if `CanonicalWorkflowOwnerPorts.analyze_impact` references the known old reverse-query APIs:
+
+```text
+get_snapshot_for_freshness_contract
+get_snapshot_set_for_member
+```
+
+Retain existing guards against adapter-local lineage dictionaries, V1 symbols, test helpers and owner-private modules.
+
+- [ ] **Step 8: Run focused GREEN**
+
+```bash
+uv run pytest \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  tests/architecture/test_real_owner_workflow_boundaries.py -q
+uv run ruff check \
+  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  tests/architecture/test_real_owner_workflow_boundaries.py
+```
+
+- [ ] **Step 9: Commit Task 6R.2**
+
+```bash
+git add \
+  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  tests/architecture/test_real_owner_workflow_boundaries.py
+git commit -m "fix: preserve exact freshness impact lineage"
+```
+
+---
+
+### Task 6R.3: Prove persisted checkpoint round-trip and rebuilt-adapter no-private-state recovery
+
+**Files:**
+- Modify: `tests/orchestrator/test_langgraph_graph.py`
+- Modify: `tests/orchestrator/test_canonical_owner_ports.py`
+- Modify production checkpoint code only if the RED demonstrates an actual serialization defect; no public checkpoint expansion by default.
+
+**Consumes:** Task 6R.1 private graph refs and Task 6R.2 exact adapter path.
+
+**Produces:** evidence that exact lineage survives the real LangGraph saver/serializer and that a new adapter can consume restored refs without old adapter memory.
+
+- [ ] **Step 1: Write actual saver round-trip RED**
+
+Use a compiled graph with `langgraph.checkpoint.memory.InMemorySaver`, because this test is about LangGraph serialization/state recovery rather than cross-process durability.
+
+Drive the graph through successful operation freshness and to a safe persisted boundary. Read the checkpoint back through supported `graph.get_state(config)` / saver-backed state access, not from service fixture local variables.
+
+Assert `StateSnapshot.values` contains JSON-compatible mappings for all three refs and no authoritative bodies. Serialize/deserialise those persisted values through the same JSON-compatible state representation used by existing checkpoint tests, then rebuild `StableRef` values from the restored mappings.
+
+Required recovered values:
+
+```text
+operation_ref
+planning_snapshot_ref
+snapshot_set_ref
+```
+
+- [ ] **Step 2: Prove stale/partial persisted tuple is rejected before Impact**
+
+Construct persisted-state cases with one of the two freshness refs missing or with an old pair left beside a newer operation ref. Resume/continue the compiled graph and assert it cannot call `analyze_impact`; `_require_stable_ref`/workflow validation must fail closed.
+
+- [ ] **Step 3: Rebuilt-adapter RED/GREEN using restored refs**
+
+In `tests/orchestrator/test_canonical_owner_ports.py`:
+
+```text
+adapter A
+  -> real freshness success
+  -> owner stores contain exact PS/PSS
+  -> refs pass through saver-backed checkpoint state
+  -> discard adapter A
+adapter B(new instance, same owner stores)
+  -> consume StableRefs restored from persisted checkpoint
+  -> assemble/call Impact for the same exact PS/PSS
+```
+
+Do not pass `OperationFreshnessResult` or snapshot objects directly from adapter A to adapter B through Python locals. The only bridge is persisted/deserialized ref data plus authoritative owner stores.
+
+Name/docstring this test as **rebuilt-adapter/no-private-state**, not “cross-process recovery”.
+
+- [ ] **Step 4: Run GREEN**
+
+```bash
+uv run pytest \
+  tests/orchestrator/test_langgraph_graph.py \
+  tests/orchestrator/test_canonical_owner_ports.py -q
+uv run ruff check \
+  tests/orchestrator/test_langgraph_graph.py \
+  tests/orchestrator/test_canonical_owner_ports.py
+```
+
+- [ ] **Step 5: Commit Task 6R.3**
+
+```bash
+git add \
+  tests/orchestrator/test_langgraph_graph.py \
+  tests/orchestrator/test_canonical_owner_ports.py
+git commit -m "test: prove persisted freshness lineage recovery"
+```
+
+If this task proves `WorkflowCheckpointView` must expose the private refs for runtime correctness rather than test convenience, stop before changing it and return to Design/Plan amendment. The approved default is private LangGraph state persistence.
+
+---
+
+### Task 6R.4: Close Task 6 repair with compatibility, architecture, and exact-head evidence
+
+**Files:**
+- Modify only tests/product files required by failures caused by the two approved seam changes.
+- Do not advance `check_revision_barrier()` implementation in this task.
+
+- [ ] **Step 1: Migrate fast scenario/service doubles to the new two-method shape**
+
+Search exact branch consumers:
+
+```bash
+rg -n "ensure_operation_freshness\(|analyze_impact\(" platform tests
+```
+
+Every impacted fake/service implementation must return/pass `OperationFreshnessResult` consistently. Preserve `_ScenarioOwners` purpose; do not replace it with real-owner composition.
+
+- [ ] **Step 2: Prove Task 7 Step 1/2 compatibility**
+
+Run `tests/orchestrator/test_canonical_owner_ports.py` and assert the current post-planning fail-closed regression still fails at `check_revision_barrier`, not at approval/planning or freshness/Impact.
+
+The retained boundary is:
+
+```text
+approval          -> real
+execution planning -> real
+check_revision_barrier -> CANONICAL_OWNER_PORT_NOT_WIRED until Task 7 Step 3
+```
+
+- [ ] **Step 3: Run focused Task 6 owner regressions**
+
+```bash
+uv run pytest \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py \
+  tests/orchestrator/test_langgraph_runtime.py \
+  tests/architecture/test_real_owner_workflow_boundaries.py \
+  tests/architecture/test_canonical_v2_boundaries.py \
+  -q
+
+uv run pytest \
+  tests/semantic_runtime \
+  tests/impact \
+  tests/approval_scope \
+  tests/changeset \
+  -q
+```
+
+If an exact directory name differs on the implementation HEAD, use the repository’s current corresponding owner suite; record the actual command in commit/PR evidence rather than silently dropping that owner.
+
+- [ ] **Step 4: Run Ruff with no new diagnostics**
+
+```bash
+uv run ruff check \
+  platform/orchestrator/src/design_orchestrator/workflow_contracts.py \
+  platform/orchestrator/src/design_orchestrator/workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/default_workflow_services.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+  platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+  tests/orchestrator/test_default_workflow_services.py \
+  tests/orchestrator/test_langgraph_graph.py \
+  tests/orchestrator/test_canonical_owner_ports.py \
+  tests/architecture/test_real_owner_workflow_boundaries.py
+```
+
+Use repository no-new-diagnostics policy if baseline diagnostics exist; do not make unrelated exception/refactor changes to manufacture a clean global Ruff run.
+
+- [ ] **Step 5: Exact-head CI gate**
+
+Push the exact Task 6 repair HEAD and require all repository gates triggered for that SHA to finish with no failure/in-progress, including at least:
+
+```text
+Python 3.11 canonical
+Python 3.14
+Step36 / canonical architecture regression
+Workflow Orchestrator relevant persistence lane if triggered
+Revit Core
+.NET 10
+```
+
+Do not use an earlier SHA’s GREEN as evidence for the repair HEAD.
+
+- [ ] **Step 6: Close Task 6 repair only after evidence**
+
+Record:
+
+```text
+interleaved two-revision GREEN
+four mismatch negatives GREEN and Impact call count 0
+atomic/stale-pair GREEN
+saver-backed checkpoint round-trip GREEN
+rebuilt-adapter no-private-state GREEN
+no reverse-lookup architecture guard GREEN
+Task 7 Step 1/2 compatibility GREEN
+exact-head CI GREEN
+```
+
+Only then mark Task 6 repair CLOSED and resume Task 7 Step 3.
+
+---
+
+# Remaining Baseline Tasks After Task 6R
+
+### Task 7 Step 3–5: Revision barrier → Provider Binding V2 → grant
 
 **Files:**
 - Modify: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
 - Modify: `tests/orchestrator/test_canonical_owner_ports.py`
 
+**Precondition:** Task 6R.4 exact-head gate is CLOSED. Task 7 Step 1/2 implementation remains in place.
+
 **Required real calls:**
 
 ```text
-GatewayAuthorizationServiceV2.consume_approval
-MaterializationPlanner.plan
-MaterializationTopologyRegistry.get
-plan_materialized_execution
 RevisionBarrier.check
 resolve_provider_bindings_v2
 GatewayAuthorizationServiceV2.issue_execution_grant
 GatewayAuthorizationServiceV2.admit_execution_grant
 ```
 
-Human/policy decision is supplied by narrow `ApprovalAdmissionPort`; provider runtime/native snapshot and runtime routing are supplied through explicit boundary ports. The owner services still perform all policy/selection/authorization semantics.
+- [ ] **Step 1: Write revision-ordering RED**
 
-- [ ] **Step 1: RED approval test**
+Resolve `ExecutionPlanV2` by exact plan ref, follow its authoritative ChangeSet/SnapshotSet lineage, and supply the exact `SnapshotSet` to `RevisionBarrier.check(...)`. With one current Host revision changed, assert failure occurs before provider execution snapshot/binding I/O. Same revisions must reach the next boundary.
 
-A deterministic admission fixture enters `GatewayAuthorizationServiceV2.consume_approval`; workflow receives `approval_ref`. Test must prove adapter did not synthesize `ApprovalRecord` directly.
+Do not compare revisions in the adapter; adapter only resolves the owner input and invokes `RevisionBarrier`.
 
-- [ ] **Step 2: RED planning test**
+- [ ] **Step 2: Verify RED**
 
-Real topology + materialization planning + `plan_materialized_execution()` produces `ExecutionPlanV2`; store it in owner-local stores and return `plan_ref`.
+```bash
+uv run pytest tests/orchestrator/test_canonical_owner_ports.py -k "revision_barrier" -q
+```
 
-- [ ] **Step 3: RED revision ordering test**
+Expected at Task 6R close: fail-closed `CANONICAL_OWNER_PORT_NOT_WIRED` at `check_revision_barrier`.
 
-Set current Host revision different from one planning snapshot. `check_revision_barrier(plan_ref)` must fail before provider snapshot resolution / provider binding calls. Same revision passes.
+- [ ] **Step 3: Implement real revision-barrier request assembly**
 
-- [ ] **Step 4: RED binding/grant test**
+Use existing typed owner stores/registries and the real Semantic Runtime `RevisionBarrier`; do not create adapter-private `plan -> snapshot_set` lineage maps. If `ExecutionPlanV2`/ChangeSet public contracts do not contain enough authoritative lineage to resolve the SnapshotSet, stop and return to Design/Plan rather than guessing.
 
-Real `resolve_provider_bindings_v2()` consumes boundary-supplied `ProviderExecutionSnapshotV2`. Real Gateway issues/admit grant. Assert binding/grant lineage joins exact Slice/materialization/ChangeSet/scope hashes.
+- [ ] **Step 4: Write Provider Binding/grant RED**
 
-- [ ] **Step 5: GREEN + commit**
+Boundary-supplied `ProviderExecutionSnapshotV2` enters real `resolve_provider_bindings_v2()`. Real Gateway V2 then issues/admit execution grant. Assert exact slice/materialization/ChangeSet/scope hashes are preserved and provider mismatch prevents Host execution.
+
+- [ ] **Step 5: Implement minimum wiring and run GREEN**
 
 ```bash
 uv run pytest tests/orchestrator/test_canonical_owner_ports.py -q
 uv run ruff check \
   platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
   tests/orchestrator/test_canonical_owner_ports.py
+```
 
-git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+- [ ] **Step 6: Commit**
+
+```bash
+git add \
+  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
   tests/orchestrator/test_canonical_owner_ports.py
-git commit -m "feat: wire real planning authorization and binding"
+git commit -m "feat: wire real revision binding and grant owners"
 ```
 
 ---
@@ -614,38 +742,34 @@ ExecutionSagaStoreV2 public factory/contract
 existing durable dispatch-intent/recovery surface where required
 ```
 
-Allowed deterministic doubles:
+Allowed deterministic doubles are limited to Host readiness observation, Host execute/read-back, verification/convergence evidence IO, and clock. They may return public contracts but cannot implement Saga/reconciliation semantics.
 
-```text
-Host readiness observation
-Host execution/read-back port
-verification/convergence evidence IO port
-clock
-```
+- [ ] **Step 1: Write successful execution RED**
 
-These doubles may return real public contracts but may not implement Saga/reconciliation semantics.
+Use real coordinator/reconciliation/convergence and a counting Host port. Assert terminal owner truth is `SUCCEEDED`, and workflow projection maps it without reimplementing terminal classification.
 
-- [ ] **Step 1: RED successful materialized execution**
+- [ ] **Step 2: Write DIVERGED RED**
 
-Use real coordinator + reconciliation + convergence and a counting Host port. Assert terminal owner truth is `SUCCEEDED`, and workflow maps it to completion without reimplementing terminal classification.
+Inject divergent canonical evidence through the evidence boundary. Assert real convergence/Saga records `DIVERGED`; adapter only projects terminal state. Assert no compensation call exists.
 
-- [ ] **Step 2: RED DIVERGED test**
+- [ ] **Step 3: Write unknown-outcome RED**
 
-Inject divergent canonical evidence through the narrow evidence boundary. Assert real convergence/Saga path records `DIVERGED`; adapter only projects terminal state. Assert no compensation call exists.
+Exercise the current public Saga/recovery semantics. Timeout/unknown cannot be mapped to “not committed” and cannot authorize blind redispatch.
 
-- [ ] **Step 3: RED pre-commit failure / unknown outcome mapping**
-
-Reuse current public Saga/recovery semantics. Adapter must not classify timeout as “not committed”.
-
-- [ ] **Step 4: GREEN + commit**
+- [ ] **Step 4: Implement request/wiring only and run GREEN**
 
 ```bash
 uv run pytest tests/orchestrator/test_canonical_owner_execution.py -q
 uv run ruff check \
   platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
   tests/orchestrator/test_canonical_owner_execution.py
+```
 
-git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+- [ ] **Step 5: Commit**
+
+```bash
+git add \
+  platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
   tests/orchestrator/test_canonical_owner_execution.py
 git commit -m "feat: wire real workflow execution owners"
 ```
@@ -657,7 +781,7 @@ git commit -m "feat: wire real workflow execution owners"
 **Files:**
 - Create: `tests/orchestrator/test_real_owner_workflow_end_to_end.py`
 - Modify: `tests/architecture/test_real_owner_workflow_boundaries.py`
-- Do **not** delete or rewrite `tests/orchestrator/test_workflow_end_to_end.py::_ScenarioOwners`
+- Do not delete/rewrite `tests/orchestrator/test_workflow_end_to_end.py::_ScenarioOwners`
 
 **Acceptance composition:**
 
@@ -665,38 +789,37 @@ git commit -m "feat: wire real workflow execution owners"
 real LangGraphWorkflowRuntime
 real PostgreSQL checkpointer
 real PostgreSQL WorkflowArtifactStore
-real OperationResolver
-real ParameterBinder
+real OperationResolver / ParameterBinder
 real FreshnessResolver / RevisionBarrier
 real Impact / Approval Scope / ChangeSet
 real Materialization / Execution Planning
-real Gateway V2
-real Provider Binding V2
+real Gateway V2 / Provider Binding V2
 real Saga / Coordination / Reconciliation / Convergence
-+ explicit deterministic environment/presentation boundary ports only
++ explicit deterministic environment/presentation boundaries only
 ```
 
-- [ ] **Step 1: RED happy path A**
+- [ ] **Step 1: Happy-path RED A**
 
-Drive one canonical operation through HITL to terminal `WorkflowPhase.COMPLETED`. Assert final refs/saga id resolve through real owner services/stores.
+Drive one canonical operation through HITL to terminal `WorkflowPhase.COMPLETED`. Final refs/saga id must resolve through real owner services/stores.
 
-- [ ] **Step 2: RED HITL B**
+- [ ] **Step 2: HITL RED B**
 
-Verify proposal pause, exact `pause_id`, reject stale resume, ACCEPT continues through real owners. Do not weaken predecessor HITL contract.
+Verify proposal pause, exact `pause_id`, stale resume rejection, and ACCEPT continuing into real-owner path without weakening predecessor HITL contract.
 
-- [ ] **Step 3: RED async wait/re-entry C**
+- [ ] **Step 3: Async RED C**
 
-Force semantic reconstruction async wait via existing `AsyncOperationRef`; completion resumes into real freshness/owner path.
+Force semantic reconstruction async wait using existing `AsyncOperationRef`. On resume, assert the Amendment A freshness tuple is newly persisted atomically and downstream Impact consumes that exact pair.
 
-- [ ] **Step 4: RED missing authoritative ref D**
+- [ ] **Step 4: Missing-ref RED D**
 
-Remove one owner-local object after checkpoint, then resume. Assert workflow fails closed with stable workflow-facing unavailable/error semantics and does not call downstream owner/Host.
+Remove one authoritative owner-local object after checkpoint, then resume. Assert fail closed and zero downstream owner/Host calls; do not reconstruct truth from checkpoint.
 
-- [ ] **Step 5: RED checkpoint refs-only F**
+- [ ] **Step 5: Refs-only checkpoint RED F**
 
-Inspect deserialized checkpoint through supported saver API. Assert no full authoritative owner body is persisted. Exact forbidden types include at least:
+Inspect deserialized checkpoint through supported saver API. Assert no full authoritative domain body is persisted. Forbidden types include at least:
 
 ```text
+SemanticSnapshot / SnapshotSet body
 ImpactAnalysis
 ApprovalScopeDefinitionV2 / ApprovalScopeBoundaryV2
 CanonicalChangeSet
@@ -708,11 +831,13 @@ StoredExecutionSagaV2
 ActualDelta
 ```
 
-- [ ] **Step 6: No V1 + no `_ScenarioOwners` G**
+StableRef mappings for `planning_snapshot_ref` / `snapshot_set_ref` are explicitly allowed.
 
-Run architecture guard and additionally assert real E2E module neither imports nor constructs `_ScenarioOwners`.
+- [ ] **Step 6: Architecture RED/GREEN G**
 
-- [ ] **Step 7: GREEN + commit**
+Run the real-owner boundary guard; the E2E module must neither import nor construct `_ScenarioOwners`, V1 surfaces, or owner-private implementation modules.
+
+- [ ] **Step 7: Run GREEN and commit**
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" \
@@ -722,30 +847,29 @@ uv run ruff check \
   tests/orchestrator/test_real_owner_workflow_end_to_end.py \
   tests/architecture/test_real_owner_workflow_boundaries.py
 
-git add tests/orchestrator/test_real_owner_workflow_end_to_end.py \
+git add \
+  tests/orchestrator/test_real_owner_workflow_end_to_end.py \
   tests/architecture/test_real_owner_workflow_boundaries.py
 git commit -m "test: add real-owner workflow acceptance"
 ```
 
 ---
 
-### Task 10: Prove durable Saga recovery, preserve scenario regression, and close exact-head CI H
+### Task 10: Prove durable Saga recovery and close exact-head CI H
 
 **Files:**
 - Modify: `tests/orchestrator/test_real_owner_workflow_end_to_end.py`
-- Modify: existing PostgreSQL workflow only if required to schedule this acceptance
-- Modify: `.github/workflows/...` only if the existing PostgreSQL lane does not already collect the test
+- Modify existing PostgreSQL workflow only if required to schedule this acceptance
+- Modify `.github/workflows/...` only if existing PostgreSQL lanes do not collect the test
 - No lifecycle closeout in this task
 
-- [ ] **Step 1: RED no-double-Host recovery E**
+- [ ] **Step 1: No-double-Host recovery RED E**
 
-Use real PostgreSQL Saga/dispatch-intent persistence and a counting Host port.
-
-Required scenario:
+Use real PostgreSQL Saga/dispatch-intent persistence and a counting Host port:
 
 ```text
 first runtime reaches durable dispatch/commit evidence
-→ simulate process/runtime boundary at an existing supported recovery point
+→ cross an existing supported runtime/process recovery point
 → create fresh workflow runtime/checkpointer/artifact store + fresh Saga service/store connection
 → resume/recover same saga
 → authoritative evidence says Host already committed/reconcilable
@@ -753,15 +877,13 @@ first runtime reaches durable dispatch/commit evidence
 → reconcile to terminal result
 ```
 
-Do not prove this by sharing an in-memory Saga object across runtimes.
+Unlike Task 6R.3, this is the place where a real durability/cross-runtime claim is made. Do not share an in-memory Saga object across runtimes.
 
-- [ ] **Step 2: Preserve `_ScenarioOwners` fast regression**
+- [ ] **Step 2: Preserve fast scenario regression**
 
-Run existing `tests/orchestrator/test_workflow_end_to_end.py` unchanged in purpose. `_ScenarioOwners` remains legal there.
+Run existing `tests/orchestrator/test_workflow_end_to_end.py`; `_ScenarioOwners` remains legal only there.
 
 - [ ] **Step 3: PostgreSQL capability gate**
-
-Run at least:
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
@@ -771,11 +893,11 @@ DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
   -q
 ```
 
-And existing durable Saga / dispatch-intent PostgreSQL suites.
+Also run existing durable Saga / dispatch-intent PostgreSQL suites discovered on the exact implementation HEAD.
 
-- [ ] **Step 4: Repository regressions**
+- [ ] **Step 4: Repository exact-head regressions**
 
-Required final exact-head gates:
+Require the repository’s canonical exact-head CI jobs for the final SHA, including:
 
 ```text
 Python 3.11 canonical pytest modes
@@ -789,11 +911,9 @@ existing scenario orchestration regression
 Revit Core
 ```
 
-Use the repository’s current canonical CI commands/workflows; do not substitute a local subset for exact-head GitHub checks.
+- [ ] **Step 5: Scope audit**
 
-- [ ] **Step 5: Exact-head scope audit**
-
-Compare implementation branch with its merged-plan base. Confirm only capability files/tests/necessary CI wiring changed; explicitly reject:
+Compare final implementation branch against the approved amendment base and reject unrelated changes in:
 
 ```text
 MCP front door
@@ -808,14 +928,7 @@ support-matrix expansion
 
 - [ ] **Step 6: Final implementation commit / PR evidence**
 
-If Task 10 needed source/test changes, commit them separately:
-
-```bash
-git add <exact Task 10 files>
-git commit -m "test: close real-owner workflow recovery"
-```
-
-Then push implementation branch, open implementation PR, and require exact-head GREEN before merge.
+If Task 10 requires source/test changes, commit them separately, then push exact HEAD and require exact-head GREEN before merge.
 
 ---
 
@@ -823,35 +936,43 @@ Then push implementation branch, open implementation PR, and require exact-head 
 
 | Design acceptance | Plan evidence |
 | --- | --- |
-| A. happy path reaches `COMPLETED` | Task 9 real-owner LangGraph happy path |
-| B. HITL pause/resume intact | Task 9 exact `pause_id` / ACCEPT / stale replay |
-| C. async wait/re-entry | Task 6 + Task 9 semantic reconstruction `AsyncOperationRef` |
-| D. missing authoritative ref fails closed | Task 9 owner object removal + downstream zero-call assertion |
-| E. durable Saga recovery does not execute Host twice | Task 10 PostgreSQL Saga/dispatch recovery + counting Host port |
-| F. checkpoint refs/navigation only | Task 9 supported saver inspection + forbidden authoritative types |
-| G. no V1 consumer reintroduced | Task 5 symbol-level architecture guard + Task 9 guard |
-| H. PostgreSQL + repository regression green | Task 10 exact-head CI matrix |
+| Amendment A exact operation freshness lineage | Task 6R.1–6R.3 |
+| Interleaved rev42/rev43 isolation | Task 6R.2 |
+| Four pre-Impact mismatch categories | Task 6R.2 |
+| Atomic success tuple + stale-pair prevention | Task 6R.1 / 6R.3 |
+| Saver-backed serialized checkpoint recovery | Task 6R.3 |
+| Rebuilt adapter does not depend on private lineage | Task 6R.3 |
+| No reverse-lookup success path | Task 6R.2 architecture guard |
+| Task 7 Step 1/2 retained | Task 6R.4 compatibility gate |
+| A. happy path reaches `COMPLETED` | Task 9 |
+| B. HITL pause/resume intact | Task 9 |
+| C. async wait/re-entry | Task 6R.1 + Task 9 |
+| D. missing authoritative ref fails closed | Task 9 |
+| E. durable Saga recovery does not execute Host twice | Task 10 |
+| F. checkpoint refs/navigation only | Task 6R.3 + Task 9 |
+| G. no V1/scenario fake in production composition | Task 6R.2 + Task 9 architecture guard |
+| H. PostgreSQL + repository regression green | Task 10 |
 
 ---
 
 ## Boundary-Double Register
 
-The real-owner acceptance may use deterministic doubles **only** for these explicit boundaries:
+The real-owner acceptance may use deterministic doubles only for these explicit boundaries:
 
-| Boundary | Why a double is permitted | Forbidden behavior |
+| Boundary | Why permitted | Forbidden behavior |
 | --- | --- | --- |
-| Semantic reconstruction IO | external/Host-derived environment observation | cannot implement freshness policy; returns `ReconstructionResult` only |
+| Semantic reconstruction IO | external/Host-derived observation | cannot implement freshness policy; returns public reconstruction/read-model results only |
 | Current Host revision observation | environment observation for RevisionBarrier | cannot decide pass/fail; returns revision only |
 | Preview | presentation artifact | cannot modify ChangeSet/approval authority |
-| Human/policy admission input | external human/policy decision evidence | cannot create `ApprovalRecord`/grant; Gateway V2 must consume it |
+| Human/policy admission input | external decision evidence | cannot create ApprovalRecord/grant; Gateway V2 consumes it |
 | Runtime routing | environment/runtime discovery | cannot implement planning semantics |
-| Provider execution snapshot/native identity input | runtime/provider environment evidence | cannot select provider; Provider Binding V2 does selection |
-| Host readiness | external Host availability/revision evidence | cannot mutate Saga truth |
-| Host execute/read-back | actual external mutation boundary | cannot classify reconciliation/DIVERGED |
-| Verification/convergence evidence IO | environment evidence acquisition | cannot evaluate scope/semantic/convergence rule |
-| Clock | deterministic audit time | cannot affect identity/business outcome beyond public timestamp contract |
+| Provider execution snapshot/native identity | provider environment evidence | cannot select provider; Provider Binding V2 does selection |
+| Host readiness | external Host observation | cannot mutate Saga truth |
+| Host execute/read-back | external mutation boundary | cannot classify reconciliation/DIVERGED |
+| Verification/convergence evidence IO | environment evidence acquisition | cannot evaluate scope/semantic/convergence rules |
+| Clock | deterministic audit time | cannot change identity/business outcome beyond public timestamp contract |
 
-No other repository-internal domain owner may be replaced by a test fake in `test_real_owner_workflow_end_to_end.py`.
+No other repository-internal authoritative owner may be replaced by a test fake in the real-owner E2E.
 
 ---
 
@@ -860,42 +981,76 @@ No other repository-internal domain owner may be replaced by a test fake in `tes
 Implementation must preserve these fail-closed boundaries:
 
 ```text
-missing owner ref                  -> workflow-facing authoritative-ref unavailable error
-owner hash/id mismatch             -> owner integrity/conflict error; no downstream execution
-semantic revision changed          -> RevisionChangedError -> workflow REVISION_CONFLICT mapping
-Gateway V2 rejection               -> preserve Gateway stable error semantics
-provider snapshot/binding mismatch -> ProviderBindingError; no Host execution
-Saga unknown outcome               -> remain UNKNOWN/recovery path; never assume not committed
-DIVERGED                           -> terminal observable failure; no auto compensation
-checkpoint contains only refs      -> missing ref is not reconstructed from checkpoint body
+missing owner ref
+  -> workflow-facing authoritative-ref unavailable error
+
+StableRef id/hash mismatch
+  -> fail before downstream owner call
+
+snapshot/set membership mismatch
+  -> fail before Impact
+
+document/environment mismatch
+  -> fail before Impact
+
+freshness contract != current bound operation
+  -> fail before Impact
+
+partial/stale freshness tuple
+  -> graph cannot enter Impact successfully
+
+semantic revision changed
+  -> RevisionChangedError / existing REVISION_CONFLICT mapping
+
+Gateway V2 rejection
+  -> preserve Gateway stable error semantics
+
+provider snapshot/binding mismatch
+  -> ProviderBindingError; no Host execution
+
+Saga unknown outcome
+  -> remain UNKNOWN/recovery; never assume not committed
+
+DIVERGED
+  -> terminal observable failure; no auto compensation
+
+missing non-durable owner state after fresh process
+  -> fail closed; do not claim durability from rebuilt-adapter test
 ```
 
-Error translation in `CanonicalWorkflowOwnerPorts` may map an owner error to the existing workflow-facing error vocabulary, but must retain cause/code in a stable, testable way where current contracts allow it.
+Error translation in `CanonicalWorkflowOwnerPorts` may map owner errors to the existing workflow-facing vocabulary, but it cannot hide which frozen boundary failed or convert data-integrity failures into retryable success.
 
 ---
 
-## Final Plan Gate
+## Amendment A Final Plan Gate
 
-This document is the implementation authority only after written-plan review approval and merge to `main`.
+This revised Plan becomes the implementation authority for the reopened Task 6 only after written-plan review approval.
 
-Before that approval:
+Before approval:
 
 ```text
-production code changes      FORBIDDEN
-implementation task execution FORBIDDEN
-CI/support-matrix expansion    FORBIDDEN
+Task 6R production code changes FORBIDDEN
+Task 7 Step 3 implementation FORBIDDEN
+follow-on provider/grant expansion FORBIDDEN
 ```
 
-After approval, implementation must execute Tasks 1–10 in order unless exact evidence triggers an explicit stop/amendment gate.
-
-Capability lifecycle is not `COMPLETED` when implementation PR merely opens or turns green. Required closeout remains:
+After approval, execute strictly:
 
 ```text
-implementation exact-head GREEN
+Task 6R.1 contract + graph atomicity RED/GREEN
+→ Task 6R.2 interleaved lineage + mismatch RED/GREEN
+→ Task 6R.3 saver round-trip + rebuilt-adapter proof
+→ Task 6R.4 focused regression + exact-head CI
+→ Task 6 repair CLOSED
+→ Task 7 Step 3–5
+→ Task 8
+→ Task 9
+→ Task 10
+→ implementation exact-head GREEN
 → merge
 → merged-main observation GREEN
 → docs-only lifecycle closeout
 → real E2E workflow COMPLETED
 ```
 
-Only after that closeout may the next capability (`semantic -> plan -> approve -> execute -> reconcile`) enter its own Design Gate.
+Any evidence that the approved exact refs cannot be reconstructed through existing owner public APIs is a **STOP / Design-Plan amendment** condition. Do not reintroduce latest/current lookup, delete immutable history, create hidden adapter maps, or silently broaden the public checkpoint contract to get a GREEN test.
