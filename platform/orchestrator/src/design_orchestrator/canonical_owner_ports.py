@@ -970,7 +970,41 @@ class CanonicalWorkflowOwnerPorts:
         self._revision_barrier.check(snapshot_set)
 
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef:
-        raise self._not_wired("bind_providers")
+        """把 runtime provider evidence 交给真实 Provider Binding V2 owner 解析。"""
+
+        from design_provider_binding import (
+            ProviderExecutionSnapshotV2,
+            resolve_provider_bindings_v2,
+        )
+
+        plan_getter = getattr(self._execution_plan_store, "get", None)
+        if plan_getter is None:
+            raise self._not_wired("bind_providers")
+        execution_plan = plan_getter(execution_plan_ref.ref_id)
+        self._ref_hash_matches(
+            execution_plan_ref,
+            execution_plan.execution_plan_hash,
+            kind="ExecutionPlanV2",
+        )
+
+        # 当前 workflow contract 只携带一个 provider_binding_ref，因此本阶段只能对一个
+        # exact ExecutionSliceV2 发布一个 BindingSetV2；不得静默挑选多 slice 中的任意一个。
+        if len(execution_plan.execution_slices) != 1:
+            raise ValueError("provider binding requires exactly one ExecutionSliceV2")
+        execution_slice = execution_plan.execution_slices[0]
+
+        snapshot_provider = self._provider_execution_snapshot
+        if not callable(snapshot_provider):
+            raise self._not_wired("bind_providers")
+        snapshot = snapshot_provider(execution_slice)
+        if not isinstance(snapshot, ProviderExecutionSnapshotV2):
+            raise TypeError(
+                "provider_execution_snapshot must return ProviderExecutionSnapshotV2"
+            )
+
+        binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
+        self._provider_binding_store.put(binding_set)
+        return StableRef(binding_set.binding_set_id, binding_set.binding_set_hash)
 
     def issue_execution_grant(
         self,
@@ -978,7 +1012,89 @@ class CanonicalWorkflowOwnerPorts:
         approval_ref: StableRef,
         provider_binding_ref: StableRef,
     ) -> StableRef:
-        raise self._not_wired("issue_execution_grant")
+        """解析 exact owner refs，交给真实 Gateway V2 签发并 admission execution grant。"""
+
+        from design_gateway_authorization import ExecutionGrantRequestV2
+
+        plan_getter = getattr(self._execution_plan_store, "get", None)
+        if plan_getter is None:
+            raise self._not_wired("issue_execution_grant")
+        execution_plan = plan_getter(execution_plan_ref.ref_id)
+        self._ref_hash_matches(
+            execution_plan_ref,
+            execution_plan.execution_plan_hash,
+            kind="ExecutionPlanV2",
+        )
+
+        binding_getter = getattr(self._provider_binding_store, "get", None)
+        if binding_getter is None:
+            raise self._not_wired("issue_execution_grant")
+        binding_set = binding_getter(provider_binding_ref.ref_id)
+        self._ref_hash_matches(
+            provider_binding_ref,
+            binding_set.binding_set_hash,
+            kind="ProviderBindingSetV2",
+        )
+
+        matching_slices = tuple(
+            execution_slice
+            for execution_slice in execution_plan.execution_slices
+            if (
+                execution_slice.execution_slice_id == binding_set.execution_slice_id
+                and execution_slice.execution_slice_hash == binding_set.execution_slice_hash
+                and execution_slice.materialization_id == binding_set.materialization_id
+                and execution_slice.materialization_plan_hash
+                == binding_set.materialization_plan_hash
+            )
+        )
+        if len(matching_slices) != 1:
+            raise ValueError(
+                "ProviderBindingSetV2 does not resolve to exactly one ExecutionSliceV2"
+            )
+        execution_slice = matching_slices[0]
+
+        materialization_plan = self._materialization_plan_store.get(
+            execution_plan.materialization_plan_hash
+        )
+        topology = self._topology_registry.get(
+            self._topology_environment_id,
+            self._topology_revision,
+        )
+        boundary = self._approval_scope_store.get_boundary(
+            execution_plan.approval_scope_ref.scope_id
+        )
+        stored_approval = self._gateway_authorization_store.get_approval(
+            approval_ref.ref_id
+        )
+        if stored_approval is None:
+            raise ValueError("Gateway approval StableRef is unresolved")
+        approval = stored_approval.record
+        self._ref_hash_matches(
+            approval_ref,
+            approval.approval_hash,
+            kind="GatewayApproval",
+        )
+
+        issued_at = self._coordination_timestamp()
+        grant = self._gateway_authorization.issue_execution_grant(
+            ExecutionGrantRequestV2(
+                approval_id=approval.approval_id,
+                execution_plan=execution_plan,
+                execution_slice=execution_slice,
+                provider_binding_set=binding_set,
+                materialization_plan=materialization_plan,
+                topology_snapshot=topology,
+                approval_scope_boundary=boundary,
+                issued_at=issued_at,
+            )
+        )
+        authority = self._gateway_authorization.admit_execution_grant(
+            grant.grant_hash,
+            issued_at,
+        )
+        if authority.grant_hash != grant.grant_hash:
+            raise ValueError("Gateway admitted authority does not reference issued grant")
+        return StableRef(grant.grant_id, grant.grant_hash)
 
     def begin_execution(
         self,
