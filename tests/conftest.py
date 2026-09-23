@@ -8,13 +8,11 @@
 不改变任何产品模块的导入路径或运行时行为。
 """
 
-from __future__ import annotations
-
-from pathlib import Path
+import pathlib
 import sys
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 repository_root_text = str(REPOSITORY_ROOT)
 
 if repository_root_text not in sys.path:
