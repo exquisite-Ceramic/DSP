@@ -943,7 +943,28 @@ class CanonicalWorkflowOwnerPorts:
         )
 
     def check_revision_barrier(self, execution_plan_ref: StableRef) -> None:
-        raise self._not_wired("check_revision_barrier")
+        """按计划持有的 ChangeSet lineage 解析 exact SnapshotSet，并交给真实 barrier 校验。"""
+
+        execution_plan = self._execution_plan_store.get(execution_plan_ref.ref_id)
+        self._ref_hash_matches(
+            execution_plan_ref,
+            execution_plan.execution_plan_hash,
+            kind="ExecutionPlanV2",
+        )
+
+        # SnapshotSet lineage 来自 authoritative ChangeSet owner；adapter 不维护
+        # plan→snapshot-set 私有映射，也不自行比较 Host revision。
+        changeset = self._changeset_store.get(execution_plan.changeset_id)
+        if changeset.changeset_hash != execution_plan.changeset_hash:
+            raise ValueError("ExecutionPlanV2 ChangeSet lineage does not match owner truth")
+        snapshot_set_binding = changeset.snapshot_set_ref
+        snapshot_set = self._snapshot_registry.get_snapshot_set(
+            snapshot_set_binding.snapshot_set_id
+        )
+        if snapshot_set.hash != snapshot_set_binding.snapshot_set_hash:
+            raise ValueError("ChangeSet SnapshotSet lineage does not match owner truth")
+
+        self._revision_barrier.check(snapshot_set)
 
     def bind_providers(self, execution_plan_ref: StableRef) -> StableRef:
         raise self._not_wired("bind_providers")
