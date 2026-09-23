@@ -19,7 +19,12 @@ from design_orchestrator.default_workflow_services import (
     ParameterBindingInputs,
 )
 from design_orchestrator.parameter_binder import BoundOperationProposal
-from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
+from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationRef,
+    OperationFreshnessResult,
+    StableRef,
+)
 from design_orchestrator.workflow_services import ExecutionOwnerView
 
 
@@ -236,6 +241,23 @@ class CanonicalWorkflowOwnerPorts:
         if ref.content_hash is not None and ref.content_hash != actual_hash:
             raise ValueError(f"{kind} StableRef hash does not match authoritative owner content")
 
+    @staticmethod
+    def _require_exact_ref_hash(
+        ref: StableRef,
+        actual_hash: str,
+        *,
+        kind: str,
+    ) -> None:
+        """Task 6 exact-lineage ref 必须携带并匹配 authoritative content hash。"""
+
+        if ref.content_hash is None:
+            raise ValueError(f"{kind} StableRef requires content_hash")
+        CanonicalWorkflowOwnerPorts._ref_hash_matches(
+            ref,
+            actual_hash,
+            kind=kind,
+        )
+
     def _coordination_timestamp(self) -> str:
         """把共享 CoordinationClock 的 UTC 时间投影为 owner request 时间戳。"""
 
@@ -303,8 +325,8 @@ class CanonicalWorkflowOwnerPorts:
     def _operation_freshness_contract(self, bound: BoundOperationProposal):
         """由 bound operation + authoritative ContextSnapshot 重建相同 owner contract identity。
 
-        该 helper 只组装 Semantic Runtime public contract，不执行 freshness 决策；因此 adapter
-        重建后可以按 contract identity 查询 owner registry，而不依赖 process-local 映射。
+        该 helper 只组装 Semantic Runtime public contract，不执行 freshness 决策；它只用于
+        校验 exact PlanningSnapshot 的 contract lineage，不再承担 owner registry reverse lookup。
         """
 
         from semantic_runtime import build_operation_contract, requirements_from_mappings
@@ -396,8 +418,8 @@ class CanonicalWorkflowOwnerPorts:
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef:
-        """用真实 Operation Freshness contract 生成 PlanningSnapshot/SnapshotSet。"""
+    ) -> OperationFreshnessResult | AsyncOperationRef:
+        """用真实 Operation Freshness contract 生成并显式返回 exact owner refs。"""
 
         from semantic_runtime import SnapshotSet
 
@@ -416,10 +438,19 @@ class CanonicalWorkflowOwnerPorts:
         self._snapshot_registry.put_snapshot(resolved)
         snapshot_set = SnapshotSet.create((resolved,))
         self._snapshot_registry.put_snapshot_set(snapshot_set)
-        return operation_ref
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef(resolved.snapshot_id, resolved.hash),
+            snapshot_set_ref=StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
+        )
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        """从 owner-local freshness lineage 解析 refs 后调用真实 ImpactAnalyzer。"""
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """按 exact owner refs 校验 freshness lineage 后调用真实 ImpactAnalyzer。"""
 
         from design_impact import (
             ImpactAnalysisRequest,
@@ -430,14 +461,76 @@ class CanonicalWorkflowOwnerPorts:
         )
 
         bound = self._bound_operation(operation_ref)
-        contract, _ = self._operation_freshness_contract(bound)
-        planning = self._snapshot_registry.get_snapshot_for_freshness_contract(
-            contract.contract_id,
-            contract.hash,
+        planning = self._snapshot_registry.get_snapshot(planning_snapshot_ref.ref_id)
+        snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
+        contract, context_snapshot = self._operation_freshness_contract(bound)
+
+        self._require_exact_ref_hash(
+            operation_ref,
+            workflow_artifact_content_hash(bound),
+            kind="BoundOperationProposal",
         )
-        snapshot_set = self._snapshot_registry.get_snapshot_set_for_member(
-            planning.snapshot_id
+        self._require_exact_ref_hash(
+            planning_snapshot_ref,
+            planning.hash,
+            kind="PlanningSnapshot",
         )
+        self._require_exact_ref_hash(
+            snapshot_set_ref,
+            snapshot_set.hash,
+            kind="SnapshotSet",
+        )
+
+        if planning.snapshot_id != planning_snapshot_ref.ref_id:
+            raise ValueError(
+                "planning snapshot ref does not match authoritative identity"
+            )
+        if snapshot_set.snapshot_set_id != snapshot_set_ref.ref_id:
+            raise ValueError(
+                "snapshot-set ref does not match authoritative identity"
+            )
+        matching_members = [
+            member
+            for member in snapshot_set.members
+            if member.snapshot_id == planning.snapshot_id
+            and member.hash == planning.hash
+        ]
+        if len(matching_members) != 1:
+            raise ValueError(
+                "snapshot set does not contain the exact planning snapshot"
+            )
+
+        if planning.document_ref != contract.coverage.document_ref:
+            raise ValueError(
+                "planning snapshot document does not match bound operation"
+            )
+        if planning.project_id != contract.project_id:
+            raise ValueError(
+                "planning snapshot project does not match bound operation"
+            )
+        if planning.semantic_environment_ref != snapshot_set.semantic_environment_ref:
+            raise ValueError(
+                "planning snapshot environment does not match snapshot set"
+            )
+        if planning.semantic_environment_ref != context_snapshot.semantic_environment_ref:
+            raise ValueError(
+                "planning snapshot environment does not match bound-operation context"
+            )
+        if (
+            planning.semantic_environment_ref.environment_id
+            != bound.semantic_environment_ref
+        ):
+            raise ValueError(
+                "planning snapshot environment does not match bound operation"
+            )
+        if planning.freshness_contract_id != contract.contract_id:
+            raise ValueError(
+                "planning snapshot freshness contract does not match bound operation"
+            )
+        if planning.freshness_contract_hash != contract.hash:
+            raise ValueError(
+                "planning snapshot freshness contract hash does not match bound operation"
+            )
 
         environment = SemanticEnvironmentBinding(
             planning.semantic_environment_ref.environment_id,
