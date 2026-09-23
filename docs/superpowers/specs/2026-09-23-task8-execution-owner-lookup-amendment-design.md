@@ -91,7 +91,7 @@ begin_execution(execution_plan_ref, grant_ref)
 
 这对普通外部异步 operation 没问题，但对 execution unknown-outcome 不安全：真实 coordinator 已经创建 durable Saga 并写入 dispatch recovery truth，此时若 checkpoint 不保存 Saga identity，恢复后的 `refresh_execution_owner` 无法查询 owner state，`decide_apply_resume()` 会把“checkpoint 没有 saga_id”解释为尚未创建 durable Saga，并返回 `MAY_DISPATCH`。
 
-因此 Task 8 必须允许 execution async result 把 owner-issued Saga identity作为 workflow navigation 与 wait 原子持久化。
+因此 Task 8 必须允许 execution async result 把 owner-issued Saga identity 作为 workflow navigation 与 wait 原子持久化。
 
 ---
 
@@ -190,7 +190,7 @@ saga_id + execution_slice_hash -> 0 or 1 HostDispatchIntent
 dispatch_intent_store
 ```
 
-该依赖只用于 authoritative recovery read 与与 coordinator 使用的同一 owner store composition。reference/production composition 必须把同一个 logical dispatch-intent owner 注入 coordinator 与 adapter；测试必须覆盖两者不允许使用不同 owner truth source 的 wiring。
+该依赖只用于 authoritative recovery read；reference/production composition 必须把与 `MaterializedExecutionSagaCoordinator` 相同的 logical dispatch-intent owner 显式传给 adapter。composition tests 应构造并复用同一个 injected store；adapter 不得自行创建第二个 store。本 Amendment 不要求增加运行时对象同一性 introspection。
 
 adapter 不读取具体 PostgreSQL internals，也不调用 `_select_by_slice()` 等 private API。
 
@@ -199,7 +199,7 @@ adapter 不读取具体 PostgreSQL internals，也不调用 `_select_by_slice()`
 `begin_execution(execution_plan_ref, grant_ref)` 的允许职责固定为：
 
 1. exact resolve `ExecutionPlanV2` 并验证 plan ref hash；
-2. 用 `grant_ref.content_hash` 查询 Gateway V2 immutable grant，并校验 `grant_id`/hash 与 exact execution Slice lineage；
+2. 要求 `grant_ref.content_hash` 非空，用该 exact hash 查询 Gateway V2 immutable grant，并校验 `grant_id`/hash 与 exact execution Slice lineage；
 3. 通过 Gateway public admission API 获得同一 grant 的 admitted authority；该调用必须保持现有 idempotent admission semantics，不在 adapter 复制 lifecycle 规则；
 4. 用 authority 的 `binding_set_hash` 调用 Provider Binding owner `get_by_hash()`；
 5. 从 plan/ChangeSet/Approval Scope/Materialization owner stores 解析 exact artifacts；
@@ -349,7 +349,7 @@ put(binding_set)
 -> exact same immutable artifact
 ```
 
-Wrong/missing hash fails with Provider Binding owner error; adapter never derives binding-set id.
+Invalid or unresolved hash fails at the Provider Binding owner boundary; adapter never derives binding-set id.
 
 ### B. Dispatch store parity
 
@@ -406,7 +406,7 @@ refresh_execution_owner reads exact Saga/Slice dispatch truth
 -> Host execute count remains 1
 ```
 
-A repeated direct coordinator/adapter call for the same durable lineage must also return recovery without issuing a second Host command.
+A repeated direct coordinator/adapter call for the same durable lineage must also return recovery without issuing a second Host command。
 
 ### F. Architecture
 
@@ -427,16 +427,16 @@ V1 execution surfaces
 
 Amendment B is implemented only when all are true:
 
-1. Task 7 behavior remains GREEN;
-2. no authoritative test fake is required for Provider Binding lookup or dispatch-intent persistence;
-3. successful real coordinator path reaches Saga `SUCCEEDED`;
-4. divergent evidence reaches real Saga `DIVERGED` without compensation;
-5. unknown outcome persists `OUTCOME_UNKNOWN`, carries durable `saga_id` into workflow wait, and cannot redispatch blindly;
-6. `ExecutionOwnerView` is built from real Saga + exact dispatch owner truth;
-7. checkpoint still contains refs/navigation only, not owner bodies;
-8. no owner-private API or adapter lineage cache is introduced;
-9. focused tests/Ruff pass;
-10. implementation closure later requires exact-head repository CI, but no implementation begins until this written spec and the follow-on written plan are reviewed.
+1. Task 7 behavior remains GREEN；
+2. no authoritative test fake is required for Provider Binding lookup or dispatch-intent persistence；
+3. successful real coordinator path reaches Saga `SUCCEEDED`；
+4. divergent evidence reaches real Saga `DIVERGED` without compensation；
+5. unknown outcome persists `OUTCOME_UNKNOWN`, carries durable `saga_id` into workflow wait, and cannot redispatch blindly；
+6. `ExecutionOwnerView` is built from real Saga + exact dispatch owner truth；
+7. checkpoint still contains refs/navigation only, not owner bodies；
+8. no owner-private API or adapter lineage cache is introduced；
+9. focused tests/Ruff pass；
+10. implementation closure later requires exact-head repository CI, but no implementation begins until this written spec and the follow-on written plan are reviewed。
 
 ---
 
