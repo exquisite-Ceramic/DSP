@@ -1,6 +1,6 @@
 # Capability Phase — Real-Owner E2E Workflow Design
 
-**Status:** Baseline approved — Amendment A Written-Spec Review Gate  
+**Status:** Baseline approved — Amendment A Written-Spec Review Gate
 **Date:** 2026-09-20  
 **Base:** `main@c92fe302d22669f5cefea1946281e9b456e0fea7`  
 **Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`  
@@ -709,8 +709,8 @@ semantic -> plan -> approve -> execute -> reconcile
 
 ## 21. Amendment A — Operation Freshness Exact Lineage
 
-**Amendment date:** 2026-09-23  
-**Trigger:** Task 6 rereview during real-owner implementation exposed an exact-lineage contradiction between the frozen workflow-facing seam and the requirement that Impact consume the exact PlanningSnapshot/SnapshotSet produced by the successful operation-freshness transition.  
+**Amendment date:** 2026-09-23
+**Trigger:** Task 6 rereview during real-owner implementation exposed an exact-lineage contradiction between the frozen workflow-facing seam and the requirement that Impact consume the exact PlanningSnapshot/SnapshotSet produced by the successful operation-freshness transition.
 **Status:** Written-Spec Review Gate
 
 本 Amendment 是一个窄 architecture correction。它不改变 §7 的业务 progression、不建立新的 authoritative owner，也不授权 Task 7 Step 3 继续实现。它只修正 operation freshness → Impact 之间缺失的显式 lineage。
