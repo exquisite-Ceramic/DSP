@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from design_orchestrator import workflow_contracts as workflow_contracts_module
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
@@ -252,3 +253,75 @@ def test_langgraph_runtime_does_not_copy_deterministic_domain_algorithms() -> No
     )
     for identifier in forbidden_identifiers:
         assert identifier not in source
+
+
+def test_operation_freshness_contract_exposes_exact_result_and_three_ref_impact_seam() -> None:
+    """Task 6R.1 必须显式暴露 freshness exact tuple，并把三个 refs 传给 Impact seam。"""
+
+    assert hasattr(workflow_contracts_module, "OperationFreshnessResult")
+    assert list(inspect.signature(DefaultWorkflowServices.ensure_operation_freshness).parameters) == [
+        "self",
+        "operation_ref",
+    ]
+    assert list(inspect.signature(DefaultWorkflowServices.analyze_impact).parameters) == [
+        "self",
+        "operation_ref",
+        "planning_snapshot_ref",
+        "snapshot_set_ref",
+    ]
+
+
+def test_default_workflow_services_delegates_exact_freshness_tuple_and_impact_refs() -> None:
+    """默认 services 只能转发 exact freshness tuple，不得在本层重建 snapshot lineage。"""
+
+    result_type = getattr(workflow_contracts_module, "OperationFreshnessResult", None)
+    if result_type is None:
+        pytest.skip("OperationFreshnessResult 尚未实现；由 contract RED 覆盖")
+
+    operation_ref = StableRef("operation-42", "a" * 64)
+    planning_ref = StableRef("PS-42", "b" * 64)
+    snapshot_set_ref = StableRef("PSS-42", "c" * 64)
+    impact_ref = StableRef("impact-42", "d" * 64)
+    result = result_type(
+        operation_ref=operation_ref,
+        planning_snapshot_ref=planning_ref,
+        snapshot_set_ref=snapshot_set_ref,
+    )
+
+    class _FreshnessOwners(_ExternalOwners):
+        """只记录 Task 6R.1 两个 seam 的参数，不实现任何 owner 领域逻辑。"""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.impact_calls: list[tuple[StableRef, StableRef, StableRef]] = []
+
+        def ensure_operation_freshness(self, ref: StableRef):
+            assert ref == operation_ref
+            return result
+
+        def analyze_impact(
+            self,
+            ref: StableRef,
+            exact_planning_ref: StableRef,
+            exact_snapshot_set_ref: StableRef,
+        ) -> StableRef:
+            self.impact_calls.append(
+                (ref, exact_planning_ref, exact_snapshot_set_ref)
+            )
+            return impact_ref
+
+    store = _MemoryArtifactStore()
+    owners = _FreshnessOwners()
+    service = DefaultWorkflowServices(
+        operation_resolver=OperationResolver((MOVE_V1,)),
+        parameter_binder=ParameterBinder(
+            MVP_CANONICAL_OPERATIONS,
+            MVP_BINDING_RECIPES,
+        ),
+        artifact_store=store,
+        external_owners=owners,
+    )
+
+    assert service.ensure_operation_freshness(operation_ref) == result
+    assert service.analyze_impact(operation_ref, planning_ref, snapshot_set_ref) == impact_ref
+    assert owners.impact_calls == [(operation_ref, planning_ref, snapshot_set_ref)]
