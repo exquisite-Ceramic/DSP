@@ -14,7 +14,6 @@ from design_materialization_planning import (
     InMemoryMaterializationPlanStore,
     MaterializationPlanner,
 )
-from design_orchestrator.canonical_owner_ports import CanonicalOwnerPortNotWiredError
 from design_orchestrator.workflow_contracts import StableRef
 from design_provider_binding import (
     EligibilityState,
