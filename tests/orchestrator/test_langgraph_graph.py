@@ -519,7 +519,18 @@ def test_operation_freshness_async_wait_clears_stale_pair_then_writes_new_tuple(
     }
     assert services.impact_calls == []
 
-    graph.invoke(Command(resume={}), config)
+    # 直接驱动 compiled graph 时也使用 production runtime 的非空 async resume payload shape；
+    # 空 dict 会被 LangGraph 解释为未提供可消费的 interrupt resume value。
+    graph.invoke(
+        Command(
+            resume={
+                "pause_id": None,
+                "resume_kind": "ASYNC_OPERATION_COMPLETED",
+                "payload": {"operation_id": "reconstruct-43"},
+            }
+        ),
+        config,
+    )
     resumed = graph.get_state(config)
 
     assert resumed.values["operation_ref"] == {
