@@ -23,6 +23,16 @@ _LANGGRAPH_TESTS = frozenset(
     }
 )
 
+# ``test_canonical_owner_ports.py`` 同时承载 deterministic owner tests 与少量真实
+# LangGraph saver/graph proofs，不能像纯 runtime 模块一样整文件 ignore。这里只标记真正
+# 依赖 LangGraph 的两个 6R.3 用例，使轻量 lane 仍执行该模块其余 owner regression。
+_LANGGRAPH_MIXED_TESTS = frozenset(
+    {
+        "test_task6r3_complete_mismatch_reaches_adapter_but_not_real_impact",
+        "test_task6r3_rebuilt_adapter_consumes_only_saver_restored_exact_refs",
+    }
+)
+
 _POSTGRES_TESTS = frozenset(
     {
         "test_postgres_checkpoint.py",
@@ -51,3 +61,22 @@ def pytest_ignore_collect(
     if name in _POSTGRES_TESTS and not _dependency_available("psycopg"):
         return True
     return False
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    """混合模块缺少 LangGraph 时只 skip runtime proof，不隐藏同文件 deterministic tests。"""
+
+    del config
+    if _dependency_available("langgraph"):
+        return
+
+    marker = pytest.mark.skip(reason="langgraph is required for Task 6R.3 graph proofs")
+    for item in items:
+        if (
+            item.path.name == "test_canonical_owner_ports.py"
+            and item.name in _LANGGRAPH_MIXED_TESTS
+        ):
+            item.add_marker(marker)
