@@ -195,7 +195,7 @@ def analyze_impact(
     raise NotImplementedError
 ```
 
-`OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics。exact-lineage hash presence is enforced at `CanonicalWorkflowOwnerPorts.analyze_impact(...)`, not by changing the global `StableRef` type。
+`OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics. exact-lineage hash presence is enforced at `CanonicalWorkflowOwnerPorts.analyze_impact(...)`, not by changing the global `StableRef` type.
 
 - [ ] **Step 1: Add contract/delegation RED tests**
 
@@ -426,25 +426,49 @@ snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
 contract, context_snapshot = self._operation_freshness_contract(bound)
 ```
 
-For this path, validate all three refs before relation checks:
+Import the existing canonical helper from `design_orchestrator.workflow_artifacts`:
 
 ```python
-bound_hash = workflow_artifact_content_hash(bound)
-_require_exact_ref_hash(operation_ref, bound_hash, kind="BoundOperationProposal")
-_require_exact_ref_hash(planning_snapshot_ref, planning.hash, kind="PlanningSnapshot")
-_require_exact_ref_hash(snapshot_set_ref, snapshot_set.hash, kind="SnapshotSet")
+from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 ```
 
-Use a **narrow exact-lineage helper** (or equivalent inline checks) whose semantics are:
+Add this narrow exact-lineage helper to `CanonicalWorkflowOwnerPorts`; do not change the semantics of the existing `_ref_hash_matches(...)` helper:
 
 ```python
-def _require_exact_ref_hash(ref: StableRef, actual_hash: str, *, kind: str) -> None:
+@staticmethod
+def _require_exact_ref_hash(
+    ref: StableRef,
+    actual_hash: str,
+    *,
+    kind: str,
+) -> None:
+    """要求 exact-lineage 引用必须携带并匹配 authoritative hash。"""
+
     if ref.content_hash is None:
         raise ValueError(f"{kind} StableRef requires content_hash")
     CanonicalWorkflowOwnerPorts._ref_hash_matches(ref, actual_hash, kind=kind)
 ```
 
-Do **not** globally strengthen existing `_ref_hash_matches()` because other already-approved StableRef consumers may intentionally use its “validate when present” semantics. The exact-lineage path alone requires hash presence.
+Then validate all three refs before relation checks:
+
+```python
+bound_hash = workflow_artifact_content_hash(bound)
+self._require_exact_ref_hash(
+    operation_ref,
+    bound_hash,
+    kind="BoundOperationProposal",
+)
+self._require_exact_ref_hash(
+    planning_snapshot_ref,
+    planning.hash,
+    kind="PlanningSnapshot",
+)
+self._require_exact_ref_hash(
+    snapshot_set_ref,
+    snapshot_set.hash,
+    kind="SnapshotSet",
+)
+```
 
 `_bound_operation(operation_ref)` may itself fail earlier because durable `WorkflowArtifactStore.get()` already requires a hash; the explicit canonical-hash comparison above still freezes the adapter invariant for any conforming test/reference store that returns the bound artifact.
 
@@ -564,9 +588,9 @@ Do **not** put a complete-but-wrong relationship case in this graph-level assert
 
 - [ ] **Step 3: Prove complete-but-mismatched persisted refs reach the adapter and fail before real Impact**
 
-Using the canonical services/adapter path, restore a checkpoint containing three syntactically valid refs whose relationship is wrong (for example current operation ref plus a valid PS/PSS pair from another operation/revision). The graph is allowed to call `WorkflowServices.analyze_impact(...)` because all three refs are present and decodable.
+Using the canonical services/adapter path, restore a checkpoint containing three syntactically valid refs whose relationship is wrong—for example the current operation ref combined with a valid PS/PSS pair created for a **different bound operation** or an incompatible document/environment. The graph is allowed to call `WorkflowServices.analyze_impact(...)` because all three refs are present and decodable.
 
-Assert instead that `CanonicalWorkflowOwnerPorts` rejects the tuple and the counting real `ImpactAnalyzer.analyze()` call count remains `0`. This test freezes the ownership boundary: graph forwards exact refs; adapter validates owner-level relations.
+Assert instead that `CanonicalWorkflowOwnerPorts` rejects the tuple and the counting real `ImpactAnalyzer.analyze()` call count remains `0`. Do not use “same operation, same contract, different revision pair” as the mismatch fixture: revision-specific exactness is proven by the atomic tuple/interleaved tests, not by asking the adapter to infer which freshness invocation produced a pair.
 
 - [ ] **Step 4: Rebuilt-adapter RED/GREEN using restored refs**
 
