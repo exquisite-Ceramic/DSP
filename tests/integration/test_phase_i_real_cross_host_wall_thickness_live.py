@@ -10,7 +10,11 @@ from dataclasses import is_dataclass
 from pathlib import Path
 
 import pytest
-import yaml
+
+yaml = pytest.importorskip(
+    "yaml",
+    reason="PyYAML is required for the Phase I workflow contract checks",
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/phase-i-real-cross-host-materialization-saga.yml"
