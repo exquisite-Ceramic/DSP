@@ -1,0 +1,32 @@
+name: Task 6R.1 Ruff baseline diagnostic
+
+on:
+  push:
+    branches:
+      - diag/task6r1-ruff-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  ruff-baseline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 6R.1 focused Ruff baseline
+        run: |
+          uv run ruff check \
+            platform/orchestrator/src/design_orchestrator/workflow_contracts.py \
+            platform/orchestrator/src/design_orchestrator/workflow_services.py \
+            platform/orchestrator/src/design_orchestrator/default_workflow_services.py \
+            platform/orchestrator/src/design_orchestrator/langgraph_state.py \
+            platform/orchestrator/src/design_orchestrator/langgraph_graph.py \
+            tests/orchestrator/test_default_workflow_services.py \
+            tests/orchestrator/test_langgraph_graph.py
