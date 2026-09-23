@@ -29,7 +29,11 @@ from design_orchestrator.workflow_artifacts import (
     legacy_workflow_artifact_content_hash,
     workflow_artifact_content_hash,
 )
-from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationRef,
+    OperationFreshnessResult,
+    StableRef,
+)
 from design_orchestrator.workflow_services import (
     ExecutionOwnerView,
     OperationArtifactResolution,
@@ -99,9 +103,14 @@ class ExternalOwnerPorts(Protocol):
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef: ...
+    ) -> OperationFreshnessResult | AsyncOperationRef: ...
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef: ...
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef: ...
 
     def build_changeset(
         self,
@@ -336,15 +345,24 @@ class DefaultWorkflowServices:
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef:
+    ) -> OperationFreshnessResult | AsyncOperationRef:
         """把 operation freshness 判断交还给 freshness authoritative owner。"""
 
         return self._external_owners.ensure_operation_freshness(operation_ref)
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        """委托 Impact owner；本 adapter 不复制 impact 规则。"""
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """显式转发 exact freshness refs；本 adapter 不复制 Impact 或 lineage 规则。"""
 
-        return self._external_owners.analyze_impact(operation_ref)
+        return self._external_owners.analyze_impact(
+            operation_ref,
+            planning_snapshot_ref,
+            snapshot_set_ref,
+        )
 
     def build_changeset(
         self,

@@ -13,7 +13,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationRef,
+    OperationFreshnessResult,
+    StableRef,
+)
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -190,9 +194,14 @@ class WorkflowServices(Protocol):
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef: ...
+    ) -> OperationFreshnessResult | AsyncOperationRef: ...
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef: ...
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef: ...
 
     def build_changeset(
         self,

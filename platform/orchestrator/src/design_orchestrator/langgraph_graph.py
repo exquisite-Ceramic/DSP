@@ -28,6 +28,7 @@ from design_orchestrator.recovery import decide_apply_resume
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     PendingInteractionKind,
     PendingInteractionView,
     StableRef,
@@ -260,19 +261,35 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             _require_stable_ref(state, "operation_ref")
         )
         if isinstance(result, AsyncOperationRef):
-            return _set_async_wait(
-                result,
-                resume_node="ensure_operation_freshness",
-                phase=WorkflowPhase.ENSURE_OPERATION_FRESHNESS,
+            return {
+                **_set_async_wait(
+                    result,
+                    resume_node="ensure_operation_freshness",
+                    phase=WorkflowPhase.ENSURE_OPERATION_FRESHNESS,
+                ),
+                "planning_snapshot_ref": None,
+                "snapshot_set_ref": None,
+            }
+        if not isinstance(result, OperationFreshnessResult):
+            raise TypeError(
+                "ensure_operation_freshness must return OperationFreshnessResult "
+                "or AsyncOperationRef"
             )
         return {
-            "operation_ref": _encode_stable_ref(result),
+            "operation_ref": _encode_stable_ref(result.operation_ref),
+            "planning_snapshot_ref": _encode_stable_ref(result.planning_snapshot_ref),
+            "snapshot_set_ref": _encode_stable_ref(result.snapshot_set_ref),
             "async_operation_ref": None,
+            "resume_node": None,
             "phase": WorkflowPhase.ANALYZE_IMPACT.value,
         }
 
     def analyze_impact(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.analyze_impact(_require_stable_ref(state, "operation_ref"))
+        result = services.analyze_impact(
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "planning_snapshot_ref"),
+            _require_stable_ref(state, "snapshot_set_ref"),
+        )
         return {
             "impact_ref": _encode_stable_ref(result),
             "phase": WorkflowPhase.BUILD_CHANGESET.value,
