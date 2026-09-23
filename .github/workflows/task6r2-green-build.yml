@@ -1,0 +1,367 @@
+name: Task 6R.2 green build
+
+on:
+  push:
+    branches:
+      - work/task6r2-green-build
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: work/task6r2-green-build
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Apply exact Task 6R.2 adapter patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py")
+          source = path.read_text(encoding="utf-8")
+
+          old_imports = '''from design_orchestrator.parameter_binder import BoundOperationProposal
+          from design_orchestrator.workflow_contracts import AsyncOperationRef, StableRef
+          from design_orchestrator.workflow_services import ExecutionOwnerView
+          '''
+          new_imports = '''from design_orchestrator.parameter_binder import BoundOperationProposal
+          from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
+          from design_orchestrator.workflow_contracts import (
+              AsyncOperationRef,
+              OperationFreshnessResult,
+              StableRef,
+          )
+          from design_orchestrator.workflow_services import ExecutionOwnerView
+          '''
+          if old_imports not in source:
+              raise SystemExit("Task 6R.2 import anchor not found")
+          source = source.replace(old_imports, new_imports, 1)
+
+          old_hash_helper = '''    @staticmethod
+              def _ref_hash_matches(ref: StableRef, actual_hash: str, *, kind: str) -> None:
+                  """StableRef 带 hash 时必须与 owner artifact 精确一致。"""
+          
+                  if ref.content_hash is not None and ref.content_hash != actual_hash:
+                      raise ValueError(f"{kind} StableRef hash does not match authoritative owner content")
+          '''
+          new_hash_helper = '''    @staticmethod
+              def _ref_hash_matches(ref: StableRef, actual_hash: str, *, kind: str) -> None:
+                  """StableRef 带 hash 时必须与 owner artifact 精确一致。"""
+          
+                  if ref.content_hash is not None and ref.content_hash != actual_hash:
+                      raise ValueError(f"{kind} StableRef hash does not match authoritative owner content")
+          
+              @staticmethod
+              def _require_exact_ref_hash(
+                  ref: StableRef,
+                  actual_hash: str,
+                  *,
+                  kind: str,
+              ) -> None:
+                  """Task 6 exact-lineage ref 必须携带并匹配 authoritative content hash。"""
+          
+                  if ref.content_hash is None:
+                      raise ValueError(f"{kind} StableRef requires content_hash")
+                  CanonicalWorkflowOwnerPorts._ref_hash_matches(
+                      ref,
+                      actual_hash,
+                      kind=kind,
+                  )
+          '''
+          if old_hash_helper not in source:
+              raise SystemExit("Task 6R.2 hash-helper anchor not found")
+          source = source.replace(old_hash_helper, new_hash_helper, 1)
+
+          old_doc = '''        该 helper 只组装 Semantic Runtime public contract，不执行 freshness 决策；因此 adapter
+                  重建后可以按 contract identity 查询 owner registry，而不依赖 process-local 映射。
+          '''
+          new_doc = '''        该 helper 只组装 Semantic Runtime public contract，不执行 freshness 决策；它只用于
+                  校验 exact PlanningSnapshot 的 contract lineage，不再承担 owner registry reverse lookup。
+          '''
+          if old_doc not in source:
+              raise SystemExit("Task 6R.2 contract-helper doc anchor not found")
+          source = source.replace(old_doc, new_doc, 1)
+
+          old_methods = '''    def ensure_operation_freshness(
+                  self,
+                  operation_ref: StableRef,
+              ) -> StableRef | AsyncOperationRef:
+                  """用真实 Operation Freshness contract 生成 PlanningSnapshot/SnapshotSet。"""
+          
+                  from semantic_runtime import SnapshotSet
+          
+                  bound = self._bound_operation(operation_ref)
+                  contract, _ = self._operation_freshness_contract(bound)
+                  expected_revision = self._host_revision_observation.current_revision(
+                      bound.context_snapshot_ref.document_ref
+                  )
+                  resolved = self._resolve_freshness(
+                      contract,
+                      expected_host_revision=expected_revision,
+                  )
+                  if isinstance(resolved, AsyncOperationRef):
+                      return resolved
+          
+                  self._snapshot_registry.put_snapshot(resolved)
+                  snapshot_set = SnapshotSet.create((resolved,))
+                  self._snapshot_registry.put_snapshot_set(snapshot_set)
+                  return operation_ref
+          
+              def analyze_impact(self, operation_ref: StableRef) -> StableRef:
+                  """从 owner-local freshness lineage 解析 refs 后调用真实 ImpactAnalyzer。"""
+          
+                  from design_impact import (
+                      ImpactAnalysisRequest,
+                      IntentBoundary,
+                      PlanningSnapshotBinding,
+                      SemanticEnvironmentBinding,
+                      SnapshotSetBinding,
+                  )
+          
+                  bound = self._bound_operation(operation_ref)
+                  contract, _ = self._operation_freshness_contract(bound)
+                  planning = self._snapshot_registry.get_snapshot_for_freshness_contract(
+                      contract.contract_id,
+                      contract.hash,
+                  )
+                  snapshot_set = self._snapshot_registry.get_snapshot_set_for_member(
+                      planning.snapshot_id
+                  )
+          
+                  environment = SemanticEnvironmentBinding(
+                      planning.semantic_environment_ref.environment_id,
+                      planning.semantic_environment_ref.content_hash,
+                  )
+                  planning_binding = PlanningSnapshotBinding(
+                      planning.snapshot_id,
+                      planning.hash,
+                      planning.document_ref,
+                      environment,
+                  )
+                  snapshot_set_binding = SnapshotSetBinding(
+                      snapshot_set.snapshot_set_id,
+                      snapshot_set.hash,
+                      snapshot_set.member_snapshot_ids,
+                      environment,
+                  )
+          
+                  definition = self._canonical_definition(
+                      bound.operation.canonical_operation,
+                      bound.operation.version,
+                  )
+                  intent = IntentBoundary(
+                      direct_targets=self._bound_targets(bound),
+                      allowed_canonical_effects=tuple(
+                          getattr(item, "value", str(item)) for item in definition.effects
+                      ),
+                      allowed_existence_effects=tuple(
+                          item.value for item in definition.existence_effects
+                      ),
+                  )
+                  analysis = self._impact_analyzer.analyze(
+                      ImpactAnalysisRequest(
+                          bound_operation=bound,
+                          planning_snapshot_ref=planning_binding,
+                          snapshot_set_ref=snapshot_set_binding,
+                          semantic_environment_ref=environment,
+                          intent_boundary=intent,
+                      )
+                  )
+                  self._impact_store.put(analysis)
+                  return StableRef(analysis.analysis_id, analysis.analysis_fingerprint)
+          '''
+          new_methods = '''    def ensure_operation_freshness(
+                  self,
+                  operation_ref: StableRef,
+              ) -> OperationFreshnessResult | AsyncOperationRef:
+                  """用真实 Operation Freshness contract 生成并显式返回 exact owner refs。"""
+          
+                  from semantic_runtime import SnapshotSet
+          
+                  bound = self._bound_operation(operation_ref)
+                  contract, _ = self._operation_freshness_contract(bound)
+                  expected_revision = self._host_revision_observation.current_revision(
+                      bound.context_snapshot_ref.document_ref
+                  )
+                  resolved = self._resolve_freshness(
+                      contract,
+                      expected_host_revision=expected_revision,
+                  )
+                  if isinstance(resolved, AsyncOperationRef):
+                      return resolved
+          
+                  self._snapshot_registry.put_snapshot(resolved)
+                  snapshot_set = SnapshotSet.create((resolved,))
+                  self._snapshot_registry.put_snapshot_set(snapshot_set)
+                  return OperationFreshnessResult(
+                      operation_ref=operation_ref,
+                      planning_snapshot_ref=StableRef(resolved.snapshot_id, resolved.hash),
+                      snapshot_set_ref=StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
+                  )
+          
+              def analyze_impact(
+                  self,
+                  operation_ref: StableRef,
+                  planning_snapshot_ref: StableRef,
+                  snapshot_set_ref: StableRef,
+              ) -> StableRef:
+                  """按 exact owner refs 校验 freshness lineage 后调用真实 ImpactAnalyzer。"""
+          
+                  from design_impact import (
+                      ImpactAnalysisRequest,
+                      IntentBoundary,
+                      PlanningSnapshotBinding,
+                      SemanticEnvironmentBinding,
+                      SnapshotSetBinding,
+                  )
+          
+                  bound = self._bound_operation(operation_ref)
+                  planning = self._snapshot_registry.get_snapshot(planning_snapshot_ref.ref_id)
+                  snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
+                  contract, context_snapshot = self._operation_freshness_contract(bound)
+          
+                  self._require_exact_ref_hash(
+                      operation_ref,
+                      workflow_artifact_content_hash(bound),
+                      kind="BoundOperationProposal",
+                  )
+                  self._require_exact_ref_hash(
+                      planning_snapshot_ref,
+                      planning.hash,
+                      kind="PlanningSnapshot",
+                  )
+                  self._require_exact_ref_hash(
+                      snapshot_set_ref,
+                      snapshot_set.hash,
+                      kind="SnapshotSet",
+                  )
+          
+                  if planning.snapshot_id != planning_snapshot_ref.ref_id:
+                      raise ValueError(
+                          "planning snapshot ref does not match authoritative identity"
+                      )
+                  if snapshot_set.snapshot_set_id != snapshot_set_ref.ref_id:
+                      raise ValueError(
+                          "snapshot-set ref does not match authoritative identity"
+                      )
+                  matching_members = [
+                      member
+                      for member in snapshot_set.members
+                      if member.snapshot_id == planning.snapshot_id
+                      and member.hash == planning.hash
+                  ]
+                  if len(matching_members) != 1:
+                      raise ValueError(
+                          "snapshot set does not contain the exact planning snapshot"
+                      )
+          
+                  if planning.document_ref != contract.coverage.document_ref:
+                      raise ValueError(
+                          "planning snapshot document does not match bound operation"
+                      )
+                  if planning.project_id != contract.project_id:
+                      raise ValueError(
+                          "planning snapshot project does not match bound operation"
+                      )
+                  if planning.semantic_environment_ref != snapshot_set.semantic_environment_ref:
+                      raise ValueError(
+                          "planning snapshot environment does not match snapshot set"
+                      )
+                  if planning.semantic_environment_ref != context_snapshot.semantic_environment_ref:
+                      raise ValueError(
+                          "planning snapshot environment does not match bound-operation context"
+                      )
+                  if (
+                      planning.semantic_environment_ref.environment_id
+                      != bound.semantic_environment_ref
+                  ):
+                      raise ValueError(
+                          "planning snapshot environment does not match bound operation"
+                      )
+                  if planning.freshness_contract_id != contract.contract_id:
+                      raise ValueError(
+                          "planning snapshot freshness contract does not match bound operation"
+                      )
+                  if planning.freshness_contract_hash != contract.hash:
+                      raise ValueError(
+                          "planning snapshot freshness contract hash does not match bound operation"
+                      )
+          
+                  environment = SemanticEnvironmentBinding(
+                      planning.semantic_environment_ref.environment_id,
+                      planning.semantic_environment_ref.content_hash,
+                  )
+                  planning_binding = PlanningSnapshotBinding(
+                      planning.snapshot_id,
+                      planning.hash,
+                      planning.document_ref,
+                      environment,
+                  )
+                  snapshot_set_binding = SnapshotSetBinding(
+                      snapshot_set.snapshot_set_id,
+                      snapshot_set.hash,
+                      snapshot_set.member_snapshot_ids,
+                      environment,
+                  )
+          
+                  definition = self._canonical_definition(
+                      bound.operation.canonical_operation,
+                      bound.operation.version,
+                  )
+                  intent = IntentBoundary(
+                      direct_targets=self._bound_targets(bound),
+                      allowed_canonical_effects=tuple(
+                          getattr(item, "value", str(item)) for item in definition.effects
+                      ),
+                      allowed_existence_effects=tuple(
+                          item.value for item in definition.existence_effects
+                      ),
+                  )
+                  analysis = self._impact_analyzer.analyze(
+                      ImpactAnalysisRequest(
+                          bound_operation=bound,
+                          planning_snapshot_ref=planning_binding,
+                          snapshot_set_ref=snapshot_set_binding,
+                          semantic_environment_ref=environment,
+                          intent_boundary=intent,
+                      )
+                  )
+                  self._impact_store.put(analysis)
+                  return StableRef(analysis.analysis_id, analysis.analysis_fingerprint)
+          '''
+          if old_methods not in source:
+              raise SystemExit("Task 6R.2 freshness/Impact anchor not found")
+          source = source.replace(old_methods, new_methods, 1)
+
+          path.write_text(source, encoding="utf-8")
+          PY
+          python -m py_compile platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 6R.2 focused pytest
+        run: |
+          uv run pytest \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/architecture/test_real_owner_workflow_boundaries.py -q
+      - name: Run Task 6R.2 focused Ruff
+        continue-on-error: true
+        run: |
+          uv run ruff check \
+            platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/architecture/test_real_owner_workflow_boundaries.py
+      - name: Commit verified product patch
+        run: |
+          git config user.name "DSP Task6R2 Builder"
+          git config user.email "actions@users.noreply.github.com"
+          git add platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py
+          git commit -m "fix: preserve exact freshness impact lineage"
+          git push origin HEAD:work/task6r2-green-build
