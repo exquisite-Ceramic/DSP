@@ -28,6 +28,11 @@ This revision addresses the three findings raised against `43e02850…`.
 2. **Shared dispatch-store tests consume real Saga lineage.** The backend-neutral contract no longer invents `SAGA-*` parent ids. Each backend fixture supplies an intent factory derived from `build_saga_v2_contract_fixture()`. The PostgreSQL fixture first creates the exact parent Saga with `PostgresExecutionSagaStoreV2.create_saga()`, preserving the real foreign key and owner constraints. The in-memory backend uses the same legal fixture lineage.
 3. **Recovery projection now has a complete decision contract for the reviewed gaps.** The plan explicitly covers `dispatch_intent is None`, exact Saga/Slice/grant/binding/Host lineage mismatch, terminal precedence, and `RECONCILED + nonterminal Saga`. The last case must expose no active Host-effect recovery but must still route `RECOVER_OR_WAIT` from the nonterminal Saga status; it may neither redispatch nor claim completion.
 
+Follow-up review against `91708afc40260aba2fc9c7b0fe7c43a10494cc08` corrected two plan-level factual examples without changing the approved Design:
+
+4. **PostgreSQL parity fixture now mirrors the existing repository setup exactly.** It opens one connection, applies `apply_execution_saga_migrations(conn)`, clears `host_dispatch_intent` before `execution_saga`, constructs both PostgreSQL stores over that connection, and calls `create_saga(definition)` with the real signature. No nonexistent migration helper, `created_at` argument, or mapping-style fixture access remains.
+5. **The reconciled/nonterminal proof now uses a write-order-reachable state.** In the current exactly-one-Slice workflow, successful `record_verification_result()` first makes the Slice `SUCCEEDED` and the Saga `CONVERGENCE_PENDING`; `UnknownOutcomeRecovery` then marks the dispatch intent `RECONCILED`. The routing proof is pinned to that durable combination instead of a still-reconciling Slice.
+
 ---
 
 ## Current Checkpoint
@@ -86,7 +91,7 @@ CanonicalWorkflowOwnerPorts.verify_reconcile
 3. **No-intent semantics:** owner projection distinguishes legal pre-dispatch absence from evidence loss after a Host-effect state.
 4. **Cross-lineage rejection:** wrong Saga, Slice, grant, binding, or Host evidence fails closed.
 5. **Residual terminal evidence:** compatible `HOST_COMMITTED`, `RECONCILED`, or `SAFE_TO_RETRY` evidence does not mechanically create active recovery after terminal Saga/Slice truth.
-6. **Nonterminal reconciled window:** `RECONCILED + nonterminal Saga` never redispatches and never reports terminal completion.
+6. **Nonterminal reconciled window:** `Slice SUCCEEDED + dispatch RECONCILED + Saga CONVERGENCE_PENDING` never redispatches and never reports terminal completion.
 7. **Unknown-outcome replay:** durable Saga + `OUTCOME_UNKNOWN` never creates a second Host mutation command.
 8. **Baseline durability E:** one supported process-loss recovery point must use a fresh runtime/services, keep Host execute count at one, and reach terminal workflow state.
 9. **PostgreSQL parity:** in-memory GREEN alone cannot close Task 8.
@@ -333,20 +338,24 @@ Even though in-memory has no FK, it uses the same legal lineage shape as Postgre
 
 ### Step 3: PostgreSQL backend fixture with real parent Saga
 
-Reuse the existing PostgreSQL setup pattern:
+Reuse the existing PostgreSQL test setup exactly; do not invent a second migration/bootstrap path:
 
 ```python
 dsn = require_postgres_dsn()
-apply_execution_saga_postgres_migrations(dsn)
+conn = connect_postgres(dsn)
+apply_execution_saga_migrations(conn)
+with conn.transaction():
+    conn.execute("TRUNCATE TABLE host_dispatch_intent")
+    conn.execute("TRUNCATE TABLE execution_saga CASCADE")
+
 ctx, definition = build_saga_v2_contract_fixture()
-
-saga_store = PostgresExecutionSagaStoreV2(dsn)
-saga_store.create_saga(definition, created_at=ctx["t0"])
-saga_store.close()
-
-dispatch_store = PostgresHostDispatchIntentStore(dsn)
+saga_store = PostgresExecutionSagaStoreV2(conn)
+dispatch_store = PostgresHostDispatchIntentStore(conn)
+saga_store.create_saga(definition)
 intent_factory = factory_bound_to(ctx, definition)
 ```
+
+Each shared assertion must receive a fresh PostgreSQL backend fixture (or an equivalently freshly cleaned database state) so transitions from one case cannot contaminate another. Fixture teardown closes the shared connection. The cleanup order must continue to respect the `host_dispatch_intent.saga_id` foreign key.
 
 The factory must emit:
 
@@ -538,7 +547,7 @@ The test must construct real immutable Saga/Slice state fixtures; it must not by
 
 ### Step 4: RED — nonterminal intent matrix
 
-For exact, lineage-compatible, nonterminal owner truth:
+For exact, lineage-compatible owner truth before terminal Saga completion:
 
 | Dispatch status | Projection |
 | --- | --- |
@@ -549,7 +558,7 @@ For exact, lineage-compatible, nonterminal owner truth:
 | `SAFE_TO_RETRY` | `SAFE_TO_RETRY` |
 | `RECONCILED` | `None` |
 
-`RECONCILED -> None` means the Host-effect ambiguity has been resolved. The Saga remains authoritative for whether workflow execution is still active or terminal.
+`RECONCILED -> None` means the Host-effect ambiguity has been resolved. It must be exercised with the write-order-reachable state frozen in Step 6, not by pairing `RECONCILED` with a still-`RECONCILING` Slice. The Saga remains authoritative for whether workflow execution is still active or terminal.
 
 ### Step 5: RED — terminal precedence and conflict
 
@@ -577,13 +586,17 @@ For post-commit terminal Slice states (`SUCCEEDED`, `SCOPE_BREACH`, `VERIFY_FAIL
 
 ### Step 6: RED — `RECONCILED + nonterminal Saga` is neither redispatch nor completion
 
-Construct the legitimate write-order window:
+Use the current `UnknownOutcomeRecovery` write order: successful recovery records the Slice verification result first, which in the exactly-one-Slice workflow produces `Slice SUCCEEDED + Saga CONVERGENCE_PENDING`, and only then marks the dispatch intent `RECONCILED`.
+
+Construct that reachable durable combination:
 
 ```text
-Saga status = EXECUTING or CONVERGENCE_PENDING
-exact Slice is still nonterminal/reconciling
+Saga status = CONVERGENCE_PENDING
+exact Slice status = SUCCEEDED
 exact dispatch intent = RECONCILED
 ```
+
+Do not construct `RECONCILED` with a still-`RECONCILING` Slice.
 
 Owner projection:
 
@@ -1007,7 +1020,7 @@ absent-intent matrix GREEN
 cross Saga/Slice/grant/binding/Host negatives GREEN
 terminal compatible residual evidence GREEN
 terminal unresolved evidence conflict GREEN
-RECONCILED + nonterminal -> RECOVER_OR_WAIT/no redispatch/no terminal GREEN
+Slice SUCCEEDED + dispatch RECONCILED + Saga CONVERGENCE_PENDING -> RECOVER_OR_WAIT/no redispatch/no terminal GREEN
 real coordinator SUCCEEDED GREEN
 real coordinator DIVERGED GREEN
 unknown outcome -> execution AsyncOperationRef carrying durable saga_id GREEN
@@ -1161,7 +1174,9 @@ Path B is supplemental and cannot satisfy Path A.
 
 Use real PostgreSQL workflow checkpoint/artifact persistence plus real PostgreSQL Saga/dispatch persistence and one counting Host boundary.
 
-Freeze this existing supported recovery window:
+The following is a **source-supported recovery candidate pinned for RED/GREEN proof**, not an already-verified acceptance. It counts as baseline E only after the fresh-runtime recovery test below passes with the required durable evidence and Host count.
+
+Freeze the candidate recovery window for the RED:
 
 ```text
 1. workflow has reached the apply node with authoritative refs already persisted
@@ -1193,7 +1208,7 @@ runtime B final saga_id == runtime A durable Saga id
 Host execute count across A+B == 1
 ```
 
-This acceptance relies on existing coordinator replay semantics: an already-terminal persisted Saga is projected before the Host dispatch path. No automatic recovery scheduler is required.
+Current source structure supports this candidate because coordinator replay projects an already-terminal persisted Saga before entering the Host dispatch path. That source fact is not closure evidence; the RED/GREEN recovery test is authoritative.
 
 **STOP / Design condition:** if the actual RED proves this is not a supported recovery point under the current saver/runtime contract, inspect other already-supported process recovery points. If no existing point can satisfy baseline E without new architecture, stop and propose Design amendment. Do **not** replace E with unknown-outcome safe wait or lower “terminal result” to “observable recovery truth.”
 
@@ -1352,7 +1367,7 @@ Only then mark the implementation phase CLOSED. Merge, merged-main observation, 
 | Wrong grant/binding/Host lineage rejected | Task 8.3 |
 | Compatible terminal residual dispatch evidence | Task 8.3 |
 | Terminal unresolved evidence fails closed | Task 8.3 |
-| `RECONCILED + nonterminal Saga` does not redispatch or complete | Task 8.3 + 8.4 |
+| `Slice SUCCEEDED + dispatch RECONCILED + Saga CONVERGENCE_PENDING` does not redispatch or complete | Task 8.3 + 8.4 |
 | Same dispatch store composed into coordinator + adapter | Task 8.4 |
 | Recovery projection explicitly injected | Task 8.4 |
 | Real Saga success | Task 8.4 |
