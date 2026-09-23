@@ -1,6 +1,6 @@
 # Capability Phase — Real-Owner E2E Workflow Design
 
-**Status:** Proposed — Written-Spec Review Gate  
+**Status:** Baseline approved — Amendment A Written-Spec Review Gate  
 **Date:** 2026-09-20  
 **Base:** `main@c92fe302d22669f5cefea1946281e9b456e0fea7`  
 **Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`  
@@ -704,3 +704,248 @@ semantic -> plan -> approve -> execute -> reconcile
 ```
 
 它不会自动授权 MCP front door 或 real AutoCAD/Revit acceptance。
+
+---
+
+## 21. Amendment A — Operation Freshness Exact Lineage
+
+**Amendment date:** 2026-09-23  
+**Trigger:** Task 6 rereview during real-owner implementation exposed an exact-lineage contradiction between the frozen workflow-facing seam and the requirement that Impact consume the exact PlanningSnapshot/SnapshotSet produced by the successful operation-freshness transition.  
+**Status:** Written-Spec Review Gate
+
+本 Amendment 是一个窄 architecture correction。它不改变 §7 的业务 progression、不建立新的 authoritative owner，也不授权 Task 7 Step 3 继续实现。它只修正 operation freshness → Impact 之间缺失的显式 lineage。
+
+### 21.1 Supersession scope
+
+本节只在以下范围内覆盖 baseline Spec 的旧表述：
+
+1. §5 中“不得重写 `WorkflowServices` / `DefaultWorkflowServices` contract”的 non-goal，对本节明确列出的两个 method seam 例外；其它 workflow-facing contract 继续冻结。
+2. §7 中“workflow topology remains unchanged”继续指 **节点顺序与 ownership 不变**；它不再被解释为“节点之间不得新增 checkpoint-safe StableRef 导航字段”。
+3. §20 的 baseline Written-Spec Review Gate 已在此前实现启动前完成；当前 gate 只针对 Amendment A。Amendment A 未批准、且对应 Implementation Plan amendment 未冻结前，不得修改本 amendment 涉及的产品代码。
+
+除以上三点外，baseline Spec 继续有效。
+
+### 21.2 Root cause
+
+当前 operation-freshness owner 可以在同一个 canonical operation / freshness contract 上，于不同 Host revision 产生多个合法 immutable PlanningSnapshot：
+
+```text
+same operation / same freshness contract
+        │
+        ├── Host revision 42 -> PlanningSnapshot PS-42 -> SnapshotSet PSS-42
+        └── Host revision 43 -> PlanningSnapshot PS-43 -> SnapshotSet PSS-43
+```
+
+这些历史对象都可以同时保持 authoritative、immutable、可解析。
+
+但 baseline workflow-facing seam 只有：
+
+```text
+ensure_operation_freshness(operation_ref) -> StableRef | AsyncOperationRef
+analyze_impact(operation_ref) -> StableRef
+```
+
+当成功 freshness 仍只把 `operation_ref` 传给下一阶段时，Impact 无法知道本次 workflow 成功绑定的是 PS-42/PSS-42 还是 PS-43/PSS-43。使用以下任一恢复方式都会破坏 correctness：
+
+```text
+latest/current snapshot lookup
+freshness-contract reverse lookup
+operation_ref -> snapshot process-local map
+adapter-local hidden lineage
+```
+
+因此 exact lineage 必须成为显式 workflow navigation data。
+
+### 21.3 Decision — explicit workflow-local freshness lineage envelope
+
+新增一个 workflow-facing、非 authoritative 的 typed result：
+
+```text
+OperationFreshnessResult
+  operation_ref: StableRef
+  planning_snapshot_ref: StableRef
+  snapshot_set_ref: StableRef
+```
+
+三个字段全部是 owner-issued StableRef。`OperationFreshnessResult` 只是 Workflow Orchestrator 的导航 envelope：
+
+```text
+it owns no semantic truth
+it owns no freshness rule
+it owns no snapshot body
+it owns no mutable current/latest binding
+```
+
+真实 truth 继续属于原 owners：
+
+```text
+BoundOperationProposal / operation artifact -> existing workflow/operation owner
+PlanningSnapshot / SnapshotSet              -> Semantic Runtime
+Impact                                      -> Impact owner/service
+```
+
+不得为这个 amendment 新建“FreshnessResult authoritative owner”或第二份 snapshot store。
+
+### 21.4 Approved seam change
+
+本 Amendment 只批准以下 workflow-facing contract change：
+
+```text
+ensure_operation_freshness(operation_ref)
+  -> OperationFreshnessResult | AsyncOperationRef
+
+analyze_impact(
+  operation_ref,
+  planning_snapshot_ref,
+  snapshot_set_ref,
+)
+  -> StableRef
+```
+
+`WorkflowServices`、`DefaultWorkflowServices` 与 `ExternalOwnerPorts` 只在这两个 method seam 上同步变化；其它 method signatures 不因本 amendment 扩张。
+
+异步 freshness 语义保持：
+
+```text
+AsyncOperationRef
+  -> wait/re-entry
+  -> owner re-query
+  -> successful OperationFreshnessResult
+```
+
+在 owner 尚未成功产生 exact refs 前，graph 不得合成或猜测 lineage。
+
+### 21.5 Graph/checkpoint data flow
+
+`ensure_operation_freshness` graph node 在成功结果后只持久化导航 refs：
+
+```text
+operation_ref
+planning_snapshot_ref
+snapshot_set_ref
+```
+
+然后 `analyze_impact` node 把这三个 exact refs 传入 service boundary。
+
+允许新增的 private graph state 字段必须满足现有 checkpoint rules：
+
+```text
+JSON-compatible StableRef encoding only
+no SemanticSnapshot object
+no SnapshotSet object
+no SemanticProjection object
+no freshness contract body
+no Impact object
+```
+
+`planning_snapshot_ref` / `snapshot_set_ref` 是 §13 所允许的“stable refs / navigation”，不是 external authoritative object 的复制。
+
+### 21.6 CanonicalWorkflowOwnerPorts behavior
+
+`CanonicalWorkflowOwnerPorts.analyze_impact(...)` 只能做：
+
+```text
+resolve exact planning_snapshot_ref from Semantic Runtime owner
+resolve exact snapshot_set_ref from Semantic Runtime owner
+assemble the real Impact owner request
+validate/refuse obvious ref-integrity or exact-lineage mismatch through owner public surfaces
+translate owner failures into the existing workflow error boundary
+```
+
+它不得：
+
+```text
+search the latest PlanningSnapshot
+select a SnapshotSet by freshness-contract reverse lookup
+select a SnapshotSet by operation_ref
+maintain operation_ref -> snapshot/process-local lineage maps
+compare revisions and choose a winner
+reimplement freshness or Impact semantics
+```
+
+如果 owner public API 不能通过 exact refs 重建 Impact 所需输入，应按 §8.2 `FAIL DESIGN / expose missing owner API` 处理，而不是回退到 reverse lookup。
+
+### 21.7 Multi-revision invariant
+
+本 amendment 冻结以下必须成立的不变量：
+
+```text
+workflow A:
+  same operation
+  freshness succeeds at revision 42
+  -> PS-42 / PSS-42
+  -> Impact must consume PS-42 / PSS-42
+
+workflow B:
+  same operation
+  freshness succeeds at revision 43
+  -> PS-43 / PSS-43
+  -> Impact must consume PS-43 / PSS-43
+```
+
+即使 PS-42、PSS-42、PS-43、PSS-43 同时存在于 owner store，两个 workflow 也不得因为“当前值”“最近值”或 reverse lookup 而交叉绑定。
+
+### 21.8 Restart/rebuilt-adapter invariant
+
+fresh process / rebuilt adapter 不得依赖前一个 Python object/process 内存中的 lineage。
+
+只要 checkpoint 中的三个 StableRef 仍然存在，并且对应 authoritative owner stores 仍可解析：
+
+```text
+operation_ref
+planning_snapshot_ref
+snapshot_set_ref
+```
+
+则新的 `CanonicalWorkflowOwnerPorts` 必须能够重新组装同一 exact Impact request。
+
+反之，任何一个 required ref 无法解析、hash/integrity 不匹配、或 exact pair 不满足 owner contract 时必须 fail closed，不得重新运行 freshness、选择 latest 或从 graph position 推断。
+
+### 21.9 Rejected alternatives
+
+#### A. Reuse one operation-like StableRef as a hidden wrapper
+
+把 freshness outcome 包装成另一个“operation ref”可以保持 `analyze_impact(operation_ref)` 的表面形状，但会使同一字段同时表示 BoundOperationProposal 与 freshness wrapper，破坏 ref kind 语义并迫使后续节点做隐式二次解析。因此拒绝。
+
+#### B. Mutable `operation -> current freshness` owner binding
+
+即使把 map 从 adapter 移到 Semantic Runtime，只要语义仍是 `current/latest`，revision 43 就可能覆盖 revision 42 的恢复目标。存储位置变化不能修复 lineage ambiguity，因此拒绝。
+
+#### C. Freshness-contract reverse lookup
+
+同一 freshness contract 可以在不同 revision 上产生多个合法 snapshot。遇到多个结果后 fail closed 虽然比任意选一个安全，但它仍意味着 workflow 没有携带本来就已经知道的 exact result identity；因此它不能作为 canonical success path。
+
+### 21.10 Required amendment acceptance
+
+对应 Implementation Plan amendment 至少必须增加以下 TDD evidence：
+
+1. **Two-revision RED/GREEN**：同一 operation / freshness contract 在 revision 42 与 43 产生两组 immutable PlanningSnapshot/SnapshotSet，两个 Impact 调用必须分别消费各自 exact pair。
+2. **Rebuilt-adapter RED/GREEN**：销毁旧 adapter，使用新的 composition instance 与同一 owner stores，仅凭 checkpoint StableRefs 可以重新组装相同 Impact request。
+3. **No reverse-lookup success path**：production/reference composition 的该路径不得依赖 `get_snapshot_for_freshness_contract`、`get_snapshot_set_for_member` 或等价 latest/current/reverse lookup。
+4. **Checkpoint refs-only regression**：新增 graph state 字段只能包含 StableRef 编码，不得把 PlanningSnapshot/SnapshotSet body 写入 checkpoint。
+5. **Existing Task 7 compatibility**：Task 7 Step 1/2 已完成能力不得因 seam amendment 回退；所有受影响快速 scenario regression 必须显式迁移到新 shape。
+6. **Exact-head closure**：Task 6 repair 的 focused tests、architecture guard、Ruff 与 repository exact-head gates 全部通过后，才能恢复 Task 7 Step 3。
+
+### 21.11 Implementation sequencing gate
+
+Amendment A 的执行顺序冻结为：
+
+```text
+Amendment A written-spec approval
+  -> Implementation Plan amendment
+  -> Task 6 two-revision RED
+  -> exact-lineage GREEN
+  -> rebuilt-adapter recovery proof
+  -> architecture / checkpoint regression
+  -> exact-head verification
+  -> Task 6 repair CLOSED
+  -> resume Task 7 Step 3
+```
+
+在 Task 6 repair 正式 CLOSED 之前：
+
+```text
+Task 7 Step 3 product implementation = FORBIDDEN
+provider-binding/grant follow-on expansion = FORBIDDEN
+latest/current/reverse-lookup workaround = FORBIDDEN
+```
