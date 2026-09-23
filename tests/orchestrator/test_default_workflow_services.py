@@ -259,7 +259,10 @@ def test_operation_freshness_contract_exposes_exact_result_and_three_ref_impact_
     """Task 6R.1 必须显式暴露 freshness exact tuple，并把三个 refs 传给 Impact seam。"""
 
     assert hasattr(workflow_contracts_module, "OperationFreshnessResult")
-    assert list(inspect.signature(DefaultWorkflowServices.ensure_operation_freshness).parameters) == [
+    freshness_parameters = inspect.signature(
+        DefaultWorkflowServices.ensure_operation_freshness
+    ).parameters
+    assert list(freshness_parameters) == [
         "self",
         "operation_ref",
     ]
