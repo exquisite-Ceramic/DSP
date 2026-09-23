@@ -41,6 +41,7 @@ from design_orchestrator.parameter_binder import (
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     StableRef,
     WorkflowPhase,
     WorkflowResumeCommand,
@@ -196,8 +197,8 @@ class _ScenarioOwners:
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef:
-        """首次进入时返回 reconstruction wait；owner 完成后重新查询才返回 fresh ref。"""
+    ) -> OperationFreshnessResult | AsyncOperationRef:
+        """首次进入时等待 reconstruction；ready 后返回三条 exact navigation refs。"""
 
         if not self.operation_ready:
             return AsyncOperationRef(
@@ -205,11 +206,21 @@ class _ScenarioOwners:
                 owner="semantic-runtime",
                 operation_id="reconstruction-task9",
             )
-        return operation_ref
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef("planning-snapshot-task9", "c" * 64),
+            snapshot_set_ref=StableRef("snapshot-set-task9", "d" * 64),
+        )
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        """Impact owner 只向 workflow 暴露稳定引用。"""
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """消费显式 freshness lineage；Impact owner 仍只向 workflow 暴露稳定引用。"""
 
+        del operation_ref, planning_snapshot_ref, snapshot_set_ref
         return StableRef("impact-task9", "2" * 64)
 
     def build_changeset(
