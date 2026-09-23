@@ -8,12 +8,11 @@
 不改变任何产品模块的导入路径或运行时行为。
 """
 
-import pathlib
 import sys
 
 
-REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
-repository_root_text = str(REPOSITORY_ROOT)
+repository_file = __file__.replace("\\", "/")
+repository_root_text = repository_file.rsplit("/tests/conftest.py", 1)[0]
 
 if repository_root_text not in sys.path:
     sys.path.insert(0, repository_root_text)
