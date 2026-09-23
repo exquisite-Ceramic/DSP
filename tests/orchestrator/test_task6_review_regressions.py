@@ -28,6 +28,7 @@ from design_orchestrator.parameter_binder import (
 )
 from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 from design_orchestrator.workflow_contracts import (
+    OperationFreshnessResult,
     StableRef,
     WorkflowPhase,
     WorkflowStartRequest,
@@ -194,8 +195,14 @@ def _impact_case():
         content_hash=workflow_artifact_content_hash(bound),
     )
     semantic_reconstruction.operation_ready = True
-    assert adapter.ensure_operation_freshness(bound_ref) == bound_ref
-    impact_ref = adapter.analyze_impact(bound_ref)
+    freshness = adapter.ensure_operation_freshness(bound_ref)
+    assert isinstance(freshness, OperationFreshnessResult)
+    assert freshness.operation_ref == bound_ref
+    impact_ref = adapter.analyze_impact(
+        freshness.operation_ref,
+        freshness.planning_snapshot_ref,
+        freshness.snapshot_set_ref,
+    )
     return (
         adapter,
         artifact_store,
