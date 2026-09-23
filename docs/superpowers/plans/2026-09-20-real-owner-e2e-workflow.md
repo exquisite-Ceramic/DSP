@@ -104,9 +104,11 @@ Task 7 Step 3 尚未开始
 - 三个 freshness refs 是一个不可拆分的 success tuple，必须由同一次 `ensure_operation_freshness` graph node update 写入。
 - async freshness wait/re-entry 必须清除旧 `planning_snapshot_ref` / `snapshot_set_ref`，禁止 stale pair 与新结果拼接。
 - `CanonicalWorkflowOwnerPorts.analyze_impact(...)` 必须先解析并验证 exact refs，再调用真实 `ImpactAnalyzer`。
+- Amendment A 的 exact-lineage `operation_ref`、`planning_snapshot_ref`、`snapshot_set_ref` **都必须携带非空 `content_hash`**；缺失或不匹配都必须在真实 `ImpactAnalyzer.analyze()` 前 fail closed。这个要求只收紧该 exact-lineage path，不改变 `StableRef` 在其它通用边界上的 optional-hash 语义。
 - production/reference success path 禁止调用 `get_snapshot_for_freshness_contract()`、`get_snapshot_set_for_member()` 或等价 latest/current/reverse lookup。
 - adapter 禁止维护 `operation_ref -> snapshot`、`snapshot -> set`、`impact -> task` 等 process-local lineage truth map。
 - authoritative owner output 必须由 owner-local repository/registry/service 解析；checkpoint 只持有 stable refs/navigation。
+- graph 只负责 ref 编码/存在性、原子 state update 与 async stale-pair prevention；三个合法 refs 的 owner-level 关联校验只属于 `CanonicalWorkflowOwnerPorts`，不得复制到 graph。
 - 新增 Python 代码必须有完整中文注释/文档字符串，并满足当前 Ruff/typing 风格。
 - 不新增 owner-wide PostgreSQL migration，不把 rebuilt-adapter test 描述成 cross-process durability proof。
 - `_ScenarioOwners` 只保留 fast orchestration regression；real-owner path 不得 import/construct/delegate 到它。
@@ -123,12 +125,12 @@ Task 7 Step 3 尚未开始
 | `platform/orchestrator/src/design_orchestrator/workflow_services.py` | 只迁移两个 approved workflow-facing signatures |
 | `platform/orchestrator/src/design_orchestrator/default_workflow_services.py` | 只代理两个 approved signatures，不增加 domain logic |
 | `platform/orchestrator/src/design_orchestrator/langgraph_state.py` | 增加 private `planning_snapshot_ref` / `snapshot_set_ref` StableRef fields；不扩 authoritative body |
-| `platform/orchestrator/src/design_orchestrator/langgraph_graph.py` | successful freshness 原子写三 refs；async path 清 stale pair；Impact exact three-ref call |
-| `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py` | 返回 exact freshness refs；exact owner resolution + frozen lineage validation；删除该 success path reverse lookup |
+| `platform/orchestrator/src/design_orchestrator/langgraph_graph.py` | successful freshness 原子写三 refs；async path 清 stale pair；只做 ref decode/forward，不做 owner-level lineage comparison |
+| `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py` | 返回 exact freshness refs；强制 exact-lineage hash presence/match；exact owner resolution + frozen lineage validation；删除该 success path reverse lookup |
 | `platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py` | 继续提供 exact `get_snapshot(id)` / `get_snapshot_set(id)`；不为本 repair 新增 mutable current binding |
 | `tests/orchestrator/test_default_workflow_services.py` | 两个 seam 的 delegation/shape regression |
-| `tests/orchestrator/test_langgraph_graph.py` | atomic state update、stale-pair negative、actual LangGraph saver round-trip、refs-only assertions |
-| `tests/orchestrator/test_canonical_owner_ports.py` | interleaved two-revision、四类 mismatch、rebuilt-adapter no-private-state proof、Task 7 Step 1/2 compatibility |
+| `tests/orchestrator/test_langgraph_graph.py` | atomic state update、async stale-pair negative、missing/malformed ref rejection、actual LangGraph saver round-trip、refs-only assertions |
+| `tests/orchestrator/test_canonical_owner_ports.py` | interleaved two-revision、exact-ref missing/mismatch hash、四组 frozen lineage invariant、rebuilt-adapter no-private-state proof、Task 7 Step 1/2 compatibility |
 | `tests/architecture/test_real_owner_workflow_boundaries.py` | 禁止 production adapter 使用 reverse-lookup success path / hidden lineage / V1/private surfaces |
 
 `WorkflowCheckpointView` 公共字段不因本 Amendment 自动扩张。只有在真实 runtime recovery test 证明 private graph state 无法通过 LangGraph saver 恢复这两个 refs 时，才允许停下并回到 Design/Plan；不得为了测试便利把它们无条件提升为新的 public checkpoint contract。
@@ -138,8 +140,8 @@ Task 7 Step 3 尚未开始
 ## Review Focus
 
 1. **Interleaved revisions:** `freshness@42 → freshness@43 → Impact@42 → Impact@43` 时，后一次 freshness 不能污染前一个 workflow 的 exact refs。
-2. **Cross-ref integrity:** 三个 ref 各自合法但关系错误时，必须在 `ImpactAnalyzer.analyze()` 前 fail closed，且 Impact call count 为 0。
-3. **Async stale pair:** wait/re-entry 期间旧 planning/snapshot-set refs 不能残留并与新 operation freshness success 混用。
+2. **Exact-ref integrity + cross-ref relation:** 三个 exact-lineage refs 都必须带 hash；hash 缺失/不匹配或三个 refs 各自合法但关系错误时，都必须由 adapter 在 `ImpactAnalyzer.analyze()` 前 fail closed，且 Impact call count 为 0。graph 只拒绝缺失/编码非法 ref，不判断 owner-level 关联。
+3. **Async stale pair:** wait/re-entry 期间旧 planning/snapshot-set refs 不能残留并与新 operation freshness success 混用；证明手段是 wait 时清旧 pair、success 时同次写入新 tuple，而不是让 graph 解释 lineage。
 4. **Checkpoint evidence:** recovery proof 必须从 LangGraph checkpointer 实际持久化后读回的 `StateSnapshot.values` 恢复 refs，不能只复用测试局部变量。
 5. **Recovery claim boundary:** rebuilt adapter + same in-memory stores 只能证明 no-private-state；fresh-process durability 只有 owner stores 真正跨进程可解析时才能声称。
 
@@ -193,7 +195,7 @@ def analyze_impact(
     raise NotImplementedError
 ```
 
-`OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics.
+`OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics。exact-lineage hash presence is enforced at `CanonicalWorkflowOwnerPorts.analyze_impact(...)`, not by changing the global `StableRef` type。
 
 - [ ] **Step 1: Add contract/delegation RED tests**
 
@@ -296,7 +298,7 @@ return {
 }
 ```
 
-`analyze_impact` must `_require_stable_ref(...)` all three refs and call the new service signature. Do not make the graph inspect snapshot bodies or compare lineage.
+`analyze_impact` must `_require_stable_ref(...)` all three refs and call the new service signature. `_require_stable_ref()` only owns missing/malformed-ref rejection; do not make the graph inspect hashes against owner truth, snapshot bodies, or lineage relations.
 
 - [ ] **Step 6: Run GREEN**
 
@@ -338,9 +340,9 @@ git commit -m "feat: carry exact operation freshness refs"
 - Modify: `tests/architecture/test_real_owner_workflow_boundaries.py`
 - Do not modify `platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py` unless an exact-id lookup defect is proven; current `get_snapshot(id)` / `get_snapshot_set(id)` are the approved path.
 
-**Consumes:** Task 6R.1 `OperationFreshnessResult`; Semantic Runtime `SemanticSnapshot`, `SnapshotSet`, `build_operation_contract`; existing workflow artifact store and `_operation_freshness_contract(...)` helper.
+**Consumes:** Task 6R.1 `OperationFreshnessResult`; Workflow Orchestrator canonical `workflow_artifact_content_hash`; Semantic Runtime `SemanticSnapshot`, `SnapshotSet`, `build_operation_contract`; existing workflow artifact store and `_operation_freshness_contract(...)` helper.
 
-**Produces:** exact freshness refs and fail-closed pre-Impact relation validation with no reverse-lookup success path.
+**Produces:** exact freshness refs with mandatory hash presence/match, plus fail-closed pre-Impact relation validation with no reverse-lookup success path.
 
 - [ ] **Step 1: Write the interleaved two-revision RED**
 
@@ -375,25 +377,29 @@ uv run pytest \
 
 Expected on the pre-repair implementation: FAIL because successful freshness still returns `operation_ref` and Impact reverse-resolves by reusable contract identity.
 
-- [ ] **Step 3: Add four pre-Impact mismatch RED cases**
+- [ ] **Step 3: Add exact-hash and four frozen-invariant RED groups**
 
-Add a counting/capturing Impact analyzer and prove `analyze()` call count remains `0` for each case:
+Add a counting/capturing Impact analyzer and prove `analyze()` call count remains `0` for every case below.
+
+**A. StableRef identity/hash integrity — missing hash:** parameterize all three exact-lineage refs:
 
 ```text
-A. ref/hash mismatch
-   exact owner object exists, but StableRef.content_hash is changed
-
-B. SnapshotSet membership mismatch
-   planning_snapshot_ref points to PS-42 while snapshot_set_ref points to a valid PSS that does not contain PS-42
-
-C. document/environment mismatch
-   exact refs resolve, but selected planning/set belongs to a different valid document or SemanticEnvironment than the current bound operation/context
-
-D. freshness-contract ↔ bound-operation mismatch
-   exact refs resolve to a valid planning snapshot created for another bound operation contract
+operation_ref.content_hash = None
+planning_snapshot_ref.content_hash = None
+snapshot_set_ref.content_hash = None
 ```
 
-Each test must assert failure occurs before real Impact analyzer invocation. Do not satisfy the test by catching a later Impact validation error.
+All three must fail before real Impact. `StableRef` globally remains allowed to have `content_hash=None`; this rejection is specific to Amendment A exact-lineage Impact assembly.
+
+**A2. StableRef identity/hash integrity — wrong hash:** parameterize all three refs with a syntactically valid but wrong SHA-256 and assert pre-Impact failure.
+
+**B. SnapshotSet membership mismatch:** `planning_snapshot_ref` points to PS-42 while `snapshot_set_ref` points to a valid PSS that does not contain exact PS-42/hash.
+
+**C. document/environment mismatch:** exact refs resolve, but selected planning/set belongs to a different valid document or SemanticEnvironment than the current bound operation/context.
+
+**D. freshness-contract ↔ bound-operation mismatch:** exact refs resolve to a valid planning snapshot created for another bound operation contract.
+
+Each test must assert failure occurs before real `ImpactAnalyzer.analyze()`. Do not satisfy the test by catching a later Impact validation error.
 
 - [ ] **Step 4: Implement successful freshness return shape**
 
@@ -409,9 +415,9 @@ return OperationFreshnessResult(
 
 The async path remains `AsyncOperationRef` and must not synthesize snapshot refs.
 
-- [ ] **Step 5: Implement exact-id resolution only**
+- [ ] **Step 5: Implement exact-id resolution plus exact-lineage hash presence/match**
 
-Change `CanonicalWorkflowOwnerPorts.analyze_impact(...)` to resolve:
+Change `CanonicalWorkflowOwnerPorts.analyze_impact(...)` to resolve exact owner objects only:
 
 ```python
 bound = self._bound_operation(operation_ref)
@@ -420,7 +426,29 @@ snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
 contract, context_snapshot = self._operation_freshness_contract(bound)
 ```
 
-Immediately verify supplied hashes against authoritative objects with existing `_ref_hash_matches(...)`. Remove this success path's calls to:
+For this path, validate all three refs before relation checks:
+
+```python
+bound_hash = workflow_artifact_content_hash(bound)
+_require_exact_ref_hash(operation_ref, bound_hash, kind="BoundOperationProposal")
+_require_exact_ref_hash(planning_snapshot_ref, planning.hash, kind="PlanningSnapshot")
+_require_exact_ref_hash(snapshot_set_ref, snapshot_set.hash, kind="SnapshotSet")
+```
+
+Use a **narrow exact-lineage helper** (or equivalent inline checks) whose semantics are:
+
+```python
+def _require_exact_ref_hash(ref: StableRef, actual_hash: str, *, kind: str) -> None:
+    if ref.content_hash is None:
+        raise ValueError(f"{kind} StableRef requires content_hash")
+    CanonicalWorkflowOwnerPorts._ref_hash_matches(ref, actual_hash, kind=kind)
+```
+
+Do **not** globally strengthen existing `_ref_hash_matches()` because other already-approved StableRef consumers may intentionally use its “validate when present” semantics. The exact-lineage path alone requires hash presence.
+
+`_bound_operation(operation_ref)` may itself fail earlier because durable `WorkflowArtifactStore.get()` already requires a hash; the explicit canonical-hash comparison above still freezes the adapter invariant for any conforming test/reference store that returns the bound artifact.
+
+Remove this success path's calls to:
 
 ```text
 get_snapshot_for_freshness_contract
@@ -429,9 +457,9 @@ get_snapshot_set_for_member
 
 The registry methods themselves may remain for other consumers; this task does not delete public history/query APIs merely to satisfy the adapter.
 
-- [ ] **Step 6: Implement the four frozen relation checks before Impact**
+- [ ] **Step 6: Implement the remaining frozen relation checks before Impact**
 
-Use existing public object fields/canonical contract construction; do not add a new policy engine. The pre-Impact guard must establish at least:
+Use existing public object fields/canonical contract construction; do not add a new policy engine. After exact hash validation, the pre-Impact guard must establish at least:
 
 ```python
 if planning.snapshot_id != planning_snapshot_ref.ref_id:
@@ -462,7 +490,7 @@ if planning.freshness_contract_hash != contract.hash:
     raise ValueError("planning snapshot freshness contract hash does not match bound operation")
 ```
 
-Before these relation checks, call `_ref_hash_matches(...)` for both exact semantic refs. Reuse existing owner/public validation exceptions where one already expresses the invariant; otherwise use a narrow adapter integrity failure translated by the existing workflow error boundary. Do not compare revisions and choose a winner.
+Reuse existing owner/public validation exceptions where one already expresses the invariant; otherwise use a narrow adapter integrity failure translated by the existing workflow error boundary. Do not compare revisions and choose a winner.
 
 - [ ] **Step 7: Add architecture RED/GREEN for the old reverse path**
 
@@ -508,7 +536,7 @@ git commit -m "fix: preserve exact freshness impact lineage"
 
 **Consumes:** Task 6R.1 private graph refs and Task 6R.2 exact adapter path.
 
-**Produces:** evidence that exact lineage survives the real LangGraph checkpointer/serializer boundary and that a new adapter can consume restored refs without old adapter memory.
+**Produces:** evidence that exact lineage survives the real LangGraph checkpointer/serializer boundary and that a new adapter can consume restored refs without old adapter memory, while preserving the graph/adapter responsibility split.
 
 - [ ] **Step 1: Write actual checkpointer round-trip RED**
 
@@ -528,11 +556,19 @@ snapshot_set_ref
 
 This test may say “saver-backed serialized state round-trip”; it must not say “cross-process durability”.
 
-- [ ] **Step 2: Prove stale/partial persisted tuple is rejected before Impact**
+- [ ] **Step 2: Prove graph rejects missing or malformed persisted refs before service dispatch**
 
-Construct saver-backed graph-state cases with one freshness ref missing or with an old pair beside a newer operation ref. Continue the compiled graph and assert it cannot call `analyze_impact`; `_require_stable_ref`/workflow validation must fail closed.
+Construct saver-backed graph-state cases where one of the three required ref **fields is absent/`None`**, or where a ref mapping is structurally invalid / cannot be decoded as a `StableRef` (for example invalid `ref_id` or invalid hash syntax). Continue the compiled graph and assert `WorkflowServices.analyze_impact(...)` call count remains `0`; `_require_stable_ref()` / codec validation must fail closed.
 
-- [ ] **Step 3: Rebuilt-adapter RED/GREEN using restored refs**
+Do **not** put a complete-but-wrong relationship case in this graph-level assertion. A `StableRef(..., content_hash=None)` is also syntactically legal under the global contract and therefore belongs to adapter exact-lineage validation, not graph decoding.
+
+- [ ] **Step 3: Prove complete-but-mismatched persisted refs reach the adapter and fail before real Impact**
+
+Using the canonical services/adapter path, restore a checkpoint containing three syntactically valid refs whose relationship is wrong (for example current operation ref plus a valid PS/PSS pair from another operation/revision). The graph is allowed to call `WorkflowServices.analyze_impact(...)` because all three refs are present and decodable.
+
+Assert instead that `CanonicalWorkflowOwnerPorts` rejects the tuple and the counting real `ImpactAnalyzer.analyze()` call count remains `0`. This test freezes the ownership boundary: graph forwards exact refs; adapter validates owner-level relations.
+
+- [ ] **Step 4: Rebuilt-adapter RED/GREEN using restored refs**
 
 In `tests/orchestrator/test_canonical_owner_ports.py`:
 
@@ -551,7 +587,7 @@ Do not pass `OperationFreshnessResult` or snapshot objects directly from adapter
 
 Name/docstring this test as **rebuilt-adapter/no-private-state**, not “cross-process recovery”.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Step 5: Run GREEN**
 
 ```bash
 uv run pytest \
@@ -562,7 +598,7 @@ uv run ruff check \
   tests/orchestrator/test_canonical_owner_ports.py
 ```
 
-- [ ] **Step 5: Commit Task 6R.3**
+- [ ] **Step 6: Commit Task 6R.3**
 
 ```bash
 git add \
@@ -664,8 +700,12 @@ Record:
 
 ```text
 interleaved two-revision GREEN
-four mismatch negatives GREEN and Impact call count 0
-atomic/stale-pair GREEN
+exact-lineage missing-hash negatives for operation/planning/set GREEN
+exact-lineage wrong-hash negatives for operation/planning/set GREEN
+four frozen lineage invariant groups GREEN and ImpactAnalyzer call count 0
+graph missing/malformed ref rejection GREEN and WorkflowServices.analyze_impact call count 0
+complete-but-mismatched restored tuple reaches adapter and is rejected before ImpactAnalyzer GREEN
+atomic async stale-pair prevention GREEN
 saver-backed checkpoint round-trip GREEN
 rebuilt-adapter no-private-state GREEN
 no reverse-lookup architecture guard GREEN
@@ -957,8 +997,10 @@ If Task 10 requires source/test/CI changes, commit only the exact Task 10 files.
 | --- | --- |
 | Amendment A exact operation freshness lineage | Task 6R.1–6R.3 |
 | Interleaved rev42/rev43 isolation | Task 6R.2 |
-| Four pre-Impact mismatch categories | Task 6R.2 |
-| Atomic success tuple + stale-pair prevention | Task 6R.1 / Task 6R.3 |
+| Exact-lineage hash presence + hash mismatch for all three refs | Task 6R.2 |
+| Four frozen pre-Impact relation/integrity groups | Task 6R.2 |
+| Graph missing/malformed ref rejection vs adapter relation-validation split | Task 6R.1 / Task 6R.3 |
+| Atomic success tuple + async stale-pair prevention | Task 6R.1 / Task 6R.3 |
 | Saver-backed serialized checkpoint recovery | Task 6R.3 |
 | Rebuilt adapter does not depend on private lineage | Task 6R.3 |
 | No reverse-lookup success path | Task 6R.2 architecture guard |
@@ -1003,20 +1045,26 @@ Implementation must preserve these fail-closed boundaries:
 missing owner ref
   -> workflow-facing authoritative-ref unavailable error
 
-StableRef id/hash mismatch
-  -> fail before downstream owner call
+missing/malformed graph ref field
+  -> graph decode/required-ref failure before WorkflowServices.analyze_impact
 
-snapshot/set membership mismatch
-  -> fail before Impact
+exact-lineage StableRef content_hash missing
+  -> adapter/owner integrity failure before ImpactAnalyzer.analyze
 
-document/environment mismatch
-  -> fail before Impact
+StableRef id/hash mismatch against authoritative owner object
+  -> adapter/owner integrity failure before ImpactAnalyzer.analyze
 
-freshness contract != current bound operation
-  -> fail before Impact
+complete refs but snapshot/set membership mismatch
+  -> adapter rejects before ImpactAnalyzer.analyze
 
-partial/stale freshness tuple
-  -> graph cannot enter Impact successfully
+complete refs but document/environment mismatch
+  -> adapter rejects before ImpactAnalyzer.analyze
+
+complete refs but freshness contract != current bound operation
+  -> adapter rejects before ImpactAnalyzer.analyze
+
+async stale pair
+  -> graph clears old PS/PSS during wait and atomically writes the new successful tuple; graph does not infer lineage
 
 semantic revision changed
   -> RevisionChangedError / existing REVISION_CONFLICT mapping
@@ -1057,8 +1105,8 @@ After approval, execute strictly:
 
 ```text
 Task 6R.1 contract + graph atomicity RED/GREEN
-→ Task 6R.2 interleaved lineage + mismatch RED/GREEN
-→ Task 6R.3 saver round-trip + rebuilt-adapter proof
+→ Task 6R.2 interleaved lineage + exact-hash + mismatch RED/GREEN
+→ Task 6R.3 saver round-trip + graph/adapter boundary + rebuilt-adapter proof
 → Task 6R.4 focused regression + exact-head CI
 → Task 6 repair CLOSED
 → Task 7 Step 3–5
@@ -1072,4 +1120,4 @@ Task 6R.1 contract + graph atomicity RED/GREEN
 → real E2E workflow COMPLETED
 ```
 
-Any evidence that the approved exact refs cannot be reconstructed through existing owner public APIs is a **STOP / Design-Plan amendment** condition. Do not reintroduce latest/current lookup, delete immutable history, create hidden adapter maps, or silently broaden the public checkpoint contract to get a GREEN test.
+Any evidence that the approved exact refs cannot be reconstructed or hash-validated through existing owner public/canonical APIs is a **STOP / Design-Plan amendment** condition. Do not reintroduce latest/current lookup, delete immutable history, create hidden adapter maps, weaken exact-lineage hash requirements, or silently broaden the public checkpoint contract to get a GREEN test.
