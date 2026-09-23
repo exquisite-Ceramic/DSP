@@ -8,11 +8,10 @@
 不改变任何产品模块的导入路径或运行时行为。
 """
 
-import sys
-
 
 repository_file = __file__.replace("\\", "/")
 repository_root_text = repository_file.rsplit("/tests/conftest.py", 1)[0]
+system_path = __import__("sys").path
 
-if repository_root_text not in sys.path:
-    sys.path.insert(0, repository_root_text)
+if repository_root_text not in system_path:
+    system_path.insert(0, repository_root_text)
