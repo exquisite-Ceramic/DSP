@@ -825,6 +825,20 @@ planning_snapshot_ref
 snapshot_set_ref
 ```
 
+这三个 refs 是一个不可拆分的成功结果：**必须在同一次 graph state update 中写入**。graph 不得先写入其中一部分、在后续 node 再补齐剩余 refs；任何 partial tuple 都不得被视作可进入 Impact 的合法状态。
+
+异步 freshness 的 wait/re-entry 也遵守同一规则：
+
+```text
+AsyncOperationRef
+  -> wait/re-entry
+  -> owner re-query
+  -> successful OperationFreshnessResult
+  -> one atomic graph-state update of all three refs
+```
+
+等待期间不得消费旧的 `planning_snapshot_ref` / `snapshot_set_ref`。如果 resume 后得到新的 successful freshness result，Impact 只能消费该结果同一次 state update 写入的 exact pair；不得把 wait 前遗留 pair 与 wait 后的新结果拼接。
+
 然后 `analyze_impact` node 把这三个 exact refs 传入 service boundary。
 
 允许新增的 private graph state 字段必须满足现有 checkpoint rules：
@@ -845,12 +859,24 @@ no Impact object
 `CanonicalWorkflowOwnerPorts.analyze_impact(...)` 只能做：
 
 ```text
+resolve exact operation_ref from its authoritative owner
 resolve exact planning_snapshot_ref from Semantic Runtime owner
 resolve exact snapshot_set_ref from Semantic Runtime owner
 assemble the real Impact owner request
-validate/refuse obvious ref-integrity or exact-lineage mismatch through owner public surfaces
+validate/refuse the frozen exact-lineage invariants through owner public surfaces
 translate owner failures into the existing workflow error boundary
 ```
+
+进入真实 Impact owner/service 之前，至少必须验证以下关联；单个 ref 各自合法不能替代三者关系校验：
+
+1. **StableRef identity/hash integrity**：`operation_ref`、`planning_snapshot_ref`、`snapshot_set_ref` 的 `ref_id` / `content_hash` 必须与各自 owner 实际解析到的 authoritative artifact identity/hash 一致。
+2. **SnapshotSet membership**：解析到的 `SnapshotSet` 必须包含由 `planning_snapshot_ref` 指定的 exact PlanningSnapshot；不得用“同 contract 的另一个 snapshot”替代。
+3. **Document/environment consistency**：PlanningSnapshot 与 SnapshotSet 的 document scope、SemanticEnvironment identity/hash 必须相互一致，并与当前 bound operation 所针对的 authoritative subject/environment 不冲突。
+4. **Freshness-contract ↔ bound-operation match**：PlanningSnapshot 所记录的 freshness contract identity/hash 必须对应当前 `operation_ref` 的 bound operation 按现有 canonical freshness-contract construction/public validation 所得到的 operation contract；不得只因为 snapshot 本身有效就接受与当前 operation 无关的 contract。
+
+这些检查只能复用 owner 已公开的 identity、hash、membership、contract/read-model 校验能力，或调用既有 canonical helper；它们不授权 adapter 复制 freshness/Impact 领域规则。
+
+上述任一关系错配都必须 **在调用真实 Impact analyzer/service 之前 fail closed**，并进入既有 workflow error boundary。实现与测试必须能够观察到 mismatch case 中 Impact owner 未被调用。
 
 它不得：
 
@@ -863,7 +889,7 @@ compare revisions and choose a winner
 reimplement freshness or Impact semantics
 ```
 
-如果 owner public API 不能通过 exact refs 重建 Impact 所需输入，应按 §8.2 `FAIL DESIGN / expose missing owner API` 处理，而不是回退到 reverse lookup。
+如果 owner public API 不能通过 exact refs 重建或验证 Impact 所需输入，应按 §8.2 `FAIL DESIGN / expose missing owner API` 处理，而不是回退到 reverse lookup。
 
 ### 21.7 Multi-revision invariant
 
@@ -887,9 +913,12 @@ workflow B:
 
 ### 21.8 Restart/rebuilt-adapter invariant
 
-fresh process / rebuilt adapter 不得依赖前一个 Python object/process 内存中的 lineage。
+这里必须区分 **rebuilt-adapter proof** 与 **cross-process recovery proof**：
 
-只要 checkpoint 中的三个 StableRef 仍然存在，并且对应 authoritative owner stores 仍可解析：
+- 销毁旧 `CanonicalWorkflowOwnerPorts`、创建新的 composition instance，并复用同一 owner stores，只能证明 correctness 不依赖 adapter-private/process-local lineage map；如果这些 owner stores 本身仍是进程内对象，该证据不得表述为跨进程 durability/recovery 已被验证。
+- 真正的 fresh-process recovery claim 继续受 §12 约束：只有 checkpoint refs 指向的 authoritative owner state 在新进程中仍可解析时，workflow 才允许继续；若 owner store 是 process-local 且 ref 无法解析，正确结果仍是 fail closed。
+
+在 owner state 对当前恢复环境确实可解析的前提下，只要实际序列化 checkpoint 中的三个 StableRef 仍然存在：
 
 ```text
 operation_ref
@@ -897,9 +926,9 @@ planning_snapshot_ref
 snapshot_set_ref
 ```
 
-则新的 `CanonicalWorkflowOwnerPorts` 必须能够重新组装同一 exact Impact request。
+新的 `CanonicalWorkflowOwnerPorts` 必须能够从这些 refs 重新组装同一 exact Impact request，而不得依赖旧 adapter 实例中的任何 Python object identity 或隐藏 lineage。
 
-反之，任何一个 required ref 无法解析、hash/integrity 不匹配、或 exact pair 不满足 owner contract 时必须 fail closed，不得重新运行 freshness、选择 latest 或从 graph position 推断。
+反之，任何一个 required ref 无法解析、hash/integrity 不匹配、或 exact pair 不满足 §21.6 的 lineage invariant 时必须 fail closed，不得重新运行 freshness、选择 latest 或从 graph position 推断。
 
 ### 21.9 Rejected alternatives
 
@@ -919,12 +948,15 @@ snapshot_set_ref
 
 对应 Implementation Plan amendment 至少必须增加以下 TDD evidence：
 
-1. **Two-revision RED/GREEN**：同一 operation / freshness contract 在 revision 42 与 43 产生两组 immutable PlanningSnapshot/SnapshotSet，两个 Impact 调用必须分别消费各自 exact pair。
-2. **Rebuilt-adapter RED/GREEN**：销毁旧 adapter，使用新的 composition instance 与同一 owner stores，仅凭 checkpoint StableRefs 可以重新组装相同 Impact request。
-3. **No reverse-lookup success path**：production/reference composition 的该路径不得依赖 `get_snapshot_for_freshness_contract`、`get_snapshot_set_for_member` 或等价 latest/current/reverse lookup。
-4. **Checkpoint refs-only regression**：新增 graph state 字段只能包含 StableRef 编码，不得把 PlanningSnapshot/SnapshotSet body 写入 checkpoint。
-5. **Existing Task 7 compatibility**：Task 7 Step 1/2 已完成能力不得因 seam amendment 回退；所有受影响快速 scenario regression 必须显式迁移到新 shape。
-6. **Exact-head closure**：Task 6 repair 的 focused tests、architecture guard、Ruff 与 repository exact-head gates 全部通过后，才能恢复 Task 7 Step 3。
+1. **Interleaved two-revision RED/GREEN**：同一 operation / freshness contract 依次执行 `freshness@42 -> freshness@43 -> Impact@42 -> Impact@43`。PS-42/PSS-42 与 PS-43/PSS-43 必须同时保留，两个 Impact 调用必须分别消费各自 exact pair，证明后一次 freshness 不会把前一次 workflow 绑定到 current/latest 值。
+2. **Exact-lineage mismatch negatives**：至少覆盖 §21.6 冻结的四类关系：ref/hash 错配、SnapshotSet 不包含指定 snapshot、document/environment 错配、freshness contract 与当前 bound operation 不匹配。每个 case 都必须在真实 Impact owner/service 被调用前 fail closed。
+3. **Atomic graph-state update / stale-pair negative**：成功 freshness 的 `operation_ref + planning_snapshot_ref + snapshot_set_ref` 必须由同一次 graph node update 写入；异步 wait/re-entry 场景必须证明旧 pair 不会与新的 successful freshness result 混用，partial/stale tuple 不能进入 Impact。
+4. **Serialized-checkpoint round-trip RED/GREEN**：不能只把测试局部变量中的 refs 直接喂给 rebuilt adapter。测试必须经过真实 checkpoint serializer/graph-state encoding 路径，把成功 freshness 后的 state 序列化，再从序列化结果恢复三个 StableRef，并据此重新执行 exact-lineage Impact 组装。
+5. **Rebuilt-adapter RED/GREEN**：销毁旧 adapter，使用新的 composition instance 与同一 owner stores，以上 serializer round-trip 恢复出的 StableRefs 仍可重新组装相同 Impact request。该测试只证明“不依赖 adapter 私有状态”；除非 owner stores 本身具备并实际经过跨进程 durability，否则不得将其命名或表述为 cross-process recovery proof。
+6. **No reverse-lookup success path**：production/reference composition 的该路径不得依赖 `get_snapshot_for_freshness_contract`、`get_snapshot_set_for_member` 或等价 latest/current/reverse lookup。
+7. **Checkpoint refs-only regression**：新增 graph state 字段只能包含 StableRef 编码，不得把 PlanningSnapshot/SnapshotSet body 写入 checkpoint。
+8. **Existing Task 7 compatibility**：Task 7 Step 1/2 已完成能力不得因 seam amendment 回退；所有受影响快速 scenario regression 必须显式迁移到新 shape。
+9. **Exact-head closure**：Task 6 repair 的 focused tests、architecture guard、Ruff 与 repository exact-head gates 全部通过后，才能恢复 Task 7 Step 3。
 
 ### 21.11 Implementation sequencing gate
 
@@ -933,9 +965,12 @@ Amendment A 的执行顺序冻结为：
 ```text
 Amendment A written-spec approval
   -> Implementation Plan amendment
-  -> Task 6 two-revision RED
+  -> Task 6 interleaved two-revision RED
+  -> exact-lineage mismatch REDs
   -> exact-lineage GREEN
-  -> rebuilt-adapter recovery proof
+  -> atomic graph-state / stale-pair proof
+  -> serialized-checkpoint round-trip proof
+  -> rebuilt-adapter no-private-state proof
   -> architecture / checkpoint regression
   -> exact-head verification
   -> Task 6 repair CLOSED
