@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from uuid import UUID
 
+from design_orchestrator import workflow_contracts as workflow_contracts_module
 from design_orchestrator.langgraph_graph import MAIN_PATH, build_workflow_graph
 from design_orchestrator.langgraph_state import (
     checkpoint_view_to_graph_state,
@@ -100,6 +102,120 @@ class _ProposalPauseServices:
         raise AssertionError(f"unexpected workflow service call: {name}")
 
 
+@dataclass(frozen=True, slots=True)
+class _OperationFreshnessResultProbe:
+    """RED 阶段临时表达已批准的新 tuple；GREEN 后工厂会自动使用 production type。"""
+
+    operation_ref: StableRef
+    planning_snapshot_ref: StableRef
+    snapshot_set_ref: StableRef
+
+
+def _freshness_result(
+    operation_ref: StableRef,
+    planning_snapshot_ref: StableRef,
+    snapshot_set_ref: StableRef,
+):
+    """在 contract 尚未实现时仍让 graph RED 精确落在 tuple 处理能力。"""
+
+    result_type = getattr(
+        workflow_contracts_module,
+        "OperationFreshnessResult",
+        _OperationFreshnessResultProbe,
+    )
+    return result_type(
+        operation_ref=operation_ref,
+        planning_snapshot_ref=planning_snapshot_ref,
+        snapshot_set_ref=snapshot_set_ref,
+    )
+
+
+class _FreshnessGraphServices:
+    """把真实 graph 推过 freshness/Impact，并在 approval async wait 处稳定截断。"""
+
+    def __init__(self, *, async_first: bool = False) -> None:
+        self.async_first = async_first
+        self.freshness_calls = 0
+        self.impact_calls: list[tuple[StableRef, StableRef, StableRef]] = []
+        self.bound_ref = StableRef("bound-operation-42", "a" * 64)
+        self.planning_ref = StableRef("PS-42", "b" * 64)
+        self.snapshot_set_ref = StableRef("PSS-42", "c" * 64)
+
+    def resolve_host_context(self, task_id: str) -> StableRef:
+        """返回测试固定的 Host/context 引用。"""
+
+        return StableRef(f"context-{task_id}", "1" * 64)
+
+    def ensure_context_freshness(self, snapshot_ref: StableRef) -> StableRef:
+        """保持 context 引用不变，使测试聚焦 operation freshness。"""
+
+        return snapshot_ref
+
+    def resolve_operations(self, snapshot_ref: StableRef) -> StableRef:
+        """返回 proposal pause 绑定的 operation-space 引用。"""
+
+        return StableRef("operation-space-42", "2" * 64)
+
+    def bind_parameters(self, operation_ref: StableRef) -> StableRef:
+        """Human ACCEPT 后返回已绑定 operation 引用。"""
+
+        return self.bound_ref
+
+    def ensure_operation_freshness(self, operation_ref: StableRef):
+        """可先模拟一次异步 wait，随后返回批准的 exact freshness tuple。"""
+
+        assert operation_ref == self.bound_ref
+        self.freshness_calls += 1
+        if self.async_first and self.freshness_calls == 1:
+            return AsyncOperationRef(
+                kind=AsyncOperationKind.RECONSTRUCTION_JOB,
+                owner="semantic-runtime",
+                operation_id="reconstruct-43",
+            )
+        return _freshness_result(
+            self.bound_ref,
+            self.planning_ref,
+            self.snapshot_set_ref,
+        )
+
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """记录 graph 是否把同一个 successful freshness tuple 原样传入 Impact。"""
+
+        self.impact_calls.append(
+            (operation_ref, planning_snapshot_ref, snapshot_set_ref)
+        )
+        return StableRef("impact-42", "d" * 64)
+
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef:
+        """返回稳定 ChangeSet ref，把测试继续推进到 approval wait。"""
+
+        return StableRef("changeset-42", "e" * 64)
+
+    def preview(self, changeset_ref: StableRef) -> StableRef:
+        """返回 presentation ref，不引入额外 workflow 语义。"""
+
+        return StableRef("preview-42", "f" * 64)
+
+    def request_approval(self, changeset_ref: StableRef) -> AsyncOperationRef:
+        """用既有 async wait 稳定截断 graph，便于读取 saver 中间状态。"""
+
+        return AsyncOperationRef(
+            kind=AsyncOperationKind.INTERACTION_SESSION,
+            owner="approval",
+            operation_id="approval-42",
+        )
+
+
 def _checkpoint() -> WorkflowCheckpointView:
     """构造包含全部关键稳定引用的 framework-neutral checkpoint。"""
 
@@ -145,6 +261,58 @@ def _proposal_graph():
         "phase": WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
     }
     return services, graph, config, initial_state
+
+
+def _freshness_graph(*, async_first: bool, seed_stale_pair: bool):
+    """构建 Task 6R.1 freshness tuple 测试所需的 compiled graph。"""
+
+    services = _FreshnessGraphServices(async_first=async_first)
+    saver = InMemorySaver()
+    graph = build_workflow_graph(services).compile(checkpointer=saver)
+    config = {
+        "configurable": {
+            "thread_id": (
+                "task-freshness-async" if async_first else "task-freshness-success"
+            ),
+            "checkpoint_ns": "",
+        }
+    }
+    initial_state: dict[str, object] = {
+        "checkpoint_contract_version": 2,
+        "task_id": config["configurable"]["thread_id"],
+        "phase": WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
+    }
+    if seed_stale_pair:
+        initial_state.update(
+            {
+                "planning_snapshot_ref": {
+                    "ref_id": "PS-old",
+                    "content_hash": "8" * 64,
+                },
+                "snapshot_set_ref": {
+                    "ref_id": "PSS-old",
+                    "content_hash": "9" * 64,
+                },
+            }
+        )
+    return services, graph, config, initial_state
+
+
+def _accept_operation_proposal(graph, config, initial_state) -> None:
+    """把 graph 从 proposal pause 精确恢复到 ACCEPT 路径。"""
+
+    graph.invoke(initial_state, config)
+    pause_id = graph.get_state(config).values["pending_interaction"]["pause_id"]
+    graph.invoke(
+        Command(
+            resume={
+                "pause_id": pause_id,
+                "resume_kind": "OPERATION_PROPOSAL_ACCEPTED",
+                "payload": {},
+            }
+        ),
+        config,
+    )
 
 
 def test_langgraph_state_contains_only_workflow_local_json_values() -> None:
@@ -296,3 +464,76 @@ def test_operation_proposal_reject_cancels_without_calling_binder() -> None:
     assert services.bind_count == 0
     assert snapshot.values.get("pending_interaction") is None
     assert snapshot.values["phase"] == WorkflowPhase.CANCELLED.value
+
+
+def test_operation_freshness_success_persists_atomic_exact_tuple_and_forwards_it() -> None:
+    """successful freshness 必须一次持久化三个 exact refs，并原样传给 Impact。"""
+
+    services, graph, config, initial_state = _freshness_graph(
+        async_first=False,
+        seed_stale_pair=False,
+    )
+
+    try:
+        _accept_operation_proposal(graph, config, initial_state)
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(
+            "graph must understand the approved exact operation-freshness tuple"
+        ) from exc
+
+    snapshot = graph.get_state(config)
+    assert snapshot.values["operation_ref"] == {
+        "ref_id": "bound-operation-42",
+        "content_hash": "a" * 64,
+    }
+    assert snapshot.values["planning_snapshot_ref"] == {
+        "ref_id": "PS-42",
+        "content_hash": "b" * 64,
+    }
+    assert snapshot.values["snapshot_set_ref"] == {
+        "ref_id": "PSS-42",
+        "content_hash": "c" * 64,
+    }
+    assert services.impact_calls == [
+        (services.bound_ref, services.planning_ref, services.snapshot_set_ref)
+    ]
+
+
+def test_operation_freshness_async_wait_clears_stale_pair_then_writes_new_tuple() -> None:
+    """async wait 必须清掉旧 pair，resume 后只能写入并消费新的 successful tuple。"""
+
+    services, graph, config, initial_state = _freshness_graph(
+        async_first=True,
+        seed_stale_pair=True,
+    )
+
+    _accept_operation_proposal(graph, config, initial_state)
+    waiting = graph.get_state(config)
+
+    assert waiting.values.get("planning_snapshot_ref") is None
+    assert waiting.values.get("snapshot_set_ref") is None
+    assert waiting.values["async_operation_ref"] == {
+        "kind": AsyncOperationKind.RECONSTRUCTION_JOB.value,
+        "owner": "semantic-runtime",
+        "operation_id": "reconstruct-43",
+    }
+    assert services.impact_calls == []
+
+    graph.invoke(Command(resume={}), config)
+    resumed = graph.get_state(config)
+
+    assert resumed.values["operation_ref"] == {
+        "ref_id": "bound-operation-42",
+        "content_hash": "a" * 64,
+    }
+    assert resumed.values["planning_snapshot_ref"] == {
+        "ref_id": "PS-42",
+        "content_hash": "b" * 64,
+    }
+    assert resumed.values["snapshot_set_ref"] == {
+        "ref_id": "PSS-42",
+        "content_hash": "c" * 64,
+    }
+    assert services.impact_calls == [
+        (services.bound_ref, services.planning_ref, services.snapshot_set_ref)
+    ]
