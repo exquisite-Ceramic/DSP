@@ -1,6 +1,6 @@
 # Capability Phase — Real-Owner E2E Workflow Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Every production-code task is TDD RED → GREEN → focused verification → exact-head verification → commit. Do not collapse gates.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Every production-code task is TDD RED → GREEN → focused verification → exact-head verification → commit. Do not collapse gates.
 
 **Status:** Baseline implementation in progress — Amendment A written-plan review pending  
 **Date:** 2026-09-20  
@@ -16,7 +16,7 @@
 
 完成 real-owner workflow reference composition，但在继续 Task 7 Step 3 之前，先修复 Task 6 rereview 暴露的 operation freshness → Impact exact-lineage 缺口：successful freshness 必须显式携带 exact `operation_ref + planning_snapshot_ref + snapshot_set_ref`，Impact 必须只消费这组 refs，并在调用真实 Impact owner 前验证三者属于同一次合法 operation freshness 结果。
 
-本 Amendment 不推翻已经完成的 composition 主干，也不回滚 Task 7 Step 1/2。它只重开 Task 6 的 freshness→Impact boundary，并把 checkpoint/recovery evidence 收紧到实际 graph checkpoint 序列化路径。
+本 Amendment 不推翻已经完成的 composition 主干，也不回滚 Task 7 Step 1/2。它只重开 Task 6 的 freshness→Impact boundary，并把 checkpoint/recovery evidence 收紧到真实 LangGraph checkpointer 持久化的 graph state。
 
 ## Architecture
 
@@ -43,7 +43,7 @@ analyze_impact(
   -> StableRef
 ```
 
-其中 `OperationFreshnessResult` 是 Workflow Orchestrator 自己拥有的 navigation envelope，不是新的 authoritative artifact。它只包含三个 owner-issued `StableRef`。LangGraph private state 允许保存这三个 refs 的 JSON-compatible 编码，但不能保存 `SemanticSnapshot`、`SnapshotSet`、freshness contract body 或 Impact owner object。
+`OperationFreshnessResult` 是 Workflow Orchestrator 自己拥有的 navigation envelope，不是新的 authoritative artifact。它只包含三个 owner-issued `StableRef`。LangGraph private state 允许保存这三个 refs 的 JSON-compatible 编码，但不能保存 `SemanticSnapshot`、`SnapshotSet`、freshness contract body 或 Impact owner object。
 
 Task 6 repair 完成前，Task 7 Step 3 及后续 product implementation 保持暂停。
 
@@ -140,7 +140,7 @@ Task 7 Step 3 尚未开始
 1. **Interleaved revisions:** `freshness@42 → freshness@43 → Impact@42 → Impact@43` 时，后一次 freshness 不能污染前一个 workflow 的 exact refs。
 2. **Cross-ref integrity:** 三个 ref 各自合法但关系错误时，必须在 `ImpactAnalyzer.analyze()` 前 fail closed，且 Impact call count 为 0。
 3. **Async stale pair:** wait/re-entry 期间旧 planning/snapshot-set refs 不能残留并与新 operation freshness success 混用。
-4. **Checkpoint evidence:** recovery proof 必须从 LangGraph saver 实际 persisted/deserialized `StateSnapshot.values` 恢复 refs，不能只复用测试局部变量。
+4. **Checkpoint evidence:** recovery proof 必须从 LangGraph checkpointer 实际持久化后读回的 `StateSnapshot.values` 恢复 refs，不能只复用测试局部变量。
 5. **Recovery claim boundary:** rebuilt adapter + same in-memory stores 只能证明 no-private-state；fresh-process durability 只有 owner stores 真正跨进程可解析时才能声称。
 
 每一项都在 Task 6R 对应 RED/GREEN 中有直接测试，不留给最终 E2E 才发现。
@@ -174,13 +174,14 @@ class OperationFreshnessResult:
     snapshot_set_ref: StableRef
 ```
 
-and exactly these two service signatures:
+Approved method signatures:
 
 ```python
 def ensure_operation_freshness(
     self,
     operation_ref: StableRef,
-) -> OperationFreshnessResult | AsyncOperationRef: ...
+) -> OperationFreshnessResult | AsyncOperationRef:
+    raise NotImplementedError
 
 
 def analyze_impact(
@@ -188,7 +189,8 @@ def analyze_impact(
     operation_ref: StableRef,
     planning_snapshot_ref: StableRef,
     snapshot_set_ref: StableRef,
-) -> StableRef: ...
+) -> StableRef:
+    raise NotImplementedError
 ```
 
 `OperationFreshnessResult.__post_init__` only enforces that all three members are `StableRef`; it must not resolve owners or duplicate lineage semantics.
@@ -232,7 +234,7 @@ and captured Impact arguments equal the exact tuple. Do not assert only Python-l
 
 - [ ] **Step 3: Add async stale-pair RED**
 
-Seed a graph state with an old pair, then make `ensure_operation_freshness()` return an `AsyncOperationRef`. The resulting checkpoint must contain:
+Seed graph state with an old pair, then make `ensure_operation_freshness()` return an `AsyncOperationRef`. The resulting checkpoint must contain:
 
 ```python
 assert snapshot.values.get("planning_snapshot_ref") is None
@@ -267,7 +269,7 @@ snapshot_set_ref: dict[str, object] | None
 
 to `WorkflowGraphState` private fields.
 
-In `langgraph_graph.py`, success must return one update containing all three refs:
+In `langgraph_graph.py`, successful freshness must return one update containing all three refs:
 
 ```python
 return {
@@ -276,18 +278,21 @@ return {
     "snapshot_set_ref": _encode_stable_ref(result.snapshot_set_ref),
     "async_operation_ref": None,
     "resume_node": None,
+    "phase": WorkflowPhase.ANALYZE_IMPACT.value,
 }
 ```
 
-The async branch must explicitly clear stale pair fields:
+The async branch must preserve the existing `_set_async_wait()` behavior and clear stale pair fields in the same node update:
 
 ```python
 return {
+    **_set_async_wait(
+        result,
+        resume_node="ensure_operation_freshness",
+        phase=WorkflowPhase.ENSURE_OPERATION_FRESHNESS,
+    ),
     "planning_snapshot_ref": None,
     "snapshot_set_ref": None,
-    "async_operation_ref": _encode_async_ref(result),
-    "resume_node": "ensure_operation_freshness",
-    "phase": WorkflowPhase.ENSURE_OPERATION_FRESHNESS.value,
 }
 ```
 
@@ -331,7 +336,7 @@ git commit -m "feat: carry exact operation freshness refs"
 - Modify: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
 - Modify: `tests/orchestrator/test_canonical_owner_ports.py`
 - Modify: `tests/architecture/test_real_owner_workflow_boundaries.py`
-- Do not modify `snapshot_registry.py` unless an exact-id lookup defect is proven; current `get_snapshot(id)` / `get_snapshot_set(id)` are the approved path.
+- Do not modify `platform/semantic_runtime/src/semantic_runtime/snapshot_registry.py` unless an exact-id lookup defect is proven; current `get_snapshot(id)` / `get_snapshot_set(id)` are the approved path.
 
 **Consumes:** Task 6R.1 `OperationFreshnessResult`; Semantic Runtime `SemanticSnapshot`, `SnapshotSet`, `build_operation_contract`; existing workflow artifact store and `_operation_freshness_contract(...)` helper.
 
@@ -395,7 +400,7 @@ Each test must assert failure occurs before real Impact analyzer invocation. Do 
 In `CanonicalWorkflowOwnerPorts.ensure_operation_freshness(...)`, after existing real `FreshnessResolver` success and owner registry writes, return:
 
 ```python
-OperationFreshnessResult(
+return OperationFreshnessResult(
     operation_ref=operation_ref,
     planning_snapshot_ref=StableRef(resolved.snapshot_id, resolved.hash),
     snapshot_set_ref=StableRef(snapshot_set.snapshot_set_id, snapshot_set.hash),
@@ -415,11 +420,11 @@ snapshot_set = self._snapshot_registry.get_snapshot_set(snapshot_set_ref.ref_id)
 contract, context_snapshot = self._operation_freshness_contract(bound)
 ```
 
-Immediately verify supplied hashes against the authoritative objects with the existing `_ref_hash_matches(...)` helper. Delete this success path's calls to:
+Immediately verify supplied hashes against authoritative objects with existing `_ref_hash_matches(...)`. Remove this success path's calls to:
 
 ```text
 get_snapshot_for_freshness_contract
-g​et_snapshot_set_for_member
+get_snapshot_set_for_member
 ```
 
 The registry methods themselves may remain for other consumers; this task does not delete public history/query APIs merely to satisfy the adapter.
@@ -429,34 +434,39 @@ The registry methods themselves may remain for other consumers; this task does n
 Use existing public object fields/canonical contract construction; do not add a new policy engine. The pre-Impact guard must establish at least:
 
 ```python
-# exact ref/hash integrity
-planning.snapshot_id == planning_snapshot_ref.ref_id
-snapshot_set.snapshot_set_id == snapshot_set_ref.ref_id
+if planning.snapshot_id != planning_snapshot_ref.ref_id:
+    raise ValueError("planning snapshot ref does not match authoritative identity")
+if snapshot_set.snapshot_set_id != snapshot_set_ref.ref_id:
+    raise ValueError("snapshot-set ref does not match authoritative identity")
 
-# membership includes the exact member identity/hash
 matching_members = [
     member
     for member in snapshot_set.members
     if member.snapshot_id == planning.snapshot_id and member.hash == planning.hash
 ]
-assert len(matching_members) == 1
+if len(matching_members) != 1:
+    raise ValueError("snapshot set does not contain the exact planning snapshot")
 
-# document/environment consistency
-planning.document_ref == contract.coverage.document_ref
-planning.project_id == contract.project_id
-planning.semantic_environment_ref == snapshot_set.semantic_environment_ref
-planning.semantic_environment_ref == context_snapshot.semantic_environment_ref
+if planning.document_ref != contract.coverage.document_ref:
+    raise ValueError("planning snapshot document does not match bound operation")
+if planning.project_id != contract.project_id:
+    raise ValueError("planning snapshot project does not match bound operation")
+if planning.semantic_environment_ref != snapshot_set.semantic_environment_ref:
+    raise ValueError("planning snapshot environment does not match snapshot set")
+if planning.semantic_environment_ref != context_snapshot.semantic_environment_ref:
+    raise ValueError("planning snapshot environment does not match bound-operation context")
 
-# freshness contract belongs to this bound operation
-planning.freshness_contract_id == contract.contract_id
-planning.freshness_contract_hash == contract.hash
+if planning.freshness_contract_id != contract.contract_id:
+    raise ValueError("planning snapshot freshness contract does not match bound operation")
+if planning.freshness_contract_hash != contract.hash:
+    raise ValueError("planning snapshot freshness contract hash does not match bound operation")
 ```
 
-Implementation must raise a stable workflow-boundary failure before constructing/calling the real Impact analyzer when any condition fails. Reuse existing owner/public validation exceptions where one already expresses the invariant; otherwise use a narrow adapter integrity error translated by the existing workflow error boundary. Do not compare revisions and choose a winner.
+Before these relation checks, call `_ref_hash_matches(...)` for both exact semantic refs. Reuse existing owner/public validation exceptions where one already expresses the invariant; otherwise use a narrow adapter integrity failure translated by the existing workflow error boundary. Do not compare revisions and choose a winner.
 
 - [ ] **Step 7: Add architecture RED/GREEN for the old reverse path**
 
-In `tests/architecture/test_real_owner_workflow_boundaries.py`, inspect the production adapter and fail if `CanonicalWorkflowOwnerPorts.analyze_impact` references the known old reverse-query APIs:
+In `tests/architecture/test_real_owner_workflow_boundaries.py`, inspect the production adapter and fail if `CanonicalWorkflowOwnerPorts.analyze_impact` references either old reverse-query API:
 
 ```text
 get_snapshot_for_freshness_contract
@@ -498,15 +508,15 @@ git commit -m "fix: preserve exact freshness impact lineage"
 
 **Consumes:** Task 6R.1 private graph refs and Task 6R.2 exact adapter path.
 
-**Produces:** evidence that exact lineage survives the real LangGraph saver/serializer and that a new adapter can consume restored refs without old adapter memory.
+**Produces:** evidence that exact lineage survives the real LangGraph checkpointer/serializer boundary and that a new adapter can consume restored refs without old adapter memory.
 
-- [ ] **Step 1: Write actual saver round-trip RED**
+- [ ] **Step 1: Write actual checkpointer round-trip RED**
 
-Use a compiled graph with `langgraph.checkpoint.memory.InMemorySaver`, because this test is about LangGraph serialization/state recovery rather than cross-process durability.
+Use a compiled graph with `langgraph.checkpoint.memory.InMemorySaver`, because this test is about LangGraph state persistence/serialization rather than cross-process durability.
 
-Drive the graph through successful operation freshness and to a safe persisted boundary. Read the checkpoint back through supported `graph.get_state(config)` / saver-backed state access, not from service fixture local variables.
+Drive the graph through successful operation freshness and to a safe persisted boundary. Read the state back through supported `graph.get_state(config)` from the injected saver; do not use service fixture local variables as the source of recovered refs.
 
-Assert `StateSnapshot.values` contains JSON-compatible mappings for all three refs and no authoritative bodies. Serialize/deserialise those persisted values through the same JSON-compatible state representation used by existing checkpoint tests, then rebuild `StableRef` values from the restored mappings.
+Assert `StateSnapshot.values` contains JSON-compatible mappings for all three refs and no authoritative bodies. Then perform the existing checkpoint-safe JSON representation round-trip on those persisted values and rebuild `StableRef` values from the restored mappings.
 
 Required recovered values:
 
@@ -516,9 +526,11 @@ planning_snapshot_ref
 snapshot_set_ref
 ```
 
+This test may say “saver-backed serialized state round-trip”; it must not say “cross-process durability”.
+
 - [ ] **Step 2: Prove stale/partial persisted tuple is rejected before Impact**
 
-Construct persisted-state cases with one of the two freshness refs missing or with an old pair left beside a newer operation ref. Resume/continue the compiled graph and assert it cannot call `analyze_impact`; `_require_stable_ref`/workflow validation must fail closed.
+Construct saver-backed graph-state cases with one freshness ref missing or with an old pair beside a newer operation ref. Continue the compiled graph and assert it cannot call `analyze_impact`; `_require_stable_ref`/workflow validation must fail closed.
 
 - [ ] **Step 3: Rebuilt-adapter RED/GREEN using restored refs**
 
@@ -528,10 +540,10 @@ In `tests/orchestrator/test_canonical_owner_ports.py`:
 adapter A
   -> real freshness success
   -> owner stores contain exact PS/PSS
-  -> refs pass through saver-backed checkpoint state
+  -> refs are persisted through saver-backed graph state
   -> discard adapter A
 adapter B(new instance, same owner stores)
-  -> consume StableRefs restored from persisted checkpoint
+  -> consume StableRefs restored from persisted state
   -> assemble/call Impact for the same exact PS/PSS
 ```
 
@@ -586,7 +598,7 @@ Run `tests/orchestrator/test_canonical_owner_ports.py` and assert the current po
 The retained boundary is:
 
 ```text
-approval          -> real
+approval           -> real
 execution planning -> real
 check_revision_barrier -> CANONICAL_OWNER_PORT_NOT_WIRED until Task 7 Step 3
 ```
@@ -611,7 +623,7 @@ uv run pytest \
   -q
 ```
 
-If an exact directory name differs on the implementation HEAD, use the repository’s current corresponding owner suite; record the actual command in commit/PR evidence rather than silently dropping that owner.
+If an owner test package was renamed on the implementation HEAD, stop and update this Plan with the concrete replacement path before claiming the corresponding owner regression; do not silently omit it.
 
 - [ ] **Step 4: Run Ruff with no new diagnostics**
 
@@ -859,9 +871,13 @@ git commit -m "test: add real-owner workflow acceptance"
 
 **Files:**
 - Modify: `tests/orchestrator/test_real_owner_workflow_end_to_end.py`
-- Modify existing PostgreSQL workflow only if required to schedule this acceptance
-- Modify `.github/workflows/...` only if existing PostgreSQL lanes do not collect the test
-- No lifecycle closeout in this task
+- Inspect before any CI edit: `.github/workflows/workflow-orchestrator.yml`
+- Inspect before any CI edit: `.github/workflows/durable-persistence.yml`
+- Inspect before any CI edit: `.github/workflows/phase-i-real-cross-host-materialization-saga.yml`
+- Inspect before any CI edit: `.github/workflows/step37-cross-host-saga-failure-injection.yml`
+- Inspect before any CI edit: `.github/workflows/repository-regression.yml`
+- Modify only the concrete existing workflow file whose current collection is proven not to schedule the required acceptance; if existing lanes already collect it, make no workflow change.
+- No lifecycle closeout in this task.
 
 - [ ] **Step 1: No-double-Host recovery RED E**
 
@@ -885,15 +901,18 @@ Run existing `tests/orchestrator/test_workflow_end_to_end.py`; `_ScenarioOwners`
 
 - [ ] **Step 3: PostgreSQL capability gate**
 
+Before editing CI, inspect the five workflow files listed above and record which exact job currently owns Workflow Orchestrator PostgreSQL and durable Saga/dispatch-intent coverage.
+
+Run:
+
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
   tests/orchestrator/test_real_owner_workflow_end_to_end.py \
-  tests/orchestrator/test_postgres_checkpoint.py \
   tests/orchestrator/test_artifact_postgres.py \
   -q
 ```
 
-Also run existing durable Saga / dispatch-intent PostgreSQL suites discovered on the exact implementation HEAD.
+Also run the exact current PostgreSQL checkpoint and durable Saga/dispatch-intent test files referenced by `workflow-orchestrator.yml`, `durable-persistence.yml`, `phase-i-real-cross-host-materialization-saga.yml`, and `step37-cross-host-saga-failure-injection.yml`. If the workflow references reveal different concrete test paths than the historical Plan, update this Plan before using those paths as closure evidence.
 
 - [ ] **Step 4: Repository exact-head regressions**
 
@@ -928,7 +947,7 @@ support-matrix expansion
 
 - [ ] **Step 6: Final implementation commit / PR evidence**
 
-If Task 10 requires source/test changes, commit them separately, then push exact HEAD and require exact-head GREEN before merge.
+If Task 10 requires source/test/CI changes, commit only the exact Task 10 files. Then push the exact implementation HEAD and require exact-head GREEN before merge.
 
 ---
 
@@ -939,7 +958,7 @@ If Task 10 requires source/test changes, commit them separately, then push exact
 | Amendment A exact operation freshness lineage | Task 6R.1–6R.3 |
 | Interleaved rev42/rev43 isolation | Task 6R.2 |
 | Four pre-Impact mismatch categories | Task 6R.2 |
-| Atomic success tuple + stale-pair prevention | Task 6R.1 / 6R.3 |
+| Atomic success tuple + stale-pair prevention | Task 6R.1 / Task 6R.3 |
 | Saver-backed serialized checkpoint recovery | Task 6R.3 |
 | Rebuilt adapter does not depend on private lineage | Task 6R.3 |
 | No reverse-lookup success path | Task 6R.2 architecture guard |
