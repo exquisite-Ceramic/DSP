@@ -945,7 +945,10 @@ class CanonicalWorkflowOwnerPorts:
     def check_revision_barrier(self, execution_plan_ref: StableRef) -> None:
         """按计划持有的 ChangeSet lineage 解析 exact SnapshotSet，并交给真实 barrier 校验。"""
 
-        execution_plan = self._execution_plan_store.get(execution_plan_ref.ref_id)
+        plan_getter = getattr(self._execution_plan_store, "get", None)
+        if plan_getter is None:
+            raise self._not_wired("check_revision_barrier")
+        execution_plan = plan_getter(execution_plan_ref.ref_id)
         self._ref_hash_matches(
             execution_plan_ref,
             execution_plan.execution_plan_hash,
