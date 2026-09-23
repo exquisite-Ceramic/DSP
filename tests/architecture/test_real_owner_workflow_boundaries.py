@@ -117,6 +117,27 @@ def test_production_adapter_obeys_real_owner_boundary() -> None:
     assert _boundary_violations(ADAPTER.read_text(encoding="utf-8")) == ()
 
 
+def test_impact_path_does_not_reverse_lookup_freshness_lineage() -> None:
+    """Impact canonical success path 必须只消费 exact refs，禁止按 contract/member 反查。"""
+
+    source = ADAPTER.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    adapter_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "CanonicalWorkflowOwnerPorts"
+    )
+    analyze_method = next(
+        node
+        for node in adapter_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "analyze_impact"
+    )
+    method_source = ast.get_source_segment(source, analyze_method)
+    assert method_source is not None
+    assert "get_snapshot_for_freshness_contract" not in method_source
+    assert "get_snapshot_set_for_member" not in method_source
+
+
 def test_scenario_owner_is_forbidden_from_real_owner_surfaces() -> None:
     """Adapter 与未来 real-owner E2E 都不得导入、构造或定义 `_ScenarioOwners`。"""
 
