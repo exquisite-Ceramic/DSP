@@ -1,6 +1,6 @@
 # Task 8 Execution Owner Lookup Amendment Design
 
-**Status:** Proposed — review findings incorporated; written-spec re-review pending  
+**Status:** Proposed — review findings incorporated; written-spec re-review pending
 **Date:** 2026-09-23  
 **Exact discovery base:** `feat/capability-real-owner-e2e-workflow@01c72938ce92c7df773a5c04ca28ca88f697b358`  
 **Baseline design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`  
@@ -371,7 +371,7 @@ Host commit
 -> Saga terminal transition
 ```
 
-已有 public `UnknownOutcomeRecovery.recover(...)` 负责 unknown Host outcome 的 owner-side恢复：它重新读取 durable Saga/dispatch truth，通过 `HostOutcomeProbe` 获取 evidence，并在 evidence 足够时复用现有 Step33 V2 reconciliation；它结构上不接收 Host mutation port。
+已有 public `UnknownOutcomeRecovery.recover(...)` 负责 unknown Host outcome 的 owner-side 恢复：它重新读取 durable Saga/dispatch truth，通过 `HostOutcomeProbe` 获取 evidence，并在 evidence 足够时复用现有 Step33 V2 reconciliation；它结构上不接收 Host mutation port。
 
 本 Amendment **不**在 `get_execution_owner_state()`、`verify_reconcile()` 或 graph node 中自动调用该 recovery service，也不新增 scheduler/worker。原因是现有 recovery service 只收口当前 Slice，而现有 materialized coordinator 对后续非 `READY` forward-resume/convergence 仍返回 `RECOVERY_REQUIRED`；把这条链扩展成完整自动恢复属于新的 coordination design，不得伪装成 Task 8 wiring。
 
@@ -428,7 +428,7 @@ No CI workflow change is authorized by this Amendment itself。
 
 ### A. Provider Binding hash lookup
 
-Prove:
+Prove：
 
 ```text
 put(binding_set)
@@ -482,11 +482,11 @@ CrossHostConvergenceVerifier
 
 and only allowed Host/evidence/clock doubles。
 
-Assert owner terminal truth is `SUCCEEDED`；Host execute count is exactly one。Also assert the durable dispatch row may remain `HOST_COMMITTED` and owner recovery projection still returns no active recovery for the compatible terminal `SUCCEEDED` Slice。
+Assert owner terminal truth is `SUCCEEDED`；Host execute count is exactly one。 Also assert the durable dispatch row may remain `HOST_COMMITTED` and owner recovery projection still returns no active recovery for the compatible terminal `SUCCEEDED` Slice。
 
 ### D. Real DIVERGED
 
-Inject divergent canonical evidence only through the allowed evidence boundary。Assert real convergence owner and Saga record `DIVERGED`；no compensation call/surface is introduced。
+Inject divergent canonical evidence only through the allowed evidence boundary。 Assert real convergence owner and Saga record `DIVERGED`；no compensation call/surface is introduced。
 
 ### E. Unknown outcome / no blind redispatch / recovery boundary
 
@@ -499,7 +499,7 @@ HostDispatchIntent == OUTCOME_UNKNOWN
 begin_execution returns execution AsyncOperationRef carrying that saga id
 ```
 
-Graph must atomically persist saga id + wait。After resume：
+Graph must atomically persist saga id + wait。 After resume：
 
 ```text
 refresh_execution_owner reads the Saga definition's exact Slice
@@ -601,4 +601,4 @@ Task 9/10 implementation FORBIDDEN
 baseline Task 7 code MUST NOT be rolled back
 ```
 
-After written-spec approval, the next permitted action is to revise the implementation plan for Task 8/9/10 using the approved contracts above。Implementation may begin only after that written plan is reviewed and an execution method is selected。
+After written-spec approval, the next permitted action is to revise the implementation plan for Task 8/9/10 using the approved contracts above。 Implementation may begin only after that written plan is reviewed and an execution method is selected。
