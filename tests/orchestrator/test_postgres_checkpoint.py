@@ -20,6 +20,7 @@ from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     StableRef,
     WorkflowPhase,
     WorkflowResumeCommand,
@@ -75,10 +76,27 @@ class _RestartServices:
             operation_id="interaction-postgres",
         )
 
-    def ensure_operation_freshness(self, operation_ref: StableRef) -> StableRef:
-        return operation_ref
+    def ensure_operation_freshness(
+        self,
+        operation_ref: StableRef,
+    ) -> OperationFreshnessResult:
+        """返回当前 freshness 契约要求的三条 exact navigation refs。"""
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef("planning-postgres", "5" * 64),
+            snapshot_set_ref=StableRef("snapshot-set-postgres", "6" * 64),
+        )
+
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """消费显式 freshness lineage；本 fixture 不复制 Impact owner 领域规则。"""
+
+        del operation_ref, planning_snapshot_ref, snapshot_set_ref
         return StableRef("impact-postgres", "c" * 64)
 
     def build_changeset(self, impact_ref: StableRef) -> StableRef:
