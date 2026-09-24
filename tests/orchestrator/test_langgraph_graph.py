@@ -93,9 +93,14 @@ class _ProposalPauseServices:
 
         return StableRef("operation-1", "b" * 64)
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
         """记录 ACCEPT 是否真正进入 binder，并立即转入既有 external-owner wait。"""
 
+        del operation_ref, context_snapshot_ref
         self.bind_count += 1
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
@@ -163,9 +168,14 @@ class _FreshnessGraphServices:
 
         return StableRef("operation-space-42", "2" * 64)
 
-    def bind_parameters(self, operation_ref: StableRef) -> StableRef:
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
         """Human ACCEPT 后返回已绑定 operation 引用。"""
 
+        del operation_ref, context_snapshot_ref
         return self.bound_ref
 
     def ensure_operation_freshness(self, operation_ref: StableRef):
