@@ -83,7 +83,12 @@ class _RuntimeServices:
         del context_snapshot_ref, allow_legacy_rehydrate
         return OperationArtifactResolution(ref=operation_ref, source="durable")
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        del operation_ref, context_snapshot_ref
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
             owner="interaction",
