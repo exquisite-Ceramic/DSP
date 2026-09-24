@@ -189,6 +189,7 @@ class WorkflowServices(Protocol):
     def bind_parameters(
         self,
         operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> StableRef | AsyncOperationRef: ...
 
     def ensure_operation_freshness(
