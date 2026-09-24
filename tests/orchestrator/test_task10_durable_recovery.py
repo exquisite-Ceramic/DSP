@@ -15,6 +15,8 @@ from design_changeset import ChangeSetBuilder
 from design_convergence import CrossHostConvergenceVerifier
 from design_execution_coordination import (
     CrossHostReadinessBarrier,
+    HostFailed,
+    HostFailurePhase,
     MaterializedExecutionSagaCoordinator,
     project_execution_recovery,
 )
@@ -34,7 +36,12 @@ from design_orchestrator.default_workflow_services import DefaultWorkflowService
 from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import OperationResolver
 from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
-from design_orchestrator.workflow_contracts import WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator.workflow_contracts import (
+    AsyncOperationKind,
+    AsyncOperationRef,
+    WorkflowPhase,
+    WorkflowResumeCommand,
+)
 from design_orchestrator.workflow_services import WorkflowStateError
 from semantic_runtime import DirtyMap, FreshnessResolver, RevisionBarrier
 
@@ -72,6 +79,23 @@ class _ProcessLossAfterTerminalBegin:
             raise AssertionError("baseline E process loss must occur after terminal SUCCEEDED")
         self.saga_id = result
         raise _SimulatedProcessLoss(result)
+
+
+class _UnknownOutcomeHostPort:
+    """唯一外部 Host mutation boundary；首次写入后只返回提交状态未知事实。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, object, object, object]] = []
+
+    def execute(self, execution_slice, authority, binding_set, dispatch_context):
+        """记录真实 dispatch identity，并模拟 Host 响应丢失而非安全未提交。"""
+
+        self.calls.append((execution_slice, authority, binding_set, dispatch_context))
+        return HostFailed(
+            phase=HostFailurePhase.COMMIT_STATE_UNKNOWN,
+            failure_ref="HOST_TIMEOUT_TASK10",
+            failed_at="2026-09-24T10:01:00Z",
+        )
 
 
 def _close_store(store: object) -> None:
@@ -202,6 +226,32 @@ def _fresh_runtime(
     )
 
 
+def _advance_to_execution(seed, runtime, task_id: str):
+    """统一推进到真实 execution boundary，保留 HITL 与 semantic async 两个既有 gate。"""
+
+    proposal_wait = runtime.start(real_owner._request(task_id))
+    assert proposal_wait.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+    assert proposal_wait.pending_interaction is not None
+
+    freshness_wait = runtime.resume(
+        task_id,
+        WorkflowResumeCommand(
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+            pause_id=proposal_wait.pending_interaction.pause_id,
+        ),
+    )
+    assert freshness_wait.phase is WorkflowPhase.ENSURE_OPERATION_FRESHNESS
+
+    seed.semantic_boundary.operation_ready = True
+    return runtime.resume(
+        task_id,
+        WorkflowResumeCommand(
+            resume_kind="ASYNC_OPERATION_COMPLETED",
+            payload={"operation_id": "task9-reconstruction"},
+        ),
+    )
+
+
 @real_owner.requires_postgres
 def test_terminal_process_loss_replays_durable_saga_without_second_host_execution(
     task10_postgres_execution_owner_factory,
@@ -305,6 +355,86 @@ def test_terminal_process_loss_replays_durable_saga_without_second_host_executio
         stored_b = saga_b.get_saga(durable_saga_id)
         assert stored_b is not None
         assert getattr(stored_b.status, "value", stored_b.status) == "SUCCEEDED"
+    finally:
+        runtime_b.artifact_store.close()
+        runtime_b.checkpointer.close()
+        _close_store(dispatch_b)
+        _close_store(saga_b)
+
+
+@real_owner.requires_postgres
+def test_unknown_outcome_fresh_runtime_waits_without_second_host_execution(
+    task10_postgres_execution_owner_factory,
+) -> None:
+    """Unknown outcome：fresh runtime 只能重读 owner truth 并继续等待，不能二次 Host mutation。"""
+
+    task_id = "task10-unknown-outcome-safe-wait"
+    seed = real_owner._build_real_owner_case(task_id)
+    real_owner._close_case(seed)
+    host_port = _UnknownOutcomeHostPort()
+
+    saga_a, dispatch_a = task10_postgres_execution_owner_factory()
+    runtime_a = _fresh_runtime(
+        seed,
+        saga_store=saga_a,
+        dispatch_store=dispatch_a,
+        host_port=host_port,
+    )
+    try:
+        waiting_a = _advance_to_execution(seed, runtime_a.runtime, task_id)
+        assert waiting_a.phase is WorkflowPhase.APPLY_WAIT
+        assert waiting_a.saga_id is not None
+        assert waiting_a.async_operation_ref == AsyncOperationRef(
+            kind=AsyncOperationKind.EXECUTION_JOB,
+            owner="execution",
+            operation_id=waiting_a.saga_id,
+        )
+        assert len(host_port.calls) == 1
+
+        stored_a = saga_a.get_saga(waiting_a.saga_id)
+        assert stored_a is not None
+        slice_hash = stored_a.definition.ordered_slice_hashes[0]
+        intent_a = dispatch_a.get_for_saga_slice(waiting_a.saga_id, slice_hash)
+        assert intent_a is not None
+        assert getattr(intent_a.status, "value", intent_a.status) == "OUTCOME_UNKNOWN"
+        dispatch_intent_id = intent_a.dispatch_intent_id
+    finally:
+        runtime_a.artifact_store.close()
+        runtime_a.checkpointer.close()
+        _close_store(dispatch_a)
+        _close_store(saga_a)
+
+    # fresh runtime B 必须先从 PostgreSQL checkpoint + execution owner 重新读取同一恢复身份。
+    # 唤醒 EXECUTION_JOB 只允许 refresh/re-wait；没有 recovery evidence 时绝不重新调用 Host。
+    saga_b, dispatch_b = task10_postgres_execution_owner_factory()
+    runtime_b = _fresh_runtime(
+        seed,
+        saga_store=saga_b,
+        dispatch_store=dispatch_b,
+        host_port=host_port,
+    )
+    try:
+        reopened = runtime_b.runtime.get_checkpoint(task_id)
+        assert reopened == waiting_a
+
+        waiting_b = runtime_b.runtime.resume(
+            task_id,
+            WorkflowResumeCommand(
+                resume_kind="ASYNC_OPERATION_COMPLETED",
+                payload={"operation_id": waiting_a.saga_id},
+            ),
+        )
+        assert waiting_b.phase is WorkflowPhase.APPLY_WAIT
+        assert waiting_b.saga_id == waiting_a.saga_id
+        assert waiting_b.async_operation_ref == waiting_a.async_operation_ref
+        assert len(host_port.calls) == 1
+
+        stored_b = saga_b.get_saga(waiting_a.saga_id)
+        assert stored_b is not None
+        intent_b = dispatch_b.get_for_saga_slice(waiting_a.saga_id, slice_hash)
+        assert intent_b is not None
+        assert intent_b.dispatch_intent_id == dispatch_intent_id
+        assert getattr(intent_b.status, "value", intent_b.status) == "OUTCOME_UNKNOWN"
     finally:
         runtime_b.artifact_store.close()
         runtime_b.checkpointer.close()
