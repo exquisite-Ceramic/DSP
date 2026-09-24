@@ -233,15 +233,19 @@ class _SemanticBoundary:
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
+        """直接消费 graph 持久化的 exact ContextSnapshot ref，不从 operation-space 反推。"""
+
+        del operation_space_ref
         return ParameterBindingInputs(
             proposal=OperationProposal(
                 "set_wall_thickness.v1",
                 {"thickness": {"value": 300, "unit": "mm"}},
             ),
             context=ParameterBindingContext(
-                context_snapshot_id=operation_space_ref.ref_id,
-                context_snapshot_hash=operation_space_ref.content_hash or "",
+                context_snapshot_id=context_snapshot_ref.ref_id,
+                context_snapshot_hash=context_snapshot_ref.content_hash or "",
                 document_ref=_DOCUMENT_REF,
                 semantic_environment_ref=_ENVIRONMENT.environment_id,
                 selection=("WALL-001",),
