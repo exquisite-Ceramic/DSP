@@ -82,6 +82,25 @@ def _close_store(store: object) -> None:
         close()
 
 
+def _checkpoint_values(checkpointer, task_id: str) -> dict[str, object]:
+    """通过 saver 公共 API 读取 refs-only private graph state，不扩公共 checkpoint 契约。"""
+
+    checkpoint_tuple = checkpointer.get_tuple(
+        {
+            "configurable": {
+                "thread_id": task_id,
+                "checkpoint_ns": "",
+            }
+        }
+    )
+    assert checkpoint_tuple is not None
+    checkpoint = checkpoint_tuple.checkpoint
+    assert isinstance(checkpoint, dict)
+    values = checkpoint.get("channel_values")
+    assert isinstance(values, dict)
+    return values
+
+
 def _build_execution_services(
     seed,
     *,
@@ -250,8 +269,18 @@ def test_terminal_process_loss_replays_durable_saga_without_second_host_executio
         assert after_loss is not None
         assert after_loss.phase is WorkflowPhase.APPLY_WAIT
         assert after_loss.execution_plan_ref is not None
-        assert after_loss.grant_ref is not None
         assert after_loss.saga_id is None
+
+        # grant_ref 是 graph-private navigation，不属于公共 WorkflowCheckpointView；
+        # 用 saver 支持 API 证明 apply replay 所需 exact refs 已在失败前持久化。
+        values = _checkpoint_values(runtime_a.checkpointer, task_id)
+        execution_plan_value = values.get("execution_plan_ref")
+        grant_value = values.get("grant_ref")
+        assert isinstance(execution_plan_value, dict)
+        assert isinstance(grant_value, dict)
+        assert execution_plan_value.get("ref_id") == after_loss.execution_plan_ref.ref_id
+        assert isinstance(grant_value.get("ref_id"), str)
+        assert isinstance(grant_value.get("content_hash"), str)
     finally:
         runtime_a.artifact_store.close()
         runtime_a.checkpointer.close()
