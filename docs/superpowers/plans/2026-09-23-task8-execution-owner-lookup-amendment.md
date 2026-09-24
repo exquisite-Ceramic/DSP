@@ -30,7 +30,7 @@ This revision addresses the three findings raised against `43e02850…`.
 
 Follow-up review against `91708afc40260aba2fc9c7b0fe7c43a10494cc08` corrected two plan-level factual examples without changing the approved Design:
 
-4. **PostgreSQL parity fixture now mirrors the existing repository setup exactly.** It opens one connection, applies `apply_execution_saga_migrations(conn)`, clears `host_dispatch_intent` before `execution_saga`, constructs both PostgreSQL stores over that connection, and calls `create_saga(definition)` with the real signature. No nonexistent migration helper, `created_at` argument, or mapping-style fixture access remains.
+4. **PostgreSQL parity fixture now mirrors the existing repository setup exactly.** It opens one setup connection with `connect_postgres(dsn)`, applies `apply_execution_saga_migrations(conn)`, clears owner-local durable state through the existing `_truncate_owner_state(conn)` helper, then closes that setup connection. `PostgresExecutionSagaStoreV2(dsn)` and `PostgresHostDispatchIntentStore(dsn)` each keep their current DSN constructor and own an independent connection; `create_saga(definition)` seeds the exact parent Saga before the dispatch-store assertion. No nonexistent migration helper, shared-connection constructor, `created_at` argument, mapping-style fixture access, or schema/table-name shortcut remains.
 5. **The reconciled/nonterminal proof now uses a write-order-reachable state.** In the current exactly-one-Slice workflow, successful `record_verification_result()` first makes the Slice `SUCCEEDED` and the Saga `CONVERGENCE_PENDING`; `UnknownOutcomeRecovery` then marks the dispatch intent `RECONCILED`. The routing proof is pinned to that durable combination instead of a still-reconciling Slice.
 
 ---
@@ -338,24 +338,30 @@ Even though in-memory has no FK, it uses the same legal lineage shape as Postgre
 
 ### Step 3: PostgreSQL backend fixture with real parent Saga
 
-Reuse the existing PostgreSQL test setup exactly; do not invent a second migration/bootstrap path:
+Reuse the existing PostgreSQL test setup exactly; do not invent a second migration/bootstrap path or new store constructor shape:
 
 ```python
 dsn = require_postgres_dsn()
-conn = connect_postgres(dsn)
-apply_execution_saga_migrations(conn)
-with conn.transaction():
-    conn.execute("TRUNCATE TABLE host_dispatch_intent")
-    conn.execute("TRUNCATE TABLE execution_saga CASCADE")
+setup_conn = connect_postgres(dsn)
+try:
+    apply_execution_saga_migrations(setup_conn)
+    with setup_conn.transaction():
+        _truncate_owner_state(setup_conn)
+finally:
+    setup_conn.close()
 
 ctx, definition = build_saga_v2_contract_fixture()
-saga_store = PostgresExecutionSagaStoreV2(conn)
-dispatch_store = PostgresHostDispatchIntentStore(conn)
-saga_store.create_saga(definition)
+saga_store = PostgresExecutionSagaStoreV2(dsn)
+try:
+    saga_store.create_saga(definition)
+finally:
+    saga_store.close()
+
+dispatch_store = PostgresHostDispatchIntentStore(dsn)
 intent_factory = factory_bound_to(ctx, definition)
 ```
 
-Each shared assertion must receive a fresh PostgreSQL backend fixture (or an equivalently freshly cleaned database state) so transitions from one case cannot contaminate another. Fixture teardown closes the shared connection. The cleanup order must continue to respect the `host_dispatch_intent.saga_id` foreign key.
+Each shared assertion must receive a fresh PostgreSQL backend fixture (or an equivalently freshly cleaned database state) so transitions from one case cannot contaminate another. Fixture teardown closes `dispatch_store`; the setup connection and Saga-store connection are already closed by their own lifecycle blocks. `_truncate_owner_state()` remains the single existing cleanup helper and preserves the owner-local FK-safe table set instead of inventing a schema/table shortcut.
 
 The factory must emit:
 
