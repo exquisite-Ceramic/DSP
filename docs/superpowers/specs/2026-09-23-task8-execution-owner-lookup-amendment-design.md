@@ -1,12 +1,12 @@
 # Task 8 Execution Owner Lookup Amendment Design
 
 **Status:** Proposed — review findings incorporated; written-spec re-review pending
-**Date:** 2026-09-23  
-**Exact discovery base:** `feat/capability-real-owner-e2e-workflow@01c72938ce92c7df773a5c04ca28ca88f697b358`  
-**Baseline design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`  
-**Baseline plan:** `docs/superpowers/plans/2026-09-20-real-owner-e2e-workflow.md`  
-**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
-**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
+**Date:** 2026-09-23
+**Exact discovery base:** `feat/capability-real-owner-e2e-workflow@01c72938ce92c7df773a5c04ca28ca88f697b358`
+**Baseline design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`
+**Baseline plan:** `docs/superpowers/plans/2026-09-20-real-owner-e2e-workflow.md`
+**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`
+**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`
 **Delivery/recovery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
 
 ## 1. Purpose
