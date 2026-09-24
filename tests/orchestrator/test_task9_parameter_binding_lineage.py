@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
 from design_orchestrator.default_workflow_services import (
     DefaultWorkflowServices,
@@ -158,7 +156,10 @@ def test_graph_parameter_binding_forwards_persisted_context_snapshot_ref() -> No
 
 
 def test_default_services_forwards_exact_context_ref_to_binding_owner() -> None:
-    """DefaultWorkflowServices 不得从 operation-space artifact 推断或替换 ContextSnapshot identity。"""
+    """DefaultWorkflowServices 不得从 operation-space artifact 推断或替换 ContextSnapshot。
+
+    authoritative identity 必须来自调用方显式传入的 ref。
+    """
 
     context_ref = StableRef("CS-TASK9", "d" * 64)
     binding_inputs = ParameterBindingInputs(
