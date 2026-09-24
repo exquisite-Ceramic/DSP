@@ -224,6 +224,18 @@ class PostgresHostDispatchIntentStore:
             row = self._select_by_id(dispatch_intent_id)
             return None if row is None else _decode_row(row)
 
+    def get_for_saga_slice(
+        self,
+        saga_id: str,
+        execution_slice_hash: str,
+    ) -> HostDispatchIntent | None:
+        """按 exact Saga/Slice owner key 读取 durable intent，不推断 active/current。"""
+        normalized_saga_id = _text(saga_id, "saga_id")
+        normalized_slice_hash = _digest(execution_slice_hash, "execution_slice_hash")
+        with self._conn.transaction():
+            row = self._select_by_slice(normalized_saga_id, normalized_slice_hash)
+            return None if row is None else _decode_row(row)
+
     def _transition(
         self,
         dispatch_intent_id: UUID,
