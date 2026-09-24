@@ -28,8 +28,8 @@ OWNER_ROOTS = {
     "design_convergence",
 }
 
-# Census 冻结在 Task 1 exact head；Task 2/3 按已批准 Plan 新增了这些 package-root public
-# surfaces。这里只登记已经完成并通过 exact-head gate 的新增 API，不预先为后续 Task 开口子。
+# Census 冻结在 Task 1 exact head；这里只登记已经完成并通过 exact-head gate 的新增 API，
+# 不为尚未完成的后续 Task 预开 owner-private surface。
 POST_CENSUS_PUBLIC_SURFACE = {
     ("semantic_runtime", "RevisionBarrier"),
     ("semantic_runtime", "HostRevisionObservationPort"),
@@ -115,6 +115,46 @@ def test_production_adapter_obeys_real_owner_boundary() -> None:
     """Production/reference adapter 只能消费 census-approved public owner surface。"""
 
     assert _boundary_violations(ADAPTER.read_text(encoding="utf-8")) == ()
+
+
+def test_execution_owner_wiring_requires_explicit_public_seams_without_private_maps() -> None:
+    """Task 8 execution composition 必须显式注入 public owner seams，禁止 adapter 反查私有状态。"""
+
+    source = ADAPTER.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    adapter_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "CanonicalWorkflowOwnerPorts"
+    )
+    constructor = next(
+        node
+        for node in adapter_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    keyword_names = {item.arg for item in constructor.args.kwonlyargs}
+
+    assert "dispatch_intent_store" in keyword_names
+    assert "execution_recovery_projection" in keyword_names
+
+    # Adapter 只能走 Task 8.1/8.2 public lookups，不能读取 owner 内部字典/SQL selector，
+    # 也不能从 full hash 自己重造 ProviderBinding short id。
+    assert "._items" not in source
+    assert "_select_by_slice" not in source
+    assert "PBSV2-" not in source
+
+    # Durable lineage/recovery 分类只能来自 owner stores + injected projection；禁止为了方便
+    # 在 adapter 中维持第二套 saga→dispatch、grant→binding 或 terminal matrix。
+    forbidden_local_state = (
+        "_saga_to_dispatch",
+        "_dispatch_by_saga",
+        "_grant_to_binding",
+        "_binding_by_grant",
+        "_terminal_recovery_matrix",
+        "_recovery_matrix",
+    )
+    for marker in forbidden_local_state:
+        assert marker not in source
 
 
 def test_impact_path_does_not_reverse_lookup_freshness_lineage() -> None:
