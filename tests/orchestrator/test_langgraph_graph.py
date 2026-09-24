@@ -24,6 +24,12 @@ from design_orchestrator.workflow_contracts import (
     WorkflowCheckpointView,
     WorkflowPhase,
 )
+from design_orchestrator.workflow_services import (
+    ExecutionOwnerView,
+    ExecutionSagaView,
+    HostDispatchRecoveryState,
+    HostDispatchRecoveryView,
+)
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -551,7 +557,6 @@ def test_operation_freshness_async_wait_clears_stale_pair_then_writes_new_tuple(
     ]
 
 
-
 def _freshness_graph_before_impact():
     """使用真实 InMemorySaver 把 production graph 停在 analyze_impact 执行前。"""
 
@@ -655,3 +660,151 @@ def test_task6r3_graph_rejects_missing_or_malformed_ref_before_service_dispatch(
     with pytest.raises(ValueError):
         graph.invoke(None, config=config)
     assert services.impact_calls == []
+
+
+class _ExecutionSagaWaitServices:
+    """只记录 Task 8.5 apply/wait/recovery 调用，不复制 execution owner 状态机。"""
+
+    def __init__(
+        self,
+        *,
+        async_kind: AsyncOperationKind = AsyncOperationKind.EXECUTION_JOB,
+        async_owner: str = "execution",
+    ) -> None:
+        self.async_kind = async_kind
+        self.async_owner = async_owner
+        self.begin_count = 0
+        self.owner_refresh_count = 0
+
+    def __getattr__(self, name: str):
+        """Task 8.5 只允许 graph 调用 execution 边界；其它调用说明测试越界。"""
+
+        raise AssertionError(f"unexpected workflow service call: {name}")
+
+    def begin_execution(
+        self,
+        execution_plan_ref: StableRef,
+        grant_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """模拟 owner 已创建 durable Saga 后返回异步等待引用。"""
+
+        assert execution_plan_ref == StableRef("plan-task8", "1" * 64)
+        assert grant_ref == StableRef("grant-task8", "2" * 64)
+        self.begin_count += 1
+        operation_id = (
+            "SAGA-123"
+            if self.async_kind is AsyncOperationKind.EXECUTION_JOB
+            else "not-a-saga-operation"
+        )
+        return AsyncOperationRef(
+            kind=self.async_kind,
+            owner=self.async_owner,
+            operation_id=operation_id,
+        )
+
+    def get_execution_owner_state(self, saga_id: str) -> ExecutionOwnerView:
+        """恢复时暴露 OUTCOME_UNKNOWN owner truth，证明 graph 不得再次 dispatch。"""
+
+        assert saga_id == "SAGA-123"
+        self.owner_refresh_count += 1
+        slice_hash = "a" * 64
+        return ExecutionOwnerView(
+            saga=ExecutionSagaView(
+                saga_id=saga_id,
+                saga_revision=4,
+                status="EXECUTING",
+                active_slice_hash=slice_hash,
+            ),
+            active_dispatch_recovery=HostDispatchRecoveryView(
+                dispatch_intent_id="dispatch-task8",
+                execution_slice_hash=slice_hash,
+                state=HostDispatchRecoveryState.OUTCOME_UNKNOWN,
+            ),
+        )
+
+
+def _seed_execution_apply(services: _ExecutionSagaWaitServices):
+    """把 saver-backed graph 定位到 execution_grant 后、首次 execution refresh 之前。"""
+
+    saver = InMemorySaver()
+    graph = build_workflow_graph(services).compile(checkpointer=saver)
+    config = {
+        "configurable": {
+            "thread_id": f"task8-execution-{services.async_kind.value}",
+            "checkpoint_ns": "",
+        }
+    }
+    graph.update_state(
+        config,
+        {
+            "checkpoint_contract_version": 2,
+            "task_id": config["configurable"]["thread_id"],
+            "phase": WorkflowPhase.APPLY_WAIT.value,
+            "execution_plan_ref": {
+                "ref_id": "plan-task8",
+                "content_hash": "1" * 64,
+            },
+            "grant_ref": {
+                "ref_id": "grant-task8",
+                "content_hash": "2" * 64,
+            },
+        },
+        as_node="execution_grant",
+    )
+    return graph, config
+
+
+def test_execution_async_wait_persists_saga_identity_atomically() -> None:
+    """EXECUTION_JOB wait 必须与 durable Saga identity 在同一 node update 中出现。"""
+
+    services = _ExecutionSagaWaitServices()
+    graph, config = _seed_execution_apply(services)
+
+    graph.invoke(None, config=config)
+    snapshot = graph.get_state(config).values
+
+    assert services.begin_count == 1
+    assert snapshot.get("saga_id") == "SAGA-123"
+    assert snapshot["async_operation_ref"] == {
+        "kind": AsyncOperationKind.EXECUTION_JOB.value,
+        "owner": "execution",
+        "operation_id": "SAGA-123",
+    }
+    assert snapshot["resume_node"] == "refresh_execution_owner"
+    assert snapshot["phase"] == WorkflowPhase.APPLY_WAIT.value
+
+
+def test_non_execution_async_wait_never_copies_operation_id_to_saga_id() -> None:
+    """其它合法 async kind 的 operation id 绝不能被 graph 提升成 Saga identity。"""
+
+    services = _ExecutionSagaWaitServices(
+        async_kind=AsyncOperationKind.RECONSTRUCTION_JOB,
+        async_owner="semantic-runtime",
+    )
+    graph, config = _seed_execution_apply(services)
+
+    graph.invoke(None, config=config)
+    snapshot = graph.get_state(config).values
+
+    assert services.begin_count == 1
+    assert snapshot.get("saga_id") is None
+    assert snapshot["async_operation_ref"]["operation_id"] == "not-a-saga-operation"
+
+
+def test_execution_saga_unknown_resume_does_not_redispatch() -> None:
+    """Saver 唤醒后必须用已持久化 Saga refresh OUTCOME_UNKNOWN，不能第二次 begin。"""
+
+    services = _ExecutionSagaWaitServices()
+    graph, config = _seed_execution_apply(services)
+
+    graph.invoke(None, config=config)
+    assert services.begin_count == 1
+
+    graph.invoke(Command(resume={"status": "wake"}), config=config)
+
+    assert services.begin_count == 1
+    assert services.owner_refresh_count == 1
+    snapshot = graph.get_state(config).values
+    assert snapshot.get("saga_id") == "SAGA-123"
+    assert snapshot["resume_node"] == "refresh_execution_owner"
+    assert snapshot["phase"] == WorkflowPhase.APPLY_WAIT.value
