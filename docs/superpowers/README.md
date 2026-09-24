@@ -64,6 +64,7 @@
 | [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
 | [`2026-09-19-hitl-pause-resume-design.md`](specs/2026-09-19-hitl-pause-resume-design.md) | COMPLETED |
 | [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | CURRENT |
+| [`2026-09-23-task8-execution-owner-lookup-amendment-design.md`](specs/2026-09-23-task8-execution-owner-lookup-amendment-design.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -105,6 +106,7 @@
 | [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | COMPLETED |
 | [`2026-09-19-hitl-pause-resume.md`](plans/2026-09-19-hitl-pause-resume.md) | COMPLETED |
 | [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | CURRENT |
+| [`2026-09-23-task8-execution-owner-lookup-amendment.md`](plans/2026-09-23-task8-execution-owner-lookup-amendment.md) | CURRENT |
 
 ## 使用规则
 
