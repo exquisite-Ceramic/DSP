@@ -647,6 +647,7 @@ class CanonicalWorkflowOwnerPorts:
         if not normalized_task_id:
             raise ValueError("task_id is required")
 
+        # 必须先解析 authoritative Impact；缺失 ref 时后续 owner 绝不能被调用。
         analysis = self._impact_store.get(impact_ref.ref_id)
         if (
             impact_ref.content_hash is not None
@@ -656,6 +657,8 @@ class CanonicalWorkflowOwnerPorts:
                 "ImpactAnalysis StableRef hash does not match authoritative owner content"
             )
 
+        # operation_ref 由 workflow 显式携带，并用 Impact owner 已冻结的 material fingerprint
+        # 校验同一条 lineage；这样重建 adapter 后不需要 ``impact -> operation`` 私有映射。
         bound = self._bound_operation(operation_ref)
         arguments = dict(bound.arguments)
         material_fingerprint = compute_bound_operation_fingerprint(
@@ -700,6 +703,7 @@ class CanonicalWorkflowOwnerPorts:
             bound.operation.version,
         )
         if definition.existence_effects:
+            # Task 6 不扩展 CREATE/DELETE product scenarios；不得临时发明 scope recipe。
             raise self._not_wired("build_changeset.existence_effects")
 
         topology = self._topology_registry.get(
@@ -803,6 +807,7 @@ class CanonicalWorkflowOwnerPorts:
         )
         validate_changeset_integrity_v2(changeset, boundary)
 
+        # 只有所有 owner deterministic validators 通过后才发布 immutable reference truth。
         self._approval_scope_store.put_definition(scope_v2)
         self._changeset_store.put(changeset)
         self._approval_scope_store.put_boundary(boundary)
@@ -825,6 +830,8 @@ class CanonicalWorkflowOwnerPorts:
         if isinstance(admission, AsyncOperationRef):
             return admission
 
+        # ChangeSet 与 final Boundary 都从 authoritative owner-local stores 重新解析；
+        # adapter 不接受 admission 内自带的副本作为跨 owner truth。
         changeset = self._changeset_store.get(changeset_ref.ref_id)
         self._ref_hash_matches(
             changeset_ref,
@@ -877,6 +884,8 @@ class CanonicalWorkflowOwnerPorts:
             f"SCOPE-{changeset.changeset_id}"
         )
 
+        # approval_ref 必须解析到 Gateway owner 已消费并持有的真实 approval；这里仅做
+        # content identity join，不自行解释 approval lifecycle 或 policy semantics。
         stored_approval = self._gateway_authorization_store.get_approval(
             approval_ref.ref_id
         )
@@ -918,6 +927,8 @@ class CanonicalWorkflowOwnerPorts:
         )
         self._materialization_plan_store.put(materialization_plan)
 
+        # Runtime routing 是明确的环境边界；adapter 只要求它返回 owner public contract，
+        # 不在这里选择 Host、排序 route 或推断 provider eligibility。
         routing = self._materialization_routing.routing_evidence(
             materialization_plan,
             topology,
@@ -954,6 +965,8 @@ class CanonicalWorkflowOwnerPorts:
             kind="ExecutionPlanV2",
         )
 
+        # SnapshotSet lineage 来自 authoritative ChangeSet owner；adapter 不维护
+        # plan→snapshot-set 私有映射，也不自行比较 Host revision。
         changeset = self._changeset_store.get(execution_plan.changeset_id)
         if changeset.changeset_hash != execution_plan.changeset_hash:
             raise ValueError("ExecutionPlanV2 ChangeSet lineage does not match owner truth")
@@ -984,6 +997,8 @@ class CanonicalWorkflowOwnerPorts:
             kind="ExecutionPlanV2",
         )
 
+        # 当前 workflow contract 只携带一个 provider_binding_ref，因此本阶段只能对一个
+        # exact ExecutionSliceV2 发布一个 BindingSetV2；不得静默挑选多 slice 中的任意一个。
         if len(execution_plan.execution_slices) != 1:
             raise ValueError("provider binding requires exactly one ExecutionSliceV2")
         execution_slice = execution_plan.execution_slices[0]
