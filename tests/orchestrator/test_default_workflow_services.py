@@ -88,7 +88,7 @@ class _ExternalOwners:
         self.resolution_inputs: OperationResolutionInputs | None = None
         self.binding_inputs: ParameterBindingInputs | None = None
         self.resolution_calls: list[StableRef] = []
-        self.binding_calls: list[StableRef] = []
+        self.binding_calls: list[tuple[StableRef, StableRef]] = []
 
     def load_operation_resolution_inputs(
         self,
@@ -101,8 +101,9 @@ class _ExternalOwners:
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
-        self.binding_calls.append(operation_space_ref)
+        self.binding_calls.append((operation_space_ref, context_snapshot_ref))
         assert self.binding_inputs is not None
         return self.binding_inputs
 
@@ -185,6 +186,7 @@ def test_parameter_binder_adapter_persists_bound_proposal_and_returns_only_ref()
         context=_resolution_context(),
     )
     operation_space_ref = service.resolve_operations(StableRef("snapshot-task8"))
+    context_snapshot_ref = StableRef("CS-task8", "1" * 64)
     owners.binding_inputs = ParameterBindingInputs(
         proposal=OperationProposal(
             "move.v1",
@@ -193,10 +195,10 @@ def test_parameter_binder_adapter_persists_bound_proposal_and_returns_only_ref()
         context=_binding_context(),
     )
 
-    bound_ref = service.bind_parameters(operation_space_ref)
+    bound_ref = service.bind_parameters(operation_space_ref, context_snapshot_ref)
 
     assert isinstance(bound_ref, StableRef)
-    assert owners.binding_calls == [operation_space_ref]
+    assert owners.binding_calls == [(operation_space_ref, context_snapshot_ref)]
     assert store.kinds[bound_ref.ref_id] == "bound_operation_proposal"
     stored = store.get(bound_ref)
     assert isinstance(stored, BoundOperationProposal)
@@ -219,6 +221,7 @@ def test_parameter_binding_rejects_proposal_outside_persisted_operation_space() 
         context=_resolution_context(),
     )
     operation_space_ref = service.resolve_operations(StableRef("snapshot-task8"))
+    context_snapshot_ref = StableRef("CS-task8", "1" * 64)
     owners.binding_inputs = ParameterBindingInputs(
         proposal=OperationProposal(
             "set_wall_thickness.v1",
@@ -228,7 +231,7 @@ def test_parameter_binding_rejects_proposal_outside_persisted_operation_space() 
     )
 
     try:
-        service.bind_parameters(operation_space_ref)
+        service.bind_parameters(operation_space_ref, context_snapshot_ref)
     except ValueError as exc:
         assert "operation space" in str(exc)
     else:
