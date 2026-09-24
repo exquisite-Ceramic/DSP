@@ -168,9 +168,9 @@ def test_real_owner_async_resume_persists_and_consumes_exact_freshness_tuple() -
         assert analysis.snapshot_set_ref.snapshot_set_id == snapshot_set_ref.ref_id
         assert analysis.snapshot_set_ref.snapshot_set_hash == snapshot_set_ref.content_hash
         assert case.semantic_boundary.reconstruction_calls == [
-            ("CONTEXT", "42"),
-            ("OPERATION", "42"),
-            ("OPERATION", "42"),
+            ("CONTEXT_FRESHNESS", "42"),
+            ("OPERATION_FRESHNESS", "42"),
+            ("OPERATION_FRESHNESS", "42"),
         ]
         assert len(case.host_port.calls) == 1
     finally:
