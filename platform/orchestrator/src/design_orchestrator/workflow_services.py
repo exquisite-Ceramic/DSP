@@ -121,24 +121,18 @@ class HostDispatchRecoveryState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class HostDispatchRecoveryView:
-    """当前 active Host dispatch recovery 的最小只读投影。
+    """当前 active Host dispatch recovery 的最小只读投影。"""
 
-    合法的 pre-dispatch crash window 可能尚未创建 durable dispatch intent；此时恢复状态仍然
-    必须可见，但 ``dispatch_intent_id`` 为 ``None``。一旦 intent 已存在，仍携带 owner-issued
-    durable identity，workflow 不生成替代 identity。
-    """
-
-    dispatch_intent_id: str | None
+    dispatch_intent_id: str
     execution_slice_hash: str
     state: HostDispatchRecoveryState
 
     def __post_init__(self) -> None:
-        normalized_intent_id = (
-            None
-            if self.dispatch_intent_id is None
-            else _required_text(self.dispatch_intent_id, "dispatch_intent_id")
+        object.__setattr__(
+            self,
+            "dispatch_intent_id",
+            _required_text(self.dispatch_intent_id, "dispatch_intent_id"),
         )
-        object.__setattr__(self, "dispatch_intent_id", normalized_intent_id)
         normalized_hash = _optional_sha256(
             self.execution_slice_hash,
             "execution_slice_hash",
