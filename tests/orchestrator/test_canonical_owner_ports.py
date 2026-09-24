@@ -1066,9 +1066,17 @@ class _Task6R3GraphServices:
 
         return StableRef("graph-operation-space", "2" * 64)
 
-    def bind_parameters(self, operation_ref: StableRef) -> StableRef:
-        """Human ACCEPT 后切换到 owner store 中真实存在的 bound operation ref。"""
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
+        """Human ACCEPT 后保留 exact context lineage，并切换到 owner store 的真实 bound ref。"""
 
+        assert context_snapshot_ref == StableRef(
+            "graph-context:task6r3-owner-checkpoint",
+            "1" * 64,
+        )
         return self.bound_ref
 
     def ensure_operation_freshness(

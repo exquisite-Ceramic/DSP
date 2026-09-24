@@ -85,17 +85,12 @@ class _MoveProfile:
 class _Task6WorkflowInputs(_Task6SemanticReconstruction):
     """真实 resolver/binder 之前允许存在的窄 read-model/environment 输入边界。"""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.context_ref: StableRef | None = None
-
     def load_operation_resolution_inputs(
         self,
         snapshot_ref: StableRef,
     ) -> OperationResolutionInputs:
         """返回 provider/context read model；OperationResolver 仍负责 eligibility 规则。"""
 
-        self.context_ref = snapshot_ref
         return OperationResolutionInputs(
             profiles=(_MoveProfile(),),
             context=ResolutionContext(
@@ -113,20 +108,19 @@ class _Task6WorkflowInputs(_Task6SemanticReconstruction):
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
-        """返回用户 proposal 与 snapshot-bound context；ParameterBinder 仍负责 slot/schema 规则。"""
+        """直接消费显式 ContextSnapshot ref；ParameterBinder 仍负责 slot/schema 规则。"""
 
         del operation_space_ref
-        if self.context_ref is None:
-            raise AssertionError("operation resolution inputs must be loaded first")
         return ParameterBindingInputs(
             proposal=OperationProposal(
                 "move.v1",
                 {"displacement": [300, 0, 0]},
             ),
             context=ParameterBindingContext(
-                context_snapshot_id=self.context_ref.ref_id,
-                context_snapshot_hash=self.context_ref.content_hash or "",
+                context_snapshot_id=context_snapshot_ref.ref_id,
+                context_snapshot_hash=context_snapshot_ref.content_hash or "",
                 document_ref="DOC-TASK6",
                 semantic_environment_ref=_TASK6_ENVIRONMENT.environment_id,
                 selection=("WALL-001",),
@@ -361,7 +355,10 @@ def test_task6_parameter_binding_inputs_are_wired_before_task7() -> None:
     assert isinstance(resolution_inputs, OperationResolutionInputs)
 
     operation_space_ref = StableRef("operation-space-task6", "8" * 64)
-    binding_inputs = adapter.load_parameter_binding_inputs(operation_space_ref)
+    binding_inputs = adapter.load_parameter_binding_inputs(
+        operation_space_ref,
+        context_ref,
+    )
 
     assert isinstance(binding_inputs, ParameterBindingInputs)
     assert binding_inputs.context.context_snapshot_id == context_ref.ref_id
