@@ -15,6 +15,7 @@ from design_orchestrator.workflow_contracts import (
     WorkflowPhase,
     WorkflowResumeCommand,
 )
+
 from tests.orchestrator.test_real_owner_workflow_end_to_end import (
     _build_real_owner_case,
     _close_case,
@@ -178,7 +179,8 @@ def test_real_owner_async_resume_persists_and_consumes_exact_freshness_tuple() -
 
 
 @requires_postgres
-def test_real_owner_resume_fails_closed_when_context_snapshot_owner_truth_is_missing() -> None:
+def test_real_owner_resume_fails_closed_when_context_snapshot_owner_truth_is_missing(
+) -> None:
     """D：checkpoint 只保存 ContextSnapshot ref；owner body 丢失后 fresh runtime 必须 fail closed。"""
 
     task_id = "task9-real-owner-missing-d"
