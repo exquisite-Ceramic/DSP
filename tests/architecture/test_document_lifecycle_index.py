@@ -47,10 +47,17 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
     assert "Technology Modernization — COMPLETED" in text
     assert "Architecture Modernization Phase II — COMPLETED" in text
     assert "Capability Phase — HITL pause/resume COMPLETED" in text
-    assert "Capability Phase successor — real E2E workflow, NOT YET STARTED" in text
-    assert "**Latest completed capability phase:** HITL pause/resume" in root_text
-    assert "**Current engineering activity:** HITL pause/resume — COMPLETED" in root_text
-    assert "**Next capability phase:** real E2E workflow — NOT YET STARTED" in root_text
+    assert "Capability Phase — real E2E workflow COMPLETED" in text
+    assert (
+        "Capability Phase successor — semantic -> plan -> approve -> execute -> reconcile, "
+        "NOT YET STARTED"
+    ) in text
+    assert "**Latest completed capability phase:** real E2E workflow" in root_text
+    assert "**Current engineering activity:** real E2E workflow — COMPLETED" in root_text
+    assert (
+        "**Next capability phase:** semantic -> plan -> approve -> execute -> reconcile — "
+        "NOT YET STARTED"
+    ) in root_text
 
 
 def test_hitl_design_and_plan_are_closed_only_after_implementation_merge() -> None:
@@ -64,3 +71,22 @@ def test_hitl_design_and_plan_are_closed_only_after_implementation_merge() -> No
         "2026-09-19-hitl-pause-resume.md" in line and "COMPLETED" in line
         for line in lines
     )
+
+
+def test_real_owner_e2e_artifacts_are_closed_only_after_implementation_merge() -> None:
+    lines = _index_text().splitlines()
+    completed_artifacts = (
+        "2026-09-20-real-owner-e2e-workflow-design.md",
+        "2026-09-20-real-owner-e2e-workflow.md",
+        "2026-09-23-task8-execution-owner-lookup-amendment-design.md",
+        "2026-09-23-task8-execution-owner-lookup-amendment.md",
+        "2026-09-24-task9-parameter-binding-context-lineage-amendment.md",
+    )
+
+    for artifact in completed_artifacts:
+        assert any(artifact in line and "COMPLETED" in line for line in lines), (
+            f"{artifact} must be COMPLETED after the real-owner E2E implementation merge"
+        )
+        assert not any(artifact in line and "CURRENT" in line for line in lines), (
+            f"{artifact} must not remain CURRENT after lifecycle closeout"
+        )
