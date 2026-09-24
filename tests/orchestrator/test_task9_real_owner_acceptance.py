@@ -16,12 +16,7 @@ from design_orchestrator.workflow_contracts import (
     WorkflowResumeCommand,
 )
 
-from tests.orchestrator.test_real_owner_workflow_end_to_end import (
-    _build_real_owner_case,
-    _close_case,
-    _request,
-    requires_postgres,
-)
+from tests.orchestrator import test_real_owner_workflow_end_to_end as real_owner
 
 
 def _checkpoint_values(case) -> dict[str, object]:
@@ -81,13 +76,13 @@ def _all_type_names(value: object) -> set[str]:
     return names
 
 
-@requires_postgres
+@real_owner.requires_postgres
 def test_real_owner_hitl_requires_exact_pause_and_rejects_consumed_resume() -> None:
     """B：exact pause_id 只能消费一次；旧 human command 不得穿透到真实 owner/Host。"""
 
-    case = _build_real_owner_case("task9-real-owner-hitl-b")
+    case = real_owner._build_real_owner_case("task9-real-owner-hitl-b")
     try:
-        proposal_wait = case.runtime.start(_request(case.task_id))
+        proposal_wait = case.runtime.start(real_owner._request(case.task_id))
         assert proposal_wait.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
         assert proposal_wait.pending_interaction is not None
         pause_id = proposal_wait.pending_interaction.pause_id
@@ -121,16 +116,16 @@ def test_real_owner_hitl_requires_exact_pause_and_rejects_consumed_resume() -> N
         assert completed.phase is WorkflowPhase.COMPLETED
         assert len(case.host_port.calls) == 1
     finally:
-        _close_case(case)
+        real_owner._close_case(case)
 
 
-@requires_postgres
+@real_owner.requires_postgres
 def test_real_owner_async_resume_persists_and_consumes_exact_freshness_tuple() -> None:
     """C：async re-entry 后 saver 中的新 PS/PSS tuple 必须与真实 Impact owner 输入一致。"""
 
-    case = _build_real_owner_case("task9-real-owner-async-c")
+    case = real_owner._build_real_owner_case("task9-real-owner-async-c")
     try:
-        proposal_wait = case.runtime.start(_request(case.task_id))
+        proposal_wait = case.runtime.start(real_owner._request(case.task_id))
         assert proposal_wait.pending_interaction is not None
         freshness_wait = case.runtime.resume(
             case.task_id,
@@ -175,27 +170,30 @@ def test_real_owner_async_resume_persists_and_consumes_exact_freshness_tuple() -
         ]
         assert len(case.host_port.calls) == 1
     finally:
-        _close_case(case)
+        real_owner._close_case(case)
 
 
-@requires_postgres
+@real_owner.requires_postgres
 def test_real_owner_resume_fails_closed_when_context_snapshot_owner_truth_is_missing(
 ) -> None:
-    """D：checkpoint 只保存 ContextSnapshot ref；owner body 丢失后 fresh runtime 必须 fail closed。"""
+    """D：checkpoint 只保存 ContextSnapshot ref。
+
+    owner body 丢失后 fresh runtime 必须 fail closed。
+    """
 
     task_id = "task9-real-owner-missing-d"
-    case_a = _build_real_owner_case(task_id)
+    case_a = real_owner._build_real_owner_case(task_id)
     try:
-        proposal_wait = case_a.runtime.start(_request(task_id))
+        proposal_wait = case_a.runtime.start(real_owner._request(task_id))
         assert proposal_wait.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
         assert proposal_wait.pending_interaction is not None
         assert proposal_wait.context_snapshot_ref is not None
     finally:
         # 丢弃 runtime A 的 in-memory Semantic Runtime registry；PostgreSQL checkpoint/artifact
         # 仍完整保留，fresh runtime 只能看到 ref，不能从 checkpoint 重建 SemanticSnapshot body。
-        _close_case(case_a)
+        real_owner._close_case(case_a)
 
-    case_b = _build_real_owner_case(task_id)
+    case_b = real_owner._build_real_owner_case(task_id)
     try:
         reopened = case_b.runtime.get_checkpoint(task_id)
         assert reopened == proposal_wait
@@ -214,16 +212,16 @@ def test_real_owner_resume_fails_closed_when_context_snapshot_owner_truth_is_mis
         assert case_b.host_port.calls == []
         assert case_b.saga_store.get_saga("SAGA-TASK9") is None
     finally:
-        _close_case(case_b)
+        real_owner._close_case(case_b)
 
 
-@requires_postgres
+@real_owner.requires_postgres
 def test_real_owner_checkpoint_contains_refs_and_navigation_only() -> None:
     """F：真实 owner terminal checkpoint 不得序列化任何 authoritative domain body。"""
 
-    case = _build_real_owner_case("task9-real-owner-refs-only-f")
+    case = real_owner._build_real_owner_case("task9-real-owner-refs-only-f")
     try:
-        proposal_wait = case.runtime.start(_request(case.task_id))
+        proposal_wait = case.runtime.start(real_owner._request(case.task_id))
         assert proposal_wait.pending_interaction is not None
         case.runtime.resume(
             case.task_id,
@@ -306,4 +304,4 @@ def test_real_owner_checkpoint_contains_refs_and_navigation_only() -> None:
             assert isinstance(values.get(field_name), dict)
         assert values.get("saga_id") == completed.saga_id
     finally:
-        _close_case(case)
+        real_owner._close_case(case)
