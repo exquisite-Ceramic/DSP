@@ -243,7 +243,10 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         }
 
     def parameter_binding(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.bind_parameters(_require_stable_ref(state, "operation_ref"))
+        result = services.bind_parameters(
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "context_snapshot_ref"),
+        )
         if isinstance(result, AsyncOperationRef):
             return _set_async_wait(
                 result,
