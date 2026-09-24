@@ -166,9 +166,11 @@ class _ScenarioOwners:
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
-        """给真实 binder 提供用户 proposal 与同一 snapshot-bound binding context。"""
+        """给真实 binder 提供用户 proposal，并消费 graph 显式携带的 ContextSnapshot identity。"""
 
+        del operation_space_ref
         self.binding_input_loads += 1
         return ParameterBindingInputs(
             proposal=OperationProposal(
@@ -176,8 +178,8 @@ class _ScenarioOwners:
                 {"displacement": [300, 0, 0]},
             ),
             context=ParameterBindingContext(
-                context_snapshot_id="CS-task9",
-                context_snapshot_hash="snapshot-task9",
+                context_snapshot_id=context_snapshot_ref.ref_id,
+                context_snapshot_hash=context_snapshot_ref.content_hash or "",
                 document_ref="drawing-task9",
                 semantic_environment_ref="semantic-env@task9",
                 selection=("S-001", "S-002"),
