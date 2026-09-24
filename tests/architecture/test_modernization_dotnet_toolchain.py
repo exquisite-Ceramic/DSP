@@ -88,7 +88,7 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
     references = _package_references(project)
     expected_owners = {
         "Google.Protobuf": ("DspGoogleProtobufVersion", "3.36.2"),
-        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.83.0"),
+        "Grpc.AspNetCore": ("DspGrpcAspNetCoreVersion", "2.84.0"),
         "Grpc.Tools": ("DspGrpcToolsVersion", "2.84.0"),
         "System.IO.FileSystem.AccessControl": (
             "DspSystemIOFileSystemAccessControlVersion",
@@ -104,10 +104,10 @@ def test_transport_keeps_project_local_nuget_owners_explicit() -> None:
 
 
 def test_grpc_transport_test_client_tracks_server_runtime_floor() -> None:
-    """Grpc.Net.Client 必须与 Grpc.AspNetCore 的 2.83 runtime floor 对齐。"""
+    """Grpc.Net.Client 必须与 Grpc.AspNetCore 的 2.84 runtime floor 对齐。"""
 
     references = _package_references(_xml_root(TRANSPORT_TESTS))
-    assert references["Grpc.Net.Client"].attrib.get("Version") == "2.83.0"
+    assert references["Grpc.Net.Client"].attrib.get("Version") == "2.84.0"
 
 
 def test_transport_proto_codegen_owner_is_explicit_and_semantics_unchanged() -> None:
