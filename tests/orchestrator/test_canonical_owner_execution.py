@@ -136,21 +136,29 @@ class _BindableEvidencePort:
         return self._delegate.build_bundle(**kwargs)
 
     def build_evidence(self, **kwargs):
-        """可仅通过 evidence IO 删除 required field，驱动真实 verifier 的不足证据终态。"""
+        """仅改变 evidence IO 的测量单位，驱动真实 verifier 形成不足证据终态。"""
         if self._delegate is None:
             raise AssertionError("evidence port must be bound before execution")
         evidence = self._delegate.build_evidence(**kwargs)
         if not self._insufficient_convergence:
             return evidence
 
-        # 单 materialization 无法产生 cross-host value divergence；这里不伪造第二个 Host，
-        # 而是通过合法 evidence IO 缺少 required field 驱动 real verifier 的
-        # EVIDENCE_INSUFFICIENT，coordinator 按冻结规则把 Saga 收口为 DIVERGED。
+        # 单 materialization 无法产生 cross-host value divergence；这里不伪造第二个 Host。
+        # 保留合法非空 CanonicalFieldEvidence，只让单位与 profile required unit 不一致，
+        # 由 real verifier 投影 EVIDENCE_INSUFFICIENT，coordinator 再按冻结规则收口 DIVERGED。
         from dataclasses import replace
 
         from design_convergence import compute_materialization_canonical_evidence_hash
 
-        draft = replace(evidence, verified_fields=(), evidence_hash="0" * 64)
+        changed_field = replace(
+            evidence.verified_fields[0],
+            unit="task8:incompatible-unit",
+        )
+        draft = replace(
+            evidence,
+            verified_fields=(changed_field,),
+            evidence_hash="0" * 64,
+        )
         return replace(
             draft,
             evidence_hash=compute_materialization_canonical_evidence_hash(draft),
