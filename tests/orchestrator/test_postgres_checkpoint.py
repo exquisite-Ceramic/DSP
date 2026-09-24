@@ -69,7 +69,18 @@ class _RestartServices:
         del context_snapshot_ref, allow_legacy_rehydrate
         return OperationArtifactResolution(ref=operation_ref, source="durable")
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """确认 restart 后 graph 仍显式携带同一个 durable ContextSnapshot ref。"""
+
+        del operation_ref
+        assert context_snapshot_ref == StableRef(
+            "snapshot-task-postgres-restart",
+            "a" * 64,
+        )
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
             owner="interaction",
