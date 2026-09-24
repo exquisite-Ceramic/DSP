@@ -389,6 +389,17 @@ class CanonicalWorkflowOwnerPorts:
             raise TypeError(
                 "load_parameter_binding_inputs must return ParameterBindingInputs"
             )
+        authoritative_hash = context_snapshot_ref.content_hash
+        if authoritative_hash is None:
+            raise ValueError("ContextSnapshot StableRef requires content_hash")
+        if (
+            inputs.context.context_snapshot_id != context_snapshot_ref.ref_id
+            or inputs.context.context_snapshot_hash != authoritative_hash
+        ):
+            raise ValueError(
+                "ParameterBindingContext lineage does not match authoritative "
+                "ContextSnapshot ref"
+            )
         return inputs
 
     def resolve_host_context(self, task_id: str) -> StableRef:
