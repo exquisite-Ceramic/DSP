@@ -107,6 +107,7 @@
 | [`2026-09-19-hitl-pause-resume.md`](plans/2026-09-19-hitl-pause-resume.md) | COMPLETED |
 | [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | CURRENT |
 | [`2026-09-23-task8-execution-owner-lookup-amendment.md`](plans/2026-09-23-task8-execution-owner-lookup-amendment.md) | CURRENT |
+| [`2026-09-24-task9-parameter-binding-context-lineage-amendment.md`](plans/2026-09-24-task9-parameter-binding-context-lineage-amendment.md) | CURRENT |
 
 ## 使用规则
 
