@@ -39,7 +39,12 @@ from .readiness_contracts import (
     ReadinessStatus,
     compute_readiness_receipt_hash,
 )
-from .recovery import UnknownOutcomeRecovery
+from .recovery import (
+    ExecutionRecoveryDisposition,
+    ExecutionRecoveryProjection,
+    UnknownOutcomeRecovery,
+    project_execution_recovery,
+)
 
 __all__ = [
     "AuthorityFailure",
@@ -50,6 +55,8 @@ __all__ = [
     "CoordinationStatus",
     "CrossHostReadinessBarrier",
     "ExecutionAuthorityPort",
+    "ExecutionRecoveryDisposition",
+    "ExecutionRecoveryProjection",
     "ExecutionSagaCoordinator",
     "HostCommitted",
     "HostDispatchContext",
@@ -74,4 +81,5 @@ __all__ = [
     "UnknownOutcomeRecovery",
     "VerificationEvidencePort",
     "compute_readiness_receipt_hash",
+    "project_execution_recovery",
 ]

@@ -33,6 +33,7 @@ from .hashing import (
 )
 from .integrity import validate_changeset_integrity
 from .integrity_v2 import validate_changeset_integrity_v2
+from .store import InMemoryChangeSetStore
 
 __all__ = [
     "ApprovalScopeDefinitionRef",
@@ -46,6 +47,7 @@ __all__ = [
     "ChangeSetBuilder",
     "ChangeSetError",
     "DerivedOperationMaterialization",
+    "InMemoryChangeSetStore",
     "OperationOrigin",
     "OperationSourceEvidence",
     "OperationSourceKind",

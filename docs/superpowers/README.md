@@ -8,7 +8,8 @@
 - Technology Modernization — COMPLETED
 - Architecture Modernization Phase II — COMPLETED
 - Capability Phase — HITL pause/resume COMPLETED
-- Capability Phase successor — real E2E workflow, NOT YET STARTED
+- Capability Phase — real E2E workflow COMPLETED
+- Capability Phase successor — semantic -> plan -> approve -> execute -> reconcile, NOT YET STARTED
 
 ## 主规格 authority
 
@@ -63,7 +64,8 @@
 | [`2026-09-19-checkpoint-retention-contract.md`](specs/2026-09-19-checkpoint-retention-contract.md) | CURRENT |
 | [`2026-09-19-capability-phase-handoff.md`](specs/2026-09-19-capability-phase-handoff.md) | CURRENT |
 | [`2026-09-19-hitl-pause-resume-design.md`](specs/2026-09-19-hitl-pause-resume-design.md) | COMPLETED |
-| [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | CURRENT |
+| [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | COMPLETED |
+| [`2026-09-23-task8-execution-owner-lookup-amendment-design.md`](specs/2026-09-23-task8-execution-owner-lookup-amendment-design.md) | COMPLETED |
 
 ## Implementation Plans
 
@@ -104,11 +106,13 @@
 | [`2026-09-16-workflow-orchestrator-langgraph-runtime.md`](plans/2026-09-16-workflow-orchestrator-langgraph-runtime.md) | CURRENT |
 | [`2026-09-19-canonical-v2-convergence.md`](plans/2026-09-19-canonical-v2-convergence.md) | COMPLETED |
 | [`2026-09-19-hitl-pause-resume.md`](plans/2026-09-19-hitl-pause-resume.md) | COMPLETED |
-| [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | CURRENT |
+| [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | COMPLETED |
+| [`2026-09-23-task8-execution-owner-lookup-amendment.md`](plans/2026-09-23-task8-execution-owner-lookup-amendment.md) | COMPLETED |
+| [`2026-09-24-task9-parameter-binding-context-lineage-amendment.md`](plans/2026-09-24-task9-parameter-binding-context-lineage-amendment.md) | COMPLETED |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- Technology Modernization 与 Architecture Modernization Phase II 已完成并保留为工程证据；HITL pause/resume capability 已完成 implementation merge 与 merged-main verification，并通过本 docs-only lifecycle closeout 标记为 `COMPLETED`；successor `real E2E workflow` 尚未开始。
-- HITL capability closeout 只记录已完成生命周期事实；successor `real E2E workflow` 在本 closeout 合并并完成 final-main verification 前保持 `NOT YET STARTED`。
+- Technology Modernization、Architecture Modernization Phase II 与 HITL pause/resume capability 已完成并保留为工程证据；real E2E workflow capability 已完成 implementation merge 与 merged-main verification，并通过本 docs-only lifecycle closeout 标记为 `COMPLETED`。
+- 本 closeout 只记录已完成生命周期事实，不授权 successor implementation；successor `semantic -> plan -> approve -> execute -> reconcile` 保持 `NOT YET STARTED`，仍需独立 Design Spec / Implementation Plan gate。

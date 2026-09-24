@@ -12,8 +12,10 @@ from .hashing import (
     compute_required_set_hash,
 )
 from .planner import MaterializationPlanner
+from .store import InMemoryMaterializationPlanStore
 
 __all__ = [
+    "InMemoryMaterializationPlanStore",
     "MaterializationIntent",
     "MaterializationPlan",
     "MaterializationPlanner",

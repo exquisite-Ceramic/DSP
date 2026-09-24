@@ -70,10 +70,15 @@ class _ObservabilityServices:
             raise self.artifact_failure
         return self.artifact_resolution
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
-        """Human ACCEPT 后进入一个真实 external-owner async wait。"""
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """Human ACCEPT 后携带 exact ContextSnapshot ref 进入真实 external-owner async wait。"""
 
         assert operation_ref == self.operation_ref
+        assert context_snapshot_ref == self.context_ref
         return self.async_ref
 
     def __getattr__(self, name: str):

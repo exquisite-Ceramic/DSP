@@ -39,9 +39,14 @@ jobs:
           DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
         run: |
           # 同一 PostgreSQL 17 gate 验证 checkpoint navigation、durable workflow artifact、
-          # human-pause process restart 与 execution-owner recovery，并保留 authoritative-truth regression。
+          # human-pause process restart、real-owner E2E、execution-owner recovery 与 review
+          # 补充的 pre-dispatch / explicit external recovery acceptance。
           uv run python -m pytest \
             tests/orchestrator/test_artifact_postgres.py \
             tests/orchestrator/test_postgres_checkpoint.py \
             tests/orchestrator/test_workflow_resume_authoritative_truth.py \
-            tests/orchestrator/test_workflow_end_to_end.py -q
+            tests/orchestrator/test_workflow_end_to_end.py \
+            tests/orchestrator/test_real_owner_workflow_end_to_end.py \
+            tests/orchestrator/test_task9_real_owner_acceptance.py \
+            tests/orchestrator/test_task10_durable_recovery.py \
+            tests/orchestrator/test_task10_review_regressions.py -q

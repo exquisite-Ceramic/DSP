@@ -5,6 +5,16 @@ import os
 import pytest
 from design_execution_reconciliation import ReconciliationError
 
+from tests.execution_reconciliation.dispatch_intent_store_contract import (
+    ContractAssertion,
+    assert_cas_conflict_contract,
+    assert_committed_reconciled_contract,
+    assert_lineage_conflict_contract,
+    assert_lookup_and_replay_contract,
+    assert_safe_retry_contract,
+    assert_unknown_contract,
+    build_dispatch_intent_contract_factory,
+)
 from tests.execution_reconciliation.saga_store_v2_contract import (
     build_saga_v2_contract_fixture,
 )
@@ -142,6 +152,17 @@ def _observation_kinds(dsn: str, dispatch_intent_id) -> tuple[str, ...]:
         return tuple(row[0] for row in rows)
     finally:
         conn.close()
+
+
+def _run_shared_contract(assertion: ContractAssertion) -> None:
+    """每个 parity case 使用 fresh DB、真实 Saga FK parent 和独立 DSN-backed store。"""
+    dsn, ctx, definition = _prepare_database()
+    _status, _builder, store_type = _dispatch_api()
+    store = store_type(dsn)
+    try:
+        assertion(store, build_dispatch_intent_contract_factory(ctx, definition))
+    finally:
+        store.close()
 
 
 def test_prepare_replays_same_lineage_and_rejects_second_post_admission_lineage() -> None:
@@ -286,3 +307,33 @@ def test_recovery_state_changes_append_observation_and_increment_revision_once()
         "OUTCOME_UNKNOWN",
         "SAFE_TO_RETRY",
     )
+
+
+def test_postgres_lookup_and_replay_contract() -> None:
+    """PostgreSQL backend 必须满足 shared exact lookup/replay contract。"""
+    _run_shared_contract(assert_lookup_and_replay_contract)
+
+
+def test_postgres_unknown_contract() -> None:
+    """PostgreSQL backend 必须满足 shared OUTCOME_UNKNOWN contract。"""
+    _run_shared_contract(assert_unknown_contract)
+
+
+def test_postgres_committed_reconciled_contract() -> None:
+    """PostgreSQL backend 必须满足 shared commit/reconcile contract。"""
+    _run_shared_contract(assert_committed_reconciled_contract)
+
+
+def test_postgres_safe_retry_contract() -> None:
+    """PostgreSQL backend 必须满足 shared SAFE_TO_RETRY contract。"""
+    _run_shared_contract(assert_safe_retry_contract)
+
+
+def test_postgres_lineage_conflict_contract() -> None:
+    """PostgreSQL backend 必须与 reference backend 一样拒绝第二套 admitted lineage。"""
+    _run_shared_contract(assert_lineage_conflict_contract)
+
+
+def test_postgres_cas_conflict_contract() -> None:
+    """PostgreSQL backend 必须与 reference backend 一样拒绝 stale revision。"""
+    _run_shared_contract(assert_cas_conflict_contract)

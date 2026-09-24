@@ -57,6 +57,8 @@ class WorkflowGraphState(TypedDict, total=False):
     pending_interaction: dict[str, object] | None
 
     # 以下字段仅用于 runtime 内部节点间传递稳定引用；它们仍然不是 authoritative object。
+    planning_snapshot_ref: dict[str, object] | None
+    snapshot_set_ref: dict[str, object] | None
     impact_ref: dict[str, object] | None
     preview_ref: dict[str, object] | None
     provider_binding_ref: dict[str, object] | None

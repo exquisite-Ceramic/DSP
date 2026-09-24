@@ -63,10 +63,18 @@ class _LegacyObservabilityServices:
         assert allow_legacy_rehydrate is True
         return OperationArtifactResolution(ref=self.durable_ref, source="rehydrated")
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
-        """证明 command 消费发生在 migration 建立 v2 human interrupt 之后。"""
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """证明 command 消费发生在 migration 建立 v2 human interrupt 之后。
+
+        同时保留 saver 恢复出的 exact context ref。
+        """
 
         assert operation_ref == self.durable_ref
+        assert context_snapshot_ref == StableRef("legacy-observable-context", "a" * 64)
         return self.async_ref
 
     def __getattr__(self, name: str):

@@ -77,9 +77,15 @@ class _MigrationServices:
             raise self.failure
         return self.resolution
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
-        """证明迁移后 binder 收到的是新 durable ref，而不是旧 legacy ref。"""
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """证明迁移后 binder 同时收到新 durable operation ref 与 saver 恢复的 exact context ref。"""
 
+        assert self.artifact_calls
+        assert context_snapshot_ref == self.artifact_calls[-1][1]
         self.bound_operation_refs.append(operation_ref)
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,

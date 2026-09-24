@@ -24,6 +24,7 @@ from .integrity import (
     validate_execution_slice_integrity,
 )
 from .planner import ExecutionPlanner
+from .store_v2 import InMemoryExecutionPlanV2Store
 from .v2 import (
     ExecutionPlanningRequestV2,
     ExecutionPlanV2,
@@ -51,6 +52,7 @@ __all__ = [
     "ExecutionUnit",
     "ExecutionUnitV2",
     "HostRuntimeRef",
+    "InMemoryExecutionPlanV2Store",
     "MaterializationRoutingEvidence",
     "MaterializationRuntimeRoute",
     "RuntimeEntityRoute",

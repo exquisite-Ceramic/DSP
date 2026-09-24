@@ -22,6 +22,7 @@ from design_orchestrator.langgraph_state import (
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     StableRef,
     WorkflowCheckpointView,
     WorkflowPhase,
@@ -82,17 +83,39 @@ class _RuntimeServices:
         del context_snapshot_ref, allow_legacy_rehydrate
         return OperationArtifactResolution(ref=operation_ref, source="durable")
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        del operation_ref, context_snapshot_ref
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
             owner="interaction",
             operation_id="interaction-1",
         )
 
-    def ensure_operation_freshness(self, operation_ref: StableRef) -> StableRef:
-        return operation_ref
+    def ensure_operation_freshness(
+        self,
+        operation_ref: StableRef,
+    ) -> OperationFreshnessResult:
+        """返回当前 freshness 契约要求的三条 exact navigation refs。"""
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef("planning-1", "5" * 64),
+            snapshot_set_ref=StableRef("snapshot-set-1", "6" * 64),
+        )
+
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """消费显式 freshness lineage；fixture 本身不复制 Impact 领域规则。"""
+
+        del operation_ref, planning_snapshot_ref, snapshot_set_ref
         return StableRef("impact-1", "c" * 64)
 
     def build_changeset(self, impact_ref: StableRef) -> StableRef:

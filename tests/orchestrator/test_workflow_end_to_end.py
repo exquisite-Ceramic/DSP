@@ -41,6 +41,7 @@ from design_orchestrator.parameter_binder import (
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     StableRef,
     WorkflowPhase,
     WorkflowResumeCommand,
@@ -165,9 +166,11 @@ class _ScenarioOwners:
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
-        """给真实 binder 提供用户 proposal 与同一 snapshot-bound binding context。"""
+        """给真实 binder 提供用户 proposal，并消费 graph 显式携带的 ContextSnapshot identity。"""
 
+        del operation_space_ref
         self.binding_input_loads += 1
         return ParameterBindingInputs(
             proposal=OperationProposal(
@@ -175,8 +178,8 @@ class _ScenarioOwners:
                 {"displacement": [300, 0, 0]},
             ),
             context=ParameterBindingContext(
-                context_snapshot_id="CS-task9",
-                context_snapshot_hash="snapshot-task9",
+                context_snapshot_id=context_snapshot_ref.ref_id,
+                context_snapshot_hash=context_snapshot_ref.content_hash or "",
                 document_ref="drawing-task9",
                 semantic_environment_ref="semantic-env@task9",
                 selection=("S-001", "S-002"),
@@ -196,8 +199,8 @@ class _ScenarioOwners:
     def ensure_operation_freshness(
         self,
         operation_ref: StableRef,
-    ) -> StableRef | AsyncOperationRef:
-        """首次进入时返回 reconstruction wait；owner 完成后重新查询才返回 fresh ref。"""
+    ) -> OperationFreshnessResult | AsyncOperationRef:
+        """首次进入时等待 reconstruction；ready 后返回三条 exact navigation refs。"""
 
         if not self.operation_ready:
             return AsyncOperationRef(
@@ -205,16 +208,32 @@ class _ScenarioOwners:
                 owner="semantic-runtime",
                 operation_id="reconstruction-task9",
             )
-        return operation_ref
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef("planning-snapshot-task9", "c" * 64),
+            snapshot_set_ref=StableRef("snapshot-set-task9", "d" * 64),
+        )
 
-    def analyze_impact(self, operation_ref: StableRef) -> StableRef:
-        """Impact owner 只向 workflow 暴露稳定引用。"""
+    def analyze_impact(
+        self,
+        operation_ref: StableRef,
+        planning_snapshot_ref: StableRef,
+        snapshot_set_ref: StableRef,
+    ) -> StableRef:
+        """消费显式 freshness lineage；Impact owner 仍只向 workflow 暴露稳定引用。"""
 
+        del operation_ref, planning_snapshot_ref, snapshot_set_ref
         return StableRef("impact-task9", "2" * 64)
 
-    def build_changeset(self, impact_ref: StableRef) -> StableRef:
-        """ChangeSet owner 保留完整对象，只返回 canonical ref。"""
+    def build_changeset(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        impact_ref: StableRef,
+    ) -> StableRef:
+        """接收显式 workflow lineage；fake 仍只返回稳定 ChangeSet ref。"""
 
+        del task_id, operation_ref, impact_ref
         return StableRef("changeset-task9", "3" * 64)
 
     def preview(self, changeset_ref: StableRef) -> StableRef:
@@ -246,8 +265,13 @@ class _ScenarioOwners:
 
         return StableRef("provider-binding-task9", "7" * 64)
 
-    def issue_execution_grant(self, execution_plan_ref: StableRef) -> StableRef:
-        """Gateway owner 返回 ExecutionGrant 引用。"""
+    def issue_execution_grant(
+        self,
+        execution_plan_ref: StableRef,
+        approval_ref: StableRef,
+        provider_binding_ref: StableRef,
+    ) -> StableRef:
+        """Gateway owner 返回 ExecutionGrant 引用；测试 fake 仅跟随显式 lineage seam。"""
 
         return StableRef("grant-task9", "8" * 64)
 

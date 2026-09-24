@@ -21,13 +21,6 @@ from design_orchestrator.default_workflow_services import (
     ParameterBindingInputs,
     WorkflowArtifactStore,
 )
-from design_orchestrator.interactive_binding import (
-    InteractionBindingContext,
-    InteractionRequired,
-    InteractiveParameterResolver,
-    OperationInteractionRecipe,
-    SlotInteractionRecipe,
-)
 from design_orchestrator.operation_resolver import (
     CapabilityConflictError,
     OperationPolicy,
@@ -76,11 +69,42 @@ if TYPE_CHECKING:
         create_postgres_artifact_store,
     )
 
+    # Interaction 子树当前仍是 repository source-only package，并非 uv workspace distribution。
+    # 静态类型检查可以看到这些公共符号；普通 Orchestrator 消费方只有真正访问它们时才加载。
+    from design_orchestrator.interactive_binding import (
+        InteractionBindingContext,
+        InteractionRequired,
+        InteractiveParameterResolver,
+        OperationInteractionRecipe,
+        SlotInteractionRecipe,
+    )
+
+
+_INTERACTION_EXPORTS = {
+    "InteractionBindingContext",
+    "InteractionRequired",
+    "InteractiveParameterResolver",
+    "OperationInteractionRecipe",
+    "SlotInteractionRecipe",
+}
+
+_POSTGRES_EXPORTS = {
+    "PostgresWorkflowArtifactStore",
+    "create_postgres_artifact_store",
+}
+
 
 def __getattr__(name: str) -> Any:
-    """按需暴露 PostgreSQL artifact adapter，保持基础包导入与 psycopg 解耦。"""
+    """按需暴露 source-only interaction 与 PostgreSQL adapter 公共符号。"""
 
-    if name in {"PostgresWorkflowArtifactStore", "create_postgres_artifact_store"}:
+    if name in _INTERACTION_EXPORTS:
+        # `platform/interaction` 仍由仓库 pytest pythonpath 提供，不是 workspace distribution。
+        # package root 因而不能在每次基础导入时强制加载它；真正消费 interaction API 时再解析。
+        from design_orchestrator import interactive_binding
+
+        return getattr(interactive_binding, name)
+
+    if name in _POSTGRES_EXPORTS:
         # 只有调用方真正访问 PostgreSQL adapter 公共符号时才加载 psycopg。
         # 这样既保留既有 package-level public API，也不会污染不使用 PostgreSQL 的执行路径。
         from design_orchestrator import artifact_postgres

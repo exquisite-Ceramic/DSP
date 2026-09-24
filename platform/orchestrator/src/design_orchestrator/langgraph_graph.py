@@ -28,6 +28,7 @@ from design_orchestrator.recovery import decide_apply_resume
 from design_orchestrator.workflow_contracts import (
     AsyncOperationKind,
     AsyncOperationRef,
+    OperationFreshnessResult,
     PendingInteractionKind,
     PendingInteractionView,
     StableRef,
@@ -242,7 +243,10 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         }
 
     def parameter_binding(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.bind_parameters(_require_stable_ref(state, "operation_ref"))
+        result = services.bind_parameters(
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "context_snapshot_ref"),
+        )
         if isinstance(result, AsyncOperationRef):
             return _set_async_wait(
                 result,
@@ -260,26 +264,51 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             _require_stable_ref(state, "operation_ref")
         )
         if isinstance(result, AsyncOperationRef):
-            return _set_async_wait(
-                result,
-                resume_node="ensure_operation_freshness",
-                phase=WorkflowPhase.ENSURE_OPERATION_FRESHNESS,
+            return {
+                **_set_async_wait(
+                    result,
+                    resume_node="ensure_operation_freshness",
+                    phase=WorkflowPhase.ENSURE_OPERATION_FRESHNESS,
+                ),
+                "planning_snapshot_ref": None,
+                "snapshot_set_ref": None,
+            }
+        if not isinstance(result, OperationFreshnessResult):
+            raise TypeError(
+                "ensure_operation_freshness must return OperationFreshnessResult "
+                "or AsyncOperationRef"
             )
         return {
-            "operation_ref": _encode_stable_ref(result),
+            "operation_ref": _encode_stable_ref(result.operation_ref),
+            "planning_snapshot_ref": _encode_stable_ref(result.planning_snapshot_ref),
+            "snapshot_set_ref": _encode_stable_ref(result.snapshot_set_ref),
             "async_operation_ref": None,
+            "resume_node": None,
             "phase": WorkflowPhase.ANALYZE_IMPACT.value,
         }
 
     def analyze_impact(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.analyze_impact(_require_stable_ref(state, "operation_ref"))
+        result = services.analyze_impact(
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "planning_snapshot_ref"),
+            _require_stable_ref(state, "snapshot_set_ref"),
+        )
         return {
             "impact_ref": _encode_stable_ref(result),
             "phase": WorkflowPhase.BUILD_CHANGESET.value,
         }
 
     def build_changeset(state: WorkflowGraphState) -> dict[str, object]:
-        result = services.build_changeset(_require_stable_ref(state, "impact_ref"))
+        """显式携带 task/operation/impact lineage。
+
+        禁止从 content-addressed owner truth 反推 task。
+        """
+
+        result = services.build_changeset(
+            cast(str, state["task_id"]),
+            _require_stable_ref(state, "operation_ref"),
+            _require_stable_ref(state, "impact_ref"),
+        )
         return {
             "changeset_ref": _encode_stable_ref(result),
             "phase": WorkflowPhase.PREVIEW.value,
@@ -329,7 +358,9 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
 
     def execution_grant(state: WorkflowGraphState) -> dict[str, object]:
         result = services.issue_execution_grant(
-            _require_stable_ref(state, "execution_plan_ref")
+            _require_stable_ref(state, "execution_plan_ref"),
+            _require_stable_ref(state, "approval_ref"),
+            _require_stable_ref(state, "provider_binding_ref"),
         )
         return {
             "grant_ref": _encode_stable_ref(result),
@@ -379,11 +410,19 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             _require_stable_ref(state, "grant_ref"),
         )
         if isinstance(result, AsyncOperationRef):
-            return _set_async_wait(
+            update = _set_async_wait(
                 result,
                 resume_node="refresh_execution_owner",
                 phase=WorkflowPhase.APPLY_WAIT,
             )
+            if (
+                result.kind is AsyncOperationKind.EXECUTION_JOB
+                and result.owner == "execution"
+            ):
+                # execution owner 已创建 durable Saga；必须与 wait identity 原子写入，
+                # 否则 crash/resume 会丢失 owner navigation 并错误授权第二次 dispatch。
+                update["saga_id"] = result.operation_id
+            return update
         if not isinstance(result, str) or not result.strip():
             raise ValueError("begin_execution must return saga_id or AsyncOperationRef")
         return {

@@ -23,6 +23,7 @@ from .contracts import (
     SnapshotSetBinding,
 )
 from .rules import evaluate_constraint
+from .store import InMemoryImpactAnalysisStore
 
 __all__ = [
     "ConstraintEvaluationSpec",
@@ -37,6 +38,7 @@ __all__ = [
     "ImpactAnalyzer",
     "ImpactError",
     "ImpactException",
+    "InMemoryImpactAnalysisStore",
     "IntentBoundary",
     "PlanningSnapshotBinding",
     "PredictedImpact",
