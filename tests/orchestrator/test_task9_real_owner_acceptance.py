@@ -15,7 +15,6 @@ from design_orchestrator.workflow_contracts import (
     WorkflowPhase,
     WorkflowResumeCommand,
 )
-
 from tests.orchestrator import test_real_owner_workflow_end_to_end as real_owner
 
 
