@@ -407,11 +407,19 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
             _require_stable_ref(state, "grant_ref"),
         )
         if isinstance(result, AsyncOperationRef):
-            return _set_async_wait(
+            update = _set_async_wait(
                 result,
                 resume_node="refresh_execution_owner",
                 phase=WorkflowPhase.APPLY_WAIT,
             )
+            if (
+                result.kind is AsyncOperationKind.EXECUTION_JOB
+                and result.owner == "execution"
+            ):
+                # execution owner 已创建 durable Saga；必须与 wait identity 原子写入，
+                # 否则 crash/resume 会丢失 owner navigation 并错误授权第二次 dispatch。
+                update["saga_id"] = result.operation_id
+            return update
         if not isinstance(result, str) or not result.strip():
             raise ValueError("begin_execution must return saga_id or AsyncOperationRef")
         return {
