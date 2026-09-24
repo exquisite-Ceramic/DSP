@@ -91,6 +91,7 @@ class ExternalOwnerPorts(Protocol):
     def load_parameter_binding_inputs(
         self,
         operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs: ...
 
     def resolve_host_context(self, task_id: str) -> StableRef: ...
@@ -235,8 +236,6 @@ class DefaultWorkflowServices:
         if not isinstance(allow_legacy_rehydrate, bool):
             raise TypeError("allow_legacy_rehydrate must be a boolean")
 
-        # 首选 durable truth。即使调用方允许 legacy migration，已经存在的 durable artifact
-        # 仍必须直接复用，不能再次读取 owner facts 或制造新的 artifact identity。
         unavailable: WorkflowArtifactUnavailableError
         try:
             persisted = self._artifact_store.get(operation_ref)
@@ -252,13 +251,9 @@ class DefaultWorkflowServices:
                 "operation artifact does not contain a ResolutionResult"
             )
 
-        # v2 状态禁止 rehydrate。这里重新抛出 durable store 的不可用错误，保留其原始 cause，
-        # 让上层后续统一归一为稳定 workflow error，同时保证 checkpoint 不被修改。
         if not allow_legacy_rehydrate:
             raise unavailable
 
-        # Legacy migration 必须有旧 content hash 才能证明“当前重建结果就是历史 artifact”。
-        # 缺少 hash 时在读取任何 owner facts 之前 fail closed，避免以当前世界状态补写历史事实。
         legacy_hash = operation_ref.content_hash
         if legacy_hash is None:
             raise WorkflowArtifactUnavailableError(
@@ -276,8 +271,6 @@ class DefaultWorkflowServices:
                 "legacy operation resolution inputs are unavailable or invalid"
             )
 
-        # 只调用 production resolver，不复制或简化 eligibility 逻辑。只有旧 hash 完全匹配时，
-        # 才证明这次 deterministic reconstruction 与 checkpoint 中的历史 identity 等价。
         resolution = self._operation_resolver.resolve(inputs.profiles, inputs.context)
         rebuilt_legacy_hash = legacy_workflow_artifact_content_hash(resolution)
         if rebuilt_legacy_hash != legacy_hash:
@@ -307,11 +300,13 @@ class DefaultWorkflowServices:
     def bind_parameters(
         self,
         operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
     ) -> StableRef | AsyncOperationRef:
         """调用真实 ParameterBinder，并把绑定结果保存在 workflow-local artifact store。
 
-        adapter 只验证 proposal 属于前一步已经持久化的 operation space；eligibility、slot
-        binding、schema validation 等规则仍完全由 OperationResolver/ParameterBinder 持有。
+        operation space 与 ContextSnapshot identity 都由 graph 以显式 StableRef 携带；本层只
+        原样转发这两个 ref，不从 artifact 内容、registry 或进程内缓存反推 freshness lineage。
+        eligibility、slot binding、schema validation 等规则仍完全由真实 owner 持有。
         """
 
         operation_space = self._artifact_store.get(operation_ref)
@@ -320,7 +315,10 @@ class DefaultWorkflowServices:
                 "operation_ref must reference a persisted ResolutionResult operation space"
             )
 
-        inputs = self._external_owners.load_parameter_binding_inputs(operation_ref)
+        inputs = self._external_owners.load_parameter_binding_inputs(
+            operation_ref,
+            context_snapshot_ref,
+        )
         if not isinstance(inputs, ParameterBindingInputs):
             raise TypeError(
                 "load_parameter_binding_inputs must return ParameterBindingInputs"
