@@ -1288,11 +1288,11 @@ class CanonicalWorkflowOwnerPorts:
         disposition = getattr(projected, "disposition", None)
 
         active_recovery = None
-        if disposition is not None:
-            if dispatch_intent is None:
-                raise ValueError(
-                    "active execution recovery requires durable dispatch intent identity"
-                )
+        if disposition is not None and dispatch_intent is not None:
+            # owner projection 已经判定 Saga/dispatch 组合是否合法；无 intent 的
+            # ADMISSION_RESERVED/ADMITTED 是合法 pre-dispatch crash window。
+            # adapter 不伪造 dispatch identity；保留 Saga 状态让 workflow classifier
+            # 进入 RECOVER_OR_WAIT。只有真实 Host dispatch identity 才发布 recovery view。
             active_recovery = HostDispatchRecoveryView(
                 dispatch_intent_id=str(dispatch_intent.dispatch_intent_id),
                 execution_slice_hash=slice_hash,
