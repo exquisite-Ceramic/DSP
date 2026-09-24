@@ -21,6 +21,7 @@ from design_orchestrator.default_workflow_services import (
 from design_orchestrator.parameter_binder import BoundOperationProposal
 from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 from design_orchestrator.workflow_contracts import (
+    AsyncOperationKind,
     AsyncOperationRef,
     OperationFreshnessResult,
     StableRef,
@@ -135,8 +136,10 @@ class CanonicalWorkflowOwnerPorts:
         "_changeset_store",
         "_convergence_verifier",
         "_coordination_clock",
+        "_dispatch_intent_store",
         "_execution_coordinator",
         "_execution_plan_store",
+        "_execution_recovery_projection",
         "_freshness_resolver",
         "_gateway_authorization",
         "_gateway_authorization_store",
@@ -185,6 +188,8 @@ class CanonicalWorkflowOwnerPorts:
         gateway_authorization_store: object,
         coordination_clock: object,
         provider_binding_store: object,
+        dispatch_intent_store: object,
+        execution_recovery_projection: object,
         saga_store: object,
         execution_coordinator: object,
         reconciliation_service: object,
@@ -218,6 +223,8 @@ class CanonicalWorkflowOwnerPorts:
         self._gateway_authorization_store = gateway_authorization_store
         self._coordination_clock = coordination_clock
         self._provider_binding_store = provider_binding_store
+        self._dispatch_intent_store = dispatch_intent_store
+        self._execution_recovery_projection = execution_recovery_projection
         self._saga_store = saga_store
         self._execution_coordinator = execution_coordinator
         self._reconciliation_service = reconciliation_service
@@ -1101,13 +1108,205 @@ class CanonicalWorkflowOwnerPorts:
         execution_plan_ref: StableRef,
         grant_ref: StableRef,
     ) -> str | AsyncOperationRef:
-        raise self._not_wired("begin_execution")
+        """解析 exact execution lineage 后把执行交给真实 materialized coordinator。"""
+
+        from design_convergence import (
+            ConvergenceProfileBuildRequest,
+            build_convergence_profile,
+        )
+
+        plan_getter = getattr(self._execution_plan_store, "get", None)
+        if plan_getter is None:
+            raise self._not_wired("begin_execution")
+        execution_plan = plan_getter(execution_plan_ref.ref_id)
+        self._require_exact_ref_hash(
+            execution_plan_ref,
+            execution_plan.execution_plan_hash,
+            kind="ExecutionPlanV2",
+        )
+        if len(execution_plan.execution_slices) != 1:
+            raise ValueError("canonical execution requires exactly one ExecutionSliceV2")
+        execution_slice = execution_plan.execution_slices[0]
+
+        if grant_ref.content_hash is None:
+            raise ValueError("ExecutionGrantV2 StableRef requires content_hash")
+        grant_getter = getattr(self._gateway_authorization_store, "get_grant_v2", None)
+        if grant_getter is None:
+            raise self._not_wired("begin_execution")
+        grant = grant_getter(grant_ref.content_hash)
+        if grant is None:
+            raise ValueError("Gateway execution grant full hash is unresolved")
+        if grant.grant_id != grant_ref.ref_id or grant.grant_hash != grant_ref.content_hash:
+            raise ValueError("Gateway execution grant StableRef does not match owner truth")
+        if (
+            grant.changeset_hash != execution_plan.changeset_hash
+            or grant.approved_scope_hash != execution_plan.approval_scope_ref.scope_hash
+            or grant.materialization_plan_hash != execution_plan.materialization_plan_hash
+            or grant.materialization_id != execution_slice.materialization_id
+            or grant.execution_slice_id != execution_slice.execution_slice_id
+            or grant.execution_slice_hash != execution_slice.execution_slice_hash
+            or grant.host_instance_id != execution_slice.host_runtime_ref.host_instance_id
+        ):
+            raise ValueError("Gateway execution grant does not match exact ExecutionPlanV2 lineage")
+
+        authority = self._gateway_authorization.admit_execution_grant(
+            grant.grant_hash,
+            self._coordination_timestamp(),
+        )
+        if (
+            authority.grant_hash != grant.grant_hash
+            or authority.changeset_hash != grant.changeset_hash
+            or authority.approved_scope_hash != grant.approved_scope_hash
+            or authority.materialization_plan_hash != grant.materialization_plan_hash
+            or authority.materialization_id != grant.materialization_id
+            or authority.execution_slice_hash != grant.execution_slice_hash
+            or authority.binding_set_hash != grant.binding_set_hash
+            or authority.host_instance_id != grant.host_instance_id
+        ):
+            raise ValueError("Gateway admitted authority does not match exact grant lineage")
+
+        binding_getter = getattr(self._provider_binding_store, "get_by_hash", None)
+        if binding_getter is None:
+            raise self._not_wired("begin_execution")
+        binding_set = binding_getter(authority.binding_set_hash)
+        if binding_set is None:
+            raise ValueError("Provider binding full hash is unresolved")
+        if (
+            binding_set.binding_set_hash != authority.binding_set_hash
+            or binding_set.materialization_id != execution_slice.materialization_id
+            or binding_set.materialization_plan_hash
+            != execution_slice.materialization_plan_hash
+            or binding_set.execution_slice_id != execution_slice.execution_slice_id
+            or binding_set.execution_slice_hash != execution_slice.execution_slice_hash
+        ):
+            raise ValueError("Provider binding does not match exact admitted Slice lineage")
+
+        changeset = self._changeset_store.get(execution_plan.changeset_id)
+        if changeset.changeset_hash != execution_plan.changeset_hash:
+            raise ValueError("ExecutionPlanV2 ChangeSet lineage does not match owner truth")
+        boundary = self._approval_scope_store.get_boundary(
+            execution_plan.approval_scope_ref.scope_id
+        )
+        if (
+            boundary.changeset_hash != changeset.changeset_hash
+            or boundary.scope_hash != execution_plan.approval_scope_ref.scope_hash
+        ):
+            raise ValueError("ExecutionPlanV2 approval scope lineage does not match owner truth")
+        materialization_plan = self._materialization_plan_store.get(
+            execution_plan.materialization_plan_hash
+        )
+        if (
+            materialization_plan.materialization_plan_hash
+            != execution_plan.materialization_plan_hash
+            or materialization_plan.changeset_hash != changeset.changeset_hash
+            or materialization_plan.approved_scope_hash != boundary.scope_hash
+        ):
+            raise ValueError("ExecutionPlanV2 materialization lineage does not match owner truth")
+
+        definition = self._canonical_definition(
+            changeset.root_operation.canonical_operation,
+            changeset.root_operation.canonical_operation_version,
+        )
+        convergence_profile = build_convergence_profile(
+            ConvergenceProfileBuildRequest(
+                canonical_changeset=changeset,
+                approval_scope_boundary=boundary,
+                canonical_operation_definition=definition,
+            )
+        )
+        if (
+            convergence_profile.profile_hash
+            != materialization_plan.convergence_profile_hash
+            or convergence_profile.profile_hash
+            != execution_plan.convergence_profile_hash
+        ):
+            raise ValueError("Convergence profile does not match frozen execution lineage")
+
+        result = self._execution_coordinator.execute(
+            changeset,
+            boundary,
+            materialization_plan,
+            execution_plan,
+            (binding_set,),
+            (authority,),
+            convergence_profile,
+        )
+        status = getattr(result.status, "value", result.status)
+        if status == "READINESS_FAILED" or result.saga_id == "NOT_CREATED":
+            raise ValueError("execution readiness failed before durable Saga creation")
+
+        stored = self._saga_store.get_saga(result.saga_id)
+        if stored is None:
+            raise ValueError("execution coordinator returned an unresolved durable Saga")
+        if status == "RECOVERY_REQUIRED":
+            return AsyncOperationRef(
+                kind=AsyncOperationKind.EXECUTION_JOB,
+                owner="execution",
+                operation_id=result.saga_id,
+            )
+        return result.saga_id
 
     def get_execution_owner_state(self, saga_id: str) -> ExecutionOwnerView:
-        raise self._not_wired("get_execution_owner_state")
+        """组合 durable Saga 与 dispatch intent 的公开只读 recovery 投影。"""
+
+        from design_orchestrator.workflow_services import (
+            ExecutionSagaView,
+            HostDispatchRecoveryState,
+            HostDispatchRecoveryView,
+        )
+
+        stored = self._saga_store.get_saga(saga_id)
+        if stored is None:
+            raise ValueError("execution Saga is unresolved")
+        ordered_slice_hashes = tuple(stored.definition.ordered_slice_hashes)
+        if len(ordered_slice_hashes) != 1:
+            raise ValueError("canonical execution owner view requires exactly one Saga Slice")
+        slice_hash = ordered_slice_hashes[0]
+
+        dispatch_getter = getattr(self._dispatch_intent_store, "get_for_saga_slice", None)
+        if dispatch_getter is None:
+            raise self._not_wired("get_execution_owner_state")
+        dispatch_intent = dispatch_getter(saga_id, slice_hash)
+        projection = self._execution_recovery_projection
+        if not callable(projection):
+            raise self._not_wired("get_execution_owner_state")
+        projected = projection(stored, slice_hash, dispatch_intent)
+        disposition = getattr(projected, "disposition", None)
+
+        active_recovery = None
+        if disposition is not None:
+            if dispatch_intent is None:
+                raise ValueError(
+                    "active execution recovery requires durable dispatch intent identity"
+                )
+            active_recovery = HostDispatchRecoveryView(
+                dispatch_intent_id=str(dispatch_intent.dispatch_intent_id),
+                execution_slice_hash=slice_hash,
+                state=HostDispatchRecoveryState(
+                    getattr(disposition, "value", disposition)
+                ),
+            )
+
+        saga_status = getattr(stored.status, "value", stored.status)
+        return ExecutionOwnerView(
+            saga=ExecutionSagaView(
+                saga_id=stored.definition.saga_id,
+                saga_revision=stored.saga_revision,
+                status=str(saga_status),
+                active_slice_hash=(slice_hash if active_recovery is not None else None),
+            ),
+            active_dispatch_recovery=active_recovery,
+        )
 
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView:
-        raise self._not_wired("verify_reconcile")
+        """只读取 owner truth；仅 terminal 且无 active recovery 时返回。"""
+
+        from design_orchestrator.workflow_services import classify_execution_resume
+
+        view = self.get_execution_owner_state(saga_id)
+        if classify_execution_resume(view) != "TERMINAL":
+            raise ValueError("execution owner state is not terminal")
+        return view
 
 
 __all__ = [
