@@ -85,6 +85,8 @@ _OWNER_DEPENDENCY_NAMES = (
     "gateway_authorization_store",
     "coordination_clock",
     "provider_binding_store",
+    "dispatch_intent_store",
+    "execution_recovery_projection",
     "saga_store",
     "execution_coordinator",
     "reconciliation_service",
