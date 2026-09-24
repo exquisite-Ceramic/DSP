@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from design_execution_coordination import (
     HostFailed,
@@ -24,8 +26,11 @@ from design_orchestrator.workflow_contracts import WorkflowCheckpointView, Workf
 from tests.execution_coordination.test_task8_execution_recovery_projection import (
     _single_slice_fixture,
 )
-from tests.orchestrator import test_real_owner_workflow_end_to_end as real_owner
-from tests.orchestrator import test_task10_durable_recovery as task10
+
+requires_postgres = pytest.mark.skipif(
+    not os.getenv("DSP_TEST_POSTGRES_DSN"),
+    reason="DSP_TEST_POSTGRES_DSN is required",
+)
 
 
 class _BeforeCommitRecoveryProbe:
@@ -142,11 +147,16 @@ def test_pre_dispatch_crash_window_without_intent_routes_to_safe_wait(
     assert dispatch_store.get_for_saga_slice(stored.definition.saga_id, slice_hash) is None
 
 
-@real_owner.requires_postgres
+@requires_postgres
 def test_explicit_external_recovery_is_visible_through_fresh_workflow_services(
     task10_postgres_execution_owner_factory,
 ) -> None:
     """显式 external recovery 后，fresh services 必须重读到更新后的 owner truth。"""
+
+    # PostgreSQL/LangGraph 辅助模块只在此用例真正启用时导入；轻量 deterministic lane
+    # 仍可收集并执行上面的 pre-dispatch 回归，不需要安装 runtime 依赖。
+    from tests.orchestrator import test_real_owner_workflow_end_to_end as real_owner
+    from tests.orchestrator import test_task10_durable_recovery as task10
 
     task_id = "task10-review-explicit-external-recovery"
     seed = real_owner._build_real_owner_case(task_id)
