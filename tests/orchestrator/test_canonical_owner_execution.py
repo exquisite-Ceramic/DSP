@@ -14,6 +14,7 @@ from design_execution_coordination import (
     ReadinessStatus,
     project_execution_recovery,
 )
+from design_execution_planning import InMemoryExecutionPlanV2Store
 from design_execution_reconciliation import (
     ExecutionReconciliationServiceV2,
     ExecutionSagaStatusV2,
@@ -21,7 +22,6 @@ from design_execution_reconciliation import (
     InMemoryExecutionSagaStoreV2,
     InMemoryHostDispatchIntentStore,
 )
-from design_execution_planning import InMemoryExecutionPlanV2Store
 from design_gateway_authorization import InMemoryGatewayAuthorizationStoreV2
 from design_materialization_planning import (
     InMemoryMaterializationPlanStore,
@@ -147,6 +147,7 @@ class _BindableEvidencePort:
         # 而是通过合法 evidence IO 缺少 required field 驱动 real verifier 的
         # EVIDENCE_INSUFFICIENT，coordinator 按冻结规则把 Saga 收口为 DIVERGED。
         from dataclasses import replace
+
         from design_convergence import compute_materialization_canonical_evidence_hash
 
         draft = replace(evidence, verified_fields=(), evidence_hash="0" * 64)
@@ -333,7 +334,8 @@ def test_real_execution_unknown_outcome_waits_and_replay_never_redispatches() ->
     assert case.host_registry.execute_count == 1
 
 
-def test_real_execution_insufficient_convergence_closes_saga_diverged_without_compensation() -> None:
+def test_real_execution_insufficient_convergence_closes_saga_diverged_without_compensation(
+) -> None:
     """evidence 不足必须由 real convergence verifier 收口 Saga DIVERGED，adapter 不补偿。"""
     case = _task8_execution_case(insufficient_convergence=True)
 
