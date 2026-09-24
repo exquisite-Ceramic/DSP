@@ -20,6 +20,7 @@ _LANGGRAPH_TESTS = frozenset(
         "test_postgres_checkpoint.py",
         "test_real_owner_workflow_end_to_end.py",
         "test_task9_parameter_binding_lineage.py",
+        "test_task9_real_owner_acceptance.py",
         "test_workflow_end_to_end.py",
         "test_workflow_resume_authoritative_truth.py",
     }
@@ -39,6 +40,7 @@ _POSTGRES_TESTS = frozenset(
     {
         "test_postgres_checkpoint.py",
         "test_real_owner_workflow_end_to_end.py",
+        "test_task9_real_owner_acceptance.py",
         "test_workflow_end_to_end.py",
     }
 )
