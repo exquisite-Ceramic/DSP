@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from design_approval_scope import ApprovalScopeBoundaryV2
@@ -44,6 +46,26 @@ _TERMINAL_STATUS_MAP = {
     ),
     ExecutionSagaStatusV2.DIVERGED: MaterializedCoordinationStatus.DIVERGED,
 }
+_TERMINAL_SAGA_STATUSES = frozenset(_TERMINAL_STATUS_MAP)
+
+
+class ExecutionRecoveryDisposition(str, Enum):
+    """只描述是否仍存在需要 owner 协调的 Host-effect recovery work。"""
+
+    OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    SAFE_TO_RETRY = "SAFE_TO_RETRY"
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRecoveryProjection:
+    """Saga/dispatch durable truth 的只读 recovery 投影。
+
+    ``None`` 只表示当前 Slice 没有 active unresolved Host-effect recovery；它既不代表
+    整个 Saga 已完成，也不授予新的 Host dispatch 权限。
+    """
+
+    disposition: ExecutionRecoveryDisposition | None
 
 
 def _error(code: str, message: str) -> None:
@@ -61,6 +83,165 @@ def _slice_state(stored_saga: StoredExecutionSagaV2, execution_slice_hash: str):
     if len(matches) != 1:
         _error("SAGA_INTEGRITY_INVALID", "recovery Slice is not uniquely present in Saga")
     return matches[0]
+
+
+def _projection_slice_state(
+    stored_saga: StoredExecutionSagaV2,
+    execution_slice_hash: str,
+):
+    """同时要求 definition 与 durable state 都且仅包含一个 exact Slice。"""
+    if not isinstance(stored_saga, StoredExecutionSagaV2):
+        raise TypeError("stored_saga must be StoredExecutionSagaV2")
+    if not isinstance(execution_slice_hash, str):
+        raise TypeError("execution_slice_hash must be a string")
+    normalized_slice_hash = execution_slice_hash.strip()
+    if not normalized_slice_hash:
+        raise ValueError("execution_slice_hash is required")
+
+    definition_matches = sum(
+        item == normalized_slice_hash
+        for item in stored_saga.definition.ordered_slice_hashes
+    )
+    state_matches = tuple(
+        state
+        for state in stored_saga.slice_states
+        if state.execution_slice_hash == normalized_slice_hash
+    )
+    if definition_matches != 1 or len(state_matches) != 1:
+        _error(
+            "SAGA_INTEGRITY_INVALID",
+            "recovery Slice is not uniquely present in immutable Saga truth",
+        )
+    return state_matches[0]
+
+
+def _validate_projection_lineage(
+    *,
+    stored_saga: StoredExecutionSagaV2,
+    state,
+    execution_slice_hash: str,
+    dispatch_intent: HostDispatchIntent,
+) -> None:
+    """要求 dispatch identity 与已有 admitted Slice lineage 完全一致。"""
+    if (
+        dispatch_intent.saga_id != stored_saga.definition.saga_id
+        or dispatch_intent.execution_slice_hash != execution_slice_hash
+    ):
+        _error(
+            "HOST_RECOVERY_EVIDENCE_CONFLICT",
+            "dispatch intent does not belong to the requested Saga/Slice",
+        )
+
+    admitted_values = (
+        state.grant_hash,
+        state.binding_set_hash,
+        state.admitted_host_instance_id,
+    )
+    if any(value is not None for value in admitted_values) and (
+        state.grant_hash is None
+        or state.binding_set_hash is None
+        or state.admitted_host_instance_id is None
+        or dispatch_intent.grant_hash != state.grant_hash
+        or dispatch_intent.binding_set_hash != state.binding_set_hash
+        or dispatch_intent.host_instance_id != state.admitted_host_instance_id
+    ):
+        _error(
+            "HOST_RECOVERY_EVIDENCE_CONFLICT",
+            "dispatch intent does not match the admitted durable Slice lineage",
+        )
+
+
+def _project_absent_dispatch_intent(state) -> ExecutionRecoveryProjection:
+    """对没有 durable dispatch row 的 Slice 使用冻结的闭世界 crash-window 表。"""
+    if state.status is SliceReconciliationStatusV2.NOT_STARTED:
+        return ExecutionRecoveryProjection(disposition=None)
+    if state.status in {
+        SliceReconciliationStatusV2.ADMISSION_RESERVED,
+        SliceReconciliationStatusV2.ADMITTED,
+    }:
+        return ExecutionRecoveryProjection(
+            disposition=ExecutionRecoveryDisposition.RECOVERY_REQUIRED
+        )
+    if state.status is SliceReconciliationStatusV2.BLOCKED:
+        return ExecutionRecoveryProjection(disposition=None)
+
+    _error(
+        "HOST_RECOVERY_EVIDENCE_CONFLICT",
+        "Saga Slice contains post-dispatch evidence but durable dispatch intent is missing",
+    )
+
+
+def _project_terminal_dispatch_evidence(
+    *,
+    state,
+    dispatch_intent: HostDispatchIntent,
+) -> ExecutionRecoveryProjection:
+    """terminal Saga/Slice 只接受与既有 durable end-state 兼容的残余 intent。"""
+    if (
+        state.status
+        in {
+            SliceReconciliationStatusV2.SUCCEEDED,
+            SliceReconciliationStatusV2.SCOPE_BREACH,
+            SliceReconciliationStatusV2.VERIFY_FAILED,
+        }
+        and dispatch_intent.status
+        in {HostDispatchStatus.HOST_COMMITTED, HostDispatchStatus.RECONCILED}
+    ):
+        return ExecutionRecoveryProjection(disposition=None)
+    if (
+        state.status is SliceReconciliationStatusV2.FAILED_BEFORE_COMMIT
+        and dispatch_intent.status is HostDispatchStatus.SAFE_TO_RETRY
+    ):
+        return ExecutionRecoveryProjection(disposition=None)
+
+    _error(
+        "HOST_RECOVERY_EVIDENCE_CONFLICT",
+        "terminal Saga/Slice conflicts with unresolved or backward dispatch evidence",
+    )
+
+
+def project_execution_recovery(
+    stored_saga: StoredExecutionSagaV2,
+    execution_slice_hash: str,
+    dispatch_intent: HostDispatchIntent | None,
+) -> ExecutionRecoveryProjection:
+    """把 exact Saga/Slice + durable dispatch evidence 投影为 active recovery truth。
+
+    该函数是纯只读分类器：不 probe Host、不推进 Saga、不写 dispatch intent，也不会把
+    ``disposition=None`` 解释成新的 dispatch authorization。
+    """
+    state = _projection_slice_state(stored_saga, execution_slice_hash)
+    normalized_slice_hash = execution_slice_hash.strip()
+
+    if dispatch_intent is None:
+        return _project_absent_dispatch_intent(state)
+    if not isinstance(dispatch_intent, HostDispatchIntent):
+        raise TypeError("dispatch_intent must be HostDispatchIntent or None")
+
+    _validate_projection_lineage(
+        stored_saga=stored_saga,
+        state=state,
+        execution_slice_hash=normalized_slice_hash,
+        dispatch_intent=dispatch_intent,
+    )
+
+    if stored_saga.status in _TERMINAL_SAGA_STATUSES:
+        return _project_terminal_dispatch_evidence(
+            state=state,
+            dispatch_intent=dispatch_intent,
+        )
+
+    disposition_by_status = {
+        HostDispatchStatus.PREPARED: ExecutionRecoveryDisposition.RECOVERY_REQUIRED,
+        HostDispatchStatus.DISPATCHED: ExecutionRecoveryDisposition.RECOVERY_REQUIRED,
+        HostDispatchStatus.OUTCOME_UNKNOWN: ExecutionRecoveryDisposition.OUTCOME_UNKNOWN,
+        HostDispatchStatus.HOST_COMMITTED: ExecutionRecoveryDisposition.RECOVERY_REQUIRED,
+        HostDispatchStatus.SAFE_TO_RETRY: ExecutionRecoveryDisposition.SAFE_TO_RETRY,
+        HostDispatchStatus.RECONCILED: None,
+    }
+    return ExecutionRecoveryProjection(
+        disposition=disposition_by_status[dispatch_intent.status]
+    )
 
 
 def _assigned_tasks(stored_saga, canonical_changeset, execution_slice_hash: str):
@@ -456,4 +637,9 @@ class UnknownOutcomeRecovery:
         _error("HOST_RESULT_INVALID", "unsupported Host recovery failure phase")
 
 
-__all__ = ["UnknownOutcomeRecovery"]
+__all__ = [
+    "ExecutionRecoveryDisposition",
+    "ExecutionRecoveryProjection",
+    "UnknownOutcomeRecovery",
+    "project_execution_recovery",
+]

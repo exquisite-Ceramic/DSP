@@ -87,12 +87,17 @@ class _V2ArtifactServices:
             raise self.artifact_failure
         return self.artifact_resolution
 
-    def bind_parameters(self, operation_ref: StableRef) -> AsyncOperationRef:
-        """记录 graph continuation；若 preflight 正确，它必须严格发生在 artifact 校验之后。"""
+    def bind_parameters(
+        self,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> AsyncOperationRef:
+        """记录 graph continuation；artifact 校验后必须继续携带同一个 exact ContextSnapshot ref。"""
 
         self.calls.append("bind_parameters")
         self.bind_count += 1
         assert operation_ref == self.operation_ref
+        assert context_snapshot_ref == self.context_ref
         return AsyncOperationRef(
             kind=AsyncOperationKind.INTERACTION_SESSION,
             owner="interaction",

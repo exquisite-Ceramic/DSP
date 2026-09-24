@@ -99,6 +99,26 @@ class StableRef:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OperationFreshnessResult:
+    """成功 operation freshness 的 workflow-local exact navigation refs。"""
+
+    operation_ref: StableRef
+    planning_snapshot_ref: StableRef
+    snapshot_set_ref: StableRef
+
+    def __post_init__(self) -> None:
+        """只冻结导航类型，不在 workflow contract 层解析 owner 或复制 lineage 规则。"""
+
+        for field_name in (
+            "operation_ref",
+            "planning_snapshot_ref",
+            "snapshot_set_ref",
+        ):
+            if not isinstance(getattr(self, field_name), StableRef):
+                raise TypeError(f"{field_name} must be a StableRef")
+
+
 class PendingInteractionKind(str, Enum):
     """Workflow Orchestrator 自己拥有的人机暂停交互种类。"""
 
@@ -235,6 +255,7 @@ class WorkflowResumeCommand:
 __all__ = [
     "AsyncOperationKind",
     "AsyncOperationRef",
+    "OperationFreshnessResult",
     "PendingInteractionKind",
     "PendingInteractionView",
     "StableRef",

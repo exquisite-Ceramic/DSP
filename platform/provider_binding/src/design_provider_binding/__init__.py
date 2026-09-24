@@ -32,6 +32,7 @@ from .hashing import (
     validate_provider_binding_set_hash,
 )
 from .resolver import ProviderResolver
+from .store_v2 import InMemoryProviderBindingSetV2Store
 from .v2 import (
     ProviderBindingSetV2,
     ProviderBindingV2,
@@ -44,6 +45,7 @@ from .v2 import (
 
 __all__ = [
     "EligibilityState",
+    "InMemoryProviderBindingSetV2Store",
     "NativeConstraint",
     "NativeConstraintOperator",
     "NativeTargetBindingEvidence",

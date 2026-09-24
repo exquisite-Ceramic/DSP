@@ -36,6 +36,10 @@ from .dispatch_intent import (
     HostDispatchStatus,
     build_host_dispatch_intent,
 )
+from .dispatch_intent_store import (
+    HostDispatchIntentStore,
+    InMemoryHostDispatchIntentStore,
+)
 from .failure_store import InMemoryExecutionSagaStore
 from .hashing import (
     compute_actual_change_hash,
@@ -100,9 +104,11 @@ __all__ = [
     "ExecutionSagaStore",
     "ExecutionSagaStoreV2",
     "HostDispatchIntent",
+    "HostDispatchIntentStore",
     "HostDispatchStatus",
     "InMemoryExecutionSagaStore",
     "InMemoryExecutionSagaStoreV2",
+    "InMemoryHostDispatchIntentStore",
     "OwnerEvent",
     "ReconciliationError",
     "SagaConvergenceOutcome",
