@@ -1,0 +1,208 @@
+name: Task7 evidence seam work
+
+on:
+  push:
+    branches:
+      - work/task7-green-seam-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: work/task7-green-seam-v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Apply Task 7 evidence seam patch
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          from pathlib import Path
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              """执行一次精确文本替换；任何基线漂移都立即失败。"""
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected exactly one replacement, got {count}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+          def add_v2_build_bundle_parameters(path: str) -> None:
+              """只迁移包含 V2 execution_slice/actual_delta 参数组合的 evidence fake。"""
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              old = "        execution_slice,\n        actual_delta,\n"
+              if old not in text:
+                  raise RuntimeError(f"{path}: V2 build_bundle signature pattern not found")
+              text = text.replace(
+                  old,
+                  "        execution_slice,\n        authority,\n        binding_set,\n        actual_delta,\n",
+                  1,
+              )
+              file_path.write_text(text, encoding="utf-8")
+
+
+          def insert_lineage_assertions(path: str) -> None:
+              """在迁移后的 build_bundle docstring 后加入 exact admitted-lineage 断言。"""
+              file_path = Path(path)
+              source = file_path.read_text(encoding="utf-8")
+              tree = ast.parse(source)
+              target = None
+              for node in ast.walk(tree):
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "build_bundle":
+                      names = {arg.arg for arg in node.args.args + node.args.kwonlyargs}
+                      if {"execution_slice", "authority", "binding_set", "actual_delta"} <= names:
+                          target = node
+                          break
+              if target is None:
+                  raise RuntimeError(f"{path}: migrated V2 build_bundle not found")
+              insert_after = target.body[0].end_lineno if (
+                  target.body
+                  and isinstance(target.body[0], ast.Expr)
+                  and isinstance(target.body[0].value, ast.Constant)
+                  and isinstance(target.body[0].value.value, str)
+              ) else target.lineno
+              lines = source.splitlines()
+              indent = " " * (target.col_offset + 4)
+              block = [
+                  f"{indent}assert authority.execution_slice_hash == execution_slice.execution_slice_hash",
+                  f"{indent}assert authority.binding_set_hash == binding_set.binding_set_hash",
+              ]
+              lines[insert_after:insert_after] = block
+              file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+          contracts = "platform/execution_coordination/src/design_execution_coordination/contracts.py"
+          replace_once(
+              contracts,
+              '''class CoordinationStatus(str, Enum):\n''',
+              '''class VerificationEvidenceUnavailable(RuntimeError):\n    """已知 Host commit 后，独立验证证据暂时无法取得。\n\n    该异常只表示 evidence acquisition unavailable；identity、revision、scope、semantic\n    integrity 等失败必须继续沿原有 fail-closed 路径抛出，不能被降级成 recovery。\n    """\n\n    def __init__(self, code: str, message: str) -> None:\n        super().__init__(_text(message, "message"))\n        self.code = _text(code, "code")\n\n\nclass CoordinationStatus(str, Enum):\n''',
+          )
+          replace_once(
+              contracts,
+              '    "HostFailurePhase",\n]',
+              '    "HostFailurePhase",\n    "VerificationEvidenceUnavailable",\n]',
+          )
+
+          ports = "platform/execution_coordination/src/design_execution_coordination/ports.py"
+          replace_once(
+              ports,
+              '''        execution_slice: ExecutionSliceV2,\n        actual_delta: ActualDelta,\n        canonical_changeset: CanonicalChangeSet,\n''',
+              '''        execution_slice: ExecutionSliceV2,\n        authority: AdmittedExecutionAuthorityV2,\n        binding_set: ProviderBindingSetV2,\n        actual_delta: ActualDelta,\n        canonical_changeset: CanonicalChangeSet,\n''',
+          )
+
+          init_path = "platform/execution_coordination/src/design_execution_coordination/__init__.py"
+          replace_once(
+              init_path,
+              '    HostFailurePhase,\n)',
+              '    HostFailurePhase,\n    VerificationEvidenceUnavailable,\n)',
+          )
+          replace_once(
+              init_path,
+              '    "VerificationEvidencePort",\n',
+              '    "VerificationEvidencePort",\n    "VerificationEvidenceUnavailable",\n',
+          )
+
+          coordinator = "platform/execution_coordination/src/design_execution_coordination/materialized_coordinator.py"
+          replace_once(
+              coordinator,
+              '    HostFailurePhase,\n)',
+              '    HostFailurePhase,\n    VerificationEvidenceUnavailable,\n)',
+          )
+          replace_once(
+              coordinator,
+              '''            verification_bundle = self._evidence_port.build_bundle(\n                execution_slice=execution_slice,\n                actual_delta=actual_delta,\n                canonical_changeset=canonical_changeset,\n                approval_scope_boundary=approval_scope_boundary,\n            )\n''',
+              '''            try:\n                verification_bundle = self._evidence_port.build_bundle(\n                    execution_slice=execution_slice,\n                    authority=authority,\n                    binding_set=binding_set,\n                    actual_delta=actual_delta,\n                    canonical_changeset=canonical_changeset,\n                    approval_scope_boundary=approval_scope_boundary,\n                )\n            except VerificationEvidenceUnavailable as exc:\n                # Host commit 与 scope truth 已经 durable；证据暂不可得时保持 RECONCILING，\n                # 不伪造 bundle、不推进 verification，也绝不为了“拿干净证据”重新 mutation。\n                return _result(\n                    stored,\n                    MaterializedCoordinationStatus.RECOVERY_REQUIRED,\n                    active_slice_hash=execution_slice.execution_slice_hash,\n                    failure_ref=exc.code,\n                )\n''',
+          )
+
+          recovery = "platform/execution_coordination/src/design_execution_coordination/recovery.py"
+          replace_once(
+              recovery,
+              '    HostFailurePhase,\n)',
+              '    HostFailurePhase,\n    VerificationEvidenceUnavailable,\n)',
+          )
+          replace_once(
+              recovery,
+              '''        execution_slice: ExecutionSliceV2,\n        authority: AdmittedExecutionAuthorityV2,\n        intent: HostDispatchIntent,\n''',
+              '''        execution_slice: ExecutionSliceV2,\n        authority: AdmittedExecutionAuthorityV2,\n        binding_set: ProviderBindingSetV2,\n        intent: HostDispatchIntent,\n''',
+          )
+          replace_once(
+              recovery,
+              '''        verification_bundle = self._evidence_port.build_bundle(\n            execution_slice=execution_slice,\n            actual_delta=actual_delta,\n            canonical_changeset=self._canonical_changeset,\n            approval_scope_boundary=self._approval_scope_boundary,\n        )\n''',
+              '''        try:\n            verification_bundle = self._evidence_port.build_bundle(\n                execution_slice=execution_slice,\n                authority=authority,\n                binding_set=binding_set,\n                actual_delta=actual_delta,\n                canonical_changeset=self._canonical_changeset,\n                approval_scope_boundary=self._approval_scope_boundary,\n            )\n        except VerificationEvidenceUnavailable as exc:\n            # 已知 commit 的 recovery 只重试独立 READ/evidence；intent 保持 HOST_COMMITTED，\n            # Saga 保持 RECONCILING，直到同一 Slice 获得可验证 evidence。\n            return _project_result(\n                stored_saga,\n                execution_slice_hash=execution_slice.execution_slice_hash,\n                failure_ref=exc.code,\n            )\n''',
+          )
+          replace_once(
+              recovery,
+              '''                execution_slice=execution_slice,\n                authority=authority,\n                intent=intent,\n''',
+              '''                execution_slice=execution_slice,\n                authority=authority,\n                binding_set=binding_set,\n                intent=intent,\n''',
+          )
+
+          known_implementations = (
+              "tests/execution_coordination/_materialized_support.py",
+              "tests/orchestrator/test_real_owner_workflow_end_to_end.py",
+              "tests/integration/phase_i_live_host.py",
+          )
+          for path in known_implementations:
+              add_v2_build_bundle_parameters(path)
+              insert_lineage_assertions(path)
+
+          support = "tests/execution_coordination/_materialized_support.py"
+          replace_once(
+              support,
+              '''    def __init__(self, ctx, *, divergent_host: str | None = None) -> None:\n        self.ctx = ctx\n        self.divergent_host = divergent_host\n        self.bundle_calls = []\n''',
+              '''    def __init__(\n        self,\n        ctx,\n        *,\n        divergent_host: str | None = None,\n        bundle_failure: Exception | None = None,\n    ) -> None:\n        self.ctx = ctx\n        self.divergent_host = divergent_host\n        self.bundle_failure = bundle_failure\n        self.bundle_calls = []\n''',
+          )
+          replace_once(
+              support,
+              '''        self.bundle_calls.append(execution_slice.execution_slice_hash)\n        assert canonical_changeset.changeset_hash == actual_delta.changeset_hash\n''',
+              '''        self.bundle_calls.append(execution_slice.execution_slice_hash)\n        if self.bundle_failure is not None:\n            raise self.bundle_failure\n        assert canonical_changeset.changeset_hash == actual_delta.changeset_hash\n''',
+          )
+          replace_once(
+              support,
+              '''    divergent_host: str | None = None,\n    dispatch_intents=None,\n''',
+              '''    divergent_host: str | None = None,\n    bundle_failure: Exception | None = None,\n    dispatch_intents=None,\n''',
+          )
+          replace_once(
+              support,
+              '''    evidence_port = ConvergenceEvidencePort(ctx, divergent_host=divergent_host)\n''',
+              '''    evidence_port = ConvergenceEvidencePort(\n        ctx,\n        divergent_host=divergent_host,\n        bundle_failure=bundle_failure,\n    )\n''',
+          )
+
+          test_path = Path("tests/execution_coordination/test_verification_evidence_unavailable.py")
+          test_path.write_text(
+              '''"""Task 7：known-commit 独立 evidence 暂不可得时必须保持可恢复 durable truth。"""\n\nfrom __future__ import annotations\n\nimport inspect\n\nfrom design_execution_coordination import (\n    ConvergenceEvidencePort,\n    MaterializedCoordinationStatus,\n    VerificationEvidenceUnavailable,\n)\nfrom design_execution_reconciliation import (\n    HostDispatchStatus,\n    SliceReconciliationStatusV2,\n)\n\nfrom tests.execution_coordination._materialized_support import execute, materialized_fixture\n\n\ndef _host_execute_count(fixture) -> int:\n    """统计所有 materialized Host ports 的真实 execute 次数。"""\n    return sum(len(port.calls) for port in fixture.host_registry.ports.values())\n\n\ndef test_v2_evidence_port_receives_exact_admitted_lineage() -> None:\n    """evidence builder 必须显式消费 admitted authority 与 exact binding set。"""\n    parameters = inspect.signature(ConvergenceEvidencePort.build_bundle).parameters\n    assert "authority" in parameters\n    assert "binding_set" in parameters\n\n\ndef test_known_commit_evidence_unavailable_preserves_recovery_truth() -> None:\n    """独立 READ 暂不可得不能丢失 Host commit，也不能再次执行 Host mutation。"""\n    failure = VerificationEvidenceUnavailable(\n        "VERIFICATION_EVIDENCE_UNAVAILABLE",\n        "independent post-commit READ is temporarily unavailable",\n    )\n    fixture = materialized_fixture(bundle_failure=failure)\n\n    result = execute(fixture)\n\n    assert result.status is MaterializedCoordinationStatus.RECOVERY_REQUIRED\n    assert result.failure_ref == "VERIFICATION_EVIDENCE_UNAVAILABLE"\n    assert _host_execute_count(fixture) == 1\n\n    assert len(fixture.dispatch_intents.by_id) == 1\n    intent = next(iter(fixture.dispatch_intents.by_id.values()))\n    assert intent.status is HostDispatchStatus.HOST_COMMITTED\n\n    stored = fixture.reconciliation.service.get_saga(result.saga_id)\n    assert stored is not None\n    active = [\n        state\n        for state in stored.slice_states\n        if state.execution_slice_hash == result.active_slice_hash\n    ]\n    assert len(active) == 1\n    state = active[0]\n    assert state.status is SliceReconciliationStatusV2.RECONCILING\n    assert state.scope_comparison_hash is not None\n    assert state.verification_hash is None\n\n    replay = execute(fixture)\n    assert replay.status is MaterializedCoordinationStatus.RECOVERY_REQUIRED\n    assert replay.saga_id == result.saga_id\n    assert _host_execute_count(fixture) == 1\n''',
+              encoding="utf-8",
+          )
+          PY
+      - name: Run Task 7 evidence seam focused tests
+        run: |
+          uv run pytest tests/execution_coordination/test_verification_evidence_unavailable.py -q -vv
+          uv run pytest tests/execution_coordination -q
+          uv run pytest tests/orchestrator/test_real_owner_workflow_end_to_end.py -q
+          DSP_PHASE_I_LIVE=0 uv run pytest tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py --collect-only -q
+      - name: Run focused Ruff
+        run: |
+          uv run ruff check tests/execution_coordination/test_verification_evidence_unavailable.py
+      - name: Commit verified seam patch
+        run: |
+          rm .github/workflows/task7-seam-work.yml
+          git config user.name "FangBin"
+          git config user.email "52097203+exquisite-Ceramic@users.noreply.github.com"
+          git add platform/execution_coordination tests/execution_coordination tests/orchestrator tests/integration .github/workflows/task7-seam-work.yml
+          git commit -m "feat: preserve known-commit evidence recovery truth"
+          git push origin HEAD:work/task7-green-seam-v2
