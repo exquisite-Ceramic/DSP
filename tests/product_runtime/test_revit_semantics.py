@@ -18,8 +18,8 @@ from revit_sidecar import (
 )
 from revit_sidecar.design_fact_adapter import DesignFactAdapter
 from semantic_runtime import (
-    AssuranceLevel,
     AspectRequirement,
+    AssuranceLevel,
     CoverageState,
     HostBinding,
     IdentityRegistry,
