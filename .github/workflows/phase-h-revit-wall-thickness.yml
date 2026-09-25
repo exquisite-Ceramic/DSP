@@ -44,6 +44,8 @@ jobs:
           hosts/revit/sidecar/tests/test_model_adapter.py
           hosts/revit/sidecar/tests/test_execution_result_adapter.py
           hosts/revit/sidecar/tests/test_named_pipe.py
+          hosts/revit/sidecar/tests/test_context.py
+          hosts/revit/sidecar/tests/test_snapshot_read.py
           -q -vv
       - name: Verify Revit design facts and enterprise mappings
         run: >-
