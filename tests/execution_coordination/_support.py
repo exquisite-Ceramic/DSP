@@ -43,8 +43,12 @@ def admission(case):
     )
 
 
-def phase_i_readiness_inputs():
-    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs()
+def phase_i_readiness_inputs(*, semantic_environment=None, project_id=None):
+    # 把同一产品 project/environment lineage 透传到 Step27→Step32 owners，避免伪造后置 refs。
+    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs(
+        semantic_environment=semantic_environment,
+        project_id=project_id,
+    )
     execution_plan = plan_materialized_execution(execution_request)
     store = InMemoryGatewayAuthorizationStoreV2()
     service = GatewayAuthorizationServiceV2(store)

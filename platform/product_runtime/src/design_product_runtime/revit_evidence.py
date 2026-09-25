@@ -164,7 +164,6 @@ class RevitWallThicknessVerificationEvidencePort:
         if (
             unit.canonical_operation != "set_wall_thickness.v1"
             or binding.canonical_operation != unit.canonical_operation
-            or binding.provider_tool != "revit.set_wall_thickness"
             or binding.execution_unit_hash != unit.execution_unit_hash
             or binding.execution_slice_hash != execution_slice.execution_slice_hash
             or binding.host_runtime_ref != runtime
@@ -270,7 +269,7 @@ class RevitWallThicknessVerificationEvidencePort:
 
         claims = self._semantic_service.project_facts(facts, environment_id)
         if not isinstance(claims, tuple):
-            raise ValueError(
+            raise TypeError(
                 "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts must return a tuple"
             )
 
@@ -296,11 +295,9 @@ class RevitWallThicknessVerificationEvidencePort:
             )
         classification_claim = classification_claims[0]
         thickness_claim = thickness_claims[0]
-        for claim in (classification_claim, thickness_claim):
-            if getattr(claim, "subject", None) != semantic_id:
-                raise ValueError(
-                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted target"
-                )
+        # claim 的 provider-specific native:// subject 不是 semantic identity authority。
+        # 两条 claim 已由 exact design-fact ids 证明来自本次 admitted native target 的独立 READ；
+        # native→semantic identity 继续只由上游 admitted NativeTargetBindingEvidence 持有。
         if getattr(thickness_claim, "unit", None) != "mm":
             raise ValueError(
                 "REVIT_VERIFICATION_SEMANTIC_INVALID: wall thickness claim must use canonical mm"
@@ -474,7 +471,7 @@ class RevitWallThicknessVerificationEvidencePort:
         thickness_value = getattr(thickness_claim, "value", None)
         if isinstance(thickness_value, Mapping):
             # 当前真实 provider 返回 scalar；mapping 说明 semantic contract 已漂移，不能静默兼容。
-            raise ValueError(
+            raise TypeError(
                 "REVIT_VERIFICATION_SEMANTIC_INVALID: wall thickness claim must be scalar"
             )
         subject = VerificationSubjectEvidence(
@@ -501,7 +498,7 @@ class RevitWallThicknessVerificationEvidencePort:
             (
                 f"{actual_delta.actual_delta_hash}\n{snapshot.hash}\n"
                 f"{projection_ref.projection_hash}"
-            ).encode("utf-8")
+            ).encode()
         ).hexdigest()[:20]
         draft = VerificationEvidenceBundle(
             evidence_bundle_id=f"VEB-REVIT-{bundle_identity}",

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 from design_execution_coordination import VerificationEvidenceUnavailable
 from design_execution_reconciliation import VerificationStatus
+from design_impact import SemanticEnvironmentBinding
 from design_product_runtime import RevitWallThicknessVerificationEvidencePort
 from revit_sidecar import RevitWallThicknessSnapshotReadPort
 from revit_sidecar.design_fact_adapter import DesignFactAdapter
@@ -65,7 +64,14 @@ class _SnapshotTransport:
 
 def _case(*, transport: _SnapshotTransport | None = None):
     """从真实 Phase I owners 选出 Revit Slice，并组合 production semantic collaborators。"""
-    ctx = phase_i_readiness_inputs()
+    semantic_service, semantic_environment = _real_semantic_service()
+    ctx = phase_i_readiness_inputs(
+        semantic_environment=SemanticEnvironmentBinding(
+            semantic_environment.environment_id,
+            semantic_environment.content_hash,
+        ),
+        project_id="project-1",
+    )
     index = next(
         i
         for i, item in enumerate(ctx.execution_plan.execution_slices)
@@ -75,7 +81,6 @@ def _case(*, transport: _SnapshotTransport | None = None):
     authority = ctx.authorities[index]
     binding_set = ctx.binding_sets[index]
     actual_delta = signed_delta(ctx, index)
-    semantic_service, semantic_environment = _real_semantic_service()
     transport = transport or _SnapshotTransport(
         host_instance_id=execution_slice.host_runtime_ref.host_instance_id
     )
