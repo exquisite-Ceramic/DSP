@@ -5,6 +5,7 @@ from .postgres_request_store import (
     PostgresProductTaskRequestStore,
     create_postgres_product_task_request_store,
 )
+from .revit_evidence import RevitWallThicknessVerificationEvidencePort
 from .revit_execution import RevitWallThicknessProviderExecutionSnapshotBoundary
 from .revit_operation_resolution import RevitWallThicknessSemanticBoundary
 from .revit_semantics import RevitSemanticBoundaryError
@@ -16,5 +17,6 @@ __all__ = [
     "RevitSemanticBoundaryError",
     "RevitWallThicknessProviderExecutionSnapshotBoundary",
     "RevitWallThicknessSemanticBoundary",
+    "RevitWallThicknessVerificationEvidencePort",
     "create_postgres_product_task_request_store",
 ]

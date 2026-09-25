@@ -68,6 +68,18 @@ class CoordinationError(ValueError):
         self.code = _text(code, "code")
 
 
+class VerificationEvidenceUnavailable(RuntimeError):
+    """已知 Host commit 后，独立验证证据暂时无法取得。
+
+    该异常只表示 evidence acquisition unavailable；identity、revision、scope、semantic
+    integrity 等失败必须继续沿原有 fail-closed 路径抛出，不能被降级成 recovery。
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(_text(message, "message"))
+        self.code = _text(code, "code")
+
+
 class CoordinationStatus(str, Enum):
     """旧 Step37 coordination surface 的稳定终态集合。"""
 
@@ -206,4 +218,5 @@ __all__ = [
     "HostExecutionResult",
     "HostFailed",
     "HostFailurePhase",
+    "VerificationEvidenceUnavailable",
 ]

@@ -49,6 +49,7 @@ from .contracts import (
     HostDispatchContext,
     HostFailed,
     HostFailurePhase,
+    VerificationEvidenceUnavailable,
 )
 from .materialized_contracts import (
     MaterializedCoordinationResult,
@@ -638,12 +639,24 @@ class MaterializedExecutionSagaCoordinator:
                     )
                 return terminal
 
-            verification_bundle = self._evidence_port.build_bundle(
-                execution_slice=execution_slice,
-                actual_delta=actual_delta,
-                canonical_changeset=canonical_changeset,
-                approval_scope_boundary=approval_scope_boundary,
-            )
+            try:
+                verification_bundle = self._evidence_port.build_bundle(
+                    execution_slice=execution_slice,
+                    authority=authority,
+                    binding_set=binding_set,
+                    actual_delta=actual_delta,
+                    canonical_changeset=canonical_changeset,
+                    approval_scope_boundary=approval_scope_boundary,
+                )
+            except VerificationEvidenceUnavailable as exc:
+                # Host commit 与 scope truth 已经 durable；证据暂不可得时保持 RECONCILING，
+                # 不伪造 bundle、不推进 verification，也绝不为了“拿干净证据”重新 mutation。
+                return _result(
+                    stored,
+                    MaterializedCoordinationStatus.RECOVERY_REQUIRED,
+                    active_slice_hash=execution_slice.execution_slice_hash,
+                    failure_ref=exc.code,
+                )
             verification = self._reconciliation.verify_semantics(
                 canonical_changeset=canonical_changeset,
                 approval_scope_boundary=approval_scope_boundary,
