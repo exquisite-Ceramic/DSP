@@ -16,6 +16,11 @@ def _trigger_block(text: str) -> str:
     return text.split("on:\n", 1)[1].split("\njobs:\n", 1)[0]
 
 
+def _normalized_shell(text: str) -> str:
+    """折叠 shell 续行与格式空白，让 source-contract 只绑定命令语义而非 YAML 排版。"""
+    return " ".join(text.replace("\\\n", " ").split())
+
+
 def test_repository_regression_workflow_exists() -> None:
     assert WORKFLOW.is_file()
 
@@ -71,6 +76,7 @@ def test_repository_regression_uses_one_locked_ruff_for_base_and_head() -> None:
     """Ruff delta 必须用 HEAD lock 里的同一个二进制检查历史 base 与当前 head。"""
 
     text = _workflow_text()
+    normalized = _normalized_shell(text)
     command = (
         '"$RUFF_BIN" check --select E,F,I --output-format=json '
         "platform hosts/autocad/sidecar hosts/revit/sidecar tests"
@@ -78,7 +84,7 @@ def test_repository_regression_uses_one_locked_ruff_for_base_and_head() -> None:
 
     assert "Enforce no new repository Ruff diagnostics" in text
     assert 'RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"' in text
-    assert text.count(command) >= 2
+    assert normalized.count(command) >= 2
     assert "BASE_SHA" in text
     assert 'git worktree add /tmp/dsp-base "$BASE_SHA"' in text
     assert "Counter" in text
