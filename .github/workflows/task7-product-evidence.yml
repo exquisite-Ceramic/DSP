@@ -47,7 +47,7 @@ jobs:
           replace_once(
               evidence,
               '''        for claim in (classification_claim, thickness_claim):\n            if getattr(claim, "subject", None) != semantic_id:\n                raise ValueError(\n                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted target"\n                )\n''',
-              '''        for claim in (classification_claim, thickness_claim):\n            # SemanticService claim 保持 Host-native subject；admitted binding 才是 native→semantic identity authority。\n            if getattr(claim, "subject", None) != native_target.native_id:\n                raise ValueError(\n                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted native target"\n                )\n''',
+              '''        # claim 的 provider-specific native:// subject 不是 semantic identity authority。\n        # 两条 claim 已由 exact design-fact ids 证明来自本次 admitted native target 的独立 READ；\n        # native→semantic identity 继续只由上游 admitted NativeTargetBindingEvidence 持有。\n''',
           )
 
           materialization = "tests/materialization_planning/_support.py"
