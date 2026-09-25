@@ -39,6 +39,7 @@ jobs:
         run: >-
           python -m pip install
           pytest PyYAML==6.0.3 "jsonschema>=4.20" ruff==0.16.8
+      # Task 4 收口要求 read-port focused tests 与 repository regression 在同一 exact HEAD 上取证。
       - name: Verify Revit architecture boundary
         run: python -m pytest tests/revit/test_revit_architecture.py -q -vv
       - name: Verify Revit sidecar adapter
