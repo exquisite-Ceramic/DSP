@@ -56,7 +56,7 @@ class _SnapshotRegistry:
             snapshot_set_id=ref.snapshot_set_id,
             hash=ref.snapshot_set_hash,
             member_snapshot_ids=tuple(ref.member_snapshot_ids),
-            semantic_environment_ref=ref.semantic_environment_ref,
+            semantic_environment_ref=ref.semantic_environment,
         )
 
     def get_snapshot(self, snapshot_id: str):
@@ -69,7 +69,7 @@ class _SnapshotRegistry:
             kind=SnapshotKind.PLANNING,
             document_ref=self._document_ref,
             base_host_revision=self._revision,
-            semantic_environment_ref=planning.semantic_environment_ref,
+            semantic_environment_ref=planning.semantic_environment,
         )
 
 
