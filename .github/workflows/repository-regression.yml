@@ -43,14 +43,13 @@ jobs:
         # Python 3.11 仍是 canonical lane；3.14 只证明运行时兼容性，不复制 Ruff baseline ownership。
         if: matrix.lane == 'canonical'
         shell: bash
+        env:
+          DSP_EVENT_NAME: ${{ github.event_name }}
+          DSP_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          DSP_PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          DSP_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-            BASE_SHA="${{ github.event.before }}"
-          else
-            BASE_SHA="$(git rev-parse HEAD^)"
-          fi
+          BASE_SHA="$(bash "$GITHUB_WORKSPACE/.github/scripts/resolve-ruff-baseline.sh")"
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           git worktree add /tmp/dsp-base "$BASE_SHA"
 
