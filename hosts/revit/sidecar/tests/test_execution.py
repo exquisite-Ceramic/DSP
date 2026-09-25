@@ -7,7 +7,6 @@ from dataclasses import replace
 import pytest
 import revit_sidecar
 from design_execution_coordination import HostCommitted, HostDispatchContext
-
 from task6_support import revit_execution_inputs
 
 
