@@ -106,6 +106,29 @@ def test_push_uses_resolvable_before_sha(tmp_path: Path) -> None:
     assert result.stdout.strip() == before_sha
 
 
+def test_push_uses_resolvable_nonancestor_before_sha(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    base_sha = _commit(repo, "base")
+    _git(repo, "checkout", "-b", "old-tip")
+    before_sha = _commit(repo, "before-force-push")
+    _git(repo, "checkout", "-B", "main", base_sha)
+    _commit(repo, "rewritten-head")
+
+    assert _git(
+        repo,
+        "merge-base",
+        "--is-ancestor",
+        before_sha,
+        "HEAD",
+        check=False,
+    ).returncode != 0
+
+    result = _run_resolver(repo, event_name="push", push_before_sha=before_sha)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == before_sha
+
+
 def test_push_missing_before_uses_fetched_default_branch_merge_base(tmp_path: Path) -> None:
     remote, base_sha = _init_remote(tmp_path)
     repo = _init_repo(tmp_path / "repo")
