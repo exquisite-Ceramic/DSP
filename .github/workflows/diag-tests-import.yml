@@ -1,0 +1,27 @@
+name: Diagnostic tests import resolution
+
+on:
+  push:
+    branches:
+      - diag/task6-product-execution-red
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Inspect tests package resolution
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+          import sys
+          print('cwd=', os.getcwd())
+          print('sys.path=', sys.path)
+          print('tests spec=', importlib.util.find_spec('tests'))
+          print('tests.execution_coordination spec=', importlib.util.find_spec('tests.execution_coordination'))
+          PY
