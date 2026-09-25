@@ -258,9 +258,16 @@ class MaterializedHostRegistry:
 class ConvergenceEvidencePort:
     """复用 production convergence builder 形成 canonical evidence。"""
 
-    def __init__(self, ctx, *, divergent_host: str | None = None) -> None:
+    def __init__(
+        self,
+        ctx,
+        *,
+        divergent_host: str | None = None,
+        bundle_failure: Exception | None = None,
+    ) -> None:
         self.ctx = ctx
         self.divergent_host = divergent_host
+        self.bundle_failure = bundle_failure
         self.bundle_calls = []
         self.evidence_calls = []
 
@@ -276,12 +283,18 @@ class ConvergenceEvidencePort:
         self,
         *,
         execution_slice,
+        authority,
+        binding_set,
         actual_delta,
         canonical_changeset,
         approval_scope_boundary,
     ):
         """构造与真实 Step33 约束一致的 verification bundle。"""
+        assert authority.execution_slice_hash == execution_slice.execution_slice_hash
+        assert authority.binding_set_hash == binding_set.binding_set_hash
         self.bundle_calls.append(execution_slice.execution_slice_hash)
+        if self.bundle_failure is not None:
+            raise self.bundle_failure
         assert canonical_changeset.changeset_hash == actual_delta.changeset_hash
         assert approval_scope_boundary.scope_hash == actual_delta.approved_scope_hash
         return signed_bundle(self.ctx, actual_delta, self._index(execution_slice))
@@ -338,6 +351,7 @@ def materialized_fixture(
     readiness_statuses=None,
     host_failures=None,
     divergent_host: str | None = None,
+    bundle_failure: Exception | None = None,
     dispatch_intents=None,
     events: list[tuple[str, object]] | None = None,
     record_events: bool = False,
@@ -355,7 +369,11 @@ def materialized_fixture(
     host_registry = MaterializedHostRegistry(ctx, host_failures, event_log)
     if dispatch_intents is None:
         dispatch_intents = InMemoryDispatchIntentStore(event_log)
-    evidence_port = ConvergenceEvidencePort(ctx, divergent_host=divergent_host)
+    evidence_port = ConvergenceEvidencePort(
+        ctx,
+        divergent_host=divergent_host,
+        bundle_failure=bundle_failure,
+    )
     convergence_verifier = TrackingConvergenceVerifier()
     clock = FixedClock()
     coordinator = MaterializedExecutionSagaCoordinator(

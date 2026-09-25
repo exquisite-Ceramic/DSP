@@ -732,11 +732,15 @@ class PhaseIConvergenceEvidencePort:
         self,
         *,
         execution_slice,
+        authority,
+        binding_set,
         actual_delta,
         canonical_changeset,
         approval_scope_boundary,
     ):
         """把 canonical post-state 封装成 Step33 可验证的真实证据 bundle。"""
+        assert authority.execution_slice_hash == execution_slice.execution_slice_hash
+        assert authority.binding_set_hash == binding_set.binding_set_hash
         observation = self._observations.items[execution_slice.materialization_id]
         thickness = observation["wall_thickness"]
         marker = execution_slice.host_runtime_ref.host_type

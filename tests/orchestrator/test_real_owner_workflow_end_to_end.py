@@ -516,10 +516,14 @@ class _EvidenceBoundary:
         self,
         *,
         execution_slice,
+        authority,
+        binding_set,
         actual_delta,
         canonical_changeset,
         approval_scope_boundary,
     ):
+        assert authority.execution_slice_hash == execution_slice.execution_slice_hash
+        assert authority.binding_set_hash == binding_set.binding_set_hash
         del approval_scope_boundary
         projection = SemanticProjectionRef(
             "projection-post-task9",
