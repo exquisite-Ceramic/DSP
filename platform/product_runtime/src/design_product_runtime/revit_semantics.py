@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import Protocol
 
 from design_orchestrator.workflow_contracts import StableRef
 from revit_sidecar import RevitContextObservation
-from semantic_runtime import IdentityRegistry
+from semantic_runtime import HostBinding, IdentityRegistry
 
 from .contracts import ProductTaskRequest
 
@@ -37,6 +38,16 @@ class RevitSemanticBoundaryError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class _CapturedContext:
+    """一次 exact re-read 的瞬时结果；只在当前调用栈内使用，不作为持久 authority。"""
+
+    request: ProductTaskRequest
+    observation: RevitContextObservation
+    binding: HostBinding
+    digest: str
 
 
 def _required_text(value: object, field_name: str) -> str:
@@ -83,7 +94,7 @@ def _context_hash(
 class RevitWallThicknessSemanticBoundary:
     """把 immutable ProductTask request 与 authoritative Revit selection 绑定起来。
 
-    本 Step 只负责 ``resolve_host_context``。它不执行 semantic reconstruction、canonical
+    当前实现只覆盖 context capture/recovery。它不执行 semantic reconstruction、canonical
     operation resolution 或 parameter binding；这些职责在后续 Task 5 RED/GREEN 中逐步接入。
     """
 
@@ -115,8 +126,8 @@ class RevitWallThicknessSemanticBoundary:
         self._document_id = _required_text(document_id, "document_id")
         self._host_instance_id = _required_text(host_instance_id, "host_instance_id")
 
-    def resolve_host_context(self, task_id: str) -> StableRef:
-        """按 exact task request 捕获当前 Revit selection 并返回 content-addressed context ref。"""
+    def _capture(self, task_id: str) -> _CapturedContext:
+        """从 durable request + fresh Host READ + existing identity binding 重建一次 exact context。"""
 
         normalized_task_id = _required_text(task_id, "task_id")
         request = self._request_store.get(normalized_task_id)
@@ -198,7 +209,59 @@ class RevitWallThicknessSemanticBoundary:
             native_id=binding.native_id,
             native_kind=binding.native_kind,
         )
-        return StableRef(f"{self._REF_PREFIX}{normalized_task_id}", digest)
+        return _CapturedContext(
+            request=request,
+            observation=observation,
+            binding=binding,
+            digest=digest,
+        )
+
+    def resolve_host_context(self, task_id: str) -> StableRef:
+        """按 exact task request 捕获当前 Revit selection 并返回 content-addressed context ref。"""
+
+        captured = self._capture(task_id)
+        return StableRef(
+            f"{self._REF_PREFIX}{captured.request.task_id}",
+            captured.digest,
+        )
+
+    def load_context_inputs(self, context_ref: StableRef):
+        """fresh re-read 后仅在 context ref 完全匹配时重建 freshness 输入。"""
+
+        if not isinstance(context_ref, StableRef):
+            raise TypeError("context_ref must be StableRef")
+        if not context_ref.ref_id.startswith(self._REF_PREFIX):
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_REF_INVALID",
+                "context ref is not owned by the Revit product semantic boundary",
+            )
+        task_id = context_ref.ref_id[len(self._REF_PREFIX) :]
+        if not task_id.strip():
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_REF_INVALID",
+                "context ref does not contain an exact task id",
+            )
+
+        captured = self._capture(task_id)
+        rebuilt_ref = StableRef(
+            f"{self._REF_PREFIX}{captured.request.task_id}",
+            captured.digest,
+        )
+        if rebuilt_ref != context_ref:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_HASH_MISMATCH",
+                "Revit context hash mismatch after authoritative Host re-read",
+            )
+
+        # 避免 product_runtime 在 import-time 绑定完整 orchestrator composition；这里只构造其窄输入 DTO。
+        from design_orchestrator.canonical_owner_ports import ContextFreshnessInputs
+
+        return ContextFreshnessInputs(
+            task_id=captured.request.task_id,
+            project_id=captured.request.project_id,
+            document_ref=captured.observation.document_id,
+            root_entities=(captured.binding.semantic_id,),
+        )
 
 
 __all__ = [
