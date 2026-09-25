@@ -35,6 +35,120 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"未找到预期文本: {path}: {old!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          evidence = Path("platform/product_runtime/src/design_product_runtime/revit_evidence.py")
+          evidence_replacements = (
+              (
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: admitted execution lineage does not join exactly"',
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: admitted execution lineage "\n                "does not join exactly"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires one execution unit and one binding"',
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification "\n                "requires one execution unit and one binding"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires one semantic/native target"',
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification "\n                "requires one semantic/native target"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: provider/native binding does not match the admitted wall-thickness slice"',
+                  '                "REVIT_VERIFICATION_LINEAGE_MISMATCH: provider/native binding does not "\n                "match the admitted wall-thickness slice"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_EVIDENCE_MISMATCH: independent READ does not match committed identity/revision"',
+                  '                "REVIT_VERIFICATION_EVIDENCE_MISMATCH: independent READ does not "\n                "match committed identity/revision"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_FACTS_INVALID: design fact adapter returned an unsupported batch"',
+                  '                "REVIT_VERIFICATION_FACTS_INVALID: design fact adapter returned "\n                "an unsupported batch"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_ENVIRONMENT_MISMATCH: pinned semantic environment differs from ChangeSet authority"',
+                  '                "REVIT_VERIFICATION_ENVIRONMENT_MISMATCH: pinned semantic environment "\n                "differs from ChangeSet authority"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts must return a tuple"',
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts "\n                "must return a tuple"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: exact wall classification/thickness claims are unresolved"',
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: exact wall classification/thickness "\n                "claims are unresolved"',
+              ),
+              (
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: pinned environment must expose one facts projection compatibility"',
+                  '                "REVIT_VERIFICATION_SEMANTIC_INVALID: pinned environment must expose "\n                "one facts projection compatibility"',
+              ),
+          )
+          for old, new in evidence_replacements:
+              replace_once(evidence, old, new)
+
+          operation_resolution = Path(
+              "platform/product_runtime/src/design_product_runtime/revit_operation_resolution.py"
+          )
+          replace_once(
+              operation_resolution,
+              '        """对 exact snapshot revision 再读 Host facts，并只保留本批 facts 支撑的 canonical claims。"""',
+              '        (\n            "对 exact snapshot revision 再读 Host facts，"\n            "并只保留本批 facts 支撑的 canonical claims。"\n        )',
+          )
+
+          semantics = Path("platform/product_runtime/src/design_product_runtime/revit_semantics.py")
+          semantics_replacements = (
+              (
+                  '        """从 durable request + fresh Host READ + existing identity binding 重建一次 exact context。"""',
+                  '        (\n            "从 durable request + fresh Host READ + existing identity binding "\n            "重建一次 exact context。"\n        )',
+              ),
+              (
+                  '        """按 contract semantic root 解析唯一 exact Revit Wall binding，禁止 latest/reverse fallback。"""',
+                  '        (\n            "按 contract semantic root 解析唯一 exact Revit Wall binding，"\n            "禁止 latest/reverse fallback。"\n        )',
+              ),
+              (
+                  '        # 避免 product_runtime 在 import-time 绑定完整 orchestrator composition；这里只构造其窄输入 DTO。',
+                  '        # 避免 product_runtime 在 import-time 绑定完整 orchestrator composition；\n        # 这里只构造其窄输入 DTO。',
+              ),
+              (
+                  '        """从 exact HostBinding + strict snapshot READ 重建真实 provider-backed semantic evidence。"""',
+                  '        (\n            "从 exact HostBinding + strict snapshot READ 重建真实 "\n            "provider-backed semantic evidence。"\n        )',
+              ),
+          )
+          for old, new in semantics_replacements:
+              replace_once(semantics, old, new)
+
+          execution_test = Path("tests/product_runtime/test_revit_execution_composition.py")
+          replace_once(
+              execution_test,
+              '"""Task 6 RED：Revit execution composition 必须把 authoritative planning revision 冻结进 binding hash。"""',
+              '(\n    "Task 6 RED：Revit execution composition 必须把 authoritative planning revision "\n    "冻结进 binding hash。"\n)',
+          )
+
+          semantics_test = Path("tests/product_runtime/test_revit_semantics.py")
+          replace_once(
+              semantics_test,
+              '    """要求 real reconstruction 为 Wall classification 与 thickness property 提供 canonical 证据。"""',
+              '    (\n        "要求 real reconstruction 为 Wall classification 与 thickness property "\n        "提供 canonical 证据。"\n    )',
+          )
+          replace_once(
+              semantics_test,
+              '    """freshness coverage 里的 semantic root 没有 exact Revit binding 时禁止 latest/reverse fallback。"""',
+              '    (\n        "freshness coverage 里的 semantic root 没有 exact Revit binding 时"\n        "禁止 latest/reverse fallback。"\n    )',
+          )
+
+          evidence_test = Path("tests/product_runtime/test_revit_verification_evidence.py")
+          replace_once(
+              evidence_test,
+              '    """只 fake Revit 外部 transport；snapshot adapter、事实归一化与 SemanticService 均使用 production。"""',
+              '    (\n        "只 fake Revit 外部 transport；snapshot adapter、事实归一化与 "\n        "SemanticService 均使用 production。"\n    )',
+          )
+          replace_once(
+              evidence_test,
+              '    """独立 READ 必须使用 admitted native target 与 committed revision，并生成可 PASS 的 Step33 bundle。"""',
+              '    (\n        "独立 READ 必须使用 admitted native target 与 committed revision，"\n        "并生成可 PASS 的 Step33 bundle。"\n    )',
+          )
+
           for path in (
               Path(".github/workflows/step23-canonical-action-contract.yml"),
               Path(".github/workflows/step36-offset-create-scope-breach.yml"),
