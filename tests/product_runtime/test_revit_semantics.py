@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-import pytest
 import design_product_runtime
+import pytest
 from design_orchestrator.workflow_contracts import StableRef
 from design_product_runtime import ProductTaskRequest
 from revit_sidecar import RevitContextObservation, RevitSelectedElement
@@ -82,15 +80,17 @@ def _request(*, task_id: str = "task-A", thickness_mm: float = 300.0) -> Product
 
 def _observation(
     *,
+    document_id: str = "DOC-1",
+    host_instance_id: str = "revit-runtime-1",
     revision: int = 41,
     selected_elements: tuple[RevitSelectedElement, ...] | None = None,
 ) -> RevitContextObservation:
     """构造 Task 4 已验证 shape 的 Host context evidence。"""
 
     return RevitContextObservation(
-        document_id="DOC-1",
+        document_id=document_id,
         document_title="Product Fixture",
-        host_instance_id="revit-runtime-1",
+        host_instance_id=host_instance_id,
         revision=revision,
         selected_elements=(
             selected_elements
@@ -122,6 +122,23 @@ def _identity_registry() -> IdentityRegistry:
     return registry
 
 
+def _registry_with_second_wall() -> IdentityRegistry:
+    """为 recovery mismatch 测试准备第二个合法 Wall binding。"""
+
+    registry = _identity_registry()
+    registry.ensure_identity("semantic-wall-2")
+    registry.bind_host(
+        HostBinding(
+            semantic_id="semantic-wall-2",
+            host_type="revit",
+            document_id="DOC-1",
+            native_id="WALL-UNIQUE-2",
+            native_kind="Wall",
+        )
+    )
+    return registry
+
+
 def _boundary(
     *,
     request: ProductTaskRequest | None = None,
@@ -141,6 +158,14 @@ def _boundary(
         host_instance_id="revit-runtime-1",
     )
     return boundary, request_store, context_reader
+
+
+def _load_context_inputs(boundary, context_ref: StableRef):
+    """把 Step 2 能力缺失表现为单一、可诊断的 RED。"""
+
+    method = getattr(boundary, "load_context_inputs", None)
+    assert method is not None, "load_context_inputs is not implemented"
+    return method(context_ref)
 
 
 def test_resolve_host_context_uses_exact_request_and_existing_host_binding() -> None:
@@ -234,3 +259,61 @@ def test_context_hash_binds_exact_request_lineage_not_process_current_request() 
     ref_b = task_b.resolve_host_context("task-B")
 
     assert ref_a.content_hash != ref_b.content_hash
+
+
+def test_fresh_boundary_rebuilds_context_inputs_only_from_exact_host_reread() -> None:
+    """restart 后不能依赖进程缓存；exact re-read 应重建 freshness 所需最小输入。"""
+
+    initial, _, _ = _boundary(observation=_observation(revision=41))
+    context_ref = initial.resolve_host_context("task-A")
+    fresh, request_store, context_reader = _boundary(observation=_observation(revision=41))
+
+    inputs = _load_context_inputs(fresh, context_ref)
+
+    assert inputs.task_id == "task-A"
+    assert inputs.project_id == "project-1"
+    assert inputs.document_ref == "DOC-1"
+    assert inputs.root_entities == ("semantic-wall-1",)
+    assert request_store.lookups == ["task-A"]
+    assert len(context_reader.calls) == 1
+
+
+def test_load_context_inputs_rejects_changed_revision() -> None:
+    """captured context 后 Host revision 变化必须 fail closed，不能接受 latest context。"""
+
+    initial, _, _ = _boundary(observation=_observation(revision=41))
+    context_ref = initial.resolve_host_context("task-A")
+    fresh, _, _ = _boundary(observation=_observation(revision=42))
+
+    with pytest.raises(ValueError, match="context|hash|revision"):
+        _load_context_inputs(fresh, context_ref)
+
+
+def test_load_context_inputs_rejects_changed_selection_even_when_both_walls_are_known() -> None:
+    """selection 从 Wall A 漂移到合法 Wall B 仍是 context mismatch，不允许 latest fallback。"""
+
+    registry = _registry_with_second_wall()
+    initial, _, _ = _boundary(identity_registry=registry)
+    context_ref = initial.resolve_host_context("task-A")
+    fresh, _, _ = _boundary(
+        identity_registry=registry,
+        observation=_observation(
+            selected_elements=(
+                RevitSelectedElement(unique_id="WALL-UNIQUE-2", native_kind="Wall"),
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="context|hash|selection"):
+        _load_context_inputs(fresh, context_ref)
+
+
+def test_load_context_inputs_rejects_changed_document_identity() -> None:
+    """Host re-read 若返回另一 document，必须在 freshness input assembly 前 fail closed。"""
+
+    initial, _, _ = _boundary()
+    context_ref = initial.resolve_host_context("task-A")
+    fresh, _, _ = _boundary(observation=_observation(document_id="DOC-OTHER"))
+
+    with pytest.raises(ValueError, match="context|document|identity"):
+        _load_context_inputs(fresh, context_ref)
