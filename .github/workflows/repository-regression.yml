@@ -49,7 +49,7 @@ jobs:
           DSP_PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
           DSP_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          BASE_SHA="$("$GITHUB_WORKSPACE/.github/scripts/resolve-ruff-baseline.sh")"
+          BASE_SHA="$(bash "$GITHUB_WORKSPACE/.github/scripts/resolve-ruff-baseline.sh")"
           echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
           git worktree add /tmp/dsp-base "$BASE_SHA"
 
