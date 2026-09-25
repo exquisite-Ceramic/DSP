@@ -127,7 +127,7 @@ def _json_safe(value: object) -> object:
         normalized: dict[str, object] = {}
         for key, item in value.items():
             if not isinstance(key, str):
-                raise ValueError("semantic claim object keys must be strings")
+                raise TypeError("semantic claim object keys must be strings")
             normalized[key] = _json_safe(item)
         return normalized
     if isinstance(value, (tuple, list)):
