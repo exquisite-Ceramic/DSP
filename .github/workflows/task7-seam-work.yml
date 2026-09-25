@@ -71,19 +71,19 @@ jobs:
                           break
               if target is None:
                   raise RuntimeError(f"{path}: migrated V2 build_bundle not found")
-              insert_after = target.body[0].end_lineno if (
+              insert_at = target.body[0].end_lineno if (
                   target.body
                   and isinstance(target.body[0], ast.Expr)
                   and isinstance(target.body[0].value, ast.Constant)
                   and isinstance(target.body[0].value.value, str)
-              ) else target.lineno
+              ) else (target.body[0].lineno - 1)
               lines = source.splitlines()
               indent = " " * (target.col_offset + 4)
               block = [
                   f"{indent}assert authority.execution_slice_hash == execution_slice.execution_slice_hash",
                   f"{indent}assert authority.binding_set_hash == binding_set.binding_set_hash",
               ]
-              lines[insert_after:insert_after] = block
+              lines[insert_at:insert_at] = block
               file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
