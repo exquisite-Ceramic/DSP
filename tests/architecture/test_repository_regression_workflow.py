@@ -73,7 +73,7 @@ def test_repository_regression_uses_one_locked_ruff_for_base_and_head() -> None:
     text = _workflow_text()
     command = (
         '"$RUFF_BIN" check --select E,F,I --output-format=json '
-        "platform hosts/autocad/sidecar tests"
+        "platform hosts/autocad/sidecar hosts/revit/sidecar tests"
     )
 
     assert "Enforce no new repository Ruff diagnostics" in text
