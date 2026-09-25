@@ -7,6 +7,18 @@ from types import SimpleNamespace
 
 import design_product_runtime
 import pytest
+from design_execution_planning import (
+    ExecutionPlanningRequestV2,
+    HostRuntimeRef,
+    MaterializationRoutingEvidence,
+    MaterializationRuntimeRoute,
+    compute_materialization_routing_hash,
+    plan_materialized_execution,
+)
+from design_materialization_planning import (
+    MaterializationPlanner,
+    MaterializationPlanningRequest,
+)
 from design_provider_binding import (
     EligibilityState,
     NativeConstraint,
@@ -22,7 +34,7 @@ from design_provider_binding import (
 )
 from semantic_runtime import SnapshotKind
 
-from tests.execution_planning._support import build_phase_i_execution_inputs
+from tests.materialization_planning._support import build_case, slot
 
 
 class _ChangeSetStore:
@@ -74,16 +86,50 @@ class _SnapshotRegistry:
 
 
 def _revit_case():
-    case, _, _, request = build_phase_i_execution_inputs()
-    execution_plan = __import__(
-        "design_execution_planning",
-        fromlist=["plan_materialized_execution"],
-    ).plan_materialized_execution(request)
-    execution_slice = next(
-        item
-        for item in execution_plan.execution_slices
-        if item.host_runtime_ref.host_type == "revit"
+    """用真实 owners 构造单 Revit、同 PlanningSnapshot document 的产品 execution lineage。"""
+
+    document_ref = "DOC-CANONICAL"
+    case = build_case(
+        topology_slots=(
+            slot("MS-REVIT", "WALL-001", "revit", document_ref),
+        ),
     )
+    materialization_plan = MaterializationPlanner().plan(
+        MaterializationPlanningRequest(
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            topology_snapshot=case.topology,
+            convergence_profile=case.profile,
+        )
+    )
+    assert case.changeset.planning_snapshot_ref.document_ref == document_ref
+    assert len(materialization_plan.intents) == 1
+    intent = materialization_plan.intents[0]
+    route = MaterializationRuntimeRoute(
+        materialization_id=intent.materialization_id,
+        host_runtime_ref=HostRuntimeRef(
+            host_type="revit",
+            host_instance_id="REVIT-01",
+            document_ref=document_ref,
+        ),
+    )
+    routing = MaterializationRoutingEvidence(
+        routing_snapshot_id="MRS-REVIT-PRODUCT",
+        routes=(route,),
+        routing_snapshot_hash=compute_materialization_routing_hash((route,)),
+    )
+    execution_plan = plan_materialized_execution(
+        ExecutionPlanningRequestV2(
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            materialization_plan=materialization_plan,
+            topology_snapshot=case.topology,
+            runtime_routing_evidence=routing,
+        )
+    )
+    assert len(execution_plan.execution_slices) == 1
+    execution_slice = execution_plan.execution_slices[0]
+    assert execution_slice.host_runtime_ref.document_ref == document_ref
     return case, execution_slice
 
 
