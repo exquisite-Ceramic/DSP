@@ -8,16 +8,9 @@ from design_execution_coordination import (
     ReadinessStatus,
     compute_readiness_receipt_hash,
 )
-from design_provider_binding import (
-    compute_provider_snapshot_hash_v2,
-    resolve_provider_bindings_v2,
-)
 from revit_sidecar.readiness import RevitWallThicknessReadinessPort
 
-from tests.execution_coordination.test_phase_i_readiness_barrier import (
-    _phase_i_readiness_inputs,
-)
-from tests.provider_binding._support import snapshot as provider_snapshot
+from task6_support import revit_execution_inputs
 
 
 class FakeTransport:
@@ -63,41 +56,9 @@ class FakeTransport:
 
 
 def _revit_inputs(*, expected_revision: int | None = 31):
-    """为 Revit readiness 构造携带 hash-bound expected revision 的真实 V2 binding。"""
+    """使用 sidecar-local public-contract fixture 构造 hash-bound Revit readiness lineage。"""
 
-    ctx = _phase_i_readiness_inputs()
-    index = next(
-        index
-        for index, execution_slice in enumerate(ctx.execution_plan.execution_slices)
-        if execution_slice.host_runtime_ref.host_type == "revit"
-    )
-    execution_slice = ctx.execution_plan.execution_slices[index]
-    base = provider_snapshot(
-        execution_slice,
-        native_id="REVIT-UNIQUE-ID-001",
-        native_kind="Wall",
-    )
-    candidate = base.provider_candidates[0]
-    old_material = base.candidate_binding_materials[candidate.candidate_fingerprint]
-    metadata = dict(old_material.native_binding_metadata)
-    if expected_revision is not None:
-        metadata["expected_revision"] = expected_revision
-    material = replace(old_material, native_binding_metadata=metadata)
-    snapshot_draft = replace(
-        base,
-        candidate_binding_materials={candidate.candidate_fingerprint: material},
-        snapshot_hash="0" * 64,
-    )
-    snapshot = replace(
-        snapshot_draft,
-        snapshot_hash=compute_provider_snapshot_hash_v2(snapshot_draft),
-    )
-    binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
-    authority = replace(
-        ctx.authorities[index],
-        binding_set_hash=binding_set.binding_set_hash,
-    )
-    return execution_slice, binding_set, authority
+    return revit_execution_inputs(expected_revision=expected_revision)
 
 
 def test_revit_readiness_builds_one_exact_read_command_and_returns_ready_receipt() -> None:
