@@ -12,14 +12,35 @@ public sealed class RevitRequestExecutorRouter : IRevitUiRequestExecutor
     private readonly RevitContextIdentityReader contextIdentityReader;
     private readonly RevitWallThicknessReadiness readiness;
     private readonly RevitWallThicknessMutation mutation;
+    private readonly RevitWallThicknessSnapshotRead snapshotRead;
 
+    /// <summary>
+    /// 保留既有两参数 composition 入口；默认创建新的只读 snapshot handler。
+    /// </summary>
     public RevitRequestExecutorRouter(
         RevitWallThicknessReadiness readiness,
         RevitWallThicknessMutation mutation,
         RevitContextIdentityReader? contextIdentityReader = null)
+        : this(
+            readiness,
+            mutation,
+            new RevitWallThicknessSnapshotRead(),
+            contextIdentityReader)
+    {
+    }
+
+    /// <summary>
+    /// 完整 composition 入口允许 PluginEntry 显式提供 mandatory verification READ handler。
+    /// </summary>
+    public RevitRequestExecutorRouter(
+        RevitWallThicknessReadiness readiness,
+        RevitWallThicknessMutation mutation,
+        RevitWallThicknessSnapshotRead snapshotRead,
+        RevitContextIdentityReader? contextIdentityReader = null)
     {
         this.readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
         this.mutation = mutation ?? throw new ArgumentNullException(nameof(mutation));
+        this.snapshotRead = snapshotRead ?? throw new ArgumentNullException(nameof(snapshotRead));
         this.contextIdentityReader = contextIdentityReader ?? new RevitContextIdentityReader();
     }
 
@@ -43,6 +64,19 @@ public sealed class RevitRequestExecutorRouter : IRevitUiRequestExecutor
         }
 
         Document document = uiDocument.Document;
+        if (string.Equals(command.Mode, "READ", StringComparison.Ordinal)
+            && string.Equals(
+                command.Operation,
+                RevitWallThicknessSnapshotRead.Operation,
+                StringComparison.Ordinal))
+        {
+            return snapshotRead.Execute(
+                document,
+                command,
+                revisionBefore,
+                readCurrentRevision);
+        }
+
         if (string.Equals(command.Mode, "READ", StringComparison.Ordinal)
             && string.Equals(
                 command.Operation,
