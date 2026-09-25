@@ -5,10 +5,8 @@ from .postgres_request_store import (
     PostgresProductTaskRequestStore,
     create_postgres_product_task_request_store,
 )
-from .revit_semantics import (
-    RevitSemanticBoundaryError,
-    RevitWallThicknessSemanticBoundary,
-)
+from .revit_operation_resolution import RevitWallThicknessSemanticBoundary
+from .revit_semantics import RevitSemanticBoundaryError
 
 __all__ = [
     "PostgresProductTaskRequestStore",
