@@ -1,0 +1,25 @@
+name: Task7 product evidence
+
+on:
+  push:
+    branches:
+      - work/task7-green-seam-v2
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install committed environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run product evidence focused test
+        run: uv run pytest tests/product_runtime/test_revit_verification_evidence.py -q -vv
+      - name: Run product evidence Ruff
+        run: uv run ruff check platform/product_runtime tests/product_runtime
