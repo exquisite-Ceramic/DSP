@@ -7,16 +7,8 @@ from dataclasses import replace
 import pytest
 import revit_sidecar
 from design_execution_coordination import HostCommitted, HostDispatchContext
-from design_provider_binding import (
-    compute_candidate_fingerprint,
-    compute_provider_snapshot_hash_v2,
-    resolve_provider_bindings_v2,
-)
 
-from tests.execution_coordination.test_phase_i_readiness_barrier import (
-    _phase_i_readiness_inputs,
-)
-from tests.provider_binding._support import snapshot as provider_snapshot
+from task6_support import revit_execution_inputs
 
 
 class _Transport:
@@ -63,49 +55,11 @@ def _revit_inputs(
     expected_revision: int | None = 31,
     provider_tool: str = "revit.set_wall_thickness",
 ):
-    """基于真实 V2 resolver 生成 exact binding，再对 authority 绑定新 binding hash。"""
+    """使用 sidecar-local public-contract fixture 生成 exact V2 execution lineage。"""
 
-    ctx = _phase_i_readiness_inputs()
-    index = next(
-        index
-        for index, execution_slice in enumerate(ctx.execution_plan.execution_slices)
-        if execution_slice.host_runtime_ref.host_type == "revit"
-    )
-    execution_slice = ctx.execution_plan.execution_slices[index]
-    base = provider_snapshot(
-        execution_slice,
-        native_id="REVIT-UNIQUE-ID-001",
-        native_kind="Wall",
-    )
-    old_candidate = base.provider_candidates[0]
-    candidate_draft = replace(
-        old_candidate,
+    execution_slice, binding_set, authority = revit_execution_inputs(
+        expected_revision=expected_revision,
         provider_tool=provider_tool,
-        candidate_fingerprint="0" * 64,
-    )
-    candidate = replace(
-        candidate_draft,
-        candidate_fingerprint=compute_candidate_fingerprint(candidate_draft),
-    )
-    old_material = next(iter(base.candidate_binding_materials.values()))
-    metadata = dict(old_material.native_binding_metadata)
-    if expected_revision is not None:
-        metadata["expected_revision"] = expected_revision
-    material = replace(old_material, native_binding_metadata=metadata)
-    snapshot_draft = replace(
-        base,
-        provider_candidates=(candidate,),
-        candidate_binding_materials={candidate.candidate_fingerprint: material},
-        snapshot_hash="0" * 64,
-    )
-    snapshot = replace(
-        snapshot_draft,
-        snapshot_hash=compute_provider_snapshot_hash_v2(snapshot_draft),
-    )
-    binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
-    authority = replace(
-        ctx.authorities[index],
-        binding_set_hash=binding_set.binding_set_hash,
     )
     return execution_slice, authority, binding_set
 
