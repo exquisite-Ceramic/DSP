@@ -100,6 +100,7 @@ class _ExternalOwners:
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
@@ -195,7 +196,8 @@ def test_parameter_binder_adapter_persists_bound_proposal_and_returns_only_ref()
         context=_binding_context(),
     )
 
-    bound_ref = service.bind_parameters(operation_space_ref, context_snapshot_ref)
+    bound_ref = service.bind_parameters("task-test",
+                                        operation_space_ref, context_snapshot_ref)
 
     assert isinstance(bound_ref, StableRef)
     assert owners.binding_calls == [(operation_space_ref, context_snapshot_ref)]
@@ -231,7 +233,8 @@ def test_parameter_binding_rejects_proposal_outside_persisted_operation_space() 
     )
 
     try:
-        service.bind_parameters(operation_space_ref, context_snapshot_ref)
+        service.bind_parameters("task-test",
+                                operation_space_ref, context_snapshot_ref)
     except ValueError as exc:
         assert "operation space" in str(exc)
     else:

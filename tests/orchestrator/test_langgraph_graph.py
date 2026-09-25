@@ -95,6 +95,7 @@ class _ProposalPauseServices:
 
     def bind_parameters(
         self,
+        task_id: str,
         operation_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> AsyncOperationRef:
@@ -170,6 +171,7 @@ class _FreshnessGraphServices:
 
     def bind_parameters(
         self,
+        task_id: str,
         operation_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> StableRef:

@@ -90,6 +90,7 @@ class ExternalOwnerPorts(Protocol):
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs: ...
@@ -299,6 +300,7 @@ class DefaultWorkflowServices:
 
     def bind_parameters(
         self,
+        task_id: str,
         operation_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> StableRef | AsyncOperationRef:
@@ -316,6 +318,7 @@ class DefaultWorkflowServices:
             )
 
         inputs = self._external_owners.load_parameter_binding_inputs(
+            task_id,
             operation_ref,
             context_snapshot_ref,
         )

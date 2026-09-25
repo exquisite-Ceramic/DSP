@@ -107,6 +107,7 @@ class _Task6WorkflowInputs(_Task6SemanticReconstruction):
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
@@ -356,6 +357,7 @@ def test_task6_parameter_binding_inputs_are_wired_before_task7() -> None:
 
     operation_space_ref = StableRef("operation-space-task6", "8" * 64)
     binding_inputs = adapter.load_parameter_binding_inputs(
+        "task-test",
         operation_space_ref,
         context_ref,
     )

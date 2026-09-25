@@ -74,6 +74,7 @@ class SemanticReconstructionPort(Protocol):
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs: ...
@@ -376,12 +377,14 @@ class CanonicalWorkflowOwnerPorts:
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
         """显式转发 operation-space 与 exact ContextSnapshot refs，再交给真实 ParameterBinder。"""
 
         inputs = self._semantic_reconstruction.load_parameter_binding_inputs(
+            task_id,
             operation_space_ref,
             context_snapshot_ref,
         )
