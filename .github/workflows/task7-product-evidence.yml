@@ -49,6 +49,17 @@ jobs:
               '''        for claim in (classification_claim, thickness_claim):\n            if getattr(claim, "subject", None) != semantic_id:\n                raise ValueError(\n                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted target"\n                )\n''',
               '''        # claim 的 provider-specific native:// subject 不是 semantic identity authority。\n        # 两条 claim 已由 exact design-fact ids 证明来自本次 admitted native target 的独立 READ；\n        # native→semantic identity 继续只由上游 admitted NativeTargetBindingEvidence 持有。\n''',
           )
+          replace_once(
+              evidence,
+              '''            raise ValueError(\n                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts must return a tuple"\n            )\n''',
+              '''            raise TypeError(\n                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts must return a tuple"\n            )\n''',
+          )
+          replace_once(
+              evidence,
+              '''            raise ValueError(\n                "REVIT_VERIFICATION_SEMANTIC_INVALID: wall thickness claim must be scalar"\n            )\n''',
+              '''            raise TypeError(\n                "REVIT_VERIFICATION_SEMANTIC_INVALID: wall thickness claim must be scalar"\n            )\n''',
+          )
+          replace_once(evidence, ').encode("utf-8")\n', ').encode()\n')
 
           materialization = "tests/materialization_planning/_support.py"
           replace_once(
@@ -92,6 +103,7 @@ jobs:
           )
 
           product_test = "tests/product_runtime/test_revit_verification_evidence.py"
+          replace_once(product_test, "from dataclasses import replace\n\n", "")
           replace_once(
               product_test,
               'from design_execution_reconciliation import VerificationStatus\n',
@@ -114,8 +126,7 @@ jobs:
         run: |
           uv run pytest tests/materialization_planning tests/execution_planning tests/execution_coordination -q
       - name: Run product evidence Ruff
-        run: |
-          uv run ruff check platform/product_runtime tests/product_runtime
+        run: uv run ruff check platform/product_runtime tests/product_runtime
       - name: Commit verified evidence implementation and remove temporary workflow
         run: |
           rm .github/workflows/task7-product-evidence.yml
