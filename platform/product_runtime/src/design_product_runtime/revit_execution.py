@@ -35,6 +35,18 @@ def _canonical_revision(value: object) -> int:
     return int(value)
 
 
+def _environment_identity(value: object) -> tuple[str, str]:
+    """跨 owner 比较 semantic environment 的稳定 id/hash，而不依赖具体 wrapper 类型。"""
+
+    environment_id = getattr(value, "environment_id", None)
+    content_hash = getattr(value, "content_hash", None)
+    if not isinstance(environment_id, str) or not environment_id.strip():
+        raise ValueError("semantic environment requires environment_id")
+    if not isinstance(content_hash, str) or not content_hash.strip():
+        raise ValueError("semantic environment requires content_hash")
+    return environment_id.strip(), content_hash.strip()
+
+
 def _require_exact_provider_snapshot(
     snapshot: ProviderExecutionSnapshotV2,
     execution_slice: ExecutionSliceV2,
@@ -108,6 +120,10 @@ class RevitWallThicknessProviderExecutionSnapshotBoundary:
             or snapshot_set.hash != snapshot_set_ref.snapshot_set_hash
         ):
             raise ValueError("ChangeSet SnapshotSet lineage does not match owner truth")
+        if _environment_identity(snapshot_set.semantic_environment_ref) != _environment_identity(
+            snapshot_set_ref.semantic_environment
+        ):
+            raise ValueError("SnapshotSet semantic environment does not match ChangeSet ref")
 
         planning_ref = changeset.planning_snapshot_ref
         if planning_ref.snapshot_id not in tuple(snapshot_set.member_snapshot_ids):
@@ -125,9 +141,10 @@ class RevitWallThicknessProviderExecutionSnapshotBoundary:
             or planning_ref.document_ref != execution_slice.host_runtime_ref.document_ref
         ):
             raise ValueError("PlanningSnapshot document does not match Revit execution document")
-        if planning.semantic_environment_ref != planning_ref.semantic_environment_ref:
+        planning_environment = _environment_identity(planning.semantic_environment_ref)
+        if planning_environment != _environment_identity(planning_ref.semantic_environment):
             raise ValueError("PlanningSnapshot semantic environment does not match ChangeSet ref")
-        if planning.semantic_environment_ref != snapshot_set.semantic_environment_ref:
+        if planning_environment != _environment_identity(snapshot_set.semantic_environment_ref):
             raise ValueError("PlanningSnapshot semantic environment does not match SnapshotSet")
 
         expected_revision = _canonical_revision(planning.base_host_revision)
