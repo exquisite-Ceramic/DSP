@@ -228,7 +228,10 @@ def test_operation_resolution_inputs_are_bound_to_exact_context_snapshot() -> No
     assert semantic_context.context_snapshot_id == snapshot.snapshot_id
     assert semantic_context.context_snapshot_hash == snapshot.hash
     assert semantic_context.document_ref == snapshot.document_ref
-    assert semantic_context.semantic_environment_ref == snapshot.semantic_environment_ref.environment_id
+    assert (
+        semantic_context.semantic_environment_ref
+        == snapshot.semantic_environment_ref.environment_id
+    )
     assert inputs.context.host_provider_servers == frozenset({"revit.product"})
 
 

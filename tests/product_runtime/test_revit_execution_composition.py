@@ -1,4 +1,7 @@
-"""Task 6 RED：Revit execution composition 必须把 authoritative planning revision 冻结进 binding hash。"""
+(
+    "Task 6 RED：Revit execution composition 必须把 authoritative planning revision "
+    "冻结进 binding hash。"
+)
 
 from __future__ import annotations
 
@@ -90,9 +93,7 @@ def _revit_case():
 
     document_ref = "DOC-CANONICAL"
     case = build_case(
-        topology_slots=(
-            slot("MS-REVIT", "WALL-001", "revit", document_ref),
-        ),
+        topology_slots=(slot("MS-REVIT", "WALL-001", "revit", document_ref),),
     )
     materialization_plan = MaterializationPlanner().plan(
         MaterializationPlanningRequest(
