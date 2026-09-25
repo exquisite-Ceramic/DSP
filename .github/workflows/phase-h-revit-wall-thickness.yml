@@ -35,7 +35,10 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Install Python verification dependencies
-        run: python -m pip install pytest PyYAML==6.0.3 "jsonschema>=4.20"
+        # Ruff 版本与当前 committed uv.lock 一致，避免 focused gate 和 repository gate 使用不同规则集。
+        run: >-
+          python -m pip install
+          pytest PyYAML==6.0.3 "jsonschema>=4.20" ruff==0.16.8
       - name: Verify Revit architecture boundary
         run: python -m pytest tests/revit/test_revit_architecture.py -q -vv
       - name: Verify Revit sidecar adapter
@@ -47,6 +50,13 @@ jobs:
           hosts/revit/sidecar/tests/test_context.py
           hosts/revit/sidecar/tests/test_snapshot_read.py
           -q -vv
+      - name: Verify Task 4 Revit read ports are Ruff clean
+        run: >-
+          ruff check --select E,F,I
+          hosts/revit/sidecar/src/revit_sidecar/context.py
+          hosts/revit/sidecar/src/revit_sidecar/snapshot_read.py
+          hosts/revit/sidecar/tests/test_context.py
+          hosts/revit/sidecar/tests/test_snapshot_read.py
       - name: Verify Revit design facts and enterprise mappings
         run: >-
           python -m pytest
