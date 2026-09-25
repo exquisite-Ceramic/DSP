@@ -51,3 +51,8 @@ jobs:
             tests/orchestrator/test_task10_durable_recovery.py \
             tests/orchestrator/test_task10_review_regressions.py \
             tests/product_runtime/test_product_task_request_postgres.py -q
+      - name: Enforce clean ProductTask Python paths
+        run: |
+          # Product Runtime 与其测试是本 capability 新增路径，不继承历史 Ruff baseline；
+          # 因此这里使用绝对 clean gate，而不是 repository legacy-directory delta gate。
+          uv run ruff check platform/product_runtime tests/product_runtime
