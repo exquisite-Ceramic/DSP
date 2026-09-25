@@ -248,7 +248,7 @@ class RevitWallThicknessSemanticBoundary(_BaseRevitWallThicknessSemanticBoundary
         ):
             raise RevitSemanticBoundaryError(
                 "REVIT_PRODUCT_CONTEXT_SNAPSHOT_HASH_MISMATCH",
-                "ContextSnapshot ref does not match authoritative owner content",
+                "ContextSnapshot hash mismatch with authoritative owner content",
             )
         if getattr(snapshot, "kind", None) is not SnapshotKind.CONTEXT:
             raise RevitSemanticBoundaryError(
