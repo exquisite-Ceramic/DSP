@@ -1,4 +1,4 @@
-"""首个真实产品 vertical 的 immutable ProductTask request 契约。"""
+"""首个真实产品 vertical 的 immutable ProductTask request 与产品投影契约。"""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from hashlib import sha256
 from types import MappingProxyType
 from typing import Any
+
+from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
 
 _REQUEST_INVALID = "PRODUCT_TASK_REQUEST_INVALID"
 _REQUEST_INTEGRITY_INVALID = "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
@@ -265,3 +268,48 @@ def product_task_request_payload(request: ProductTaskRequest) -> dict[str, objec
         "requested_action": request.requested_action,
         "intent_arguments": _plain_intent_arguments(request.intent_arguments),
     }
+
+
+class ProductFlowStatus(str, Enum):
+    """Wall-thickness 产品 surface 的闭集状态；只投影既有 owner truth。"""
+
+    WAITING = "WAITING"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    CANCELLED = "CANCELLED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    PARTIALLY_COMMITTED = "PARTIALLY_COMMITTED"
+    DIVERGED = "DIVERGED"
+
+
+@dataclass(frozen=True, slots=True)
+class ProductFlowView:
+    """产品层的瞬时投影视图，不持久化也不复制 Saga/verification 领域事实。"""
+
+    status: ProductFlowStatus | str
+    checkpoint: WorkflowCheckpointView
+
+    def __post_init__(self) -> None:
+        """冻结状态枚举，并要求视图只能包裹 framework-neutral workflow checkpoint。"""
+
+        object.__setattr__(self, "status", ProductFlowStatus(self.status))
+        if not isinstance(self.checkpoint, WorkflowCheckpointView):
+            raise TypeError("checkpoint must be a WorkflowCheckpointView")
+
+    @property
+    def task_id(self) -> str:
+        """直接暴露 checkpoint 的 exact task identity，不复制第二份 task truth。"""
+
+        return self.checkpoint.task_id
+
+    @property
+    def workflow_phase(self) -> WorkflowPhase:
+        """暴露 workflow owner 的当前导航阶段，便于产品 UI 呈现等待状态。"""
+
+        return self.checkpoint.phase
+
+    @property
+    def saga_id(self) -> str | None:
+        """返回 checkpoint 已持有的 authoritative Saga locator。"""
+
+        return self.checkpoint.saga_id
