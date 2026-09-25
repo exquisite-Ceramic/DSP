@@ -23,28 +23,100 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Remove duplicate provider-name authority
+      - name: Apply exact Task 7 evidence fixture migration
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("platform/product_runtime/src/design_product_runtime/revit_evidence.py")
-          text = path.read_text(encoding="utf-8")
-          old = '            or binding.provider_tool != "revit.set_wall_thickness"\n'
-          if text.count(old) != 1:
-              raise RuntimeError("expected exactly one duplicate provider_tool guard")
-          # Task 7 只消费已经 admitted 的 binding/native lineage；provider 命名由上游绑定/执行边界拥有。
-          path.write_text(text.replace(old, "", 1), encoding="utf-8")
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              """执行一次精确替换；任何基线漂移都立即失败。"""
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise RuntimeError(f"{path}: expected one replacement for {old!r}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+          evidence = "platform/product_runtime/src/design_product_runtime/revit_evidence.py"
+          replace_once(
+              evidence,
+              '            or binding.provider_tool != "revit.set_wall_thickness"\n',
+              "",
+          )
+
+          materialization = "tests/materialization_planning/_support.py"
+          replace_once(
+              materialization,
+              '''def build_case(\n    *,\n    targets: tuple[str, ...] = ("WALL-001",),\n    topology_slots: tuple[MaterializationSlot, ...] | None = None,\n):\n''',
+              '''def build_case(\n    *,\n    targets: tuple[str, ...] = ("WALL-001",),\n    topology_slots: tuple[MaterializationSlot, ...] | None = None,\n    semantic_environment: SemanticEnvironmentBinding | None = None,\n):\n''',
+          )
+          replace_once(
+              materialization,
+              '''    topology_snapshot = topology(topology_slots)\n\n    binder = ParameterBinder(\n''',
+              '''    topology_snapshot = topology(topology_slots)\n    environment = semantic_environment or SemanticEnvironmentBinding(\n        "ENV-MATERIALIZATION",\n        "env-hash-materialization",\n    )\n\n    binder = ParameterBinder(\n''',
+          )
+          replace_once(
+              materialization,
+              '            semantic_environment_ref="ENV-MATERIALIZATION",\n',
+              '            semantic_environment_ref=environment.environment_id,\n',
+          )
+          replace_once(
+              materialization,
+              '''    environment = SemanticEnvironmentBinding(\n        "ENV-MATERIALIZATION",\n        "env-hash-materialization",\n    )\n''',
+              "",
+          )
+
+          planning = "tests/execution_planning/_support.py"
+          replace_once(
+              planning,
+              '''def build_phase_i_execution_inputs():\n    case = build_case()\n''',
+              '''def build_phase_i_execution_inputs(*, semantic_environment=None):\n    # 可选环境只用于需要真实 SemanticEnvironment lineage 的下游组合测试；默认 fixture 不变。\n    case = build_case(semantic_environment=semantic_environment)\n''',
+          )
+
+          coordination = "tests/execution_coordination/_support.py"
+          replace_once(
+              coordination,
+              '''def phase_i_readiness_inputs():\n    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs()\n''',
+              '''def phase_i_readiness_inputs(*, semantic_environment=None):\n    # 把同一环境 lineage 透传到 Step27→Step32 owners，避免 product test 伪造环境 ref。\n    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs(\n        semantic_environment=semantic_environment\n    )\n''',
+          )
+
+          product_test = "tests/product_runtime/test_revit_verification_evidence.py"
+          replace_once(
+              product_test,
+              'from design_execution_reconciliation import VerificationStatus\n',
+              'from design_execution_reconciliation import VerificationStatus\nfrom design_impact import SemanticEnvironmentBinding\n',
+          )
+          replace_once(
+              product_test,
+              '''    ctx = phase_i_readiness_inputs()\n    index = next(\n''',
+              '''    semantic_service, semantic_environment = _real_semantic_service()\n    ctx = phase_i_readiness_inputs(\n        semantic_environment=SemanticEnvironmentBinding(\n            semantic_environment.environment_id,\n            semantic_environment.content_hash,\n        )\n    )\n    index = next(\n''',
+          )
+          replace_once(
+              product_test,
+              '''    actual_delta = signed_delta(ctx, index)\n    semantic_service, semantic_environment = _real_semantic_service()\n    transport = transport or _SnapshotTransport(\n''',
+              '''    actual_delta = signed_delta(ctx, index)\n    transport = transport or _SnapshotTransport(\n''',
+          )
           PY
       - name: Run product evidence focused test
         run: uv run pytest tests/product_runtime/test_revit_verification_evidence.py -q -vv
+      - name: Run affected support regressions
+        run: |
+          uv run pytest tests/materialization_planning tests/execution_planning tests/execution_coordination -q
       - name: Run product evidence Ruff
-        run: uv run ruff check platform/product_runtime tests/product_runtime
-      - name: Commit verified authority fix and remove temporary workflow
+        run: |
+          uv run ruff check platform/product_runtime tests/product_runtime
+      - name: Commit verified evidence implementation and remove temporary workflow
         run: |
           rm .github/workflows/task7-product-evidence.yml
           git config user.name "FangBin"
           git config user.email "52097203+exquisite-Ceramic@users.noreply.github.com"
-          git add platform/product_runtime/src/design_product_runtime/revit_evidence.py .github/workflows/task7-product-evidence.yml
-          git commit -m "fix: trust admitted provider binding in verification evidence"
+          git add \
+            platform/product_runtime/src/design_product_runtime/revit_evidence.py \
+            tests/product_runtime/test_revit_verification_evidence.py \
+            tests/materialization_planning/_support.py \
+            tests/execution_planning/_support.py \
+            tests/execution_coordination/_support.py \
+            .github/workflows/task7-product-evidence.yml
+          git commit -m "feat: verify Revit commits from independent read evidence"
           git push origin HEAD:work/task7-green-seam-v2
