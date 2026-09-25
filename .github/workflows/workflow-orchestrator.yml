@@ -40,7 +40,8 @@ jobs:
         run: |
           # 同一 PostgreSQL 17 gate 验证 checkpoint navigation、durable workflow artifact、
           # human-pause process restart、real-owner E2E、execution-owner recovery，以及首个
-          # ProductTask request owner 的 create-once / restart durability 与 binding integrity contract。
+          # ProductTask request owner 的 create-once / restart durability、真实 Revit semantic
+          # composition 与 binding integrity / interleaving recovery contract。
           uv run python -m pytest \
             tests/orchestrator/test_artifact_postgres.py \
             tests/orchestrator/test_postgres_checkpoint.py \
@@ -51,6 +52,7 @@ jobs:
             tests/orchestrator/test_task10_durable_recovery.py \
             tests/orchestrator/test_task10_review_regressions.py \
             tests/product_runtime/test_product_task_request_postgres.py \
+            tests/product_runtime/test_revit_semantics.py \
             tests/product_runtime/test_request_binding_interleaving.py -q
       - name: Enforce clean ProductTask Python paths
         run: |
