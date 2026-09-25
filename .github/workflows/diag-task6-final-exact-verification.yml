@@ -1,0 +1,41 @@
+name: Diagnostic Task 6 final exact verification
+
+on:
+  push:
+    branches:
+      - diag/task6-final-exact-verification
+  workflow_dispatch:
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 10cd6724f4e3f6311a45d832aff368776797be1a
+          fetch-depth: 0
+      - name: Assert exact feature SHA
+        run: test "$(git rev-parse HEAD)" = "10cd6724f4e3f6311a45d832aff368776797be1a"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 6 focused tests
+        run: >-
+          uv run pytest
+          tests/product_runtime/test_revit_execution_composition.py
+          hosts/revit/sidecar/tests/test_execution.py
+          hosts/revit/sidecar/tests/test_readiness.py
+          hosts/revit/sidecar/tests/test_execution_result_adapter.py
+          -q -vv
+      - name: Run absolute Ruff for Task 6 new paths
+        run: |
+          uv run ruff check \
+            platform/product_runtime/src/design_product_runtime/revit_execution.py \
+            tests/product_runtime/test_revit_execution_composition.py \
+            hosts/revit/sidecar/src/revit_sidecar/execution.py \
+            hosts/revit/sidecar/tests/test_execution.py \
+            hosts/revit/sidecar/tests/task6_support.py
