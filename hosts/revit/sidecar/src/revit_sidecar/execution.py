@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from design_execution_coordination import HostDispatchContext, HostExecutionResult
 from design_execution_planning import ExecutionSliceV2
@@ -22,7 +22,7 @@ from .model_adapter import RevitHostAdapter
 def _utc_now() -> str:
     """生成 Host outcome 的 UTC 审计时间；该时间不参与 command/binding authority。"""
 
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _expected_revision(binding) -> int:
@@ -39,7 +39,7 @@ def _thickness_mm(unit) -> float:
 
     raw = unit.arguments.get("thickness")
     if not isinstance(raw, Mapping):
-        raise ValueError("Revit execution requires thickness argument mapping")
+        raise TypeError("Revit execution requires thickness argument mapping")
     value = raw.get("value")
     if (
         isinstance(value, bool)
