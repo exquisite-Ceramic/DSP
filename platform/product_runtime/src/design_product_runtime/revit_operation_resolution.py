@@ -33,9 +33,11 @@ from .revit_semantics import (
     RevitSnapshotReadPort,
     SemanticEnvironmentView,
     SemanticProjectionPort,
-    RevitWallThicknessSemanticBoundary as _BaseRevitWallThicknessSemanticBoundary,
     _claim_uses_fact,
     _fact_ids_for_kind,
+)
+from .revit_semantics import (
+    RevitWallThicknessSemanticBoundary as _BaseRevitWallThicknessSemanticBoundary,
 )
 
 
