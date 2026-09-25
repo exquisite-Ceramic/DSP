@@ -129,8 +129,7 @@ class RevitWallThicknessVerificationEvidencePort:
             raise ValueError("Revit verification evidence requires a Revit execution slice")
         if (
             execution_slice.changeset_hash != canonical_changeset.changeset_hash
-            or execution_slice.approved_scope_ref.scope_hash
-            != approval_scope_boundary.scope_hash
+            or execution_slice.approved_scope_ref.scope_hash != approval_scope_boundary.scope_hash
             or authority.execution_slice_hash != execution_slice.execution_slice_hash
             or authority.binding_set_hash != binding_set.binding_set_hash
             or authority.changeset_hash != canonical_changeset.changeset_hash
@@ -146,18 +145,21 @@ class RevitWallThicknessVerificationEvidencePort:
             or actual_delta.document_ref != runtime.document_ref
         ):
             raise ValueError(
-                "REVIT_VERIFICATION_LINEAGE_MISMATCH: admitted execution lineage does not join exactly"
+                "REVIT_VERIFICATION_LINEAGE_MISMATCH: admitted execution lineage does "
+                "not join exactly"
             )
 
         if len(execution_slice.execution_units) != 1 or len(binding_set.bindings) != 1:
             raise ValueError(
-                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires one execution unit and one binding"
+                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires "
+                "one execution unit and one binding"
             )
         unit = execution_slice.execution_units[0]
         binding = binding_set.bindings[0]
         if len(unit.targets) != 1 or len(binding.native_targets) != 1:
             raise ValueError(
-                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires one semantic/native target"
+                "REVIT_VERIFICATION_LINEAGE_MISMATCH: wall-thickness verification requires "
+                "one semantic/native target"
             )
         native_target = binding.native_targets[0]
         semantic_id = unit.targets[0]
@@ -173,7 +175,8 @@ class RevitWallThicknessVerificationEvidencePort:
             or native_target.native_kind != "Wall"
         ):
             raise ValueError(
-                "REVIT_VERIFICATION_LINEAGE_MISMATCH: provider/native binding does not match the admitted wall-thickness slice"
+                "REVIT_VERIFICATION_LINEAGE_MISMATCH: provider/native binding does "
+                "not match the admitted wall-thickness slice"
             )
         return unit, binding, native_target
 
@@ -210,8 +213,7 @@ class RevitWallThicknessVerificationEvidencePort:
             raise
 
         if (
-            getattr(evidence, "document_id", None)
-            != execution_slice.host_runtime_ref.document_ref
+            getattr(evidence, "document_id", None) != execution_slice.host_runtime_ref.document_ref
             or getattr(evidence, "host_instance_id", None)
             != execution_slice.host_runtime_ref.host_instance_id
             or getattr(evidence, "wall_unique_id", None) != native_target.native_id
@@ -220,7 +222,8 @@ class RevitWallThicknessVerificationEvidencePort:
             or getattr(evidence, "revision_after", None) != actual_delta.revision_after
         ):
             raise ValueError(
-                "REVIT_VERIFICATION_EVIDENCE_MISMATCH: independent READ does not match committed identity/revision"
+                "REVIT_VERIFICATION_EVIDENCE_MISMATCH: independent READ does not match "
+                "committed identity/revision"
             )
         return evidence
 
@@ -248,7 +251,10 @@ class RevitWallThicknessVerificationEvidencePort:
             }
         )
         if not callable(getattr(facts, "to_dict", None)) or not hasattr(facts, "facts"):
-            raise ValueError("REVIT_VERIFICATION_FACTS_INVALID: design fact adapter returned an unsupported batch")
+            raise ValueError(
+                "REVIT_VERIFICATION_FACTS_INVALID: design fact adapter returned an "
+                "unsupported batch"
+            )
 
         environment_id = _required_text(
             getattr(self._semantic_environment, "environment_id", None),
@@ -264,13 +270,15 @@ class RevitWallThicknessVerificationEvidencePort:
             or getattr(changeset_environment, "content_hash", None) != environment_hash
         ):
             raise ValueError(
-                "REVIT_VERIFICATION_ENVIRONMENT_MISMATCH: pinned semantic environment differs from ChangeSet authority"
+                "REVIT_VERIFICATION_ENVIRONMENT_MISMATCH: pinned semantic environment "
+                "differs from ChangeSet authority"
             )
 
         claims = self._semantic_service.project_facts(facts, environment_id)
         if not isinstance(claims, tuple):
             raise TypeError(
-                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts must return a tuple"
+                "REVIT_VERIFICATION_SEMANTIC_INVALID: SemanticService project_facts "
+                "must return a tuple"
             )
 
         classification_fact_ids = _fact_ids_for_kind(facts, "CLASSIFICATION")
@@ -291,7 +299,8 @@ class RevitWallThicknessVerificationEvidencePort:
         )
         if len(classification_claims) != 1 or len(thickness_claims) != 1:
             raise ValueError(
-                "REVIT_VERIFICATION_SEMANTIC_INVALID: exact wall classification/thickness claims are unresolved"
+                "REVIT_VERIFICATION_SEMANTIC_INVALID: exact wall classification/thickness "
+                "claims are unresolved"
             )
         classification_claim = classification_claims[0]
         thickness_claim = thickness_claims[0]
@@ -348,8 +357,7 @@ class RevitWallThicknessVerificationEvidencePort:
                     }
                     for payload in claim_payloads
                     for evidence_item in payload["evidence"]
-                    if isinstance(evidence_item, str)
-                    and evidence_item.startswith("mapping:")
+                    if isinstance(evidence_item, str) and evidence_item.startswith("mapping:")
                 ),
                 key=_canonical_hash,
             )
@@ -364,7 +372,8 @@ class RevitWallThicknessVerificationEvidencePort:
         }
         if len(semantic_model_versions) != 1:
             raise ValueError(
-                "REVIT_VERIFICATION_SEMANTIC_INVALID: pinned environment must expose one facts projection compatibility"
+                "REVIT_VERIFICATION_SEMANTIC_INVALID: pinned environment must expose "
+                "one facts projection compatibility"
             )
         semantic_model_version = next(iter(semantic_model_versions))
         projection_hash = _canonical_hash(

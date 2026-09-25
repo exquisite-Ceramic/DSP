@@ -293,7 +293,10 @@ def _reconstruction_boundary(
 
 
 def _context_contract(*, root_entities: tuple[str, ...] = ("semantic-wall-1",)):
-    """要求 real reconstruction 为 Wall classification 与 thickness property 提供 canonical 证据。"""
+    (
+        "要求 real reconstruction 为 Wall classification 与 thickness property "
+        "提供 canonical 证据。"
+    )
 
     return build_context_contract(
         "DOC-1",
@@ -462,9 +465,7 @@ def test_load_context_inputs_rejects_changed_selection_even_when_both_walls_are_
     fresh, _, _ = _boundary(
         identity_registry=registry,
         observation=_observation(
-            selected_elements=(
-                RevitSelectedElement(unique_id="WALL-UNIQUE-2", native_kind="Wall"),
-            )
+            selected_elements=(RevitSelectedElement(unique_id="WALL-UNIQUE-2", native_kind="Wall"),)
         ),
     )
 
@@ -553,7 +554,10 @@ def test_reconstruct_reports_only_guarantees_supported_by_real_projection() -> N
 
 
 def test_reconstruct_requires_exact_revit_host_binding_for_contract_root() -> None:
-    """freshness coverage 里的 semantic root 没有 exact Revit binding 时禁止 latest/reverse fallback。"""
+    (
+        "freshness coverage 里的 semantic root 没有 exact Revit binding 时"
+        "禁止 latest/reverse fallback。"
+    )
 
     boundary, _, _, _ = _reconstruction_boundary()
     contract = _context_contract(root_entities=("semantic-wall-missing",))

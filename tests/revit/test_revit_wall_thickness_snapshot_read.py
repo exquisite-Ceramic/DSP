@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NATIVE_ROOT = REPO_ROOT / "hosts/revit/plugin/Revit.AgentHost/Native"
 CONTEXT_READER = NATIVE_ROOT / "Context/RevitContextIdentityReader.cs"

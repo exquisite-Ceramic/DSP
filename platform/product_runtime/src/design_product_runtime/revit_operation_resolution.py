@@ -162,7 +162,10 @@ class RevitWallThicknessSemanticBoundary(_BaseRevitWallThicknessSemanticBoundary
         semantic_service: SemanticProjectionPort,
         semantic_environment: SemanticEnvironmentView,
     ) -> tuple[str, ...]:
-        """对 exact snapshot revision 再读 Host facts，并只保留本批 facts 支撑的 canonical claims。"""
+        (
+            "对 exact snapshot revision 再读 Host facts，"
+            "并只保留本批 facts 支撑的 canonical claims。"
+        )
 
         roots = tuple(getattr(getattr(snapshot, "coverage", None), "root_entities", ()))
         if len(roots) != 1:
