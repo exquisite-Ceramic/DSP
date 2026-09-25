@@ -54,7 +54,7 @@ jobs:
           replace_once(
               materialization,
               '''def build_case(\n    *,\n    targets: tuple[str, ...] = ("WALL-001",),\n    topology_slots: tuple[MaterializationSlot, ...] | None = None,\n):\n''',
-              '''def build_case(\n    *,\n    targets: tuple[str, ...] = ("WALL-001",),\n    topology_slots: tuple[MaterializationSlot, ...] | None = None,\n    semantic_environment: SemanticEnvironmentBinding | None = None,\n):\n''',
+              '''def build_case(\n    *,\n    targets: tuple[str, ...] = ("WALL-001",),\n    topology_slots: tuple[MaterializationSlot, ...] | None = None,\n    semantic_environment: SemanticEnvironmentBinding | None = None,\n    project_id: str | None = None,\n):\n''',
           )
           replace_once(
               materialization,
@@ -71,19 +71,24 @@ jobs:
               '''    environment = SemanticEnvironmentBinding(\n        "ENV-MATERIALIZATION",\n        "env-hash-materialization",\n    )\n''',
               "",
           )
+          replace_once(
+              materialization,
+              '''        ChangeSetBuildRequest(\n            task_id="TASK-MATERIALIZATION",\n            bound_operation_evidence=_bound_evidence(bound),\n''',
+              '''        ChangeSetBuildRequest(\n            task_id="TASK-MATERIALIZATION",\n            project_id=project_id,\n            bound_operation_evidence=_bound_evidence(bound),\n''',
+          )
 
           planning = "tests/execution_planning/_support.py"
           replace_once(
               planning,
               '''def build_phase_i_execution_inputs():\n    case = build_case()\n''',
-              '''def build_phase_i_execution_inputs(*, semantic_environment=None):\n    # 可选环境只用于需要真实 SemanticEnvironment lineage 的下游组合测试；默认 fixture 不变。\n    case = build_case(semantic_environment=semantic_environment)\n''',
+              '''def build_phase_i_execution_inputs(*, semantic_environment=None, project_id=None):\n    # 可选环境/project lineage 只用于真实产品组合测试；默认 Phase I fixture 行为保持不变。\n    case = build_case(\n        semantic_environment=semantic_environment,\n        project_id=project_id,\n    )\n''',
           )
 
           coordination = "tests/execution_coordination/_support.py"
           replace_once(
               coordination,
               '''def phase_i_readiness_inputs():\n    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs()\n''',
-              '''def phase_i_readiness_inputs(*, semantic_environment=None):\n    # 把同一环境 lineage 透传到 Step27→Step32 owners，避免 product test 伪造环境 ref。\n    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs(\n        semantic_environment=semantic_environment\n    )\n''',
+              '''def phase_i_readiness_inputs(*, semantic_environment=None, project_id=None):\n    # 把同一产品 project/environment lineage 透传到 Step27→Step32 owners，避免伪造后置 refs。\n    case, materialization_plan, _, execution_request = build_phase_i_execution_inputs(\n        semantic_environment=semantic_environment,\n        project_id=project_id,\n    )\n''',
           )
 
           product_test = "tests/product_runtime/test_revit_verification_evidence.py"
@@ -95,7 +100,7 @@ jobs:
           replace_once(
               product_test,
               '''    ctx = phase_i_readiness_inputs()\n    index = next(\n''',
-              '''    semantic_service, semantic_environment = _real_semantic_service()\n    ctx = phase_i_readiness_inputs(\n        semantic_environment=SemanticEnvironmentBinding(\n            semantic_environment.environment_id,\n            semantic_environment.content_hash,\n        )\n    )\n    index = next(\n''',
+              '''    semantic_service, semantic_environment = _real_semantic_service()\n    ctx = phase_i_readiness_inputs(\n        semantic_environment=SemanticEnvironmentBinding(\n            semantic_environment.environment_id,\n            semantic_environment.content_hash,\n        ),\n        project_id="project-1",\n    )\n    index = next(\n''',
           )
           replace_once(
               product_test,
