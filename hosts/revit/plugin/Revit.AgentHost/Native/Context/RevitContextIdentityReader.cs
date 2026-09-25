@@ -12,8 +12,6 @@ public sealed class RevitContextIdentityReader
 {
     public const string Operation = "context.current_selection";
 
-    private static readonly string HostInstanceId = $"revit-{Guid.NewGuid():N}";
-
     public HostResultEnvelope Execute(
         UIDocument uiDocument,
         HostCommandEnvelope command,
@@ -29,9 +27,7 @@ public sealed class RevitContextIdentityReader
         }
 
         Document document = uiDocument.Document;
-        string documentId = string.IsNullOrWhiteSpace(document.PathName)
-            ? document.Title
-            : document.PathName;
+        string documentId = ReadDocumentId(document);
 
         var selectedElements = new JsonArray();
         foreach (ElementId elementId in uiDocument.Selection.GetElementIds())
@@ -53,7 +49,7 @@ public sealed class RevitContextIdentityReader
         {
             ["document_id"] = documentId,
             ["document_title"] = document.Title,
-            ["host_instance_id"] = HostInstanceId,
+            ["host_instance_id"] = RevitRuntimeIdentity.HostInstanceId,
             ["selected_elements"] = selectedElements,
         };
 
@@ -65,6 +61,17 @@ public sealed class RevitContextIdentityReader
             checked((int)revision),
             null,
             false);
+    }
+
+    /// <summary>
+    /// 使用与 context READ 相同的规则计算当前打开文档 identity，供其它只读证据 surface 复用。
+    /// </summary>
+    internal static string ReadDocumentId(Document document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return string.IsNullOrWhiteSpace(document.PathName)
+            ? document.Title
+            : document.PathName;
     }
 
     private static HostResultEnvelope Error(string commandId, string code, long revision)
