@@ -5,7 +5,11 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Protocol
 
-from design_orchestrator.default_workflow_services import OperationResolutionInputs
+from design_orchestrator.canonical_operations import SET_WALL_THICKNESS_V1
+from design_orchestrator.default_workflow_services import (
+    OperationResolutionInputs,
+    ParameterBindingInputs,
+)
 from design_orchestrator.operation_resolver import (
     CapabilityProfile,
     ClassificationGuarantee,
@@ -13,6 +17,7 @@ from design_orchestrator.operation_resolver import (
     SemanticEligibilityContext,
     SemanticEligibilityEntity,
 )
+from design_orchestrator.parameter_binder import OperationProposal, ParameterBindingContext
 from design_orchestrator.workflow_contracts import StableRef
 from semantic_runtime import (
     AssuranceLevel,
@@ -25,6 +30,7 @@ from semantic_runtime import (
     SnapshotKind,
 )
 
+from .contracts import ProductTaskRequest
 from .revit_semantics import (
     DesignFactNormalizationPort,
     ProductTaskRequestReadPort,
@@ -56,11 +62,11 @@ def _required_text(value: object, field_name: str) -> str:
 
 
 class RevitWallThicknessSemanticBoundary(_BaseRevitWallThicknessSemanticBoundary):
-    """在既有 real reconstruction boundary 上补 snapshot-bound eligibility read model。
+    """在既有 real reconstruction boundary 上补 snapshot-bound resolver/binder read model。
 
-    本类不复制 OperationResolver eligibility 规则。它只把 exact ContextSnapshot、同 revision
-    的真实 semantic projection 与 environment-owned provider profiles 组合成既有
-    ``OperationResolutionInputs``。
+    本类不复制 OperationResolver 或 ParameterBinder 规则。它只把 exact ContextSnapshot、同
+    revision 的真实 semantic projection、environment-owned provider profiles 与 immutable
+    ProductTask INTENT 组合成既有 read-model DTO。
     """
 
     def __init__(
@@ -333,6 +339,107 @@ class RevitWallThicknessSemanticBoundary(_BaseRevitWallThicknessSemanticBoundary
                 semantic_context=semantic_context,
             ),
         )
+
+    def load_parameter_binding_inputs(
+        self,
+        task_id: str,
+        operation_space_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> ParameterBindingInputs:
+        """把 exact ProductTask INTENT 与 authoritative ContextSnapshot selection 分离装配。
+
+        ``DefaultWorkflowServices`` 已按 ``operation_space_ref`` 读取持久化 ResolutionResult 并
+        校验 proposal membership；本层只校验 ref shape，不复制 workflow artifact owner。
+        binding 阶段也不得重新读取“当前选择”，target 只能来自显式 ContextSnapshot coverage。
+        """
+
+        normalized_task_id = _required_text(task_id, "task_id")
+        if not isinstance(operation_space_ref, StableRef):
+            raise TypeError("operation_space_ref must be StableRef")
+        if not isinstance(context_snapshot_ref, StableRef):
+            raise TypeError("context_snapshot_ref must be StableRef")
+        if context_snapshot_ref.content_hash is None:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_SNAPSHOT_HASH_REQUIRED",
+                "ContextSnapshot StableRef requires content_hash",
+            )
+        if self._snapshot_registry is None:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_PARAMETER_BINDING_UNCONFIGURED",
+                "semantic snapshot registry is not configured for parameter binding",
+            )
+
+        snapshot = self._snapshot_registry.get_snapshot(context_snapshot_ref.ref_id)
+        if (
+            getattr(snapshot, "snapshot_id", None) != context_snapshot_ref.ref_id
+            or getattr(snapshot, "hash", None) != context_snapshot_ref.content_hash
+        ):
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_SNAPSHOT_HASH_MISMATCH",
+                "ContextSnapshot hash mismatch with authoritative owner content",
+            )
+        if getattr(snapshot, "kind", None) is not SnapshotKind.CONTEXT:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_SNAPSHOT_KIND_INVALID",
+                "parameter binding requires a ContextSnapshot",
+            )
+        if getattr(snapshot, "document_ref", None) != self._document_id:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_CONTEXT_SNAPSHOT_DOCUMENT_MISMATCH",
+                "ContextSnapshot document does not match configured Revit document",
+            )
+        roots = tuple(getattr(getattr(snapshot, "coverage", None), "root_entities", ()))
+        if len(roots) != 1:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_PARAMETER_BINDING_COVERAGE_INVALID",
+                "wall-thickness parameter binding requires exactly one semantic root",
+            )
+
+        request = self._request_store.get(normalized_task_id)
+        if request is None:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_UNAVAILABLE",
+                "exact ProductTask request is unavailable for parameter binding",
+            )
+        if not isinstance(request, ProductTaskRequest) or request.task_id != normalized_task_id:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_MISMATCH",
+                "request store did not return the exact ProductTask request",
+            )
+        if request.session_ref != self._session_ref:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_SESSION_MISMATCH",
+                "ProductTask session_ref does not match the configured Revit session",
+            )
+        if request.project_id != getattr(snapshot, "project_id", None):
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_SNAPSHOT_PROJECT_MISMATCH",
+                "ProductTask project does not match ContextSnapshot lineage",
+            )
+
+        thickness = request.intent_arguments["thickness"]
+        proposal = OperationProposal(
+            SET_WALL_THICKNESS_V1.canonical_operation,
+            {
+                "thickness": {
+                    "value": thickness["value"],
+                    "unit": thickness["unit"],
+                }
+            },
+        )
+        snapshot_environment = getattr(snapshot, "semantic_environment_ref", None)
+        environment_id = _required_text(
+            getattr(snapshot_environment, "environment_id", None),
+            "snapshot.semantic_environment_ref.environment_id",
+        )
+        context = ParameterBindingContext(
+            context_snapshot_id=snapshot.snapshot_id,
+            context_snapshot_hash=snapshot.hash,
+            document_ref=snapshot.document_ref,
+            semantic_environment_ref=environment_id,
+            selection=roots,
+        )
+        return ParameterBindingInputs(proposal=proposal, context=context)
 
 
 __all__ = ["RevitWallThicknessSemanticBoundary", "SemanticSnapshotReadPort"]
