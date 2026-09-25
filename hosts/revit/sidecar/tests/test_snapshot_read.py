@@ -49,7 +49,9 @@ def _response(
             "builtin_category": "OST_Walls",
             "wall_thickness_mm": wall_thickness_mm,
             "location_signature": "Line|0|0|0|10|0|0",
-            "relationship_signature": "same-type=;inserts=;join-0=;join-1=;unsupported=;associativity=True",
+            "relationship_signature": (
+                "same-type=;inserts=;join-0=;join-1=;unsupported=;associativity=True"
+            ),
             "revision_before": revision_before,
             "revision_after": revision_after,
         },
