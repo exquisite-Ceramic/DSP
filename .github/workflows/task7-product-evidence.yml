@@ -23,7 +23,7 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Apply exact Task 7 evidence fixture migration
+      - name: Apply exact Task 7 evidence implementation
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -43,6 +43,11 @@ jobs:
               evidence,
               '            or binding.provider_tool != "revit.set_wall_thickness"\n',
               "",
+          )
+          replace_once(
+              evidence,
+              '''        for claim in (classification_claim, thickness_claim):\n            if getattr(claim, "subject", None) != semantic_id:\n                raise ValueError(\n                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted target"\n                )\n''',
+              '''        for claim in (classification_claim, thickness_claim):\n            # SemanticService claim 保持 Host-native subject；admitted binding 才是 native→semantic identity authority。\n            if getattr(claim, "subject", None) != native_target.native_id:\n                raise ValueError(\n                    "REVIT_VERIFICATION_SEMANTIC_INVALID: semantic claim subject differs from admitted native target"\n                )\n''',
           )
 
           materialization = "tests/materialization_planning/_support.py"
