@@ -1,14 +1,22 @@
-"""Task 5 Step 5：ProductTask INTENT 与 exact ContextSnapshot binding lineage contract。"""
+"""Task 5 Step 5/6：ProductTask INTENT 与 exact ContextSnapshot binding lineage contract。"""
 
 from __future__ import annotations
 
+import psycopg
 import pytest
 from design_orchestrator.default_workflow_services import ParameterBindingInputs
 from design_orchestrator.parameter_binder import OperationProposal, ParameterBindingContext
 from design_orchestrator.workflow_contracts import StableRef
-from design_product_runtime import ProductTaskRequest, RevitWallThicknessSemanticBoundary
+from design_product_runtime import (
+    ProductTaskRequest,
+    RevitSemanticBoundaryError,
+    RevitWallThicknessSemanticBoundary,
+    create_postgres_product_task_request_store,
+)
+from design_product_runtime.contracts import ProductTaskRequestError
 from semantic_runtime import (
     AspectGuarantee,
+    IdentityRegistry,
     InMemorySnapshotRegistry,
     ReconstructionResult,
     SemanticAspect,
@@ -87,6 +95,14 @@ def _context_snapshot() -> SemanticSnapshot:
     )
 
 
+def _snapshot_registry(snapshot: SemanticSnapshot) -> InMemorySnapshotRegistry:
+    """把 exact ContextSnapshot 放入 Semantic Runtime owner registry。"""
+
+    snapshots = InMemorySnapshotRegistry()
+    snapshots.put_snapshot(snapshot)
+    return snapshots
+
+
 def _boundary():
     """同一 fresh boundary 同时可按 task id 读取 A/B，两者共享相同 snapshot authority。"""
 
@@ -95,18 +111,30 @@ def _boundary():
         _request("task-B", 350.0),
     )
     snapshot = _context_snapshot()
-    snapshots = InMemorySnapshotRegistry()
-    snapshots.put_snapshot(snapshot)
     boundary = RevitWallThicknessSemanticBoundary(
         request_store=request_store,
         context_reader=_NoHostReread(),
-        identity_registry=__import__("semantic_runtime").IdentityRegistry(),
+        identity_registry=IdentityRegistry(),
         session_ref="revit-session-1",
         document_id="DOC-1",
         host_instance_id="revit-runtime-1",
-        snapshot_registry=snapshots,
+        snapshot_registry=_snapshot_registry(snapshot),
     )
     return boundary, request_store, snapshot
+
+
+def _binding_boundary(request_store, snapshot: SemanticSnapshot):
+    """为 failure-path contract 复用同一 exact snapshot，不引入 current Host fallback。"""
+
+    return RevitWallThicknessSemanticBoundary(
+        request_store=request_store,
+        context_reader=_NoHostReread(),
+        identity_registry=IdentityRegistry(),
+        session_ref="revit-session-1",
+        document_id="DOC-1",
+        host_instance_id="revit-runtime-1",
+        snapshot_registry=_snapshot_registry(snapshot),
+    )
 
 
 def _load_binding_inputs(
@@ -114,7 +142,7 @@ def _load_binding_inputs(
     task_id: str,
     snapshot: SemanticSnapshot,
 ) -> ParameterBindingInputs:
-    """把 Step 5 缺失收敛为单一 focused RED，而不是 attribute collection error。"""
+    """统一走 production binding-input seam，避免测试直接构造 binder DTO。"""
 
     method = getattr(boundary, "load_parameter_binding_inputs", None)
     assert method is not None, "load_parameter_binding_inputs is not implemented"
@@ -176,3 +204,48 @@ def test_binding_inputs_reject_context_snapshot_hash_mismatch() -> None:
             StableRef("operation-space-step5", "e" * 64),
             StableRef(snapshot.snapshot_id, "f" * 64),
         )
+
+
+def test_binding_inputs_fail_closed_when_exact_request_is_unavailable() -> None:
+    """request 丢失时禁止从 current/latest Host 或其他 task 推断 INTENT。"""
+
+    snapshot = _context_snapshot()
+    request_store = _RequestStore(_request("task-B", 350.0))
+    boundary = _binding_boundary(request_store, snapshot)
+
+    with pytest.raises(RevitSemanticBoundaryError) as captured:
+        _load_binding_inputs(boundary, "task-A", snapshot)
+
+    assert captured.value.code == "REVIT_PRODUCT_REQUEST_UNAVAILABLE"
+    assert request_store.lookups == ["task-A"]
+
+
+def test_binding_inputs_propagate_durable_request_hash_integrity_failure(
+    product_task_postgres_dsn: str,
+) -> None:
+    """真实 owner row hash 损坏必须在 binder input assembly 前 fail closed。"""
+
+    with psycopg.connect(product_task_postgres_dsn, autocommit=True) as admin:
+        admin.execute("DROP SCHEMA IF EXISTS product_task CASCADE")
+
+    request = _request("task-A", 300.0)
+    store = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    store.create(request)
+    store.close()
+
+    with psycopg.connect(product_task_postgres_dsn, autocommit=True) as admin:
+        admin.execute(
+            "UPDATE product_task.request SET request_hash = %s WHERE task_id = %s",
+            ("0" * 64, request.task_id),
+        )
+
+    reopened = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    snapshot = _context_snapshot()
+    boundary = _binding_boundary(reopened, snapshot)
+    try:
+        with pytest.raises(ProductTaskRequestError) as captured:
+            _load_binding_inputs(boundary, request.task_id, snapshot)
+    finally:
+        reopened.close()
+
+    assert captured.value.code == "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
