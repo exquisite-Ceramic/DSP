@@ -1,13 +1,13 @@
 # Capability Phase — Revit Wall Thickness Product Vertical Design
 
-**Status:** Draft — Written-Spec Review Gate, review amendment 1 applied  
-**Date:** 2026-09-25  
-**Base:** `main@1c753e949ada7a2c06ce856a57fa3ced407251e9`  
-**Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`  
-**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
-**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
-**Delivery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`  
-**Predecessor design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`  
+**Status:** Draft — Written-Spec Review Gate, review amendment 1 applied
+**Date:** 2026-09-25
+**Base:** `main@1c753e949ada7a2c06ce856a57fa3ced407251e9`
+**Master spec:** `docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`
+**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`
+**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`
+**Delivery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
+**Predecessor design:** `docs/superpowers/specs/2026-09-20-real-owner-e2e-workflow-design.md`
 **Host semantic predecessor:** `docs/superpowers/specs/2026-09-01-phase-h-revit-wall-thickness-gap-closure-design.md`
 
 ## 1. Purpose

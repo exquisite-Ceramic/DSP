@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Every production-code task is TDD RED → GREEN → focused verification → exact-head verification → commit. Do not collapse gates.
 
-**Status:** Revised written implementation plan — pending re-review  
-**Date:** 2026-09-25  
-**Plan source base:** `design/revit-wall-thickness-product-vertical@b2b7e131415322e8704045f298952eb434356922`  
-**Main baseline used for source census:** `main@1c753e949ada7a2c06ce856a57fa3ced407251e9`  
-**Spec:** `docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`  
-**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
-**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
+**Status:** Revised written implementation plan — pending re-review
+**Date:** 2026-09-25
+**Plan source base:** `design/revit-wall-thickness-product-vertical@b2b7e131415322e8704045f298952eb434356922`
+**Main baseline used for source census:** `main@1c753e949ada7a2c06ce856a57fa3ced407251e9`
+**Spec:** `docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`
+**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`
+**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`
 **Delivery/recovery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
 
 ## Goal
