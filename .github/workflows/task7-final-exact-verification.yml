@@ -1,0 +1,155 @@
+name: Task7 final exact-head verification
+
+on:
+  push:
+    branches:
+      - diag/task7-final-exact-verification-dcdcccd3
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DSP_PHASE_I_LIVE: "0"
+      TARGET_SHA: dcdcccd3f6b633a7edb3c3c823344327de8cbd33
+      BASE_SHA: 10cd6724f4e3f6311a45d832aff368776797be1a
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: dcdcccd3f6b633a7edb3c3c823344327de8cbd33
+      - name: Prove exact target checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git status --short
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install committed verification environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Verify evidence seam census
+        run: git grep -n 'def build_bundle' -- platform tests
+      - name: Run mandatory Task 7 matrix
+        run: |
+          uv run pytest tests/product_runtime/test_revit_verification_evidence.py -q -vv
+          uv run pytest tests/execution_coordination -q
+          uv run pytest tests/execution_reconciliation -q
+          uv run pytest tests/orchestrator/test_real_owner_workflow_end_to_end.py -q
+          DSP_PHASE_I_LIVE=0 uv run pytest tests/integration/test_phase_i_real_cross_host_wall_thickness_live.py --collect-only -q
+      - name: Re-run Task 6 execution predecessors
+        run: |
+          uv run pytest \
+            tests/product_runtime/test_revit_execution_composition.py \
+            hosts/revit/sidecar/tests/test_execution.py \
+            hosts/revit/sidecar/tests/test_readiness.py -q
+      - name: Require absolute Ruff clean for product capability paths
+        run: uv run ruff check platform/product_runtime tests/product_runtime
+      - name: Require zero new Ruff diagnostics on touched legacy paths
+        shell: bash
+        run: |
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
+          git worktree add /tmp/task7-final-base "$BASE_SHA"
+          (
+            cd /tmp/task7-final-base
+            "$RUFF_BIN" check --select E,F,I --output-format=json \
+              platform/execution_coordination \
+              tests/execution_coordination \
+              tests/orchestrator \
+              tests/integration \
+              tests/materialization_planning \
+              tests/execution_planning \
+              > /tmp/task7-final-base-ruff.json || true
+          )
+          "$RUFF_BIN" check --select E,F,I --output-format=json \
+            platform/execution_coordination \
+            tests/execution_coordination \
+            tests/orchestrator \
+            tests/integration \
+            tests/materialization_planning \
+            tests/execution_planning \
+            > /tmp/task7-final-head-ruff.json || true
+          uv run python - <<'PY'
+          """比较 final Task 7 与 Task 6 baseline 的 Ruff 诊断多重集。"""
+          import json
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+
+          def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+              """把 runner 绝对路径归一化为仓库相对路径。"""
+              rows = json.loads(Path(path).read_text(encoding="utf-8"))
+              result: Counter[tuple[str, str, str]] = Counter()
+              for row in rows:
+                  filename = str(row["filename"]).replace("\\", "/")
+                  for marker in ("/platform/", "/hosts/", "/tests/"):
+                      if marker in filename:
+                          filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                          break
+                  result[(filename, row["code"], row["message"])] += 1
+              return result
+
+
+          base = diagnostics("/tmp/task7-final-base-ruff.json")
+          head = diagnostics("/tmp/task7-final-head-ruff.json")
+          added = head - base
+          print(f"base diagnostics: {sum(base.values())}")
+          print(f"head diagnostics: {sum(head.values())}")
+          print(f"new diagnostics: {sum(added.values())}")
+          for item, count in sorted(added.items()):
+              print("NEW", count, item)
+          if added:
+              sys.exit(1)
+          PY
+      - name: Re-run Step37 feature-wide Ruff baseline
+        shell: bash
+        run: |
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
+          git worktree add /tmp/task7-main origin/main
+          (
+            cd /tmp/task7-main
+            "$RUFF_BIN" check --select E,F,I --output-format=json \
+              platform hosts/autocad/sidecar tests \
+              > /tmp/task7-main-ruff.json || true
+          )
+          "$RUFF_BIN" check --select E,F,I --output-format=json \
+            platform hosts/autocad/sidecar tests \
+            > /tmp/task7-head-wide-ruff.json || true
+          uv run python - <<'PY'
+          """复现 Step37 的 feature-wide no-new-Ruff 判定。"""
+          import json
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+
+          def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+              """把 Ruff JSON 归一化成稳定的仓库相对诊断多重集。"""
+              rows = json.loads(Path(path).read_text(encoding="utf-8"))
+              result: Counter[tuple[str, str, str]] = Counter()
+              for row in rows:
+                  filename = str(row["filename"]).replace("\\", "/")
+                  for marker in ("/platform/", "/hosts/", "/tests/"):
+                      if marker in filename:
+                          filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                          break
+                  result[(filename, row["code"], row["message"])] += 1
+              return result
+
+
+          main = diagnostics("/tmp/task7-main-ruff.json")
+          head = diagnostics("/tmp/task7-head-wide-ruff.json")
+          added = head - main
+          print(f"main diagnostics: {sum(main.values())}")
+          print(f"head diagnostics: {sum(head.values())}")
+          print(f"new diagnostics: {sum(added.values())}")
+          for item, count in sorted(added.items()):
+              print("NEW", count, item)
+          if added:
+              sys.exit(1)
+          PY
+      - name: Verify final whitespace boundary
+        run: |
+          git diff --check
+          git diff --check origin/main...HEAD
