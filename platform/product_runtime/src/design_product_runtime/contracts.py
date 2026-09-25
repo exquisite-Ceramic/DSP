@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-import json
-import math
 from types import MappingProxyType
 from typing import Any
 

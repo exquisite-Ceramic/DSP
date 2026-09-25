@@ -6,7 +6,6 @@ from importlib import import_module
 
 import psycopg
 import pytest
-
 from design_product_runtime.contracts import ProductTaskRequest, ProductTaskRequestError
 
 
