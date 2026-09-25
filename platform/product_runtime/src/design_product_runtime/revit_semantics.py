@@ -216,11 +216,7 @@ def _strongest_claim_assurance(claims: tuple[object, ...]) -> AssuranceLevel | N
 def _claim_uses_fact(claim: object, fact_ids: set[str]) -> bool:
     """用 design-fact evidence 证明 claim 来自本次 exact snapshot，而非旁路状态。"""
 
-    evidence = {
-        item
-        for item in getattr(claim, "evidence", ())
-        if isinstance(item, str)
-    }
+    evidence = {item for item in getattr(claim, "evidence", ()) if isinstance(item, str)}
     return any(f"design-fact:{fact_id}" in evidence for fact_id in fact_ids)
 
 
@@ -299,7 +295,10 @@ class RevitWallThicknessSemanticBoundary:
         self._semantic_environment = semantic_environment
 
     def _capture(self, task_id: str) -> _CapturedContext:
-        """从 durable request + fresh Host READ + existing identity binding 重建一次 exact context。"""
+        (
+            "从 durable request + fresh Host READ + existing identity binding "
+            "重建一次 exact context。"
+        )
 
         normalized_task_id = _required_text(task_id, "task_id")
         request = self._request_store.get(normalized_task_id)
@@ -319,9 +318,9 @@ class RevitWallThicknessSemanticBoundary:
                 "ProductTask session_ref does not match the configured Revit session",
             )
 
-        command_suffix = sha256(
-            f"{request.task_id}\n{request.request_hash}".encode()
-        ).hexdigest()[:24]
+        command_suffix = sha256(f"{request.task_id}\n{request.request_hash}".encode()).hexdigest()[
+            :24
+        ]
         observation = self._context_reader.read(
             command_id=f"PRODUCT-CONTEXT-{command_suffix}",
             document_id=self._document_id,
@@ -405,7 +404,10 @@ class RevitWallThicknessSemanticBoundary:
         return dependencies
 
     def _exact_revit_binding(self, semantic_id: str) -> HostBinding:
-        """按 contract semantic root 解析唯一 exact Revit Wall binding，禁止 latest/reverse fallback。"""
+        (
+            "按 contract semantic root 解析唯一 exact Revit Wall binding，"
+            "禁止 latest/reverse fallback。"
+        )
 
         bindings = tuple(
             item
@@ -458,7 +460,8 @@ class RevitWallThicknessSemanticBoundary:
                 "Revit context hash mismatch after authoritative Host re-read",
             )
 
-        # 避免 product_runtime 在 import-time 绑定完整 orchestrator composition；这里只构造其窄输入 DTO。
+        # 避免 product_runtime 在 import-time 绑定完整 orchestrator composition；
+        # 这里只构造其窄输入 DTO。
         from design_orchestrator.canonical_owner_ports import ContextFreshnessInputs
 
         return ContextFreshnessInputs(
@@ -473,7 +476,10 @@ class RevitWallThicknessSemanticBoundary:
         contract: object,
         expected_host_revision: str,
     ) -> ReconstructionResult:
-        """从 exact HostBinding + strict snapshot READ 重建真实 provider-backed semantic evidence。"""
+        (
+            "从 exact HostBinding + strict snapshot READ 重建真实 "
+            "provider-backed semantic evidence。"
+        )
 
         if not isinstance(contract, FreshnessContract):
             raise TypeError("contract must be FreshnessContract")

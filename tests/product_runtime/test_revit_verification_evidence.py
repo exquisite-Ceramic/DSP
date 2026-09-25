@@ -16,7 +16,10 @@ from tests.product_runtime.test_revit_semantics import _real_semantic_service
 
 
 class _SnapshotTransport:
-    """只 fake Revit 外部 transport；snapshot adapter、事实归一化与 SemanticService 均使用 production。"""
+    (
+        "只 fake Revit 外部 transport；snapshot adapter、事实归一化与 "
+        "SemanticService 均使用 production。"
+    )
 
     def __init__(
         self,
@@ -148,7 +151,10 @@ def _verify(case_tuple, bundle):
 
 
 def test_independent_read_builds_exact_revision_step33_bundle() -> None:
-    """独立 READ 必须使用 admitted native target 与 committed revision，并生成可 PASS 的 Step33 bundle。"""
+    (
+        "独立 READ 必须使用 admitted native target 与 committed revision，"
+        "并生成可 PASS 的 Step33 bundle。"
+    )
     case_tuple = _case()
     bundle = _build_bundle(case_tuple)
     ctx, _, execution_slice, _, _, actual_delta, _, transport = case_tuple
@@ -175,7 +181,9 @@ def test_exact_revision_wrong_value_uses_semantic_failure_not_recovery() -> None
     """READ identity/revision 正确但值错误时，证据仍有效，最终由真实 SemanticVerifier 判失败。"""
     base = phase_i_readiness_inputs()
     revit_slice = next(
-        item for item in base.execution_plan.execution_slices if item.host_runtime_ref.host_type == "revit"
+        item
+        for item in base.execution_plan.execution_slices
+        if item.host_runtime_ref.host_type == "revit"
     )
     case_tuple = _case(
         transport=_SnapshotTransport(
@@ -192,10 +200,19 @@ def test_exact_revision_wrong_value_uses_semantic_failure_not_recovery() -> None
 @pytest.mark.parametrize(
     ("transport", "error_code"),
     (
-        (_SnapshotTransport(document_id="DOC-WRONG", host_instance_id="REVIT-01"), "REVIT_SNAPSHOT_DOCUMENT_MISMATCH"),
+        (
+            _SnapshotTransport(document_id="DOC-WRONG", host_instance_id="REVIT-01"),
+            "REVIT_SNAPSHOT_DOCUMENT_MISMATCH",
+        ),
         (_SnapshotTransport(host_instance_id="REVIT-WRONG"), "REVIT_SNAPSHOT_HOST_MISMATCH"),
-        (_SnapshotTransport(host_instance_id="REVIT-01", wall_unique_id="WALL-WRONG"), "REVIT_SNAPSHOT_TARGET_MISMATCH"),
-        (_SnapshotTransport(host_instance_id="REVIT-01", revision_offset=1), "REVIT_SNAPSHOT_REVISION_MISMATCH"),
+        (
+            _SnapshotTransport(host_instance_id="REVIT-01", wall_unique_id="WALL-WRONG"),
+            "REVIT_SNAPSHOT_TARGET_MISMATCH",
+        ),
+        (
+            _SnapshotTransport(host_instance_id="REVIT-01", revision_offset=1),
+            "REVIT_SNAPSHOT_REVISION_MISMATCH",
+        ),
     ),
 )
 def test_correlated_identity_or_revision_mismatch_fails_closed(transport, error_code: str) -> None:
