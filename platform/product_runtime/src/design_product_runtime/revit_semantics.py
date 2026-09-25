@@ -148,7 +148,7 @@ class RevitWallThicknessSemanticBoundary:
             )
 
         command_suffix = sha256(
-            f"{request.task_id}\n{request.request_hash}".encode("utf-8")
+            f"{request.task_id}\n{request.request_hash}".encode()
         ).hexdigest()[:24]
         observation = self._context_reader.read(
             command_id=f"PRODUCT-CONTEXT-{command_suffix}",
