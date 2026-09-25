@@ -1,0 +1,36 @@
+name: Diagnostic Task 6 Product Execution GREEN v3
+
+on:
+  push:
+    branches:
+      - diag/task6-product-execution-green-v3
+  workflow_dispatch:
+
+jobs:
+  focused-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 6 focused tests
+        run: >-
+          uv run pytest
+          tests/product_runtime/test_revit_execution_composition.py
+          hosts/revit/sidecar/tests/test_execution.py
+          hosts/revit/sidecar/tests/test_readiness.py
+          hosts/revit/sidecar/tests/test_execution_result_adapter.py
+          -q -vv
+      - name: Run absolute Ruff for Task 6 new paths
+        run: |
+          uv run ruff check \
+            platform/product_runtime/src/design_product_runtime/revit_execution.py \
+            tests/product_runtime/test_revit_execution_composition.py \
+            hosts/revit/sidecar/src/revit_sidecar/execution.py \
+            hosts/revit/sidecar/tests/test_execution.py \
+            hosts/revit/sidecar/tests/task6_support.py
