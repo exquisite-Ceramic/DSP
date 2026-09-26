@@ -187,7 +187,8 @@ def test_independent_read_wrong_identity_fails_closed_without_second_execute(
 
     assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
     cause = captured.value.__cause__
-    assert getattr(cause, "code", None) == expected_code
+    assert isinstance(cause, ValueError)
+    assert str(cause).startswith(f"{expected_code}:")
     _assert_committed_once_without_success(case)
     checkpoint = case.flow.get(case.task_id)
     assert checkpoint is not None
@@ -217,7 +218,8 @@ def test_independent_read_newer_revision_is_not_accepted_as_commit_evidence(
 
     assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
     cause = captured.value.__cause__
-    assert getattr(cause, "code", None) == "REVIT_SNAPSHOT_REVISION_MISMATCH"
+    assert isinstance(cause, ValueError)
+    assert str(cause).startswith("REVIT_SNAPSHOT_REVISION_MISMATCH:")
     _assert_committed_once_without_success(case)
     checkpoint = case.flow.get(case.task_id)
     assert checkpoint is not None
