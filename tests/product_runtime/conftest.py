@@ -80,6 +80,7 @@ from semantic_service import (
     SemanticProviderRegistry,
     SemanticService,
 )
+
 from tests.orchestrator.test_real_owner_workflow_end_to_end import (
     _ApprovalAdmissionBoundary,
     _ExecutionClock,
@@ -87,8 +88,8 @@ from tests.orchestrator.test_real_owner_workflow_end_to_end import (
     _MaterializationRoutingBoundary,
     _PreviewBoundary,
     _ProviderExecutionSnapshotBoundary,
-    _WallCapabilityProfile,
     _topology,
+    _WallCapabilityProfile,
 )
 
 _DOCUMENT_REF = "DOC-TASK9"
