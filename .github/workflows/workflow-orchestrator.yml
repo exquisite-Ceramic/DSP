@@ -58,7 +58,8 @@ jobs:
             tests/product_runtime/test_revit_wall_thickness_product_e2e.py \
             tests/product_runtime/test_revit_wall_thickness_product_ingress_failures.py \
             tests/product_runtime/test_revit_wall_thickness_product_authorization_failures.py \
-            tests/product_runtime/test_revit_wall_thickness_product_recovery.py -q
+            tests/product_runtime/test_revit_wall_thickness_product_recovery.py \
+            tests/product_runtime/test_revit_wall_thickness_product_verification_failures.py -q
       - name: Enforce clean ProductTask Python paths
         run: |
           # Product Runtime 与其测试是本 capability 新增路径，不继承历史 Ruff baseline；
