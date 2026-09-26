@@ -362,19 +362,27 @@ def _request(task_id: str, *, thickness_mm: float = 300.0) -> ProductTaskRequest
     )
 
 
-def _build_case(dsn: str, task_id: str):
-    """组合 Task 9 真实 owners；唯一行为 double 是 Revit transport 与 human/presentation。"""
+def _compose_case(
+    dsn: str,
+    task_id: str,
+    *,
+    reset_schema: bool,
+    host: StatefulRevitTransport | None = None,
+    snapshot_registry: InMemorySnapshotRegistry | None = None,
+):
+    """组合真实 Task 9 owners；重建时只复用外部 Host 状态与 authoritative snapshot owner。"""
 
-    _reset_product_acceptance_schemas(dsn)
+    if reset_schema:
+        _reset_product_acceptance_schemas(dsn)
     request_store = create_postgres_product_task_request_store(dsn)
     artifact_store = create_postgres_artifact_store(dsn)
     checkpointer = create_postgres_checkpointer(dsn)
     saga_store = PostgresExecutionSagaStoreV2(dsn)
     dispatch_store = PostgresHostDispatchIntentStore(dsn)
 
-    host = StatefulRevitTransport()
+    host = host or StatefulRevitTransport()
     snapshot_reader = RevitWallThicknessSnapshotReadPort(host)
-    snapshot_registry = InMemorySnapshotRegistry()
+    snapshot_registry = snapshot_registry or InMemorySnapshotRegistry()
     semantic_service, semantic_environment = _real_semantic_environment()
     semantic_boundary = RevitWallThicknessSemanticBoundary(
         request_store=request_store,
@@ -493,6 +501,27 @@ def _build_case(dsn: str, task_id: str):
     )
 
 
+def _build_case(dsn: str, task_id: str):
+    """从全新 owner schemas 创建一个 Task 9 产品 acceptance composition。"""
+
+    return _compose_case(dsn, task_id, reset_schema=True)
+
+
+def _rebuild_case(dsn: str, previous, task_id: str):
+    """关闭旧进程连接后重建 stores/runtime/adapters，但保留 Host 与 exact snapshot owner truth。"""
+
+    host = previous.host
+    snapshot_registry = previous.snapshot_registry
+    _close_case(previous)
+    return _compose_case(
+        dsn,
+        task_id,
+        reset_schema=False,
+        host=host,
+        snapshot_registry=snapshot_registry,
+    )
+
+
 def _close_case(case) -> None:
     """按 owner 生命周期显式关闭所有 PostgreSQL 连接。"""
 
@@ -510,7 +539,7 @@ def _close_case(case) -> None:
 
 @pytest.fixture
 def revit_wall_thickness_product_case(product_task_postgres_dsn: str):
-    """返回 fresh Task 9 composition factory，并在用例结束后释放 owner 连接。"""
+    """返回 fresh Task 9 composition factory；factory.rebuild 用于 process-rebuild 场景。"""
 
     cases = []
 
@@ -519,6 +548,15 @@ def revit_wall_thickness_product_case(product_task_postgres_dsn: str):
         cases.append(case)
         return case
 
+    def rebuild(previous, task_id: str):
+        """移除旧 composition 并重建全新 PostgreSQL connections/runtime/adapters。"""
+
+        cases[:] = [case for case in cases if case is not previous]
+        case = _rebuild_case(product_task_postgres_dsn, previous, task_id)
+        cases.append(case)
+        return case
+
+    build.rebuild = rebuild
     yield build
 
     for case in reversed(cases):
