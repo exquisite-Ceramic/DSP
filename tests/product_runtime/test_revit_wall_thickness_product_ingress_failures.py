@@ -5,6 +5,7 @@ from dataclasses import replace
 import psycopg
 import pytest
 from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import (
     ProductFlowStatus,
     ProductTaskRequestError,
@@ -33,6 +34,15 @@ def _accept(case, proposal):
             pause_id=proposal.checkpoint.pending_interaction.pause_id,
         ),
     )
+
+
+def _service_failure_cause(captured: pytest.ExceptionInfo[WorkflowStateError]) -> BaseException:
+    """断言 graph service failure 的公开 runtime 包装，并返回保留的 authoritative owner cause。"""
+
+    assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
+    cause = captured.value.__cause__
+    assert cause is not None
+    return cause
 
 
 def test_operation_proposal_reject_cancels_without_host_mutation(
@@ -111,12 +121,12 @@ def test_parameter_context_lineage_mismatch_fails_closed_before_execution(
     corrupted = replace(snapshot, hash=mismatched_hash)
     case.snapshot_registry._snapshots[snapshot.snapshot_id] = corrupted
 
-    with pytest.raises(
-        (ValueError, RevitSemanticBoundaryError),
-        match="hash|snapshot|ContextSnapshot|lineage",
-    ):
+    with pytest.raises(WorkflowStateError) as captured:
         _accept(case, proposal)
 
+    cause = _service_failure_cause(captured)
+    assert isinstance(cause, RevitSemanticBoundaryError)
+    assert cause.code == "REVIT_PRODUCT_CONTEXT_SNAPSHOT_HASH_MISMATCH"
     assert case.host.execute_count == 0
     assert "set_wall_thickness" not in case.host.command_operations()
 
@@ -136,10 +146,12 @@ def test_request_unavailable_before_binding_has_no_latest_or_current_fallback(
             (case.task_id,),
         )
 
-    with pytest.raises(RevitSemanticBoundaryError) as captured:
+    with pytest.raises(WorkflowStateError) as captured:
         _accept(case, proposal)
 
-    assert captured.value.code == "REVIT_PRODUCT_REQUEST_UNAVAILABLE"
+    cause = _service_failure_cause(captured)
+    assert isinstance(cause, RevitSemanticBoundaryError)
+    assert cause.code == "REVIT_PRODUCT_REQUEST_UNAVAILABLE"
     assert case.host.execute_count == 0
     assert "set_wall_thickness" not in case.host.command_operations()
 
@@ -159,9 +171,11 @@ def test_request_hash_mismatch_before_binding_fails_integrity_without_execution(
             ("0" * 64, case.task_id),
         )
 
-    with pytest.raises(ProductTaskRequestError) as captured:
+    with pytest.raises(WorkflowStateError) as captured:
         _accept(case, proposal)
 
-    assert captured.value.code == "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
+    cause = _service_failure_cause(captured)
+    assert isinstance(cause, ProductTaskRequestError)
+    assert cause.code == "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
     assert case.host.execute_count == 0
     assert "set_wall_thickness" not in case.host.command_operations()
