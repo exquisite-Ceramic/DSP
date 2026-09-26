@@ -5,31 +5,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  ruff-diagnosis:
-    name: ruff-${{ matrix.label }}
+  ruff-plc0415:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: F401
-            args: "--select F401"
-          - label: F402
-            args: "--select F402"
-          - label: F811
-            args: "--select F811"
-          - label: F821
-            args: "--select F821"
-          - label: F841
-            args: "--select F841"
-          - label: F-other
-            args: "--select F --ignore F401,F402,F811,F821,F841"
-          - label: E4
-            args: "--select E4"
-          - label: E7
-            args: "--select E7"
-          - label: E9
-            args: "--select E9"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -39,5 +16,19 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Check conftest rule family
-        run: uv run ruff check tests/product_runtime/conftest.py ${{ matrix.args }}
+      - name: Prove import-outside-top-level violation
+        run: uv run ruff check tests/product_runtime/conftest.py --select PLC0415
+
+  ruff-default-without-plc0415:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install Ruff from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Prove no other default Ruff violation remains
+        run: uv run ruff check tests/product_runtime/conftest.py --ignore PLC0415
