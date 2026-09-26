@@ -7,7 +7,6 @@ from design_orchestrator import WorkflowResumeCommand
 from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import ProductFlowStatus
 
-
 _SEMANTIC_WALL_ID = "WALL-001"
 
 
