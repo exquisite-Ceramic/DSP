@@ -29,9 +29,7 @@ from design_provider_binding import (
 from host_contracts import HostCommand
 from revit_sidecar.named_pipe import NamedPipeTransport
 
-from tests.integration.test_phase_h_revit_wall_thickness_live import (
-    _load_fixture_manifest,
-)
+from tests.integration.test_phase_h_revit_wall_thickness_live import _load_fixture_manifest
 from tests.orchestrator import test_real_owner_workflow_end_to_end as _owner_support
 from tests.product_runtime import conftest as _product_support
 
@@ -408,5 +406,6 @@ def test_revit_wall_thickness_product_live_negative_evidence_limitation() -> Non
 
     pytest.skip(
         "NOT_RUN_ENVIRONMENT_LIMITATION: current pinned Revit harness has no reviewed "
-        "deterministic external-change injection seam; Task 9 offline negatives remain mandatory"
+        "deterministic external-change injection seam; Task 9 offline negatives "
+        "remain mandatory"
     )
