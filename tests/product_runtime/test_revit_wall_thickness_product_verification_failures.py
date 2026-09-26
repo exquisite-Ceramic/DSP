@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+
 from design_orchestrator import WorkflowResumeCommand
 from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import ProductFlowStatus
