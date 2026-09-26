@@ -157,6 +157,70 @@ def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_e
     assert reloaded_intent.status.value == "OUTCOME_UNKNOWN"
 
 
+def test_host_success_from_other_commit_start_revision_requires_recovery(
+    revit_wall_thickness_product_case,
+) -> None:
+    """Host 若从非授权 revision 提交，不能当正常成功；已发生的 commit 仍必须按 unknown outcome 保守恢复。"""
+
+    task_id = "task-product-commit-revision-mismatch"
+    case = revit_wall_thickness_product_case(task_id)
+    proposal = _submit_to_proposal(case)
+
+    def commit_from_other_revision(command):
+        """模拟 Host 实际从 90 提交到 91，同时返回完整且可独立 READ 的成功证据。"""
+
+        case.host.execute_count += 1
+        requested_mm = float(command.arguments["thickness"]["value"])
+        case.host.current_thickness_mm = requested_mm
+        case.host.current_revision = 91
+        return {
+            "command_id": command.command_id,
+            "status": "OK",
+            "revision_after": 91,
+            "payload": {
+                "wall_unique_id": command.target_native_refs[0].native_id,
+                "wall_type_unique_id": "REVIT-WALLTYPE-TASK9",
+                "editable_layer_index": 1,
+                "width_before_internal": 0.5,
+                "width_after_internal": requested_mm / 304.8,
+                "width_after_mm": requested_mm,
+                "requested_width_mm": requested_mm,
+                "transaction_attempt_count": 1,
+            },
+            "verification": {
+                "identity_invariant_proven": True,
+                "location_invariant_proven": True,
+                "relationship_invariant_proven": True,
+                "document_change_observed": True,
+                "revision_before": 90,
+                "revision_after": 91,
+                "location_signature_before": "Line|0|0|0|10|0|0",
+                "location_signature_after": "Line|0|0|0|10|0|0",
+                "relationship_signature_before": "isolated",
+                "relationship_signature_after": "isolated",
+            },
+            "replayed": False,
+        }
+
+    case.host._execute_wall_thickness = commit_from_other_revision
+
+    waiting = case.flow.resume(task_id, _accept_command(proposal))
+
+    assert waiting.status is ProductFlowStatus.RECOVERY_REQUIRED
+    assert waiting.workflow_phase is WorkflowPhase.APPLY_WAIT
+    assert waiting.saga_id is not None
+    assert case.host.execute_count == 1
+    assert case.host.current_thickness_mm == 300.0
+    assert case.host.current_revision == 91
+
+    stored = case.saga_store.get_saga(waiting.saga_id)
+    assert stored is not None
+    slice_hash = stored.definition.ordered_slice_hashes[0]
+    intent = case.dispatch_store.get_for_saga_slice(waiting.saga_id, slice_hash)
+    assert intent is not None
+    assert intent.status.value == "OUTCOME_UNKNOWN"
+
+
 def test_restart_at_operation_proposal_restores_exact_request_and_refs(
     revit_wall_thickness_product_case,
 ) -> None:
