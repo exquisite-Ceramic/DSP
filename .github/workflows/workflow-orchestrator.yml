@@ -41,8 +41,8 @@ jobs:
           # 同一 PostgreSQL 17 gate 验证 checkpoint navigation、durable workflow artifact、
           # human-pause process restart、real-owner E2E、execution-owner recovery，以及首个
           # ProductTask request owner 的 create-once / restart durability、真实 Revit semantic
-          # composition 与 binding integrity / interleaving recovery contract。Task 9 额外从
-          # WallThicknessProductFlow 产品入口跑完整 real-owner happy-path acceptance。
+          # composition 与 binding integrity / interleaving recovery contract。Task 9 从
+          # WallThicknessProductFlow 产品入口持续加入 mandatory offline acceptance 场景。
           uv run python -m pytest \
             tests/orchestrator/test_artifact_postgres.py \
             tests/orchestrator/test_postgres_checkpoint.py \
@@ -55,7 +55,8 @@ jobs:
             tests/product_runtime/test_product_task_request_postgres.py \
             tests/product_runtime/test_revit_semantics.py \
             tests/product_runtime/test_request_binding_interleaving.py \
-            tests/product_runtime/test_revit_wall_thickness_product_e2e.py -q
+            tests/product_runtime/test_revit_wall_thickness_product_e2e.py \
+            tests/product_runtime/test_revit_wall_thickness_product_ingress_failures.py -q
       - name: Enforce clean ProductTask Python paths
         run: |
           # Product Runtime 与其测试是本 capability 新增路径，不继承历史 Ruff baseline；
