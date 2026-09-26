@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  ruff-plc0415:
+  ruff-report:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -16,19 +16,13 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Prove import-outside-top-level violation
-        run: uv run ruff check tests/product_runtime/conftest.py --select PLC0415
-
-  ruff-default-without-plc0415:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-      - name: Install Ruff from committed lock
+      - name: Capture exact Ruff diagnostics
         run: |
-          python -m pip install uv
-          uv sync --locked --all-packages
-      - name: Prove no other default Ruff violation remains
-        run: uv run ruff check tests/product_runtime/conftest.py --ignore PLC0415
+          uv run ruff check platform/product_runtime tests/product_runtime \
+            --output-format json > ruff-report.json || true
+      - name: Upload exact Ruff diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: task9-ruff-report
+          path: ruff-report.json
+          if-no-files-found: error
