@@ -161,7 +161,10 @@ def test_execution_transport_disconnect_after_dispatch_is_commit_state_unknown()
 
 
 def test_execution_rejects_success_from_other_commit_start_revision_as_unknown() -> None:
-    """Host 成功证据的 revision_before 必须精确等于 binding 冻结 revision，否则不得记 HostCommitted。"""
+    """
+    Host 成功证据的 revision_before 必须精确等于 binding 冻结 revision，
+    否则不得记 HostCommitted。
+    """
 
     execution_slice, authority, binding_set = _revit_inputs(expected_revision=31)
     transport = _MismatchedCommitRevisionTransport()

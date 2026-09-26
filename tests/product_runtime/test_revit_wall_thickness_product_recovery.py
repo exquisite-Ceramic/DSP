@@ -160,7 +160,10 @@ def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_e
 def test_host_success_from_other_commit_start_revision_requires_recovery(
     revit_wall_thickness_product_case,
 ) -> None:
-    """Host 若从非授权 revision 提交，不能当正常成功；已发生的 commit 仍必须按 unknown outcome 保守恢复。"""
+    """
+    Host 若从非授权 revision 提交，不能当正常成功；
+    已发生的 commit 仍必须按 unknown outcome 保守恢复。
+    """
 
     task_id = "task-product-commit-revision-mismatch"
     case = revit_wall_thickness_product_case(task_id)
