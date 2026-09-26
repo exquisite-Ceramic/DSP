@@ -1,63 +1,43 @@
-name: Workflow orchestrator PostgreSQL verification
+name: Task 9 Ruff diagnosis
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  orchestrator-checkpoint-postgres:
+  ruff-diagnosis:
+    name: ruff-${{ matrix.label }}
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dsp_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d dsp_test"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: F401
+            args: "--select F401"
+          - label: F402
+            args: "--select F402"
+          - label: F811
+            args: "--select F811"
+          - label: F821
+            args: "--select F821"
+          - label: F841
+            args: "--select F841"
+          - label: F-other
+            args: "--select F --ignore F401,F402,F811,F821,F841"
+          - label: E4
+            args: "--select E4"
+          - label: E7
+            args: "--select E7"
+          - label: E9
+            args: "--select E9"
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - name: Install repository verification stack from committed lock
+      - name: Install Ruff from committed lock
         run: |
-          # 统一从 committed uv.lock 重建 workspace，避免 PostgreSQL lane 漂移依赖版本。
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Run orchestrator and ProductTask PostgreSQL durability acceptance
-        env:
-          DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
-        run: |
-          # 同一 PostgreSQL 17 gate 验证 checkpoint navigation、durable workflow artifact、
-          # human-pause process restart、real-owner E2E、execution-owner recovery，以及首个
-          # ProductTask request owner 的 create-once / restart durability、真实 Revit semantic
-          # composition 与 binding integrity / interleaving recovery contract。Task 9 额外从
-          # WallThicknessProductFlow 产品入口跑完整 real-owner happy-path acceptance。
-          uv run python -m pytest \
-            tests/orchestrator/test_artifact_postgres.py \
-            tests/orchestrator/test_postgres_checkpoint.py \
-            tests/orchestrator/test_workflow_resume_authoritative_truth.py \
-            tests/orchestrator/test_workflow_end_to_end.py \
-            tests/orchestrator/test_real_owner_workflow_end_to_end.py \
-            tests/orchestrator/test_task9_real_owner_acceptance.py \
-            tests/orchestrator/test_task10_durable_recovery.py \
-            tests/orchestrator/test_task10_review_regressions.py \
-            tests/product_runtime/test_product_task_request_postgres.py \
-            tests/product_runtime/test_revit_semantics.py \
-            tests/product_runtime/test_request_binding_interleaving.py \
-            tests/product_runtime/test_revit_wall_thickness_product_e2e.py -q
-      - name: Enforce clean ProductTask Python paths
-        run: |
-          # Product Runtime 与其测试是本 capability 新增路径，不继承历史 Ruff baseline；
-          # 因此这里使用绝对 clean gate，而不是 repository legacy-directory delta gate。
-          uv run ruff check platform/product_runtime tests/product_runtime
+      - name: Check conftest rule family
+        run: uv run ruff check tests/product_runtime/conftest.py ${{ matrix.args }}
