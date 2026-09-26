@@ -6,7 +6,13 @@ import math
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
-from design_execution_coordination import HostDispatchContext, HostExecutionResult
+from design_execution_coordination import (
+    HostCommitted,
+    HostDispatchContext,
+    HostExecutionResult,
+    HostFailed,
+    HostFailurePhase,
+)
 from design_execution_planning import ExecutionSliceV2
 from design_gateway_authorization import AdmittedExecutionAuthorityV2
 from design_provider_binding import (
@@ -163,19 +169,42 @@ class RevitWallThicknessExecutionPort:
         if validation_errors:
             raise ValueError(f"Revit HostCommand invalid: {validation_errors}")
 
-        host_result = self._transport.request(command)
+        try:
+            host_result = self._transport.request(command)
+        except OSError:
+            # EXECUTE 已跨过 transport 调用边界后，I/O 断连无法证明 Host 未提交。
+            # 必须保守进入 existing unknown-outcome recovery，绝不能降格为 BEFORE_COMMIT。
+            return HostFailed(
+                phase=HostFailurePhase.COMMIT_STATE_UNKNOWN,
+                failure_ref="REVIT_COMMIT_STATE_UNKNOWN",
+                failed_at=self._clock(),
+            )
         if not isinstance(host_result, Mapping):
             raise TypeError("Revit transport response must be a mapping")
         if host_result.get("command_id") != command.command_id:
             raise ValueError("Revit Host response command_id does not match durable dispatch")
 
-        return RevitExecutionResultAdapter.adapt(
+        occurred_at = self._clock()
+        outcome = RevitExecutionResultAdapter.adapt(
             admitted_authority=authority,
             document_ref=runtime_ref.document_ref,
             approved_semantic_wall_id=unit.targets[0],
             host_result=host_result,
-            occurred_at=self._clock(),
+            occurred_at=occurred_at,
         )
+        if (
+            isinstance(outcome, HostCommitted)
+            and outcome.actual_delta.revision_before != expected_revision
+        ):
+            # 结构完整的成功响应仍必须证明它从 hash-bound planning revision 开始提交。
+            # 不一致说明 mutation 可能已经发生，但不属于本次授权的正常 commit 证据；
+            # 维持 unknown outcome，阻止 coordinator 再次发送同一 mutation。
+            return HostFailed(
+                phase=HostFailurePhase.COMMIT_STATE_UNKNOWN,
+                failure_ref="REVIT_COMMIT_REVISION_MISMATCH",
+                failed_at=occurred_at,
+            )
+        return outcome
 
 
 __all__ = ["RevitWallThicknessExecutionPort"]

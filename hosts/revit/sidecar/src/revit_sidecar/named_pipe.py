@@ -16,6 +16,20 @@ _CONNECT_RETRY_ATTEMPTS = 40
 _CONNECT_RETRY_DELAY_SECONDS = 0.05
 
 
+def _win32_error_code(exc: BaseException) -> object:
+    """兼容 pywintypes.error 的 winerror/args 两种错误码暴露方式。"""
+
+    return getattr(exc, "winerror", exc.args[0] if exc.args else None)
+
+
+def _pipe_connection_error(operation: str, exc: BaseException) -> ConnectionError:
+    """把真实 Windows Named Pipe I/O 失败归一化为 transport-level ConnectionError。"""
+
+    return ConnectionError(
+        f"named pipe {operation} failed: winerror={_win32_error_code(exc)!r}"
+    )
+
+
 class WindowsNamedPipeEndpoint:
     def __init__(self, pipe_name: str) -> None:
         if not pipe_name:
@@ -45,25 +59,31 @@ class WindowsNamedPipeEndpoint:
                 )
                 break
             except pywintypes.error as exc:
-                error_code = getattr(exc, "winerror", exc.args[0] if exc.args else None)
+                error_code = _win32_error_code(exc)
                 if (
                     error_code not in _CONNECT_RETRY_ERROR_CODES
                     or attempt == _CONNECT_RETRY_ATTEMPTS - 1
                 ):
-                    raise
+                    raise _pipe_connection_error("CreateFile", exc) from exc
                 time.sleep(_CONNECT_RETRY_DELAY_SECONDS)
 
         if handle is None:
             raise ConnectionError("named pipe handle was not acquired")
 
         try:
-            win32file.WriteFile(handle, packet)
-            header = self._read_exact(handle, _HEADER.size, win32file)
-            (length,) = _HEADER.unpack(header)
-            if length <= 0 or length > MAX_FRAME_BYTES:
-                raise ConnectionError(f"invalid frame length: {length}")
-            body = self._read_exact(handle, length, win32file)
-            return header + body
+            try:
+                # CreateFile 之后一旦开始 WriteFile，就不允许自动重试：mutation 是否已经
+                # 到达 Host 无法由 transport 证明。后续 Write/Read 的 pywintypes.error 只做
+                # 类型归一化，由 execution/evidence owner 决定 unknown-outcome/recovery。
+                win32file.WriteFile(handle, packet)
+                header = self._read_exact(handle, _HEADER.size, win32file)
+                (length,) = _HEADER.unpack(header)
+                if length <= 0 or length > MAX_FRAME_BYTES:
+                    raise ConnectionError(f"invalid frame length: {length}")
+                body = self._read_exact(handle, length, win32file)
+                return header + body
+            except pywintypes.error as exc:
+                raise _pipe_connection_error("I/O", exc) from exc
         finally:
             win32file.CloseHandle(handle)
 
