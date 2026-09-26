@@ -96,6 +96,67 @@ def test_host_outcome_unknown_and_restart_after_dispatch_never_duplicate_execute
     assert reloaded_intent.status.value == "OUTCOME_UNKNOWN"
 
 
+def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_execute(
+    revit_wall_thickness_product_case,
+) -> None:
+    """真实 mutation 已完成但 response 丢失时，必须持久化 unknown outcome 并禁止重发。"""
+
+    task_id = "task-product-response-lost-after-commit"
+    case = revit_wall_thickness_product_case(task_id)
+    proposal = _submit_to_proposal(case)
+    execute = case.host._execute_wall_thickness
+
+    def commit_then_disconnect(command):
+        """先执行真实 stateful mutation，再模拟 Named Pipe response 在返回前断连。"""
+
+        response = execute(command)
+        assert response["status"] == "OK"
+        raise ConnectionError("response lost after Revit commit")
+
+    case.host._execute_wall_thickness = commit_then_disconnect
+
+    waiting = case.flow.resume(task_id, _accept_command(proposal))
+
+    assert waiting.status is ProductFlowStatus.RECOVERY_REQUIRED
+    assert waiting.workflow_phase is WorkflowPhase.APPLY_WAIT
+    assert waiting.saga_id is not None
+    assert case.host.execute_count == 1
+    assert case.host.current_thickness_mm == 300.0
+    assert case.host.current_revision == 43
+
+    stored = case.saga_store.get_saga(waiting.saga_id)
+    assert stored is not None
+    slice_hash = stored.definition.ordered_slice_hashes[0]
+    intent = case.dispatch_store.get_for_saga_slice(waiting.saga_id, slice_hash)
+    assert intent is not None
+    assert intent.status.value == "OUTCOME_UNKNOWN"
+    dispatch_intent_id = intent.dispatch_intent_id
+
+    rebuilt = revit_wall_thickness_product_case.rebuild(case, task_id)
+    waiting_after_restart = rebuilt.flow.resume(
+        task_id,
+        WorkflowResumeCommand(
+            resume_kind="ASYNC_OPERATION_COMPLETED",
+            payload={"operation_id": waiting.saga_id},
+        ),
+    )
+
+    assert waiting_after_restart.status is ProductFlowStatus.RECOVERY_REQUIRED
+    assert waiting_after_restart.workflow_phase is WorkflowPhase.APPLY_WAIT
+    assert waiting_after_restart.saga_id == waiting.saga_id
+    assert rebuilt.host.execute_count == 1
+    assert rebuilt.host.current_thickness_mm == 300.0
+    assert rebuilt.host.current_revision == 43
+
+    reloaded_intent = rebuilt.dispatch_store.get_for_saga_slice(
+        waiting.saga_id,
+        slice_hash,
+    )
+    assert reloaded_intent is not None
+    assert reloaded_intent.dispatch_intent_id == dispatch_intent_id
+    assert reloaded_intent.status.value == "OUTCOME_UNKNOWN"
+
+
 def test_restart_at_operation_proposal_restores_exact_request_and_refs(
     revit_wall_thickness_product_case,
 ) -> None:

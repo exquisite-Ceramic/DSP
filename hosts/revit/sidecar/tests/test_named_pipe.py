@@ -21,9 +21,11 @@ class _FakeWin32FileModule:
         *,
         create_failures: list[int] | None = None,
         write_failure: int | None = None,
+        read_failure: int | None = None,
     ) -> None:
         self.create_failures = list(create_failures or [])
         self.write_failure = write_failure
+        self.read_failure = read_failure
         self.create_calls = 0
         self.writes: list[bytes] = []
         self.close_calls = 0
@@ -43,6 +45,8 @@ class _FakeWin32FileModule:
         return 0, len(packet)
 
     def ReadFile(self, _handle, _length: int):
+        if self.read_failure is not None:
+            raise _FakeWin32Error(self.read_failure)
         return 0, self.read_chunks.pop(0)
 
     def CloseHandle(self, _handle) -> None:
@@ -87,15 +91,53 @@ def test_windows_named_pipe_endpoint_retries_transient_createfile_without_resend
     assert win32file.close_calls == 1
 
 
+def test_windows_named_pipe_endpoint_normalizes_nonretryable_createfile_error(
+    monkeypatch,
+) -> None:
+    """CreateFile 的真实 pywintypes.error 必须在 transport 边界统一为 ConnectionError。"""
+
+    win32file = _FakeWin32FileModule(create_failures=[5])
+    _install_fake_pywin32(monkeypatch, win32file)
+
+    with pytest.raises(ConnectionError) as captured:
+        WindowsNamedPipeEndpoint("DSP-Test").exchange(b"request-packet")
+
+    assert isinstance(captured.value.__cause__, _FakeWin32Error)
+    assert win32file.create_calls == 1
+    assert win32file.writes == []
+    assert win32file.close_calls == 0
+
+
 def test_windows_named_pipe_endpoint_never_retries_after_request_write_begins(
     monkeypatch,
 ) -> None:
+    """WriteFile 失败说明 dispatch 结果未知；只归一化异常，绝不自动重发 mutation。"""
+
     win32file = _FakeWin32FileModule(write_failure=109)
     _install_fake_pywin32(monkeypatch, win32file)
 
-    with pytest.raises(_FakeWin32Error):
+    with pytest.raises(ConnectionError) as captured:
         WindowsNamedPipeEndpoint("DSP-Test").exchange(b"request-packet")
 
+    assert isinstance(captured.value.__cause__, _FakeWin32Error)
     assert win32file.create_calls == 1
     assert win32file.writes == []
+    assert win32file.close_calls == 1
+
+
+def test_windows_named_pipe_endpoint_normalizes_readfile_error_without_resending(
+    monkeypatch,
+) -> None:
+    """ReadFile 的 broken-pipe error 必须统一为 ConnectionError，并保持 exactly-one write。"""
+
+    win32file = _FakeWin32FileModule(read_failure=109)
+    _install_fake_pywin32(monkeypatch, win32file)
+
+    packet = b"request-packet"
+    with pytest.raises(ConnectionError) as captured:
+        WindowsNamedPipeEndpoint("DSP-Test").exchange(packet)
+
+    assert isinstance(captured.value.__cause__, _FakeWin32Error)
+    assert win32file.create_calls == 1
+    assert win32file.writes == [packet]
     assert win32file.close_calls == 1

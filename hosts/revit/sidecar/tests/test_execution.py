@@ -6,7 +6,12 @@ from dataclasses import replace
 
 import pytest
 import revit_sidecar
-from design_execution_coordination import HostCommitted, HostDispatchContext
+from design_execution_coordination import (
+    HostCommitted,
+    HostDispatchContext,
+    HostFailed,
+    HostFailurePhase,
+)
 from task6_support import revit_execution_inputs
 
 
@@ -47,6 +52,31 @@ class _Transport:
             },
             "replayed": False,
         }
+
+
+class _DisconnectingTransport:
+    """模拟 EXECUTE 已越过 dispatch 边界，但 Host response 在返回前丢失。"""
+
+    def __init__(self) -> None:
+        self.commands = []
+
+    def request(self, command):
+        self.commands.append(command)
+        raise ConnectionError("response lost after Revit dispatch")
+
+
+class _MismatchedCommitRevisionTransport(_Transport):
+    """返回结构完整但 commit 起始 revision 与 hash-bound precondition 不一致的成功证据。"""
+
+    def request(self, command):
+        response = super().request(command)
+        response["revision_after"] = 91
+        response["verification"] = {
+            **response["verification"],
+            "revision_before": 90,
+            "revision_after": 91,
+        }
+        return response
 
 
 def _revit_inputs(
@@ -109,6 +139,44 @@ def test_execution_uses_exact_provider_host_contract_revision_and_idempotency() 
     assert result.actual_delta.revision_after == 32
     assert result.actual_delta.binding_set_hash == binding_set.binding_set_hash
     assert result.actual_delta.execution_slice_hash == execution_slice.execution_slice_hash
+
+
+def test_execution_transport_disconnect_after_dispatch_is_commit_state_unknown() -> None:
+    """一旦 EXECUTE transport 丢失响应，就必须保守进入 unknown-outcome，禁止安全重试推断。"""
+
+    execution_slice, authority, binding_set = _revit_inputs(expected_revision=31)
+    transport = _DisconnectingTransport()
+
+    result = _port(transport).execute(
+        execution_slice,
+        authority,
+        binding_set,
+        _dispatch(execution_slice),
+    )
+
+    assert isinstance(result, HostFailed)
+    assert result.phase is HostFailurePhase.COMMIT_STATE_UNKNOWN
+    assert result.failure_ref == "REVIT_COMMIT_STATE_UNKNOWN"
+    assert len(transport.commands) == 1
+
+
+def test_execution_rejects_success_from_other_commit_start_revision_as_unknown() -> None:
+    """Host 成功证据的 revision_before 必须精确等于 binding 冻结 revision，否则不得记 HostCommitted。"""
+
+    execution_slice, authority, binding_set = _revit_inputs(expected_revision=31)
+    transport = _MismatchedCommitRevisionTransport()
+
+    result = _port(transport).execute(
+        execution_slice,
+        authority,
+        binding_set,
+        _dispatch(execution_slice),
+    )
+
+    assert isinstance(result, HostFailed)
+    assert result.phase is HostFailurePhase.COMMIT_STATE_UNKNOWN
+    assert result.failure_ref == "REVIT_COMMIT_REVISION_MISMATCH"
+    assert len(transport.commands) == 1
 
 
 @pytest.mark.parametrize(
