@@ -132,7 +132,8 @@ def test_mutation_claims_300_but_independent_read_other_value_fails_semantic_ver
     revit_wall_thickness_product_case,
 ) -> None:
     """
-    场景 13/19：mutation response 的 300 不能替代 independent READ；275 必须由 SemanticVerifier 判失败。
+    场景 13/19：mutation response 的 300 不能替代 independent READ；
+    275 必须由 SemanticVerifier 判失败。
     """
 
     case = revit_wall_thickness_product_case("task-product-independent-wrong-value")
