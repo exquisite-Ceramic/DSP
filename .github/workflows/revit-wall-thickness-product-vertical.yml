@@ -123,6 +123,7 @@ jobs:
         run: |
           uv run ruff check --select E,F,I platform/product_runtime tests/product_runtime
       - name: Enforce no new Ruff diagnostics on legacy capability seams
+        id: ruff_gate
         shell: bash
         env:
           DSP_EVENT_NAME: ${{ github.event_name }}
@@ -179,3 +180,84 @@ jobs:
           if added:
               sys.exit(1)
           PY
+      - name: Explain Ruff failure with exact fixes
+        if: ${{ failure() && steps.ruff_gate.outcome == 'failure' }}
+        shell: bash
+        run: |
+          mkdir -p ruff-diagnostics
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
+
+          git rev-parse HEAD > ruff-diagnostics/head-sha.txt
+          "$RUFF_BIN" --version > ruff-diagnostics/version.txt
+          cp /tmp/product-base-ruff.json ruff-diagnostics/base-diagnostics.json
+          cp /tmp/product-head-ruff.json ruff-diagnostics/head-diagnostics.json
+
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def relative_filename(row: dict) -> str:
+              filename = str(row["filename"]).replace("\\", "/")
+              for marker in ("/platform/", "/hosts/", "/tests/"):
+                  if marker in filename:
+                      return marker.strip("/") + "/" + filename.split(marker, 1)[1]
+              return filename
+
+          def key(row: dict) -> tuple[str, str, str]:
+              return relative_filename(row), row["code"], row["message"]
+
+          base_rows = json.loads(
+              Path("/tmp/product-base-ruff.json").read_text(encoding="utf-8")
+          )
+          head_rows = json.loads(
+              Path("/tmp/product-head-ruff.json").read_text(encoding="utf-8")
+          )
+          remaining = Counter(key(row) for row in base_rows)
+          added_rows = []
+          for row in head_rows:
+              row_key = key(row)
+              if remaining[row_key] > 0:
+                  remaining[row_key] -= 1
+              else:
+                  row = dict(row)
+                  row["filename"] = relative_filename(row)
+                  added_rows.append(row)
+
+          Path("ruff-diagnostics/diagnostics.json").write_text(
+              json.dumps(added_rows, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          targets = sorted({relative_filename(row) for row in added_rows})
+          Path("ruff-diagnostics/targets.txt").write_text(
+              "\n".join(targets) + ("\n" if targets else ""),
+              encoding="utf-8",
+          )
+          PY
+
+          mapfile -t TARGETS < ruff-diagnostics/targets.txt
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            diff_status=0
+            "$RUFF_BIN" check --select E,F,I --diff "${TARGETS[@]}" \
+              > ruff-diagnostics/suggested.patch || diff_status=$?
+            if [ "$diff_status" -gt 1 ]; then
+              exit "$diff_status"
+            fi
+          else
+            : > ruff-diagnostics/suggested.patch
+          fi
+
+          echo "::group::Ruff exact suggested patch"
+          cat ruff-diagnostics/suggested.patch
+          echo "::endgroup::"
+
+          echo "::group::Ruff added JSON diagnostics"
+          cat ruff-diagnostics/diagnostics.json
+          echo "::endgroup::"
+      - name: Upload Ruff diagnostic evidence
+        if: ${{ always() && steps.ruff_gate.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostics-${{ github.job }}
+          path: ruff-diagnostics/
+          if-no-files-found: warn
