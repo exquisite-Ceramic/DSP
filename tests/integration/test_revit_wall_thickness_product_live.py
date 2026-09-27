@@ -28,10 +28,10 @@ from design_provider_binding import (
 )
 from host_contracts import HostCommand
 from revit_sidecar.named_pipe import NamedPipeTransport
+
 from tests.integration.test_phase_h_revit_wall_thickness_live import _load_fixture_manifest
 from tests.orchestrator import test_real_owner_workflow_end_to_end as _owner_support
 from tests.product_runtime import conftest as _product_support
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _REQUIRED_LIVE_ENV = (
