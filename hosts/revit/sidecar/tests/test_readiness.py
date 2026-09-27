@@ -9,7 +9,6 @@ from design_execution_coordination import (
     compute_readiness_receipt_hash,
 )
 from revit_sidecar.readiness import RevitWallThicknessReadinessPort
-
 from task6_support import revit_execution_inputs
 
 
