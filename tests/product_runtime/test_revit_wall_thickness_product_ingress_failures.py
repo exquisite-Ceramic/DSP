@@ -71,7 +71,9 @@ def test_operation_proposal_reject_cancels_without_host_mutation(
 def test_stale_context_never_executes_with_the_stale_revision(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 3/19：proposal 后 Host revision 漂移时，后续写入必须先经过 freshness 并使用新 revision。"""
+    """
+    场景 3/19：proposal 后 Host revision 漂移时，后续写入必须先经过 freshness 并使用新 revision。
+    """
 
     case = revit_wall_thickness_product_case("task-product-stale-context")
     proposal = _submit_to_proposal(case)

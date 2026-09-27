@@ -26,7 +26,9 @@ def _submit_and_accept(case):
 
 
 def _inject_wider_effect(case, effect: dict[str, object]) -> None:
-    """只扩展 fake Host 的成功 verification evidence，让真实 ActualDelta adapter/scope owner 判定。"""
+    """
+    只扩展 fake Host 的成功 verification evidence，让真实 ActualDelta adapter/scope owner 判定。
+    """
 
     execute = case.host._execute_wall_thickness
 
@@ -129,7 +131,9 @@ def test_actual_delta_extra_aspect_is_rejected_by_real_scope_comparator(
 def test_mutation_claims_300_but_independent_read_other_value_fails_semantic_verification(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 13/19：mutation response 的 300 不能替代 independent READ；275 必须由 SemanticVerifier 判失败。"""
+    """
+    场景 13/19：mutation response 的 300 不能替代 independent READ；275 必须由 SemanticVerifier 判失败。
+    """
 
     case = revit_wall_thickness_product_case("task-product-independent-wrong-value")
 
@@ -228,7 +232,9 @@ def test_independent_read_newer_revision_is_not_accepted_as_commit_evidence(
 def test_revision_change_during_independent_read_stays_recoverable_without_redispatch(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 16/19：READ window 内 revision 漂移属于 evidence unavailable，保持 RECONCILING recovery。"""
+    """
+    场景 16/19：READ window 内 revision 漂移属于 evidence unavailable，保持 RECONCILING recovery。
+    """
 
     case = revit_wall_thickness_product_case("task-product-read-window-revision-change")
 
