@@ -12,6 +12,7 @@ on:
       - "tests/product_runtime/**"
       - "tests/orchestrator/**"
       - "tests/execution_coordination/**"
+      - "tests/architecture/test_document_lifecycle_index.py"
       - "tests/integration/test_revit_wall_thickness_product_live.py"
       - "docs/runbooks/revit-wall-thickness-product-vertical.md"
   pull_request:
@@ -25,6 +26,7 @@ on:
       - "tests/product_runtime/**"
       - "tests/orchestrator/**"
       - "tests/execution_coordination/**"
+      - "tests/architecture/test_document_lifecycle_index.py"
       - "tests/integration/test_revit_wall_thickness_product_live.py"
       - "docs/runbooks/revit-wall-thickness-product-vertical.md"
   workflow_dispatch:
@@ -70,6 +72,10 @@ jobs:
           # 所有 Python focused gates 都从 committed uv.lock 重建，避免 closeout CI 漂移依赖。
           python -m pip install uv
           uv sync --locked --all-packages
+      - name: Verify lifecycle closeout state
+        run: |
+          # README 是 Task 11 closeout 事实的一部分；其 lifecycle guard 必须与产品 gate 同步执行。
+          uv run python -m pytest tests/architecture/test_document_lifecycle_index.py -q
       - name: Verify ProductTask owner and full Task 9 offline product matrix
         run: |
           # Product Runtime 目录覆盖 request owner、semantic reconstruction、operation resolution、
@@ -132,6 +138,7 @@ jobs:
             platform/orchestrator
             platform/execution_coordination
             hosts/revit/sidecar
+            tests/architecture
             tests/orchestrator
             tests/execution_coordination
             tests/integration
