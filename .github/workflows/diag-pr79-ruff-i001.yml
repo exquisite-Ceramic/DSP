@@ -6,7 +6,7 @@ on:
       - diag/pr79-ruff-i001-837bfb7c
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   ruff-fix-diff:
@@ -20,8 +20,17 @@ jobs:
           python-version: '3.11'
       - name: Install pinned Ruff
         run: python -m pip install ruff==0.16.8
-      - name: Print exact Ruff fix diff
+      - name: Apply exact Ruff fix and commit target blob
         shell: bash
         run: |
+          set -euo pipefail
           ruff --version
-          ruff check --select I --fix --diff tests/integration/test_revit_wall_thickness_product_live.py || true
+          ruff check --select I --fix tests/integration/test_revit_wall_thickness_product_live.py
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/integration/test_revit_wall_thickness_product_live.py
+          if ! git diff --cached --quiet; then
+            git commit -m "style: materialize exact Ruff import fix"
+            git push
+          fi
