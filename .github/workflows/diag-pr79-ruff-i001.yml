@@ -1,0 +1,27 @@
+name: Diagnose PR79 Ruff I001
+
+on:
+  push:
+    branches:
+      - diag/pr79-ruff-i001-837bfb7c
+
+permissions:
+  contents: read
+
+jobs:
+  ruff-fix-diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install pinned Ruff
+        run: python -m pip install ruff==0.16.8
+      - name: Print exact Ruff fix diff
+        shell: bash
+        run: |
+          ruff --version
+          ruff check --select I --fix --diff tests/integration/test_revit_wall_thickness_product_live.py || true
