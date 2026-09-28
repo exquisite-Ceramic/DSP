@@ -9,16 +9,20 @@ from design_execution_coordination import (
     compute_readiness_receipt_hash,
 )
 from revit_sidecar.readiness import RevitWallThicknessReadinessPort
-
-from tests.execution_coordination.test_phase_i_readiness_barrier import (
-    _phase_i_readiness_inputs,
-)
+from task6_support import revit_execution_inputs
 
 
 class FakeTransport:
-    def __init__(self, *, payload_changes=None, error_code: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        payload_changes=None,
+        error_code: str | None = None,
+        revision: int = 31,
+    ) -> None:
         self.payload_changes = dict(payload_changes or {})
         self.error_code = error_code
+        self.revision = revision
         self.commands = []
 
     def request(self, command):
@@ -28,7 +32,7 @@ class FakeTransport:
                 "command_id": command.command_id,
                 "status": "ERROR",
                 "error": {"code": self.error_code},
-                "revision_after": 31,
+                "revision_after": self.revision,
                 "replayed": False,
             }
         payload = {
@@ -45,23 +49,15 @@ class FakeTransport:
             "command_id": command.command_id,
             "status": "OK",
             "payload": payload,
-            "revision_after": 31,
+            "revision_after": self.revision,
             "replayed": False,
         }
 
 
-def _revit_inputs():
-    ctx = _phase_i_readiness_inputs()
-    index = next(
-        index
-        for index, execution_slice in enumerate(ctx.execution_plan.execution_slices)
-        if execution_slice.host_runtime_ref.host_type == "revit"
-    )
-    return (
-        ctx.execution_plan.execution_slices[index],
-        ctx.binding_sets[index],
-        ctx.authorities[index],
-    )
+def _revit_inputs(*, expected_revision: int | None = 31):
+    """使用 sidecar-local public-contract fixture 构造 hash-bound Revit readiness lineage。"""
+
+    return revit_execution_inputs(expected_revision=expected_revision)
 
 
 def test_revit_readiness_builds_one_exact_read_command_and_returns_ready_receipt() -> None:
@@ -96,6 +92,38 @@ def test_revit_readiness_builds_one_exact_read_command_and_returns_ready_receipt
     assert receipt.grant_hash == authority.grant_hash
     assert receipt.host_runtime_ref == execution_slice.host_runtime_ref
     assert receipt.receipt_hash == compute_readiness_receipt_hash(receipt)
+
+
+def test_revit_readiness_rejects_observed_revision_different_from_hash_bound_revision() -> None:
+    """readiness 只能为 binding 已冻结的 planning revision 签发 READY。"""
+
+    execution_slice, binding_set, authority = _revit_inputs(expected_revision=31)
+    receipt = RevitWallThicknessReadinessPort(FakeTransport(revision=32)).check(
+        execution_slice,
+        authority,
+        binding_set,
+    )
+
+    assert receipt.status is ReadinessStatus.NOT_READY
+    assert receipt.failure_code == "REVIT_READINESS_REVISION_MISMATCH"
+    assert receipt.observed_revision == 32
+
+
+def test_revit_readiness_requires_expected_revision_metadata_before_host_read() -> None:
+    """禁止 readiness 在运行时从 Host 当前状态临时发明 expected revision。"""
+
+    execution_slice, binding_set, authority = _revit_inputs(expected_revision=None)
+    transport = FakeTransport()
+
+    with pytest.raises(ReadinessError) as exc:
+        RevitWallThicknessReadinessPort(transport).check(
+            execution_slice,
+            authority,
+            binding_set,
+        )
+
+    assert exc.value.code == "READINESS_LINEAGE_MISMATCH"
+    assert transport.commands == []
 
 
 @pytest.mark.parametrize(

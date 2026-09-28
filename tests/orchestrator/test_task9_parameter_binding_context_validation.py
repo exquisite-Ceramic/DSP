@@ -23,6 +23,7 @@ class _BindingBoundary:
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
@@ -70,6 +71,7 @@ def test_matching_parameter_binding_context_lineage_is_accepted() -> None:
     operation_space_ref = StableRef("OPSPACE-TASK9", "c" * 64)
 
     result = adapter.load_parameter_binding_inputs(
+        "task-test",
         operation_space_ref,
         authoritative,
     )
@@ -98,6 +100,7 @@ def test_parameter_binding_context_lineage_mismatch_fails_closed(
 
     with pytest.raises(ValueError, match="ParameterBindingContext lineage"):
         adapter.load_parameter_binding_inputs(
+            "task-test",
             StableRef("OPSPACE-TASK9", "c" * 64),
             authoritative,
         )
@@ -111,6 +114,7 @@ def test_parameter_binding_requires_hashed_authoritative_context_ref() -> None:
 
     with pytest.raises(ValueError, match="ContextSnapshot StableRef requires content_hash"):
         adapter.load_parameter_binding_inputs(
+            "task-test",
             StableRef("OPSPACE-TASK9", "c" * 64),
             authoritative,
         )

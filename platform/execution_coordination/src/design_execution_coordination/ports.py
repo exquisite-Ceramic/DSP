@@ -140,6 +140,8 @@ class ConvergenceEvidencePort(Protocol):
         self,
         *,
         execution_slice: ExecutionSliceV2,
+        authority: AdmittedExecutionAuthorityV2,
+        binding_set: ProviderBindingSetV2,
         actual_delta: ActualDelta,
         canonical_changeset: CanonicalChangeSet,
         approval_scope_boundary: ApprovalScopeBoundaryV2,

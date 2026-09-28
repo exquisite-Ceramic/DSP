@@ -51,6 +51,7 @@ class _LineageGraphServices:
 
     def bind_parameters(
         self,
+        task_id: str,
         operation_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> AsyncOperationRef:
@@ -89,6 +90,7 @@ class _BindingOwners:
 
     def load_parameter_binding_inputs(
         self,
+        task_id: str,
         operation_space_ref: StableRef,
         context_snapshot_ref: StableRef,
     ) -> ParameterBindingInputs:
@@ -193,7 +195,8 @@ def test_default_services_forwards_exact_context_ref_to_binding_owner() -> None:
         external_owners=owners,
     )
 
-    bound_ref = service.bind_parameters(operation_space_ref, context_ref)
+    bound_ref = service.bind_parameters("task-test",
+                                        operation_space_ref, context_ref)
 
     assert owners.calls == [(operation_space_ref, context_ref)]
     bound = store.get(bound_ref)

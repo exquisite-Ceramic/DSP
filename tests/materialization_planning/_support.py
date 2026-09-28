@@ -146,6 +146,8 @@ def build_case(
     *,
     targets: tuple[str, ...] = ("WALL-001",),
     topology_slots: tuple[MaterializationSlot, ...] | None = None,
+    semantic_environment: SemanticEnvironmentBinding | None = None,
+    project_id: str | None = None,
 ):
     if topology_slots is None:
         topology_slots = (
@@ -153,6 +155,10 @@ def build_case(
             slot("MS-REVIT", "WALL-001", "revit", "DOC-REVIT"),
         )
     topology_snapshot = topology(topology_slots)
+    environment = semantic_environment or SemanticEnvironmentBinding(
+        "ENV-MATERIALIZATION",
+        "env-hash-materialization",
+    )
 
     binder = ParameterBinder(
         (SET_WALL_THICKNESS_V1,),
@@ -167,14 +173,10 @@ def build_case(
             context_snapshot_id="CS-MATERIALIZATION",
             context_snapshot_hash="context-hash-materialization",
             document_ref="DOC-CANONICAL",
-            semantic_environment_ref="ENV-MATERIALIZATION",
+            semantic_environment_ref=environment.environment_id,
             selection=targets,
             context_values={},
         ),
-    )
-    environment = SemanticEnvironmentBinding(
-        "ENV-MATERIALIZATION",
-        "env-hash-materialization",
     )
     planning = PlanningSnapshotBinding(
         "PS-MATERIALIZATION",
@@ -233,6 +235,7 @@ def build_case(
     changeset = ChangeSetBuilder().build(
         ChangeSetBuildRequest(
             task_id="TASK-MATERIALIZATION",
+            project_id=project_id,
             bound_operation_evidence=_bound_evidence(bound),
             impact_analysis=impact,
             approval_scope_definition=scope_v2,

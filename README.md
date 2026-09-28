@@ -5,9 +5,11 @@
 ## 当前状态
 
 - **Latest completed capability phase:** real E2E workflow
-- **Current engineering activity:** real E2E workflow — COMPLETED
-- **Next capability phase:** semantic -> plan -> approve -> execute -> reconcile — NOT YET STARTED
+- **Current engineering activity:** Revit wall-thickness product vertical — final CI / merge closeout
+- **Latest product acceptance:** selected Revit Wall thickness → 300 mm，真实 Revit happy path GREEN；branch capability 尚待 final-SHA CI 与 merged-main observation
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
+- 当前产品 vertical 设计：[`docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`](docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md)
+- 当前产品 vertical 实施计划：[`docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md`](docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md)
 - 已完成 Technology Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)
 - v0.5 已由 v0.6 取代，保留为历史规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.5.md)
 
@@ -24,7 +26,7 @@ execution planning / provider binding / authorization
         ↓
 AutoCAD + Revit Hosts
         ↓
-ActualDelta / reconciliation / convergence
+ActualDelta / independent read-back / reconciliation / convergence
 ```
 
 当前已证明的能力包括：
@@ -37,7 +39,12 @@ ActualDelta / reconciliation / convergence
 - execution reconciliation；
 - cross-host coordination / convergence；
 - deterministic partial commit；
-- 真实 AutoCAD + Revit acceptance。
+- 真实 AutoCAD + Revit acceptance；
+- durable ProductTask request owner 与 explicit task lineage；
+- Revit 当前选择墙体厚度修改为 300 mm 的完整产品 vertical：request → semantic context → canonical operation → approval → planning/binding/admission → Saga → 真实 Revit mutation → 独立 post-commit READ → Step33 verification → convergence → product projection；
+- Host commit outcome unknown、Windows Named Pipe I/O 与 commit-revision mismatch 的 fail-closed / recovery-required 处理，禁止把未知提交状态误判为可安全重试。
+
+Revit wall-thickness product vertical 的真实 Host acceptance 已证明 revision 按一次提交推进、独立 READ 在 exact committed revision 重新测得 300 mm、Saga 与 Product 均达到 `SUCCEEDED`。真实验收仍按受控 Windows/Revit 环境执行；GitHub-hosted CI 只运行 offline matrix 并验证 live test 可 collection/明确 skip。
 
 Host-specific API 继续被限制在各 Host 的 native/plugin 边界内；平台层使用 provider-neutral contracts 与 evidence，不把 AutoCAD/Revit 原生类型扩散进 canonical runtime。
 
@@ -46,6 +53,9 @@ Host-specific API 继续被限制在各 Host 的 native/plugin 边界内；平�
 | 文档 | 用途 |
 | --- | --- |
 | [`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md) | 当前系统级 contract authority |
+| [`docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`](docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md) | 首个真实 Revit 产品 vertical 设计边界 |
+| [`docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md`](docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md) | 产品 vertical implementation / closeout gate |
+| [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) | 真实 Revit 产品 vertical live acceptance |
 | [`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md) | 已完成 Technology Modernization Design / evidence record |
 | [`docs/superpowers/modernization/architecture-modernization-review-input.md`](docs/superpowers/modernization/architecture-modernization-review-input.md) | Technology Modernization 的 evidence-only 架构评审输入，不授权实现 |
 | [`docs/superpowers/README.md`](docs/superpowers/README.md) | Design Spec / Implementation Plan 生命周期与历史导航 |
@@ -65,14 +75,14 @@ python -m pytest -q
 dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
 ```
 
-`Repository regression` CI 是当前 repository-wide offline truth；历史 Step workflows 只保留各自 focused/domain/architecture guards。
+`Repository regression` CI 是当前 repository-wide offline truth；`Revit wall thickness product vertical` CI 是首个产品 vertical 的 focused offline truth。历史 Step workflows 只保留各自 focused/domain/architecture guards。
 
-真实 Host 验收需要受支持的 AutoCAD / Revit 环境，按对应 runbook 显式运行，不能用 GitHub-hosted offline PASS 代替。
+真实 Revit 产品验收按 [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) 显式运行，不能用 GitHub-hosted offline PASS 代替。最终 capability closure 还要求 final branch SHA 的 dedicated workflow 与 repository regression GREEN，并在合并后观察 merged-main required workflows。
 
 ## 目录概览
 
 - `contracts/` — provider-neutral contracts 与多语言镜像。
-- `platform/` — semantic runtime、planning、authorization、reconciliation、convergence 等平台能力。
+- `platform/` — semantic runtime、planning、authorization、reconciliation、convergence、product runtime 等平台能力。
 - `hosts/autocad/` — AutoCAD plugin / sidecar / native integration。
 - `hosts/revit/` — Revit plugin / sidecar / native integration。
 - `providers/` — semantic / materialization provider 实现。

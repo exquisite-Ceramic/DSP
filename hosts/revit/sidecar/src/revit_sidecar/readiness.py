@@ -138,7 +138,7 @@ def _validate_lineage(
             "READINESS_LINEAGE_MISMATCH",
             "Revit native target does not match the exact semantic/runtime Slice",
         )
-    return unit, target
+    return unit, target, binding
 
 
 def _thickness_argument(unit) -> dict:
@@ -157,6 +157,18 @@ def _thickness_argument(unit) -> dict:
     ):
         _error("READINESS_FAILED", "Revit readiness requires finite positive mm thickness")
     return {"value": float(value), "unit": "mm"}
+
+
+def _expected_revision(binding) -> int:
+    """从 hash-bound provider metadata 读取唯一 authoritative expected revision。"""
+
+    value = binding.native_binding_metadata.get("expected_revision")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        _error(
+            "READINESS_LINEAGE_MISMATCH",
+            "Revit binding requires a hash-bound non-negative expected_revision",
+        )
+    return value
 
 
 def _revision(response: Mapping) -> int:
@@ -192,8 +204,13 @@ class RevitWallThicknessReadinessPort:
         binding_set: ProviderBindingSetV2,
     ) -> HostReadinessReceipt:
         """对 exact Revit wall 发出一个 READ 命令并验证返回证据。"""
-        unit, target = _validate_lineage(execution_slice, authority, binding_set)
+        unit, target, binding = _validate_lineage(
+            execution_slice,
+            authority,
+            binding_set,
+        )
         thickness = _thickness_argument(unit)
+        expected_revision = _expected_revision(binding)
         runtime_ref = execution_slice.host_runtime_ref
         command = HostCommand(
             command_id=f"READINESS-{execution_slice.execution_slice_id}",
@@ -223,6 +240,15 @@ class RevitWallThicknessReadinessPort:
             _error("READINESS_FAILED", f"Revit readiness transport failed: {exc}")
         response = _mapping(response, "response")
         observed_revision = _revision(response)
+        if observed_revision != expected_revision:
+            return _not_ready(
+                execution_slice=execution_slice,
+                authority=authority,
+                binding_set=binding_set,
+                observed_revision=observed_revision,
+                failure_code="REVIT_READINESS_REVISION_MISMATCH",
+            )
+
         status = response.get("status")
         if status == "ERROR":
             error = _mapping(response.get("error"), "response.error")

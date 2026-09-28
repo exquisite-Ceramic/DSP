@@ -53,11 +53,14 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
         "NOT YET STARTED"
     ) in text
     assert "**Latest completed capability phase:** real E2E workflow" in root_text
-    assert "**Current engineering activity:** real E2E workflow — COMPLETED" in root_text
     assert (
-        "**Next capability phase:** semantic -> plan -> approve -> execute -> reconcile — "
-        "NOT YET STARTED"
+        "**Current engineering activity:** Revit wall-thickness product vertical — "
+        "final CI / merge closeout"
     ) in root_text
+    assert (
+        "**Latest product acceptance:** selected Revit Wall thickness → 300 mm"
+        in root_text
+    )
 
 
 def test_hitl_design_and_plan_are_closed_only_after_implementation_merge() -> None:

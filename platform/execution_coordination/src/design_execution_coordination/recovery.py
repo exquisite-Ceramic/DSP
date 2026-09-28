@@ -28,6 +28,7 @@ from .contracts import (
     HostDispatchContext,
     HostFailed,
     HostFailurePhase,
+    VerificationEvidenceUnavailable,
 )
 from .materialized_contracts import (
     MaterializedCoordinationResult,
@@ -429,6 +430,7 @@ class UnknownOutcomeRecovery:
         stored_saga: StoredExecutionSagaV2,
         execution_slice: ExecutionSliceV2,
         authority: AdmittedExecutionAuthorityV2,
+        binding_set: ProviderBindingSetV2,
         intent: HostDispatchIntent,
         host_result: HostCommitted,
     ) -> MaterializedCoordinationResult:
@@ -517,12 +519,23 @@ class UnknownOutcomeRecovery:
                 failure_ref=scope_result.comparison_hash,
             )
 
-        verification_bundle = self._evidence_port.build_bundle(
-            execution_slice=execution_slice,
-            actual_delta=actual_delta,
-            canonical_changeset=self._canonical_changeset,
-            approval_scope_boundary=self._approval_scope_boundary,
-        )
+        try:
+            verification_bundle = self._evidence_port.build_bundle(
+                execution_slice=execution_slice,
+                authority=authority,
+                binding_set=binding_set,
+                actual_delta=actual_delta,
+                canonical_changeset=self._canonical_changeset,
+                approval_scope_boundary=self._approval_scope_boundary,
+            )
+        except VerificationEvidenceUnavailable as exc:
+            # 已知 commit 的 recovery 只重试独立 READ/evidence；intent 保持 HOST_COMMITTED，
+            # Saga 保持 RECONCILING，直到同一 Slice 获得可验证 evidence。
+            return _project_result(
+                stored_saga,
+                execution_slice_hash=execution_slice.execution_slice_hash,
+                failure_ref=exc.code,
+            )
         verification = self._reconciliation.verify_semantics(
             canonical_changeset=self._canonical_changeset,
             approval_scope_boundary=self._approval_scope_boundary,
@@ -602,6 +615,7 @@ class UnknownOutcomeRecovery:
                 stored_saga=stored_saga,
                 execution_slice=execution_slice,
                 authority=authority,
+                binding_set=binding_set,
                 intent=intent,
                 host_result=host_result,
             )

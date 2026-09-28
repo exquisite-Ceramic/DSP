@@ -1,0 +1,263 @@
+name: Revit wall thickness product vertical
+
+on:
+  push:
+    paths:
+      - ".github/workflows/revit-wall-thickness-product-vertical.yml"
+      - "README.md"
+      - "platform/product_runtime/**"
+      - "platform/orchestrator/**"
+      - "platform/execution_coordination/**"
+      - "hosts/revit/**"
+      - "tests/product_runtime/**"
+      - "tests/orchestrator/**"
+      - "tests/execution_coordination/**"
+      - "tests/architecture/test_document_lifecycle_index.py"
+      - "tests/integration/test_revit_wall_thickness_product_live.py"
+      - "docs/runbooks/revit-wall-thickness-product-vertical.md"
+  pull_request:
+    paths:
+      - ".github/workflows/revit-wall-thickness-product-vertical.yml"
+      - "README.md"
+      - "platform/product_runtime/**"
+      - "platform/orchestrator/**"
+      - "platform/execution_coordination/**"
+      - "hosts/revit/**"
+      - "tests/product_runtime/**"
+      - "tests/orchestrator/**"
+      - "tests/execution_coordination/**"
+      - "tests/architecture/test_document_lifecycle_index.py"
+      - "tests/integration/test_revit_wall_thickness_product_live.py"
+      - "docs/runbooks/revit-wall-thickness-product-vertical.md"
+  workflow_dispatch:
+
+env:
+  DSP_REVIT_LIVE: "0"
+  DSP_PHASE_I_LIVE: "0"
+  AGENT_HOST_TEST: "0"
+
+jobs:
+  product-vertical-offline:
+    name: Product vertical offline gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dsp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install repository verification stack from committed lock
+        run: |
+          # 所有 Python focused gates 都从 committed uv.lock 重建，避免 closeout CI 漂移依赖。
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Verify lifecycle closeout state
+        run: |
+          # README 是 Task 11 closeout 事实的一部分；其 lifecycle guard 必须与产品 gate 同步执行。
+          uv run python -m pytest tests/architecture/test_document_lifecycle_index.py -q
+      - name: Verify ProductTask owner and full Task 9 offline product matrix
+        run: |
+          # Product Runtime 目录覆盖 request owner、semantic reconstruction、operation resolution、
+          # execution composition、independent evidence、thin facade，以及 Task 9 全部 PostgreSQL
+          # happy/negative/restart/recovery 场景。DSP_TEST_POSTGRES_DSN 使 durable fixtures 使用 PG17。
+          uv run python -m pytest tests/product_runtime -q
+      - name: Verify Task 2 explicit task lineage seam
+        run: |
+          uv run python -m pytest \
+            tests/orchestrator/test_default_workflow_services.py \
+            tests/orchestrator/test_langgraph_graph.py \
+            tests/orchestrator/test_canonical_owner_ports.py \
+            tests/orchestrator/test_real_owner_workflow_end_to_end.py \
+            tests/orchestrator/test_task9_parameter_binding_lineage.py \
+            tests/orchestrator/test_task9_parameter_binding_context_validation.py \
+            tests/orchestrator/test_workflow_end_to_end.py \
+            tests/orchestrator/test_hitl_resume_observability.py \
+            tests/orchestrator/test_langgraph_runtime.py \
+            tests/orchestrator/test_legacy_hitl_migration.py \
+            tests/orchestrator/test_legacy_hitl_resume_observability.py \
+            tests/orchestrator/test_postgres_checkpoint.py \
+            tests/orchestrator/test_task6_review_regressions.py \
+            tests/orchestrator/test_v2_hitl_artifact_validation.py -q
+      - name: Verify Revit sidecar context snapshot execution and readiness boundaries
+        run: |
+          uv run python -m pytest \
+            hosts/revit/sidecar/tests/test_context.py \
+            hosts/revit/sidecar/tests/test_snapshot_read.py \
+            hosts/revit/sidecar/tests/test_execution.py \
+            hosts/revit/sidecar/tests/test_execution_result_adapter.py \
+            hosts/revit/sidecar/tests/test_named_pipe.py \
+            hosts/revit/sidecar/tests/test_readiness.py -q
+      - name: Verify real Revit live acceptance remains external-only in CI
+        run: |
+          # GitHub-hosted CI 不伪造真实 Revit。这里必须成功 collection，并因 DSP_REVIT_LIVE=0
+          # 明确 skip；mandatory live PASS 由受控 Windows/Revit 环境单独留证。
+          uv run python -m pytest \
+            tests/integration/test_revit_wall_thickness_product_live.py -q -vv
+      - name: Verify Revit-free .NET core
+        run: |
+          dotnet test \
+            hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj \
+            -f net8.0
+      - name: Enforce absolute Ruff clean on capability-new Product Runtime paths
+        run: |
+          uv run ruff check --select E,F,I platform/product_runtime tests/product_runtime
+      - name: Enforce no new Ruff diagnostics on legacy capability seams
+        id: ruff_gate
+        shell: bash
+        env:
+          DSP_EVENT_NAME: ${{ github.event_name }}
+          DSP_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          DSP_PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          DSP_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BASE_SHA="$(bash "$GITHUB_WORKSPACE/.github/scripts/resolve-ruff-baseline.sh")"
+          echo "Ruff baseline: $BASE_SHA"
+          git worktree add /tmp/dsp-product-base "$BASE_SHA"
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
+          SCOPES=(
+            platform/orchestrator
+            platform/execution_coordination
+            hosts/revit/sidecar
+            tests/architecture
+            tests/orchestrator
+            tests/execution_coordination
+            tests/integration
+          )
+          (
+            cd /tmp/dsp-product-base
+            "$RUFF_BIN" check --select E,F,I --output-format=json "${SCOPES[@]}" \
+              > /tmp/product-base-ruff.json || true
+          )
+          "$RUFF_BIN" check --select E,F,I --output-format=json "${SCOPES[@]}" \
+            > /tmp/product-head-ruff.json || true
+          uv run python - <<'PY'
+          import json
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+          def diagnostics(path: str) -> Counter[tuple[str, str, str]]:
+              rows = json.loads(Path(path).read_text(encoding="utf-8"))
+              result: Counter[tuple[str, str, str]] = Counter()
+              for row in rows:
+                  filename = str(row["filename"]).replace("\\", "/")
+                  for marker in ("/platform/", "/hosts/", "/tests/"):
+                      if marker in filename:
+                          filename = marker.strip("/") + "/" + filename.split(marker, 1)[1]
+                          break
+                  result[(filename, row["code"], row["message"])] += 1
+              return result
+
+          base = diagnostics("/tmp/product-base-ruff.json")
+          head = diagnostics("/tmp/product-head-ruff.json")
+          added = head - base
+          print(f"base diagnostics: {sum(base.values())}")
+          print(f"head diagnostics: {sum(head.values())}")
+          print(f"new diagnostics: {sum(added.values())}")
+          for item, count in sorted(added.items()):
+              print("NEW", count, item)
+          if added:
+              sys.exit(1)
+          PY
+      - name: Explain Ruff failure with exact fixes
+        if: ${{ failure() && steps.ruff_gate.outcome == 'failure' }}
+        shell: bash
+        run: |
+          mkdir -p ruff-diagnostics
+          RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
+
+          git rev-parse HEAD > ruff-diagnostics/head-sha.txt
+          "$RUFF_BIN" --version > ruff-diagnostics/version.txt
+          cp /tmp/product-base-ruff.json ruff-diagnostics/base-diagnostics.json
+          cp /tmp/product-head-ruff.json ruff-diagnostics/head-diagnostics.json
+
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def relative_filename(row: dict) -> str:
+              filename = str(row["filename"]).replace("\\", "/")
+              for marker in ("/platform/", "/hosts/", "/tests/"):
+                  if marker in filename:
+                      return marker.strip("/") + "/" + filename.split(marker, 1)[1]
+              return filename
+
+          def key(row: dict) -> tuple[str, str, str]:
+              return relative_filename(row), row["code"], row["message"]
+
+          base_rows = json.loads(
+              Path("/tmp/product-base-ruff.json").read_text(encoding="utf-8")
+          )
+          head_rows = json.loads(
+              Path("/tmp/product-head-ruff.json").read_text(encoding="utf-8")
+          )
+          remaining = Counter(key(row) for row in base_rows)
+          added_rows = []
+          for row in head_rows:
+              row_key = key(row)
+              if remaining[row_key] > 0:
+                  remaining[row_key] -= 1
+              else:
+                  row = dict(row)
+                  row["filename"] = relative_filename(row)
+                  added_rows.append(row)
+
+          Path("ruff-diagnostics/diagnostics.json").write_text(
+              json.dumps(added_rows, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          targets = sorted({relative_filename(row) for row in added_rows})
+          Path("ruff-diagnostics/targets.txt").write_text(
+              "\n".join(targets) + ("\n" if targets else ""),
+              encoding="utf-8",
+          )
+          PY
+
+          mapfile -t TARGETS < ruff-diagnostics/targets.txt
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            diff_status=0
+            "$RUFF_BIN" check --select E,F,I --diff "${TARGETS[@]}" \
+              > ruff-diagnostics/suggested.patch || diff_status=$?
+            if [ "$diff_status" -gt 1 ]; then
+              exit "$diff_status"
+            fi
+          else
+            : > ruff-diagnostics/suggested.patch
+          fi
+
+          echo "::group::Ruff exact suggested patch"
+          cat ruff-diagnostics/suggested.patch
+          echo "::endgroup::"
+
+          echo "::group::Ruff added JSON diagnostics"
+          cat ruff-diagnostics/diagnostics.json
+          echo "::endgroup::"
+      - name: Upload Ruff diagnostic evidence
+        if: ${{ always() && steps.ruff_gate.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostics-${{ github.job }}
+          path: ruff-diagnostics/
+          if-no-files-found: warn

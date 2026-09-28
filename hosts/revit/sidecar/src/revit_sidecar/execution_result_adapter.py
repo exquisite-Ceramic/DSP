@@ -15,7 +15,10 @@ from design_execution_reconciliation import (
     compute_actual_change_hash,
     compute_actual_delta_hash,
 )
-from design_gateway_authorization import AdmittedExecutionAuthority
+from design_gateway_authorization import (
+    AdmittedExecutionAuthority,
+    AdmittedExecutionAuthorityV2,
+)
 
 
 class RevitExecutionResultAdapterError(ValueError):
@@ -41,14 +44,20 @@ class RevitExecutionResultAdapter:
     @staticmethod
     def adapt(
         *,
-        admitted_authority: AdmittedExecutionAuthority,
+        admitted_authority: AdmittedExecutionAuthority | AdmittedExecutionAuthorityV2,
         document_ref: str,
         approved_semantic_wall_id: str,
         host_result: Mapping[str, Any],
         occurred_at: str,
     ) -> HostCommitted | HostFailed:
-        if not isinstance(admitted_authority, AdmittedExecutionAuthority):
-            raise TypeError("admitted_authority must be AdmittedExecutionAuthority")
+        if not isinstance(
+            admitted_authority,
+            (AdmittedExecutionAuthority, AdmittedExecutionAuthorityV2),
+        ):
+            raise TypeError(
+                "admitted_authority must be AdmittedExecutionAuthority or "
+                "AdmittedExecutionAuthorityV2"
+            )
 
         document_ref = _text(document_ref, "document_ref")
         approved_semantic_wall_id = _text(

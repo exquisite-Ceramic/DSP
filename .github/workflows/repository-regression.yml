@@ -54,12 +54,17 @@ jobs:
           git worktree add /tmp/dsp-base "$BASE_SHA"
 
           # base/head 必须使用 HEAD committed lock 中的同一个 Ruff 二进制，避免历史环境差异污染 delta。
+          # Revit sidecar 自 Task 4 起纳入同一 delta：历史诊断保持 no-new，新增文件天然要求 absolute clean。
           RUFF_BIN="$GITHUB_WORKSPACE/.venv/bin/ruff"
           (
             cd /tmp/dsp-base
-            "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/base-ruff.json || true
+            "$RUFF_BIN" check --select E,F,I --output-format=json \
+              platform hosts/autocad/sidecar hosts/revit/sidecar tests \
+              > /tmp/base-ruff.json || true
           )
-          "$RUFF_BIN" check --select E,F,I --output-format=json platform hosts/autocad/sidecar tests > /tmp/head-ruff.json || true
+          "$RUFF_BIN" check --select E,F,I --output-format=json \
+            platform hosts/autocad/sidecar hosts/revit/sidecar tests \
+            > /tmp/head-ruff.json || true
           uv run python - <<'PY'
           import json
           import sys

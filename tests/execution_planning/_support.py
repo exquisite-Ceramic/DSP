@@ -13,8 +13,12 @@ from design_materialization_planning import (
 from tests.materialization_planning._support import build_case
 
 
-def build_phase_i_execution_inputs():
-    case = build_case()
+def build_phase_i_execution_inputs(*, semantic_environment=None, project_id=None):
+    # 可选环境/project lineage 只用于真实产品组合测试；默认 Phase I fixture 行为保持不变。
+    case = build_case(
+        semantic_environment=semantic_environment,
+        project_id=project_id,
+    )
     materialization_plan = MaterializationPlanner().plan(
         MaterializationPlanningRequest(
             canonical_changeset=case.changeset,

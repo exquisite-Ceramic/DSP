@@ -10,6 +10,7 @@ from .contracts import (
     HostExecutionResult,
     HostFailed,
     HostFailurePhase,
+    VerificationEvidenceUnavailable,
 )
 from .coordinator import ExecutionSagaCoordinator
 from .materialized_contracts import (
@@ -80,6 +81,7 @@ __all__ = [
     "ReadinessStatus",
     "UnknownOutcomeRecovery",
     "VerificationEvidencePort",
+    "VerificationEvidenceUnavailable",
     "compute_readiness_receipt_hash",
     "project_execution_recovery",
 ]

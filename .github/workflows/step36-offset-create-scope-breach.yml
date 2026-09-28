@@ -75,6 +75,7 @@ jobs:
           python -m pip install \
             -e contracts/python \
             -e hosts/autocad/sidecar \
+            -e "platform/orchestrator[dev]" \
             -e platform/changeset \
             -e platform/execution_planning \
             -e platform/provider_binding \
