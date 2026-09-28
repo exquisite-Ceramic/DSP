@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("langgraph")
 
 import design_orchestrator.langgraph_runtime as langgraph_runtime
-from design_orchestrator.langgraph_checkpoint_reader import LangGraphWorkflowCheckpointReader
+from design_orchestrator import LangGraphWorkflowCheckpointReader
 from design_orchestrator.langgraph_state import (
     CHECKPOINT_CONTRACT_VERSION,
     WorkflowGraphState,
