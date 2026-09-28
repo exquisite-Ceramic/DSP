@@ -26,8 +26,9 @@
 - The original user utterance is persisted with the client correlation before model interpretation. Before freeze it may be re-interpreted after client-process restart; after freeze the exact request is replayed and the model MUST NOT be called again for that correlation.
 - A model may return either one supported normalized proposal or `CLARIFICATION_REQUIRED`. Clarification never allocates `task_id`/`session_ref`, never sends MCP submit, and never creates ProductTask truth.
 - `NormalizedFreezeProposal` includes a deterministic candidate-configuration/target-constraint hash so configuration drift under the same candidate key cannot be mistaken for an identical callback.
+- The frozen `candidate_hash` is also part of immutable `SessionBinding` authority and `binding_hash`. Every Host-bound submit/resume/composition path MUST re-read the current configured candidate by exact key, recompute/validate its canonical hash, and require equality with `SessionBinding.candidate_hash` before workflow progress. The server still never reads client submission/outbox rows.
 - Complete frozen request + correlation association MUST be durable before first MCP send.
-- Same `session_ref` resolves to the exact immutable SessionBinding body or fails. It is never rebound after Host restart, document change, or composition rebuild.
+- Same `session_ref` resolves to the exact immutable SessionBinding body or fails. It is never rebound after Host restart, document change, candidate configuration drift, or composition rebuild.
 - Product Front Door may read SessionBinding through a narrow resolver but MUST NOT read/write client delivery/outbox rows.
 - Durable v1 SessionBinding supports saved Revit documents only. Unsaved/title-only documents fail before request freeze.
 - Endpoint/PID equality is only a locator fact. Every Host-bound submit/resume path fresh-validates runtime/document identity and the configured selected target.
@@ -39,6 +40,7 @@
 - The policy for this vertical MUST authorize the real canonical operation ID `set_wall_thickness.v1`; `set_wall_thickness` is not a valid substitute.
 - Policy snapshot hashing MUST reuse the repository canonical hash helper (`design_changeset.canonical_hash`); `ApprovalAdmission.admission_fingerprint` MUST use `design_gateway_authorization.compute_admission_fingerprint()`.
 - Once an exact configured-policy admission is durably issued, replay returns that immutable admission body. Changing the policy file does not rewrite an already-issued admission.
+- Configured policy admission and workflow MUST read the same authoritative ChangeSet/ApprovalScope owner stores. The reference composition creates those stores once, then builds the policy admission port from the exact same instances; no duplicate store graph or private-field reach-through is permitted.
 - Gateway remains approval/grant authority. This plan may add idempotent recovery of an already-consumed admission inside the existing Gateway owner lifetime, but it does **not** claim a new cross-process durable Gateway store where none exists today.
 - Mandatory reference/live composition MUST NOT use `_ApprovalAdmissionBoundary` or equivalent hard-coded approver/hash/time fixture data.
 - Existing SemanticVerifier/Reconciliation/Saga remain effect/outcome authority. Unknown Host outcome never authorizes blind mutation resend.
@@ -52,8 +54,8 @@
 
 1. **Split-read query race:** a request committed between request/checkpoint reads must not be misreported as checkpoint-without-request corruption. Task 1 owns this.
 2. **First-start race/crash:** two submitters, holder death before start, and response loss after first checkpoint persistence must still converge on one workflow lineage. Tasks 2 and 9 own this.
-3. **Correlation/configuration replay:** duplicate callbacks, config drift under one candidate key, client restart before/after freeze, and response loss must not create a second request. Tasks 3, 4, 8 and 9 own this.
-4. **Approval authority/replay:** exact final ChangeSet/scope, default deny, stable admission identity/time, canonical fingerprint helper, and already-consumed Gateway recovery must stay distinct from operation-proposal HITL. Task 5 owns this.
+3. **Correlation/configuration replay:** duplicate callbacks, config drift under one candidate key, client restart before/after freeze, and response loss must not create a second request; frozen candidate authority must also reject drift before first submit and before resume. Tasks 3, 4, 7, 8 and 9 own this.
+4. **Approval authority/replay:** exact final ChangeSet/scope, shared owner stores, default deny, stable admission identity/time, canonical fingerprint helper, and already-consumed Gateway recovery must stay distinct from operation-proposal HITL. Tasks 5 and 6 own this.
 5. **Host/session lifetime:** endpoint reuse, Host restart, active-document switch and unsaved documents block new Host-bound work, while exact task query remains available; submit and later HITL resume must reuse the exact-session composition within the declared v1 server lifetime. Tasks 3, 6, 7, 9 and 10 own this.
 
 ## Ruff Gate Policy
@@ -246,12 +248,13 @@ class ConfiguredRevitCandidateSource(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SessionBinding:
-    """一次 create-once 的 Revit runtime/document 绑定。"""
+    """一次 create-once 的 Revit runtime/document/candidate authority 绑定。"""
 
     session_ref: str
     project_id: str
     host_kind: str
     candidate_key: str
+    candidate_hash: str
     transport_locator: str
     host_instance_id: str
     document_id: str
@@ -263,11 +266,11 @@ class RevitCurrentContextProbe:
     def discover(self, *, command_id: str, document_id: str) -> RevitContextObservation: ...
 ```
 
-`candidate_hash` uses `design_changeset.canonical_hash()` over normalized candidate authority/configuration fields. `SessionBinding.binding_hash` uses the same canonical helper over authority fields (`session_ref`, project, host kind, candidate key, locator, runtime id, document id); `document_title` is presentation metadata and does not establish identity.
+`candidate_hash` uses `design_changeset.canonical_hash()` over normalized candidate authority/configuration fields, including the configured semantic/native target identity. `SessionBinding.binding_hash` uses the same canonical helper over authority fields (`session_ref`, project, host kind, candidate key, **candidate hash**, locator, runtime id, document id); `document_title` is presentation metadata and does not establish identity. The binding therefore freezes the exact candidate configuration selected at freeze time without expanding `ProductTaskRequest`.
 
 - [ ] **Step 1: RED discovery adapter.** It sends the existing `context.current_selection` READ, requires the configured document id, accepts fresh returned `host_instance_id`, and rejects Host error/document mismatch/malformed identity.
 - [ ] **Step 2: Refactor response parsing.** Strict `RevitContextReadPort` and discovery share parser validation; strict expected-host checking remains unchanged for the existing port.
-- [ ] **Step 3: RED candidate config and binding.** Reject unknown version, duplicate key, blank fields, changed candidate body under supplied hash, title-only/relative document ids, malformed binding hash, and hash/body mismatch.
+- [ ] **Step 3: RED candidate config and binding.** Reject unknown version, duplicate key, blank fields, changed candidate body under supplied hash, title-only/relative document ids, malformed binding hash, binding/body mismatch, and any binding whose `candidate_hash` is not part of the canonical `binding_hash` body.
 - [ ] **Step 4: Implement config/binding canonical hashing with `design_changeset.canonical_hash()`.** Do not infer `project_id` from Revit path and do not treat pipe/PID as identity.
 - [ ] **Step 5: GREEN.**
 
@@ -333,6 +336,13 @@ class NormalizedFreezeProposal:
     candidate_hash: str
 
 
+class SubmissionState(str, Enum):
+    """客户端 correlation 的持久化生命周期；未冻结记录不伪造业务字段。"""
+
+    UNFROZEN = "UNFROZEN"
+    FROZEN = "FROZEN"
+
+
 @dataclass(frozen=True, slots=True)
 class FrozenSubmission:
     client_submission_ref: str
@@ -343,13 +353,24 @@ class FrozenSubmission:
     delivery_state: str
 
 
+@dataclass(frozen=True, slots=True)
+class SubmissionRecord:
+    """可表达模型调用前已经落盘但尚未 freeze 的 correlation 记录。"""
+
+    client_submission_ref: str
+    utterance: str
+    state: SubmissionState
+    frozen: FrozenSubmission | None
+
+
 class SessionBindingReadPort(Protocol):
     def resolve_session(self, session_ref: str) -> SessionBinding | None: ...
 
 
 class SqliteFrontDoorStateStore:
-    def create_submission(self, client_submission_ref: str, utterance: str) -> None: ...
-    def get_submission(self, client_submission_ref: str) -> FrozenSubmission | None: ...
+    def create_submission(self, client_submission_ref: str, utterance: str) -> SubmissionRecord: ...
+    def get_submission(self, client_submission_ref: str) -> SubmissionRecord | None: ...
+    def get_frozen_submission(self, client_submission_ref: str) -> FrozenSubmission | None: ...
     def freeze_submission(
         self,
         *,
@@ -368,16 +389,16 @@ class SqliteSessionBindingReader:
     def close(self) -> None: ...
 ```
 
-The physical SQLite database has two logical responsibilities: `client_submission` is controller-owned delivery/recovery state; `session_binding` is create-once application binding authority. The server gets only `SqliteSessionBindingReader`/`SessionBindingReadPort`.
+The physical SQLite database has two logical responsibilities: `client_submission` is controller-owned delivery/recovery state; `session_binding` is create-once application binding authority. `SubmissionRecord` is the controller read model for both UNFROZEN and FROZEN correlations; it never invents request/session/proposal fields before freeze. The server gets only `SqliteSessionBindingReader`/`SessionBindingReadPort`.
 
-- [ ] **Step 1: RED correlation creation.** `create_submission(ref, utterance)` durably records the exact original utterance before model call and allocates no task/session identity. Same ref + different utterance is `FRONT_DOOR_CORRELATION_CONFLICT`.
-- [ ] **Step 2: RED client restart before freeze.** Close/reopen SQLite, reload the same utterance by exact correlation, and permit re-interpretation because no ProductTask request exists yet.
+- [ ] **Step 1: RED correlation creation.** `create_submission(ref, utterance)` durably records the exact original utterance before model call, returns `SubmissionRecord(state=UNFROZEN, frozen=None)`, and allocates no task/session identity. Same ref + different utterance is `FRONT_DOOR_CORRELATION_CONFLICT`.
+- [ ] **Step 2: RED client restart before freeze.** Close/reopen SQLite, `get_submission(ref)` returns the original immutable utterance with `UNFROZEN`; permit re-interpretation because no ProductTask request exists yet. No fake request/session/proposal fields are materialized.
 - [ ] **Step 3: RED clarification.** `CLARIFICATION_REQUIRED` returns a user-visible question but creates no SessionBinding, task id, request or MCP delivery. A clarified user submission is a new explicit correlation in v1; do not mutate the old correlation into a different utterance.
-- [ ] **Step 4: RED same-correlation replay after freeze.** Controller checks durable frozen state before invoking model/probe/ID factories; replay returns the exact winner and never reinterprets natural language.
+- [ ] **Step 4: RED same-correlation replay after freeze.** Controller checks `SubmissionRecord.frozen` before invoking model/probe/ID factories; replay returns the exact winner and never reinterprets natural language.
 - [ ] **Step 5: RED concurrent same and conflicting proposals using two SQLite connections.** Same normalized proposal produces one winner; different proposal or changed `candidate_hash` produces one winner + one conflict; no losing binding/request persists.
 - [ ] **Step 6: RED crash/reopen after freeze.** New process returns byte-equivalent request/binding and `DELIVERY_PENDING`; read-only session reader resolves the same binding.
-- [ ] **Step 7: Implement SQLite transaction.** Use `BEGIN IMMEDIATE`, foreign keys and uniqueness. One successful transaction inserts the winning SessionBinding and exact ProductTask request copy/hash under the correlation and transitions to `DELIVERY_PENDING` atomically.
-- [ ] **Step 8: Implement `SubmissionController`.** Resolve configured candidate, fresh-probe the configured document, require exactly the configured selected Wall target, create opaque `session_ref` and stable `task_id`, build the complete ProductTask request, then compete to freeze once.
+- [ ] **Step 7: Implement SQLite transaction.** Use `BEGIN IMMEDIATE`, foreign keys and uniqueness. One successful transaction inserts the winning SessionBinding and exact ProductTask request copy/hash under the correlation and transitions to `FROZEN` + `DELIVERY_PENDING` atomically.
+- [ ] **Step 8: Implement `SubmissionController`.** Resolve configured candidate, fresh-probe the configured document, require exactly the configured selected Wall target, create opaque `session_ref` and stable `task_id`, copy the exact candidate hash into `SessionBinding`, build the complete ProductTask request, then compete to freeze once.
 - [ ] **Step 9: Implement `SubprocessAgentInterpreter`.** stdin contains only correlation + utterance; stdout must be exactly either `{kind:"PROPOSAL", candidate_key, thickness:{value,unit}}` or `{kind:"CLARIFICATION_REQUIRED", question}`. Reject project/host/task/session/pause/resume/approval fields and unknown keys.
 - [ ] **Step 10: GREEN + absolute Ruff + commit.**
 
@@ -427,6 +448,17 @@ git commit -m "feat: freeze durable front door submissions"
 class ConfiguredPolicyApprovalAdmissionPort:
     """对最终 ChangeSet/Scope 执行真实本机配置策略授权。"""
 
+    def __init__(
+        self,
+        *,
+        changeset_store: object,
+        approval_scope_store: object,
+        admission_store: PostgresConfiguredPolicyAdmissionStore,
+        policy_source: object,
+        clock: object,
+        id_factory: object,
+    ) -> None: ...
+
     def request_approval(self, changeset_ref: StableRef) -> ApprovalAdmission: ...
 
 
@@ -442,6 +474,17 @@ class PostgresConfiguredPolicyAdmissionStore:
     def close(self) -> None: ...
 
 
+class ApprovalAdmissionFactory(Protocol):
+    """基于 reference composition 已创建的 authoritative owner stores 构造 admission port。"""
+
+    def build(
+        self,
+        *,
+        changeset_store: object,
+        approval_scope_store: object,
+    ) -> ApprovalAdmissionPort: ...
+
+
 class GatewayAuthorizationServiceV2:
     def consume_or_get_approval(
         self,
@@ -449,7 +492,7 @@ class GatewayAuthorizationServiceV2:
     ) -> ApprovalRecord: ...
 ```
 
-`product_policy.admission` stores the exact immutable issued admission body/fingerprint and uses exact final `(changeset_hash, approved_scope_hash)` as create-once issuance lineage. It is issuance evidence, not approval lifecycle truth.
+`product_policy.admission` stores the exact immutable issued admission body/fingerprint and uses exact final `(changeset_hash, approved_scope_hash)` as create-once issuance lineage. It is issuance evidence, not approval lifecycle truth. `ConfiguredPolicyApprovalAdmissionPort` MUST receive the same ChangeSet/ApprovalScope owner-store instances used by the workflow composition; it may not create parallel stores or reach into composition private fields.
 
 **Normative issuance ordering:** exact ChangeSet/scope load + ref/hash validation → existing admission lookup → if present validate/replay exact body → otherwise normalize policy → authorize project/environment/complete canonical operation set → injected clock/id factory → construct Admission → existing `compute_admission_fingerprint()` → PostgreSQL `issue_or_get()` → return durable winner.
 
@@ -457,7 +500,7 @@ class GatewayAuthorizationServiceV2:
 
 - [ ] **Step 1: RED policy normalization/default deny.** Include exact `set_wall_thickness.v1`; prove a policy containing only `set_wall_thickness` is rejected for this ChangeSet.
 - [ ] **Step 2: RED first issuance + fresh admission-store rebuild.** First call persists exact admission; reopened PostgreSQL store returns identical id/principal/policy hash/approved time/expiry/fingerprint despite later clock or unavailable/changed policy file.
-- [ ] **Step 3: Implement authoritative ChangeSet/scope reads and policy evaluation.** Validate supplied StableRef hash and final boundary before existing-issuance replay or new evaluation.
+- [ ] **Step 3: Implement authoritative ChangeSet/scope reads and policy evaluation.** Constructor dependencies are explicit shared owner stores. Validate supplied StableRef hash and final boundary before existing-issuance replay or new evaluation.
 - [ ] **Step 4: Use only repository hash helpers.** `design_changeset.canonical_hash()` for policy snapshot; `compute_admission_fingerprint()` for admission. Validate fingerprints again on durable read.
 - [ ] **Step 5: RED concurrent issuance.** Two PostgreSQL instances race same ChangeSet/scope; one exact admission wins. If both first-issuance attempts observed different policy authority bodies, loser fails conflict rather than rewriting the winner.
 - [ ] **Step 6: RED Gateway same-owner retry.** First `consume_or_get_approval()` consumes; retry with same admission id/fingerprint returns exact stored ApprovalRecord even after admission expiry time; same id/different fingerprint remains conflict. Do not change strict `consume_admission_once()` behavior.
@@ -519,19 +562,22 @@ def build_revit_wall_thickness_reference_composition(
     *,
     config: RevitWallThicknessCompositionConfig,
     transport: object,
-    approval_admission: ApprovalAdmissionPort,
+    approval_admission_factory: ApprovalAdmissionFactory,
 ) -> RevitWallThicknessRuntimeComposition: ...
 ```
 
 This task does **not** make the in-memory `SnapshotRegistry` durable. One runtime composition must therefore remain alive across the reference submit → operation-proposal human-resume sequence. Query does not depend on it.
 
+The factory itself creates the authoritative ChangeSet and ApprovalScope stores exactly once. It passes those exact instances both into the workflow owner graph and into `approval_admission_factory.build(...)`, then wires the returned `ApprovalAdmissionPort` into `CanonicalWorkflowOwnerPorts`. The caller never constructs a policy port against a second store graph, and no implementation reaches through private composition fields to recover stores after construction.
+
 - [ ] **Step 1: Census production-shaped helpers imported from tests.** Cover topology, capability profile, materialization routing, provider snapshot factory, clocks and any additional helper at Task start. Every helper needed by mandatory reference path moves to product application composition or an existing production API.
-- [ ] **Step 2: RED/build factory using only production owners.** Existing Impact/Scope/ChangeSet/Planning/Binding/Gateway/Saga/Reconciliation rules stay in their owners; composition only wires environment identity/topology/provider/runtime dependencies.
-- [ ] **Step 3: Require injected `ApprovalAdmissionPort`.** Mandatory reference tests pass `ConfiguredPolicyApprovalAdmissionPort`; `_ApprovalAdmissionBoundary` remains test-only and is forbidden in reference/live composition.
-- [ ] **Step 4: RED exact session/runtime/document/target failures.** Wrong session ref, runtime, active document, or configured selected native target fails before Host mutation. Request↔binding project equality is enforced by Front Door Task 7, not duplicated here.
-- [ ] **Step 5: Refactor offline/live product tests to consume the factory.** Remove production-shaped imports from `tests.orchestrator` on the mandatory path.
-- [ ] **Step 6: Prove two sequential calls on the **same composition instance** can submit to operation-proposal pause and then human-resume successfully using the same in-memory snapshot owner. Do not claim an arbitrary server-process rebuild at this phase.
-- [ ] **Step 7: GREEN.**
+- [ ] **Step 2: RED/build factory using only production owners.** Existing Impact/Scope/ChangeSet/Planning/Binding/Gateway/Saga/Reconciliation rules stay in their owners; composition only wires environment identity/topology/provider/runtime dependencies. The RED records the ChangeSet/Scope store object identities seen by workflow and `ApprovalAdmissionFactory` and requires exact identity equality.
+- [ ] **Step 3: Require injected `ApprovalAdmissionFactory`, not a prebuilt admission port.** Mandatory reference tests build `ConfiguredPolicyApprovalAdmissionPort` from the stores supplied by the factory; `_ApprovalAdmissionBoundary` remains test-only and is forbidden in reference/live composition.
+- [ ] **Step 4: RED authoritative lineage.** With real configured-policy admission, the policy port resolves the exact final ChangeSet/ApprovalScope produced by this workflow and authorizes it. A port wired to a different store instance or a mismatched lineage must fail closed rather than returning approval.
+- [ ] **Step 5: RED exact session/runtime/document/target failures.** Wrong session ref, runtime, active document, or configured selected native target fails before Host mutation. Request↔binding project equality is enforced by Front Door Task 7, not duplicated here.
+- [ ] **Step 6: Refactor offline/live product tests to consume the factory.** Remove production-shaped imports from `tests.orchestrator` on the mandatory path.
+- [ ] **Step 7: Prove two sequential calls on the **same composition instance** can submit to operation-proposal pause and then human-resume successfully using the same in-memory snapshot owner. Do not claim an arbitrary server-process rebuild at this phase.
+- [ ] **Step 8: GREEN.**
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
@@ -540,7 +586,7 @@ DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest \
   tests/product_runtime/test_revit_wall_thickness_product_authorization_failures.py -q -vv
 ```
 
-- [ ] **Step 8: Ruff delta + commit.** `git commit -m "refactor: extract Revit product reference composition"`.
+- [ ] **Step 9: Ruff delta + commit.** `git commit -m "refactor: extract Revit product reference composition"`.
 
 ---
 
@@ -598,9 +644,9 @@ The service receives `SessionBindingReadPort`, `ConfiguredRevitCandidateSource`,
 
 - [ ] **Step 1: RED exact MCP wire decoding.** Submit accepts only complete frozen ProductTask; get accepts exact task id; resume accepts exact task id + pause id + one allowed operation-proposal resume kind and no arbitrary payload.
 - [ ] **Step 2: RED host-independent `get()`.** With broken/unavailable Revit/session resolver, exact get still returns request-only/workflow/terminal/recovery facts and never opens Host transport.
-- [ ] **Step 3: RED submit binding validation.** Resolve immutable binding + candidate; require request project/host kind to match binding, candidate hash/key to match authority, fresh-probe bound document/runtime and configured selected target, then obtain exact-session composition. Unknown/rebound/restarted Host fails closed.
+- [ ] **Step 3: RED submit binding validation.** Resolve immutable binding + current candidate; require request project/host kind to match binding, require exact candidate key and `current_candidate.candidate_hash == binding.candidate_hash`, validate binding hash, then fresh-probe bound document/runtime and configured selected target before obtaining the exact-session composition. If the same candidate key was edited after freeze—even under the same Host/document—the submit fails before workflow progress.
 - [ ] **Step 4: RED composition-pool invariants.** Same `session_ref + binding_hash` returns the same live composition; same ref with different body fails; no `latest`/reverse fallback; query never touches pool.
-- [ ] **Step 5: RED human resume.** Read current request/checkpoint first; require exact pending `OPERATION_PROPOSAL`, exact `pause_id`, and allowed resume kind. Fresh-validate the same binding/Host/selection, reuse the exact-session composition, construct existing `WorkflowResumeCommand`, and delegate. Stale/replayed pause fails before runtime resume.
+- [ ] **Step 5: RED human resume.** Read current request/checkpoint first; require exact pending `OPERATION_PROPOSAL`, exact `pause_id`, and allowed resume kind. Re-read candidate by binding key, require its canonical hash to equal frozen `binding.candidate_hash`, fresh-validate the same binding/Host/selection, reuse the exact-session composition, construct existing `WorkflowResumeCommand`, and delegate. Candidate drift after pause fails before runtime resume.
 - [ ] **Step 6: Implement thin service only.** It allocates no correlation/task/session ids, interprets no language, creates no admission, lists no tasks, and synthesizes no product success.
 - [ ] **Step 7: Implement loopback-only Streamable HTTP transport.** Mirror Semantic MCP safety; accept only `127.0.0.1`, `localhost`, `::1`; default port `8010`; use the repository MCP 2.x contract.
 - [ ] **Step 8: Tool-catalog test proves there is no generic approval/admission tool.** Human-resume is controller-only in reference client architecture; the model interpreter receives no MCP endpoint/catalog.
@@ -660,14 +706,14 @@ class ReferenceClient:
     ) -> ProductTaskQueryView | AgentClarificationRequired: ...
 ```
 
-**Reference ordering:** exact correlation/utterance create-or-load → if frozen skip model and reload exact request → otherwise model proposal/clarification → candidate/probe/atomic freeze → MCP submit → persist delivery result → render owner pending interaction → explicit `HumanDecisionPort` decision → controller-only MCP resume → exact same task get/presentation.
+**Reference ordering:** exact correlation/utterance create-or-load as `SubmissionRecord` → if frozen skip model and reload exact request → otherwise read persisted utterance and model proposal/clarification → candidate/probe/atomic freeze → MCP submit → persist delivery result → render owner pending interaction → explicit `HumanDecisionPort` decision → controller-only MCP resume → exact same task get/presentation.
 
 - [ ] **Step 1: RED real loopback MCP URL client.** Launch Product Front Door HTTP server on an ephemeral loopback port and negotiate/list/call through the installed MCP SDK. Direct Python service calls or in-process MCP object do not satisfy this test.
 - [ ] **Step 2: RED response-loss + client-process restart after freeze.** Server accepts submit but client loses response; reopened SQLite/reference client uses the same explicit `client_submission_ref`, loads exact frozen request, does not call model, and resends same `task_id/session_ref/request_hash`.
-- [ ] **Step 3: RED restart before freeze.** Existing correlation reloads its stored original utterance and may call model again because no ProductTask exists. Same ref with a new utterance is conflict.
+- [ ] **Step 3: RED restart before freeze.** Existing correlation reloads its `SubmissionRecord(state=UNFROZEN)` and stored original utterance, then may call model again because no ProductTask exists. Same ref with a new utterance is conflict. The recovery path is proven after closing and reopening SQLite and does not require caller to supply utterance again.
 - [ ] **Step 4: RED clarification.** Model clarification is shown to user and causes no MCP submit. v1 requires a new explicit `client_submission_ref` for a clarified utterance.
 - [ ] **Step 5: RED human/model separation.** Model adapter is never passed MCP endpoint/tool metadata. Only `HumanDecisionPort` receives owner-derived pending interaction; only deterministic client code calls the resume MCP method.
-- [ ] **Step 6: Implement CLI/reference entrypoints.** CLI accepts/generates a `client_submission_ref`, prints and flushes it before model/network work, and supports `--submission-ref <ref>` recovery. If an utterance is omitted during recovery, it loads the persisted utterance. Do not embed model vendor credentials.
+- [ ] **Step 6: Implement CLI/reference entrypoints.** CLI accepts/generates a `client_submission_ref`, prints and flushes it before model/network work, and supports `--submission-ref <ref>` recovery. If an utterance is omitted during recovery, it reads the persisted `SubmissionRecord.utterance`; no synthetic frozen fields are required before freeze. Do not embed model vendor credentials.
 - [ ] **Step 7: Implement presentation.** Keep `SUCCEEDED`, `RECOVERY_REQUIRED`, failed, cancelled, partial/diverged and `ACCEPTED_PRE_WORKFLOW` distinct; never infer success from transport completion.
 - [ ] **Step 8: GREEN + absolute Ruff + commit.**
 
@@ -689,21 +735,24 @@ git commit -m "feat: add MCP product reference client"
 
 **Mandatory scenarios:**
 
-1. Correlation committed, client rebuilt before freeze → same stored utterance/correlation; one eventual request.
+1. Correlation committed, client rebuilt before freeze → same stored utterance/correlation via `SubmissionRecord`; one eventual request.
 2. Freeze committed, client rebuilt → exact request/binding/outbox recovered; no model call.
 3. Two SQLite controller instances race same correlation/same proposal → one winner.
 4. Same correlation but changed candidate config/target hash or conflicting proposal → one winner + one conflict.
-5. MCP submit accepted but response lost → exact frozen replay; same server ProductTask identity.
-6. Two independent ProductFlow/start-gate instances race same task against real PostgreSQL → one effective workflow lineage.
-7. First start-gate holder dies before start → second holder continues exact persisted request.
-8. First `start()` persists checkpoint then caller loses response → second submit sees checkpoint and does not call `start()` again.
-9. Request committed, server composition rebuilt before workflow start → `get()` reports `ACCEPTED_PRE_WORKFLOW`; exact submit replay starts/reuses workflow; get itself does nothing.
-10. Query request/checkpoint split-read race does not falsely report corruption.
-11. Operation proposal accepted but configured policy denies → no Host mutation.
-12. Positive offline path uses real loopback Streamable HTTP client/server, deterministic fake Agent interpreter, explicit fake HumanDecisionPort, real configured-policy code, and only an external Revit transport fake; all platform owners/Gateway/Saga/Reconciliation are production code.
-13. Host unavailable after task creation → exact get still returns durable facts without session/Host access.
-14. Submit and human resume are separate MCP calls and reuse the same exact-session composition handle/snapshot owner in the server process.
-15. Deliberate Product Front Door server restart **after** ContextSnapshot/pause does not receive a fake success guarantee; if existing in-memory snapshot authority cannot reconstruct the task, the test records/returns the existing fail-closed behavior rather than adding process-local fallback or claiming unsupported recovery.
+5. Freeze committed, then the same candidate key is changed before the first MCP submit → server compares current canonical candidate hash to frozen `SessionBinding.candidate_hash` and fails before workflow progress.
+6. MCP submit accepted but response lost → exact frozen replay; same server ProductTask identity.
+7. Two independent ProductFlow/start-gate instances race same task against real PostgreSQL → one effective workflow lineage.
+8. First start-gate holder dies before start → second holder continues exact persisted request.
+9. First `start()` persists checkpoint then caller loses response → second submit sees checkpoint and does not call `start()` again.
+10. Request committed, server composition rebuilt before workflow start → `get()` reports `ACCEPTED_PRE_WORKFLOW`; exact submit replay starts/reuses workflow; get itself does nothing.
+11. Query request/checkpoint split-read race does not falsely report corruption.
+12. Operation proposal accepted but configured policy denies → no Host mutation.
+13. Positive offline path uses real loopback Streamable HTTP client/server, deterministic fake Agent interpreter, explicit fake HumanDecisionPort, real configured-policy code wired to the exact workflow ChangeSet/Scope stores, and only an external Revit transport fake; all platform owners/Gateway/Saga/Reconciliation are production code.
+14. A deliberately wrong/parallel ChangeSet or ApprovalScope store graph causes configured-policy lineage resolution to fail closed; no authorization is fabricated.
+15. Host unavailable after task creation → exact get still returns durable facts without session/Host access.
+16. Submit and human resume are separate MCP calls and reuse the same exact-session composition handle/snapshot owner in the server process.
+17. Candidate configuration/target under the same key changes after operation-proposal pause but before resume → frozen binding hash/candidate hash validation fails before workflow resume.
+18. Deliberate Product Front Door server restart **after** ContextSnapshot/pause does not receive a fake success guarantee; if existing in-memory snapshot authority cannot reconstruct the task, the test records/returns the existing fail-closed behavior rather than adding process-local fallback or claiming unsupported recovery.
 
 - [ ] **Step 1: Write RED cases with fresh PostgreSQL schemas and fresh SQLite files.** No shared singleton may provide persistence correctness.
 - [ ] **Step 2: Use independent connections/process-shaped objects for concurrency and rebuild scenarios.** At least one case closes all old durable connections before replacement.
@@ -748,7 +797,7 @@ DSP_REVIT_FIXTURE
 DSP_TEST_POSTGRES_DSN
 ```
 
-**One exact lineage must be recorded:** natural-language utterance → `client_submission_ref` → model label/invocation evidence → proposal hash + candidate hash/key → `session_ref`/binding hash/real host+document → ProductTask task id/request hash → real MCP submit → operation-proposal pause id/subject → explicit human decision → final ChangeSet/scope → configured policy id/principal/policy hash → ApprovalAdmission id/fingerprint/times → Gateway ApprovalRecord id/hash → real Revit effect → independent read/verification/reconciliation → final same-task MCP get result.
+**One exact lineage must be recorded:** natural-language utterance → `client_submission_ref` → model label/invocation evidence → proposal hash + frozen candidate hash/key → `session_ref`/binding hash/real host+document → ProductTask task id/request hash → real MCP submit → operation-proposal pause id/subject → explicit human decision → final ChangeSet/scope from the same owner stores read by configured policy → configured policy id/principal/policy hash → ApprovalAdmission id/fingerprint/times → Gateway ApprovalRecord id/hash → real Revit effect → independent read/verification/reconciliation → final same-task MCP get result.
 
 - [ ] **Step 1: Add support-only live test.** It may validate environment, real Revit context and loopback MCP readiness; it MUST NOT auto-accept human HITL and MUST NOT be reported as the mandatory product acceptance.
 - [ ] **Step 2: Write interactive runbook.** Start real Revit fixture, Product Front Door server and reference client; enter natural language; inspect constrained model proposal; explicitly accept/reject owner-derived operation proposal; observe configured policy admission; independently read back Revit.
@@ -769,12 +818,14 @@ DSP_TEST_POSTGRES_DSN
 | split-read query race | 1, 9 |
 | concurrent first start + crash windows | 2, 9 |
 | candidate/runtime discovery | 3, 4 |
-| immutable SessionBinding | 3, 4 |
+| immutable SessionBinding + frozen candidate authority | 3, 4, 7, 9 |
 | correlation utterance/restart identity | 4, 8, 9 |
-| duplicate/conflicting freeze + config drift | 4, 9 |
+| unfrozen correlation readable without synthetic request/session fields | 4, 8, 9 |
+| duplicate/conflicting freeze + config drift | 4, 7, 9 |
 | clarification before ProductTask | 4, 8 |
 | configured policy default deny | 5 |
 | exact `set_wall_thickness.v1` authorization | 5 |
+| configured policy/workflow shared ChangeSet+Scope stores | 5, 6, 9 |
 | durable admission identity/time replay | 5, 9 |
 | same-owner Gateway consumed-admission retry | 5 |
 | production reference composition | 6 |
@@ -796,10 +847,10 @@ DSP_TEST_POSTGRES_DSN
 
 - Reliable submission/correlation, including restart before/after freeze: Tasks 4, 8, 9.
 - Clarification before acceptance: Tasks 4 and 8.
-- Session resolution and exact binding: Tasks 3, 4, 7.
+- Session resolution and exact frozen candidate binding: Tasks 3, 4, 7.
 - Product Front Door submit/get/resume: Tasks 1 and 7.
 - Human/model authority separation: Tasks 7, 8, 10.
-- Separate final execution admission: Tasks 5 and 10.
+- Separate final execution admission with exact shared ChangeSet/Scope owners: Tasks 5, 6 and 10.
 - Persisted request/no checkpoint query and race stabilization: Tasks 1 and 9.
 - Concurrent first submit + crash/replay gate: Tasks 2 and 9.
 - Real MCP + real model + real Revit acceptance: Tasks 8–10.
@@ -811,10 +862,12 @@ No approved Spec requirement is intentionally deferred. The plan also avoids cla
 ## Type/interface consistency
 
 - `ProductTaskQueryService` is the sole new read composition; MCP `get()` consumes `ProductTaskQueryView` and never requires Host/session state.
-- `SessionBinding` is create-once application identity evidence; server receives read-only `SessionBindingReadPort` only.
+- `SessionBinding` is create-once application identity evidence and carries frozen `candidate_hash`; server receives read-only `SessionBindingReadPort` only and compares current candidate authority to the frozen hash before Host-bound work.
 - `ConfiguredRevitCandidateSource` owns deterministic project/target constraints; model output selects only a candidate key and supported thickness intent.
-- `NormalizedFreezeProposal` commits candidate configuration through `candidate_hash`, preventing config drift from appearing equivalent.
+- `SubmissionRecord` represents both UNFROZEN and FROZEN correlation states; freeze-only fields exist only under `frozen` and are never synthesized before freeze.
+- `NormalizedFreezeProposal` commits candidate configuration through `candidate_hash`, preventing config drift from appearing equivalent at freeze competition; `SessionBinding.candidate_hash` extends that authority to later server submit/resume.
 - `ConfiguredPolicyApprovalAdmissionPort` implements existing `ApprovalAdmissionPort`; PostgreSQL admission storage preserves issuance evidence only; Gateway remains approval lifecycle authority.
+- `ApprovalAdmissionFactory` receives the exact ChangeSet/ApprovalScope stores created by reference composition, preventing parallel store graphs or private-field coupling.
 - Gateway strict first consumption remains intact; `consume_or_get_approval()` only recovers same-owner exact replay and does not claim new cross-process Gateway durability.
 - Exact-session composition pool is a process-local handle to the existing in-memory snapshot owner, not business truth; `get()` does not depend on it.
 - Agent output is either proposal or clarification. Human resume is a separate deterministic callback and is never model output.
@@ -825,4 +878,4 @@ The plan does not add remote authentication, user accounts, task search, general
 
 # Execution Handoff Gate
 
-Implementation MUST NOT start merely because this file exists. Review this plan against design baseline `41247215ca4dc70d62e17577a68bfadc5fa1ec5c`. Pay special attention to Tasks 1, 2, 4, 5, 7 and 10: read consistency, first-start serialization, correlation recovery, approval replay, composition lifetime, and final live authority separation are the highest-risk seams.
+Implementation MUST NOT start merely because this file exists. Review this plan against design baseline `41247215ca4dc70d62e17577a68bfadc5fa1ec5c`. Pay special attention to Tasks 1, 2, 4, 5, 6, 7 and 10: read consistency, first-start serialization, pre-freeze correlation recovery, frozen candidate authority, shared owner-store construction, approval replay, composition lifetime, and final live authority separation are the highest-risk seams.
