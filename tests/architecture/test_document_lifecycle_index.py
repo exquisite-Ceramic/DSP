@@ -48,7 +48,7 @@ def test_authority_rows_name_current_and_superseded_specs() -> None:
 
 
 def test_lifecycle_summary_names_current_repository_state() -> None:
-    """根 README 与生命周期索引必须共同反映 Revit vertical 已收口及 successor 已进入设计。"""
+    """根 README 与生命周期索引必须反映 Front Door 已进入 Implementation Plan review。"""
 
     text = _index_text()
     root_text = ROOT_README.read_text(encoding="utf-8")
@@ -59,19 +59,32 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
     assert "Capability Phase — HITL pause/resume COMPLETED" in text
     assert "Capability Phase — real E2E workflow COMPLETED" in text
     assert "Capability Phase — Revit wall-thickness product vertical COMPLETED" in text
-    assert "Capability Phase successor — MCP / Agent front door DESIGN ACTIVE" in text
+    assert "Capability Phase successor — MCP / Agent front door IMPLEMENTATION PLAN REVIEW" in text
     assert (
         "**Latest completed capability phase:** Revit wall-thickness product vertical"
         in root_text
     )
     assert (
-        "**Current engineering activity:** MCP / Agent front door — architecture design"
+        "**Current engineering activity:** MCP / Agent front door — implementation plan review"
         in root_text
     )
     assert (
         "**Latest product acceptance:** selected Revit Wall thickness → 300 mm"
         in root_text
     )
+
+
+def test_front_door_design_is_reviewed_and_plan_is_current_without_implementation_claim() -> None:
+    """Front Door 设计已通过书面评审，但 Plan 仍处于 CURRENT review，不能提前标 COMPLETED。"""
+
+    lines = _index_text().splitlines()
+    design = "2026-09-28-mcp-agent-front-door-design.md"
+    plan = "2026-09-28-mcp-agent-front-door.md"
+
+    assert any(design in line and "CURRENT" in line for line in lines)
+    assert any(plan in line and "CURRENT" in line for line in lines)
+    assert not any(design in line and "COMPLETED" in line for line in lines)
+    assert not any(plan in line and "COMPLETED" in line for line in lines)
 
 
 def test_hitl_design_and_plan_are_closed_only_after_implementation_merge() -> None:
