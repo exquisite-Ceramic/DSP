@@ -6,7 +6,7 @@ Baseline: `architecture/mcp-agent-front-door` @ `b79e0f051bd3952cb533e288d191a1f
 
 ## 1. Scope and context
 
-This design extends the existing Revit wall-thickness product vertical upstream to one complete, narrow MCP/Agent front-door capability. It does not replace the existing `ProductTaskRequest`, `WallThicknessProductFlow`, workflow runtime, canonical owner composition, Execution Saga, reconciliation, or Host verification ownership.
+This design extends the existing Revit wall-thickness product vertical upstream to one complete, narrow MCP/Agent front-door capability. It does not replace the existing `ProductTaskRequest`, `WallThicknessProductFlow`, workflow runtime, canonical owner composition, Execution Saga, reconciliation, Gateway authorization, or Host verification ownership.
 
 The existing product vertical already establishes these downstream facts:
 
@@ -16,13 +16,17 @@ The existing product vertical already establishes these downstream facts:
 - same `task_id` + same request is replay-safe at the request owner, while same `task_id` + different request fails closed;
 - Revit semantic/context capture validates exact document/runtime evidence before using it;
 - workflow / Saga owners remain authoritative for mutation and recovery outcome;
-- workflow checkpoints already expose stable pending-human-interaction identity through `pending_interaction.pause_id`, `subject_ref`, and `allowed_resume_kinds`.
+- workflow checkpoints already expose stable pending-human-interaction identity through `pending_interaction.pause_id`, `subject_ref`, and `allowed_resume_kinds`;
+- the existing pending-human interaction is `OPERATION_PROPOSAL`; accepting it allows workflow interpretation to continue but does not itself create execution authorization;
+- execution authorization is a separate boundary: `CanonicalWorkflowOwnerPorts.request_approval()` obtains an `ApprovalAdmission` from `ApprovalAdmissionPort`, then Gateway V2 consumes that admission to produce authoritative approval truth;
+- current real-owner/product acceptance compositions use a test `_ApprovalAdmissionBoundary` that constructs fixed admission evidence, so those tests prove the downstream Gateway/execution path but do not prove a real product approval-admission source.
 
-This phase closes three connected gaps:
+This phase closes four connected gaps:
 
 1. **reliable submission** — where one logical client submission first receives a stable identity before an Agent/tool call can be replayed, and how that correlation freezes exactly one complete ProductTask request;
 2. **session resolution** — how a `session_ref` resolves, after client or composition rebuild, to the same exact Revit project/Host/document binding or fails closed;
-3. **usable Product Front Door** — how one minimal reference client takes real natural-language input through Agent interpretation, invokes the Product Front Door over real MCP, surfaces HITL without letting the model manufacture human approval, queries/resumes the task, and returns the verified Revit outcome to the user.
+3. **usable Product Front Door** — how one minimal reference client takes real natural-language input through Agent interpretation, invokes the Product Front Door over real MCP, surfaces operation-proposal HITL without letting the model manufacture human approval, queries/resumes the task, and returns the verified Revit outcome to the user;
+4. **real execution admission** — how the final ChangeSet/ApprovalScope obtains real v1 approval-admission evidence before Gateway authorization, without treating operation-proposal acceptance or a test fixture as execution approval.
 
 The capability remains intentionally narrow: the first supported product action is the already-implemented Revit selected-wall thickness vertical. This design does not create a generalized Agent platform or generalized product-intent layer.
 
@@ -40,13 +44,16 @@ The v1 design MUST:
 6. make `session_ref` resolve to one immutable binding, never whichever Host/document happens to be active after rebuild;
 7. use fresh Host evidence to validate runtime/document identity; transport endpoint alone is never identity;
 8. preserve the current strict Revit context adapter and current workflow/Saga recovery rules;
-9. expose a minimal Product Front Door behavior that maps to existing `submit`, `get`, and human `resume` ownership instead of creating a second product runtime;
-10. expose a pending HITL interaction as stable owner-derived data and require an explicit human decision event before human resume;
-11. keep exact task query available even when the bound Revit Host is unavailable, because querying authoritative task/Saga state is not Host execution;
-12. define an honest local v1 trust boundary without claiming multi-user or remote authorization that does not exist;
-13. provide one repository-owned minimal reference client suitable for repeatable acceptance rather than making a third-party Agent UI the capability owner;
-14. require the final product acceptance to cross a real MCP transport and a real Revit Host from real natural-language input through HITL and independent verification;
-15. avoid a generic Agent shell, generic `ProductIntentIngress`, new query platform, multi-Host execution scheduler, or new network service by default.
+9. expose a minimal Product Front Door behavior that maps to existing `submit`, exact request/query ownership, and operation-proposal `resume` behavior instead of creating a second product runtime;
+10. expose an operation-proposal pending interaction as stable owner-derived data and require an explicit human decision event before that human resume;
+11. keep operation-proposal acceptance semantically separate from final execution authorization;
+12. obtain final execution admission from a real configured policy boundary over the actual final ChangeSet/ApprovalScope before Gateway authorization, never from the current test fixture;
+13. distinguish “no persisted ProductTask” from “persisted request but no workflow checkpoint yet” during exact task query;
+14. keep exact task query available even when the bound Revit Host is unavailable, because querying authoritative request/workflow/Saga state is not Host execution;
+15. define an honest local v1 trust boundary without claiming multi-user or remote authorization that does not exist;
+16. provide one repository-owned minimal reference client suitable for repeatable acceptance rather than making a third-party Agent UI the capability owner;
+17. require the final product acceptance to cross a real MCP transport and a real Revit Host from real natural-language input through operation-proposal HITL, real execution admission, and independent verification;
+18. avoid a generic Agent shell, generic `ProductIntentIngress`, new query platform, multi-Host execution scheduler, generalized approval inbox, or new network service by default.
 
 ## 3. Explicit non-goals
 
@@ -66,7 +73,10 @@ This phase does not promise:
 - a generalized Agent desktop/chat UI;
 - remote or multi-tenant authorization;
 - task enumeration/search as a v1 Product Front Door feature;
-- automatic acceptance of a model-generated string as proof that a human approved an operation.
+- automatic acceptance of a model-generated string as proof that a human approved an operation;
+- treating operation-proposal acceptance as approval of a later, not-yet-built ChangeSet;
+- using the current fixed test `_ApprovalAdmissionBoundary` as product authorization evidence;
+- a generalized asynchronous approval inbox/UI in v1.
 
 `OUTCOME_UNKNOWN` / `RECOVERY_REQUIRED` remain legal outcomes. Recovery does not imply automatic Host mutation resend.
 
@@ -109,20 +119,41 @@ REAL MCP TRANSPORT
         │
         ▼
 Product Front Door MCP
-        │ thin submit / get / human-resume adapter
+        │ thin submit / get / operation-proposal-human-resume adapter
         ▼
 existing ProductTask request owner
         │
         ▼
 existing ProductFlow / Workflow / Saga
         │
-        ├─ pending_interaction? ──► reference client renders HITL
-        │                              │
-        │                              ▼
-        │                         explicit human decision
-        │                              │
-        │                              └─ deterministic controller
-        │                                 invokes MCP human-resume
+        ├─ OPERATION_PROPOSAL pending_interaction?
+        │        │
+        │        └──► reference client renders proposal HITL
+        │                 │
+        │                 ▼
+        │            explicit human accept/reject
+        │                 │
+        │                 └──► deterministic controller
+        │                       invokes MCP human-resume
+        │
+        ▼
+parameter binding / Impact / final ChangeSet + ApprovalScope
+        │
+        ▼
+configured local ApprovalAdmissionPort
+        │ evaluates exact final ChangeSet/scope
+        │ against immutable configured policy snapshot
+        │
+        ├─ deny -> fail closed; no Host mutation
+        │
+        └─ ApprovalAdmission
+              │
+              ▼
+Gateway V2 consume_approval(...)
+        │ authoritative ApprovalRecord / approval truth
+        ▼
+execution planning / provider binding / execution grant
+        │
         ▼
 real Revit Host execution
         │
@@ -136,7 +167,9 @@ Product Front Door get(task_id)
 user-visible authoritative result
 ```
 
-An arbitrary Agent or MCP tool call is not the logical-submission identity boundary. Model behavior MUST NOT be relied upon to remember or reuse a retry ID. Likewise, model behavior MUST NOT be treated as the human-approval boundary.
+An arbitrary Agent or MCP tool call is not the logical-submission identity boundary. Model behavior MUST NOT be relied upon to remember or reuse a retry ID. Likewise, model behavior MUST NOT be treated as the operation-proposal human-decision boundary or as execution approval evidence.
+
+Operation-proposal acceptance and execution authorization are intentionally different decisions. The first permits workflow interpretation to continue. The second evaluates the actual immutable ChangeSet and final ApprovalScope and is the only path that may feed Gateway authorization.
 
 ## 5. Decision A — client submission identity and atomic request freeze
 
@@ -306,7 +339,7 @@ A new ProductTask submission is admissible only when:
 
 Unknown, mismatched, substituted, or non-recoverable bindings fail closed. The front door does not silently create a replacement binding during task replay.
 
-This admission rule MUST NOT be misapplied to read-only lookup of an already-existing task. `get(task_id)` reads authoritative ProductTask/workflow/Saga state and does not require the old Revit Host to be reachable. Fresh Host validation applies only when the operation will newly depend on live Host state or continue Host-bound work.
+This admission rule MUST NOT be misapplied to read-only lookup of an already-existing task. `get(task_id)` reads authoritative ProductTask request/workflow/Saga state and does not require the old Revit Host to be reachable. Fresh Host validation applies only when the operation will newly depend on live Host state or continue Host-bound work.
 
 ## 7. Decision C — v1 binding source: configured candidate + runtime issuance
 
@@ -360,7 +393,7 @@ Revit/AgentHost restart invalidates use of the old process-lifetime binding for 
 
 The new runtime requires a new binding and new `session_ref` before a new ProductTask can target it. Existing ProductTask records remain immutable and enter normal failure/recovery semantics according to workflow/Saga state.
 
-An unavailable old Host does **not** make an existing task unqueryable. The Product Front Door can still return its durable workflow/Saga projection. Only an operation that must access or continue against the old Host is blocked by Host unavailability or binding invalidity.
+An unavailable old Host does **not** make an existing task unqueryable. The Product Front Door can still return its durable request/workflow/Saga projection. Only an operation that must access or continue against the old Host is blocked by Host unavailability or binding invalidity.
 
 ### 10.3 Active document switch
 
@@ -392,9 +425,11 @@ This design MUST NOT infer from that sequence that concurrent first submit is al
 
 Implementation planning must therefore preserve a dedicated gate for concurrent first `submit()` and prove the actual owner semantics rather than add a process-local lock as a substitute for durable correctness.
 
+The same ordering deliberately permits a second real crash state: the immutable `ProductTaskRequest` may already exist while the workflow checkpoint does not yet exist. That state is not “task not found”; its exact query semantics are frozen in §12.3.
+
 Required business-level acceptance wording is concrete:
 
-> Concurrent submission of the same task does not create a second effective business lineage and does not duplicate Host mutation; after declared crash windows the original task remains queryable/recoverable.
+> Concurrent submission of the same task does not create a second effective business lineage and does not duplicate Host mutation; after declared crash windows the original persisted request remains queryable/recoverable.
 
 This design intentionally does not label that guarantee “business effect exactly-once.”
 
@@ -409,9 +444,10 @@ submit complete frozen ProductTaskRequest
     -> WallThicknessProductFlow.submit(request)
 
 get exact task_id
-    -> WallThicknessProductFlow.get(task_id)
+    -> exact ProductTaskRequest owner lookup
+    -> if workflow checkpoint exists, existing ProductFlow projection
 
-submit explicit human interaction result
+submit explicit operation-proposal human interaction result
     -> validate current pending interaction
     -> construct exact WorkflowResumeCommand
     -> WallThicknessProductFlow.resume(task_id, command)
@@ -423,11 +459,12 @@ The MCP adapter MUST NOT:
 - allocate `client_submission_ref`;
 - decide `task_id` retry identity;
 - infer or replace `session_ref`;
-- own HITL/approval truth;
-- duplicate workflow/Saga outcome state;
+- own operation-proposal HITL or execution-approval truth;
+- manufacture `ApprovalAdmission` from model text or operation-proposal acceptance;
+- duplicate request/workflow/Saga outcome state;
 - perform broad task enumeration or “latest task” lookup.
 
-The reference client/controller owns natural-language orchestration and reliable-delivery state. Existing server owners remain authoritative for business state.
+The reference client/controller owns natural-language orchestration and reliable-delivery state. Existing server owners remain authoritative for business state. The existing `ApprovalAdmissionPort` + Gateway boundary remains authoritative for execution admission/authorization semantics.
 
 ### 12.2 Submit behavior
 
@@ -443,25 +480,41 @@ A submit result projects the existing `ProductFlowView` and enough framework-neu
 
 It MUST NOT copy private LangGraph state or create a second authoritative business object.
 
-### 12.3 Query behavior
+### 12.3 Exact query behavior and the persisted-request / no-checkpoint state
 
-`get(task_id)` is an exact, read-only lookup. It MUST:
+`get(task_id)` is an exact, read-only lookup. It MUST distinguish request existence from workflow-checkpoint existence because the current submit ordering intentionally persists the request before workflow start.
 
-- map to the existing ProductFlow query surface;
-- return not-found explicitly when the task does not exist;
-- return current durable status/checkpoint projection when it does exist;
-- expose current pending HITL identity when present;
+The logical query matrix is:
+
+| Durable ProductTaskRequest | Workflow checkpoint | Query fact |
+| --- | --- | --- |
+| absent | absent | no persisted ProductTask exists for this exact `task_id` |
+| present | absent | request is durably accepted/persisted, but no queryable workflow checkpoint has been established yet |
+| present | present | return the existing workflow/Saga product projection |
+| absent | present | invariant violation / corrupted lineage; fail closed rather than report not-found |
+
+Concrete public status names are left to the Implementation Plan. The semantic distinction is not optional.
+
+The middle state MUST be projected from the existing immutable request owner, not guessed from client delivery state. At minimum the query result can prove the exact `task_id` and frozen `request_hash` already accepted by the server while stating that workflow state is not yet available.
+
+The current `WallThicknessProductFlow.get()` only reads the workflow checkpoint, so it cannot by itself distinguish the first two rows. Implementation may either minimally extend the product facade or compose the Product Front Door query from the existing `ProductTaskRequestStore.get(task_id)` plus the existing flow/checkpoint projection. It MUST NOT introduce a second ProductTask owner merely to represent this state.
+
+`get(task_id)` MUST also:
+
 - remain usable when Revit, the named pipe, the old `session_ref` target, or other Host-bound dependencies are unavailable;
+- expose current operation-proposal pending-interaction identity when a checkpoint exists and such an interaction is pending;
 - avoid fresh Host validation unless a later operation actually needs live Host access;
-- never resume, retry, or resend a Host mutation as a side effect of query.
+- never start a missing workflow, resume/poll workflow work, create a new task, or resend a Host mutation as a side effect of query.
 
-Task lookup is therefore separated from execution eligibility. A user can inspect a failed, completed, recovery-required, or Host-orphaned task without reconnecting Revit first.
+Recovery from the persisted-request/no-checkpoint state is a separate write action: the deterministic Submission Controller may replay the **same frozen submit request**. Existing request create-once semantics must make that replay idempotent, after which the server may establish the missing workflow according to the proven concurrent-first-submit contract. Read-only `get()` itself does not perform that recovery.
 
-### 12.4 Human interaction result / resume behavior
+Task lookup is therefore separated from execution eligibility and recovery progression. A user can inspect a persisted-pre-workflow, failed, completed, recovery-required, or Host-orphaned task without reconnecting Revit first.
 
-The existing workflow checkpoint is the source of truth for whether a human decision is currently pending. The Product Front Door does not accept a free-form “approved=true” claim.
+### 12.4 Operation-proposal human interaction / resume behavior
 
-For a human resume the adapter/controller must first use the exact current `pending_interaction` and enforce:
+The existing workflow checkpoint is the source of truth for whether an operation-proposal human decision is currently pending. The Product Front Door does not accept a free-form “approved=true” claim.
+
+For that human resume the adapter/controller must first use the exact current `pending_interaction` and enforce:
 
 - exact `task_id`;
 - exact current `pause_id`;
@@ -471,9 +524,43 @@ For a human resume the adapter/controller must first use the exact current `pend
 
 The final server call constructs the existing `WorkflowResumeCommand`; it does not invent a new approval owner.
 
-Most importantly, the **model is not the human-decision authority**. In the v1 reference path, the model-callable interpretation surface MUST NOT include the controller-only human-resume action. The reference client renders the owner-derived pending interaction to the user; only an explicit local human action causes the deterministic controller to invoke the MCP resume behavior.
+The semantic meaning of `OPERATION_PROPOSAL_ACCEPTED` is deliberately narrow:
+
+> the user accepts the currently resolved operation proposal as the basis for continuing parameter binding, impact analysis, and final ChangeSet construction.
+
+It does **not** mean:
+
+- the final `CanonicalChangeSet` has already been seen or approved;
+- the final ApprovalScope is authorized;
+- an `ApprovalAdmission`, `ApprovalRecord`, or `ExecutionGrant` exists;
+- Host mutation may proceed without the later execution-admission boundary.
+
+Most importantly, the **model is not the human-decision authority**. In the v1 reference path, the model-callable interpretation surface MUST NOT include the controller-only operation-proposal human-resume action. The reference client renders the owner-derived pending interaction to the user; only an explicit local human action causes the deterministic controller to invoke the MCP resume behavior.
 
 This separation is a reference-path enforcement rule, not a claim that MCP itself supplies universal human identity or enterprise authorization.
+
+### 12.5 Final execution admission and Gateway authorization
+
+Execution approval is a later, separate boundary over the actual immutable ChangeSet.
+
+The existing Step32 contract defines `ApprovalAdmission` as already-authenticated and already-policy-evaluated evidence. `CanonicalWorkflowOwnerPorts.request_approval(changeset_ref)` delegates to the existing `ApprovalAdmissionPort`; only a returned `ApprovalAdmission` is then combined with authoritative ChangeSet/ApprovalScope owner data and consumed by Gateway V2 to create approval truth.
+
+The mandatory v1 reference composition selects a **synchronous configured local policy admission boundary** as the real `ApprovalAdmissionPort` implementation. This avoids conflating operation-proposal acceptance with execution approval and avoids adding a second mandatory human click or generalized approval inbox.
+
+For v1 that boundary MUST:
+
+1. load the exact authoritative final ChangeSet and final ApprovalScope corresponding to the supplied `changeset_ref`;
+2. evaluate them against an explicit immutable application/project policy snapshot rather than against model output;
+3. bind the resulting admission to the exact `changeset_hash`, `approved_scope_hash`, semantic environment, allowed canonical operations, authorization principal/policy identity, approval time, expiry, and policy snapshot hash required by the existing `ApprovalAdmission` contract;
+4. use real configured policy material and an injected/runtime clock/lifetime policy rather than hard-coded test approver, hash, or timestamps;
+5. return an `ApprovalAdmission` only when that exact final ChangeSet/scope is authorized; policy absence, mismatch, or denial fails closed before any Host mutation;
+6. leave Gateway V2 responsible for consuming the admission and producing authoritative `ApprovalRecord` / downstream execution authority.
+
+The v1 local authorization principal is interpreted only inside the already-declared same-workstation trust boundary. This design does not upgrade it into enterprise authentication or remote identity. Future multi-user/remote use still requires explicit authentication/authorization design.
+
+The existing test `_ApprovalAdmissionBoundary` remains valid as a deterministic test fixture for downstream behavior, but it is **not** a valid implementation for mandatory reference/live capability acceptance. A reference acceptance must prove the configured policy snapshot/admission that actually authorized the live final ChangeSet.
+
+`ApprovalAdmissionPort` remains compatible with returning `AsyncOperationRef`, but asynchronous execution approval is not selected for the mandatory v1 reference path. If a future implementation selects it, the async approval owner must durably own approval-pending/completion state and an explicit approval action or policy event must complete it; workflow may then poll/resume the existing `POLICY_APPROVAL` wait. Read-only Product Front Door `get()` never completes, polls, or advances that async operation on the caller's behalf.
 
 ## 13. Decision G — v1 reference client, trust boundary, and complete product path
 
@@ -489,12 +576,13 @@ The reference client is deliberately small. It exists to prove the architecture 
 4. perform clarification/deterministic validation as needed;
 5. resolve/issue the session binding and atomically freeze the exact ProductTask request;
 6. call the Product Front Door through a real MCP client/transport using only the frozen request;
-7. render returned status and owner-derived pending HITL;
-8. capture an explicit human accept/reject action outside the model and invoke the MCP human-resume behavior directly from the deterministic controller;
-9. query the same `task_id` until an authoritative terminal/recovery state is available;
-10. present that result to the user without inventing success.
+7. render returned status and owner-derived operation-proposal HITL;
+8. capture an explicit human accept/reject action outside the model and invoke the MCP operation-proposal human-resume behavior directly from the deterministic controller;
+9. observe the same task as workflow constructs the final ChangeSet and the real configured policy admission boundary either denies or authorizes it through the existing Gateway path;
+10. query the same `task_id` until an authoritative terminal/recovery state is available;
+11. present that result to the user without inventing success.
 
-The Agent/model output is a proposal to the deterministic controller, not a durable ProductTask and not a human approval.
+The reference client does not create `ApprovalAdmission`. The Agent/model output is a proposal to the deterministic controller, not a durable ProductTask, not an operation-proposal human decision, and not final execution authorization.
 
 ### 13.2 Real MCP boundary
 
@@ -514,14 +602,15 @@ Until a gateway/authentication design exists:
 - task lookup is exact-ID only; there is no list/search-all-tasks surface;
 - `task_id` is a locator, not a security credential;
 - loopback/process-local reachability is treated as part of the trusted local workstation boundary, not as strong user authentication;
+- the configured local policy admission principal/policy identity is part of this same narrow trust model and must not be described as enterprise user authentication;
 - the design does not claim isolation from every other local process/user on the same machine;
 - any future remote access or multi-user deployment requires an explicit authentication/authorization design rather than extending this trust assumption silently.
 
-Within this v1 trust boundary, the reference client may query/resume tasks that it knows by exact `task_id`. Resume still requires the exact current pending-interaction contract and explicit human event described above.
+Within this v1 trust boundary, the reference client may query/resume tasks that it knows by exact `task_id`. Operation-proposal resume still requires the exact current pending-interaction contract and explicit human event described above. Final execution admission still requires the separate configured policy evaluation described in §12.5.
 
 ### 13.4 Mandatory end-to-end product acceptance
 
-The capability is not complete merely because correlation storage, SessionBinding, MCP tool delegation, or direct facade tests pass independently.
+The capability is not complete merely because correlation storage, SessionBinding, MCP tool delegation, operation-proposal resume, configured policy evaluation, or direct facade tests pass independently.
 
 The mandatory live reference path is:
 
@@ -553,16 +642,29 @@ Product Front Door submit
 ProductTask / ProductFlow / Workflow
         │
         ▼
-owner-derived pending HITL
+owner-derived OPERATION_PROPOSAL pending interaction
         │
         ▼
-reference client shows human the pending decision
+reference client shows human the operation proposal
         │
         ▼
 explicit human accept/reject event
         │
         ▼
 deterministic controller invokes Product Front Door human-resume over MCP
+        │
+        ▼
+parameter binding / Impact / final ChangeSet + ApprovalScope
+        │
+        ▼
+real configured local policy admission boundary
+        │
+        ├─ denied -> no Host mutation
+        │
+        └─ ApprovalAdmission
+              │
+              ▼
+Gateway V2 ApprovalRecord / execution authorization
         │
         ▼
 real Revit mutation
@@ -579,7 +681,7 @@ user receives authoritative result
 
 The positive live acceptance for the current vertical must prove the existing product goal (selected Revit Wall thickness changed to the requested supported value, with independent verification) through this entire path.
 
-Because a real Agent/model and real Revit are external live dependencies, this gate may be a controlled/manual live acceptance rather than a canonical offline CI job. The runbook MUST record enough evidence to show the natural-language input, actual MCP path, task identity, pending HITL identity/human action, Revit execution, independent verification, and final authoritative product result. Deterministic offline fixtures do not substitute for this live gate.
+Because a real Agent/model and real Revit are external live dependencies, this gate may be a controlled/manual live acceptance rather than a canonical offline CI job. The runbook MUST record enough evidence to show the natural-language input, actual MCP path, task identity, operation-proposal `pause_id`/human decision, final ChangeSet identity, configured policy snapshot/admission identity, Gateway approval identity, Revit execution, independent verification, and final authoritative product result. Deterministic offline fixtures do not substitute for this live gate.
 
 A third-party mature Agent Host may later be added as an interoperability acceptance, but it is not the v1 capability authority and is not required to define the architecture.
 
@@ -596,49 +698,65 @@ A third-party mature Agent Host may later be added as an interoperability accept
 7. Product Front Door accepts a request but the response is lost: client replay sends the exact same task ID and full request.
 8. Two distinct correlations with identical normalized freeze proposals create two distinct task IDs and remain separate intentional submissions.
 
-### 14.2 Server first-submit gate
+### 14.2 Server first-submit and persisted-request query gate
 
 9. Concurrent first `submit()` of the same `task_id` and same body produces one authoritative ProductTask/business lineage and no duplicate Host mutation.
 10. Same `task_id` with different request body fails conflict and never overwrites the original request.
 11. Declared server/process crash windows preserve query/recovery of the original task. `OUTCOME_UNKNOWN` / `RECOVERY_REQUIRED` are legal; unknown outcome never authorizes blind mutation resend.
+12. When neither request nor checkpoint exists for an exact `task_id`, Product Front Door returns not-found.
+13. When the immutable request exists but no checkpoint exists, Product Front Door returns an explicit persisted-request/pre-workflow fact rather than not-found; `get()` creates or resumes nothing.
+14. From that persisted-request/no-checkpoint state, replay of the exact same frozen submit may recover workflow start under the proven first-submit contract; `get()` itself remains side-effect free.
+15. When request and checkpoint both exist, Product Front Door returns the existing ProductFlow/workflow/Saga projection.
+16. A checkpoint without its authoritative ProductTask request is treated as an invariant violation and fails closed rather than being reported as not-found or reconstructed from checkpoint data.
 
 ### 14.3 Session binding and lifecycle
 
-12. Client/application composition restart resolves the same `session_ref` to the exact same immutable binding body or fails.
-13. Attempting to rewrite an existing `session_ref` to another project/Host/document binding is rejected.
-14. Reusing the same endpoint while fresh Host runtime identity differs is rejected for Host-bound work; new binding is required for new work.
-15. Active-document switch causes Host-bound start/resume validation failure; no automatic document switch occurs.
-16. Unsaved title-only documents are rejected for durable v1 binding.
-17. Close/reopen handling asserts only what current identity surfaces can prove; same-path same-process reopen is not claimed to be automatically detectable and is outside the continuous-open v1 guarantee.
-18. If the target changes between candidate observation and binding issuance / first Host-bound use, fresh identity validation rejects the stale target.
-19. An unavailable/restarted old Host does not prevent `get(task_id)` from returning the durable state of an existing task.
+17. Client/application composition restart resolves the same `session_ref` to the exact same immutable binding body or fails.
+18. Attempting to rewrite an existing `session_ref` to another project/Host/document binding is rejected.
+19. Reusing the same endpoint while fresh Host runtime identity differs is rejected for Host-bound work; new binding is required for new work.
+20. Active-document switch causes Host-bound start/resume validation failure; no automatic document switch occurs.
+21. Unsaved title-only documents are rejected for durable v1 binding.
+22. Close/reopen handling asserts only what current identity surfaces can prove; same-path same-process reopen is not claimed to be automatically detectable and is outside the continuous-open v1 guarantee.
+23. If the target changes between candidate observation and binding issuance / first Host-bound use, fresh identity validation rejects the stale target.
+24. An unavailable/restarted old Host does not prevent `get(task_id)` from returning the durable request/workflow/Saga facts of an existing task.
 
 ### 14.4 Candidate/discovery boundary
 
-20. The v1 configured-candidate path reuses existing native read-only context identity capability where compatible; a new Revit command is not introduced merely to create SessionBinding.
-21. Any later dynamic discovery contract exposes reachable instances’ current active documents only; it does not imply all-open-document enumeration or multi-Host execution.
-22. Configured endpoint/path constraints are candidate inputs, not identity proof; live runtime/document evidence must still match for Host-bound work.
-23. Durable client delivery and session-resolution state survives the declared same-workstation client-process restart scope.
+25. The v1 configured-candidate path reuses existing native read-only context identity capability where compatible; a new Revit command is not introduced merely to create SessionBinding.
+26. Any later dynamic discovery contract exposes reachable instances’ current active documents only; it does not imply all-open-document enumeration or multi-Host execution.
+27. Configured endpoint/path constraints are candidate inputs, not identity proof; live runtime/document evidence must still match for Host-bound work.
+28. Durable client delivery and session-resolution state survives the declared same-workstation client-process restart scope.
 
-### 14.5 MCP tool behavior and HITL
+### 14.5 MCP tool behavior and operation-proposal HITL
 
-24. A real MCP client can negotiate/list the Product Front Door surface and invoke submit/get/human-resume behavior through the MCP adapter; direct facade invocation is covered separately and cannot satisfy this gate.
-25. Submit receives an already-frozen complete request and does not allocate retry identity or reinterpret natural language.
-26. Exact `get(task_id)` is read-only, returns the owner-derived projection, and performs no Host mutation/resume side effect.
-27. When `pending_interaction` exists, MCP output preserves the exact owner-derived `pause_id`, subject reference, and allowed resume kinds needed by the client to render the HITL state.
-28. Human resume with stale/missing `pause_id`, disallowed resume kind, or arbitrary payload fails closed according to the existing workflow contract.
-29. The reference Agent/model is not given authority to invoke the controller-only human-resume action; an explicit human event is required before the deterministic controller sends that MCP resume call.
-30. Query of a terminal, failed, or recovery-required task remains available while Revit is offline.
-31. Product Front Door is local-only under the v1 trust boundary and exposes no broad task enumeration surface.
+29. A real MCP client can negotiate/list the Product Front Door surface and invoke submit/get/operation-proposal-human-resume behavior through the MCP adapter; direct facade invocation is covered separately and cannot satisfy this gate.
+30. Submit receives an already-frozen complete request and does not allocate retry identity or reinterpret natural language.
+31. Exact `get(task_id)` is read-only, distinguishes persisted request from checkpoint existence, and performs no Host mutation/workflow-start/resume side effect.
+32. When `pending_interaction` exists, MCP output preserves the exact owner-derived `pause_id`, subject reference, and allowed resume kinds needed by the client to render the operation-proposal HITL state.
+33. Operation-proposal human resume with stale/missing `pause_id`, disallowed resume kind, or arbitrary payload fails closed according to the existing workflow contract.
+34. The reference Agent/model is not given authority to invoke the controller-only operation-proposal human-resume action; an explicit human event is required before the deterministic controller sends that MCP resume call.
+35. Operation-proposal acceptance is proven not to create or imply an `ApprovalAdmission`, `ApprovalRecord`, or Host execution authority.
+36. Query of a persisted-pre-workflow, terminal, failed, or recovery-required task remains available while Revit is offline.
+37. Product Front Door is local-only under the v1 trust boundary and exposes no broad task enumeration surface.
 
-### 14.6 Complete live product acceptance
+### 14.6 Execution approval admission
 
-32. A real natural-language request enters the repository-owned reference client and crosses a real Agent/model interpretation boundary rather than being replaced by a prebuilt ProductTask fixture.
-33. The resulting supported intent is frozen under one `client_submission_ref`, sent through a real MCP client/transport, and accepted as one authoritative ProductTask.
-34. The same live task reaches owner-derived HITL; the reference client renders it and records an explicit human accept/reject event before resume.
-35. Positive acceptance resumes through real MCP, performs the real Revit wall-thickness mutation, and obtains independent verification/reconciliation evidence.
-36. The reference client queries the same `task_id` through MCP and presents the authoritative final result to the user.
-37. The live evidence/runbook records enough lineage to prove that natural-language input, MCP task identity, HITL identity, human decision, Host mutation, verification, and final outcome belong to the same task.
+38. After operation-proposal acceptance, the real reference path reaches final ChangeSet/ApprovalScope before execution admission is decided.
+39. The mandatory reference composition uses a real configured policy-backed `ApprovalAdmissionPort`; it does not inject the fixed test `_ApprovalAdmissionBoundary` or equivalent hard-coded admission values.
+40. The configured policy boundary evaluates the exact final ChangeSet/scope and returns an admission only when the configured policy snapshot explicitly authorizes the required canonical operations and lineage; policy absence/mismatch/denial prevents Host mutation.
+41. A successful admission carries real configured policy snapshot/principal evidence plus non-fixture timing/expiry evidence and is consumed by the existing Gateway V2 to produce authoritative approval truth.
+42. Operation proposal accepted + execution admission unavailable or denied results in no Host mutation and no bypass to execution planning/grant issuance.
+43. If an alternative asynchronous approval implementation is later introduced, it owns durable approval-pending/completion state through an `AsyncOperationRef`; an explicit approval/policy event plus workflow poll/resume advances it, while Product Front Door `get()` remains read-only and cannot serve as the progression mechanism.
+
+### 14.7 Complete live product acceptance
+
+44. A real natural-language request enters the repository-owned reference client and crosses a real Agent/model interpretation boundary rather than being replaced by a prebuilt ProductTask fixture.
+45. The resulting supported intent is frozen under one `client_submission_ref`, sent through a real MCP client/transport, and accepted as one authoritative ProductTask.
+46. The same live task reaches owner-derived operation-proposal HITL; the reference client renders it and records an explicit human accept/reject event before resume.
+47. Positive acceptance resumes through real MCP, constructs the final ChangeSet/scope, obtains a real configured-policy `ApprovalAdmission`, and records the resulting Gateway approval lineage before any Revit mutation.
+48. The admitted task performs the real Revit wall-thickness mutation and obtains independent verification/reconciliation evidence.
+49. The reference client queries the same `task_id` through MCP and presents the authoritative final result to the user.
+50. The live evidence/runbook records enough lineage to prove that natural-language input, MCP task identity, operation-proposal HITL identity/human decision, final ChangeSet, configured policy/admission, Gateway approval, Host mutation, verification, and final outcome belong to the same task.
 
 ## 15. Rejected / deferred alternatives
 
@@ -678,13 +796,25 @@ Not justified. Current evidence supports deterministic submission state + narrow
 
 Not selected. It would couple architectural acceptance to external Host UX/configuration and make deterministic recovery/HITL gates harder to reproduce. A repository-owned minimal reference client proves the required path; external mature Hosts remain future interoperability targets.
 
-### 15.10 Let the model submit human approval
+### 15.10 Let the model submit operation-proposal human approval
 
-Rejected. Existing workflow pause identity already gives the deterministic client an exact `pause_id` and allowed resume kinds. Human approval remains an explicit client-side human event that the controller maps into the existing resume contract; model text is not approval evidence.
+Rejected. Existing workflow pause identity already gives the deterministic client an exact `pause_id` and allowed resume kinds. Operation-proposal human acceptance remains an explicit client-side human event that the controller maps into the existing resume contract; model text is not approval evidence.
+
+### 15.11 Treat operation-proposal acceptance as final execution approval
+
+Rejected. The final ChangeSet and ApprovalScope do not yet exist at the operation-proposal pause. Accepting a proposal authorizes continuation of analysis/construction only; it cannot authorize an unseen final ChangeSet or satisfy the existing `ApprovalAdmission` / Gateway boundary.
+
+### 15.12 Reuse the fixed test approval-admission boundary in the product reference path
+
+Rejected. The fixture is useful for deterministic downstream tests but its hard-coded approver, policy hash, and timestamps are not proof of a real product authorization source. Mandatory reference/live acceptance uses the configured policy-backed admission boundary.
+
+### 15.13 Select asynchronous execution approval for the mandatory v1 reference path
+
+Not selected. The existing `ApprovalAdmissionPort` and workflow can represent `AsyncOperationRef`, but doing so would require an additional durable approval-completion owner and progression surface. The first reference path can prove the real separation more narrowly with synchronous configured policy evaluation. Async approval remains compatible for a later capability.
 
 ## 16. Final v1 architecture decision
 
-The selected v1 is **A + narrow session resolver + thin Product Front Door MCP + minimal reference client**, with no generalized ingress layer:
+The selected v1 is **A + narrow session resolver + thin Product Front Door MCP + minimal reference client + configured policy execution admission**, with no generalized ingress or approval-inbox layer:
 
 ```text
 Repository-owned reference client
@@ -697,7 +827,7 @@ Deterministic client controller
   + normalized freeze proposal
   + atomic correlation/task/full-request freeze
   + durable outbox delivery state
-  + explicit human-event handling
+  + explicit operation-proposal human-event handling
 
 Session binding authority/resolver
   uses configured DSP project/candidate context
@@ -709,16 +839,26 @@ Session binding authority/resolver
 Product Front Door MCP
   thin real-MCP adapter
   -> submit exact frozen request
-  -> get exact task without requiring Host availability
-  -> transfer explicit human resume after exact pending-interaction validation
+  -> get exact task by joining immutable request existence with workflow projection
+  -> transfer explicit operation-proposal human resume after exact pending-interaction validation
   -> does not interpret natural language or own approval
 
+Configured local ApprovalAdmissionPort
+  -> evaluates exact final ChangeSet + ApprovalScope
+     against immutable configured policy material
+  -> returns real ApprovalAdmission or denies
+  -> does not reuse test fixture admission values
+
+Existing Gateway V2
+  -> consumes ApprovalAdmission
+  -> owns authoritative ApprovalRecord / execution authorization truth
+
 Existing ProductTask / ProductFlow / Workflow / Saga owners
-  remain authoritative for business lineage, HITL navigation,
+  remain authoritative for business lineage, operation-proposal HITL navigation,
   execution, recovery, and outcome
 
 Real Revit Host + independent verification
   remain authoritative for actual Host effect/evidence
 ```
 
-The implementation plan may choose concrete storage, adapter/tool names, model provider, reference-client executable shape, and record types only after repository census. It may not weaken the atomic-freeze invariant, compare duplicate callbacks on independently generated IDs, substitute endpoint equality for Host identity, rebind an existing `session_ref`, require a live Host merely to query an existing task, expose model-generated text as human approval, replace the mandatory real-MCP acceptance with direct facade calls, expand document support beyond the declared v1 boundary, or claim concurrent first-submit correctness without proving the gate.
+The implementation plan may choose concrete storage, adapter/tool names, configured-policy file/schema location, model provider, reference-client executable shape, and query response type names only after repository census. It may not weaken the atomic-freeze invariant, compare duplicate callbacks on independently generated IDs, substitute endpoint equality for Host identity, rebind an existing `session_ref`, report persisted-request/no-checkpoint as not-found, make read-only `get()` advance recovery/approval, treat operation-proposal acceptance as final execution authorization, reuse fixed test admission data as the mandatory reference approval source, require a live Host merely to query an existing task, expose model-generated text as human approval, replace the mandatory real-MCP acceptance with direct facade calls, expand document support beyond the declared v1 boundary, or claim concurrent first-submit correctness without proving the gate.
