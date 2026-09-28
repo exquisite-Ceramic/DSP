@@ -12,6 +12,7 @@ import pytest
 pytest.importorskip("langgraph")
 
 import design_orchestrator.langgraph_runtime as langgraph_runtime
+from design_orchestrator.langgraph_checkpoint_reader import LangGraphWorkflowCheckpointReader
 from design_orchestrator.langgraph_state import (
     CHECKPOINT_CONTRACT_VERSION,
     WorkflowGraphState,
@@ -20,14 +21,6 @@ from design_orchestrator.workflow_contracts import WorkflowCheckpointView, Workf
 from design_orchestrator.workflow_services import WorkflowStateError
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
-
-
-def _reader_type():
-    """取得计划要求的 reader 类型；缺失时形成明确的 TDD RED，而不是收集错误。"""
-
-    reader_type = getattr(langgraph_runtime, "LangGraphWorkflowCheckpointReader", None)
-    assert reader_type is not None, "LangGraphWorkflowCheckpointReader 尚未实现"
-    return reader_type
 
 
 def _persist_checkpoint(
@@ -72,7 +65,7 @@ def test_reader_projects_real_persisted_checkpoint_without_workflow_services() -
         phase=WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
     )
 
-    reader = _reader_type()(checkpointer=saver)
+    reader = LangGraphWorkflowCheckpointReader(checkpointer=saver)
     checkpoint = reader.get_checkpoint("task-reader-1")
 
     assert checkpoint == WorkflowCheckpointView(
@@ -84,7 +77,7 @@ def test_reader_projects_real_persisted_checkpoint_without_workflow_services() -
 def test_reader_returns_none_for_missing_task() -> None:
     """不存在的 root checkpoint 必须返回 None，不能创建 graph 或猜测任务状态。"""
 
-    reader = _reader_type()(checkpointer=InMemorySaver())
+    reader = LangGraphWorkflowCheckpointReader(checkpointer=InMemorySaver())
 
     assert reader.get_checkpoint("task-reader-missing") is None
 
@@ -99,7 +92,7 @@ def test_reader_preserves_checkpoint_invalid_for_corrupt_persisted_state() -> No
         state_task_id="task-reader-corrupt",
         phase="NOT_A_WORKFLOW_PHASE",
     )
-    reader = _reader_type()(checkpointer=saver)
+    reader = LangGraphWorkflowCheckpointReader(checkpointer=saver)
 
     with pytest.raises(WorkflowStateError) as exc_info:
         reader.get_checkpoint("task-reader-corrupt")
