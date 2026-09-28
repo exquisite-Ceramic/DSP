@@ -61,6 +61,77 @@ _ACTIVE_RECOVERY_WORKFLOW_PHASES = frozenset(
 )
 
 
+def _load_saga(
+    checkpoint: WorkflowCheckpointView,
+    saga_store: ExecutionSagaStoreV2,
+) -> StoredExecutionSagaV2 | None:
+    """只允许通过 checkpoint 已持有的 exact saga_id 访问 authoritative Saga owner。"""
+
+    if checkpoint.saga_id is None:
+        return None
+    return saga_store.get_saga(checkpoint.saga_id)
+
+
+def _has_known_commit_recovery(saga: StoredExecutionSagaV2) -> bool:
+    """识别已经越过 Host commit 边界但尚未形成 terminal Saga 的 durable Slice truth。"""
+
+    return any(
+        slice_state.status in _KNOWN_COMMIT_SLICE_STATUSES
+        for slice_state in saga.slice_states
+    )
+
+
+def _project_status(
+    checkpoint: WorkflowCheckpointView,
+    saga: StoredExecutionSagaV2 | None,
+) -> ProductFlowStatus:
+    """执行冻结的 outcome 投影；任何模糊执行态都 fail closed 为 recovery-required。"""
+
+    if saga is not None:
+        terminal = _TERMINAL_SAGA_STATUS_MAP.get(saga.status)
+        if terminal is not None:
+            # 只有 authoritative Saga SUCCEEDED 才能让产品 SUCCEEDED；workflow COMPLETED
+            # 本身永远不参与成功判定。
+            return terminal
+
+        if _has_known_commit_recovery(saga):
+            # HOST_COMMITTED/RECONCILING（尤其 verification_hash=None）意味着 side effect
+            # 已知发生但 authoritative verification 尚未终结，必须进入恢复语义。
+            return ProductFlowStatus.RECOVERY_REQUIRED
+
+        if saga.status in _ACTIVE_RECOVERY_SAGA_STATUSES:
+            # 同步 facade 返回后仍停留在 execution/convergence 的非终态，后续动作必须
+            # 由 owner recovery/poll 决定，产品层不能把它降格成普通等待或推断成功。
+            return ProductFlowStatus.RECOVERY_REQUIRED
+
+    if checkpoint.phase is WorkflowPhase.CANCELLED:
+        return ProductFlowStatus.CANCELLED
+    if checkpoint.phase is WorkflowPhase.FAILED:
+        return ProductFlowStatus.FAILED
+    if checkpoint.phase is WorkflowPhase.COMPLETED:
+        # COMPLETED 只有 workflow navigation 含义；没有 terminal Saga 时 fail closed。
+        return ProductFlowStatus.RECOVERY_REQUIRED
+    if checkpoint.phase in _ACTIVE_RECOVERY_WORKFLOW_PHASES:
+        return ProductFlowStatus.RECOVERY_REQUIRED
+    return ProductFlowStatus.WAITING
+
+
+def project_wall_thickness_product_flow(
+    checkpoint: WorkflowCheckpointView,
+    saga_store: ExecutionSagaStoreV2,
+) -> ProductFlowView:
+    """共享 WallThicknessProductFlow 已冻结的 workflow/Saga outcome 投影规则。"""
+
+    if not isinstance(checkpoint, WorkflowCheckpointView):
+        raise TypeError("workflow runtime must return WorkflowCheckpointView")
+    if saga_store is None:
+        raise ValueError("saga_store must not be None")
+
+    saga = _load_saga(checkpoint, saga_store)
+    status = _project_status(checkpoint, saga)
+    return ProductFlowView(status=status, checkpoint=checkpoint)
+
+
 class WallThicknessProductFlow:
     """只负责 request persistence、workflow 驱动与 authoritative outcome 投影。
 
@@ -120,7 +191,7 @@ class WallThicknessProductFlow:
                     },
                 )
             )
-        return self._project(checkpoint)
+        return project_wall_thickness_product_flow(checkpoint, self._saga_store)
 
     def resume(
         self,
@@ -130,7 +201,7 @@ class WallThicknessProductFlow:
         """通过公共 workflow port 恢复 exact task，并立即投影最新 owner truth。"""
 
         checkpoint = self._workflow_runtime.resume(task_id, command)
-        return self._project(checkpoint)
+        return project_wall_thickness_product_flow(checkpoint, self._saga_store)
 
     def get(self, task_id: str) -> ProductFlowView | None:
         """读取当前 workflow checkpoint；不存在时不猜测或创建任何 domain 状态。"""
@@ -138,68 +209,11 @@ class WallThicknessProductFlow:
         checkpoint = self._workflow_runtime.get_checkpoint(task_id)
         if checkpoint is None:
             return None
-        return self._project(checkpoint)
-
-    def _project(self, checkpoint: WorkflowCheckpointView) -> ProductFlowView:
-        """把 workflow navigation + exact Saga owner truth 投影为产品状态。"""
-
-        if not isinstance(checkpoint, WorkflowCheckpointView):
-            raise TypeError("workflow runtime must return WorkflowCheckpointView")
-
-        saga = self._load_saga(checkpoint)
-        status = self._project_status(checkpoint, saga)
-        return ProductFlowView(status=status, checkpoint=checkpoint)
-
-    def _load_saga(self, checkpoint: WorkflowCheckpointView) -> StoredExecutionSagaV2 | None:
-        """只允许通过 checkpoint 已持有的 exact saga_id 访问 authoritative Saga owner。"""
-
-        if checkpoint.saga_id is None:
-            return None
-        return self._saga_store.get_saga(checkpoint.saga_id)
-
-    @staticmethod
-    def _project_status(
-        checkpoint: WorkflowCheckpointView,
-        saga: StoredExecutionSagaV2 | None,
-    ) -> ProductFlowStatus:
-        """执行冻结的 outcome 投影；任何模糊执行态都 fail closed 为 recovery-required。"""
-
-        if saga is not None:
-            terminal = _TERMINAL_SAGA_STATUS_MAP.get(saga.status)
-            if terminal is not None:
-                # 只有 authoritative Saga SUCCEEDED 才能让产品 SUCCEEDED；workflow COMPLETED
-                # 本身永远不参与成功判定。
-                return terminal
-
-            if WallThicknessProductFlow._has_known_commit_recovery(saga):
-                # HOST_COMMITTED/RECONCILING（尤其 verification_hash=None）意味着 side effect
-                # 已知发生但 authoritative verification 尚未终结，必须进入恢复语义。
-                return ProductFlowStatus.RECOVERY_REQUIRED
-
-            if saga.status in _ACTIVE_RECOVERY_SAGA_STATUSES:
-                # 同步 facade 返回后仍停留在 execution/convergence 的非终态，后续动作必须
-                # 由 owner recovery/poll 决定，产品层不能把它降格成普通等待或推断成功。
-                return ProductFlowStatus.RECOVERY_REQUIRED
-
-        if checkpoint.phase is WorkflowPhase.CANCELLED:
-            return ProductFlowStatus.CANCELLED
-        if checkpoint.phase is WorkflowPhase.FAILED:
-            return ProductFlowStatus.FAILED
-        if checkpoint.phase is WorkflowPhase.COMPLETED:
-            # COMPLETED 只有 workflow navigation 含义；没有 terminal Saga 时 fail closed。
-            return ProductFlowStatus.RECOVERY_REQUIRED
-        if checkpoint.phase in _ACTIVE_RECOVERY_WORKFLOW_PHASES:
-            return ProductFlowStatus.RECOVERY_REQUIRED
-        return ProductFlowStatus.WAITING
-
-    @staticmethod
-    def _has_known_commit_recovery(saga: StoredExecutionSagaV2) -> bool:
-        """识别已经越过 Host commit 边界但尚未形成 terminal Saga 的 durable Slice truth。"""
-
-        return any(
-            slice_state.status in _KNOWN_COMMIT_SLICE_STATUSES
-            for slice_state in saga.slice_states
-        )
+        return project_wall_thickness_product_flow(checkpoint, self._saga_store)
 
 
-__all__ = ["ProductTaskRequestStore", "WallThicknessProductFlow"]
+__all__ = [
+    "ProductTaskRequestStore",
+    "WallThicknessProductFlow",
+    "project_wall_thickness_product_flow",
+]
