@@ -19,6 +19,7 @@ from design_orchestrator import (
 )
 
 from .contracts import ProductFlowStatus, ProductFlowView, ProductTaskRequest
+from .start_gate import ProductTaskStartGate
 
 
 class ProductTaskRequestStore(Protocol):
@@ -146,8 +147,9 @@ class WallThicknessProductFlow:
         request_store: ProductTaskRequestStore,
         workflow_runtime: WorkflowOrchestratorPort,
         saga_store: ExecutionSagaStoreV2,
+        start_gate: ProductTaskStartGate,
     ) -> None:
-        """绑定三个既有 owner port；facade 自身不创建任何 durable state。"""
+        """绑定既有 owners 与首次启动 gate；facade 自身不创建任何 durable state。"""
 
         if request_store is None:
             raise ValueError("request_store must not be None")
@@ -155,16 +157,20 @@ class WallThicknessProductFlow:
             raise ValueError("workflow_runtime must not be None")
         if saga_store is None:
             raise ValueError("saga_store must not be None")
+        if start_gate is None:
+            raise ValueError("start_gate must not be None")
         self._request_store = request_store
         self._workflow_runtime = workflow_runtime
         self._saga_store = saga_store
+        self._start_gate = start_gate
 
     def submit(self, request: ProductTaskRequest) -> ProductFlowView:
-        """先持久化 immutable request，再复用或启动 exact task workflow。
+        """先持久化 immutable request，再串行化 exact task 的首次 workflow start。
 
-        这个顺序故意保留 request-write / workflow-start 崩溃窗口：如果进程在 ``create`` 后
-        崩溃，新 facade 可以对同一 request 做幂等 replay，再在确认 checkpoint 缺失后启动。
-        因此不能先 start 再补 request，也不能用进程内 current-request 缓存填补该窗口。
+        request create 故意位于 gate 之前：不同进程先竞争 immutable ProductTask owner，随后
+        才进入 ``checkpoint read → possible start`` 临界区。gate 内必须重新读取 checkpoint，
+        因而等待锁的提交者会观察到前一个提交者已经持久化的首个 checkpoint，而不会再次
+        调用 ``start()``。异常退出时数据库事务释放 gate 锁；request 仍可由后续进程幂等重放。
         """
 
         if not isinstance(request, ProductTaskRequest):
@@ -178,19 +184,21 @@ class WallThicknessProductFlow:
             # 在异常 adapter 下把另一个 task body 的 hash 带入 workflow locator。
             raise RuntimeError("request store returned a different ProductTask request")
 
-        checkpoint = self._workflow_runtime.get_checkpoint(stored.task_id)
-        if checkpoint is None:
-            checkpoint = self._workflow_runtime.start(
-                WorkflowStartRequest(
-                    task_id=stored.task_id,
-                    request_data={
-                        # request_data 只携带 immutable owner locator/hash；完整 request body
-                        # 始终留在 ProductTask request owner，禁止形成 checkpoint 第二真相。
-                        "product_request_task_id": stored.task_id,
-                        "product_request_hash": stored.request_hash,
-                    },
+        with self._start_gate.serialize(stored.task_id):
+            # checkpoint lookup 必须发生在锁内，不能复用进入 gate 前的观察结果。
+            checkpoint = self._workflow_runtime.get_checkpoint(stored.task_id)
+            if checkpoint is None:
+                checkpoint = self._workflow_runtime.start(
+                    WorkflowStartRequest(
+                        task_id=stored.task_id,
+                        request_data={
+                            # request_data 只携带 immutable owner locator/hash；完整 request body
+                            # 始终留在 ProductTask request owner，禁止形成 checkpoint 第二真相。
+                            "product_request_task_id": stored.task_id,
+                            "product_request_hash": stored.request_hash,
+                        },
+                    )
                 )
-            )
         return project_wall_thickness_product_flow(checkpoint, self._saga_store)
 
     def resume(
