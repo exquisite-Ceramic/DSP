@@ -62,6 +62,12 @@ from design_orchestrator.workflow_contracts import (
 from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 
 if TYPE_CHECKING:
+    # LangGraph runtime adapter 是可选 infrastructure dependency。静态检查可见公共类型，
+    # 普通 Host-neutral 消费方只有真正访问 reader 时才加载 LangGraph。
+    from design_orchestrator.langgraph_checkpoint_reader import (
+        LangGraphWorkflowCheckpointReader,
+    )
+
     # PostgreSQL adapter 是可选的 durable infrastructure dependency。
     # 仅在静态类型检查阶段导入，避免普通 Orchestrator/D6 消费方在运行时被迫安装 psycopg。
     from design_orchestrator.artifact_postgres import (
@@ -88,6 +94,10 @@ _INTERACTION_EXPORTS = {
     "SlotInteractionRecipe",
 }
 
+_LANGGRAPH_EXPORTS = {
+    "LangGraphWorkflowCheckpointReader",
+}
+
 _POSTGRES_EXPORTS = {
     "PostgresWorkflowArtifactStore",
     "create_postgres_artifact_store",
@@ -95,7 +105,7 @@ _POSTGRES_EXPORTS = {
 
 
 def __getattr__(name: str) -> Any:
-    """按需暴露 source-only interaction 与 PostgreSQL adapter 公共符号。"""
+    """按需暴露可选 interaction、LangGraph 与 PostgreSQL adapter 公共符号。"""
 
     if name in _INTERACTION_EXPORTS:
         # `platform/interaction` 仍由仓库 pytest pythonpath 提供，不是 workspace distribution。
@@ -103,6 +113,13 @@ def __getattr__(name: str) -> Any:
         from design_orchestrator import interactive_binding
 
         return getattr(interactive_binding, name)
+
+    if name in _LANGGRAPH_EXPORTS:
+        # checkpoint reader 只有真正被 Product Front Door/query composition 使用时才加载
+        # LangGraph；package 基础导入仍保持 Host-neutral、轻依赖。
+        from design_orchestrator import langgraph_checkpoint_reader
+
+        return getattr(langgraph_checkpoint_reader, name)
 
     if name in _POSTGRES_EXPORTS:
         # 只有调用方真正访问 PostgreSQL adapter 公共符号时才加载 psycopg。
@@ -130,6 +147,7 @@ __all__ = [
     "InteractionBindingContext",
     "InteractionRequired",
     "InteractiveParameterResolver",
+    "LangGraphWorkflowCheckpointReader",
     "MOVE_V1",
     "MOVE_V1_BINDING_RECIPE",
     "MVP_BINDING_RECIPES",
