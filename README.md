@@ -4,9 +4,9 @@
 
 ## 当前状态
 
-- **Latest completed capability phase:** real E2E workflow
-- **Current engineering activity:** Revit wall-thickness product vertical — final CI / merge closeout
-- **Latest product acceptance:** selected Revit Wall thickness → 300 mm，真实 Revit happy path GREEN；branch capability 尚待 final-SHA CI 与 merged-main observation
+- **Latest completed capability phase:** Revit wall-thickness product vertical
+- **Current engineering activity:** MCP / Agent front door — architecture design
+- **Latest product acceptance:** selected Revit Wall thickness → 300 mm，真实 Revit happy path GREEN；产品 vertical 已合并到 `main`，进入 successor capability design
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
 - 当前产品 vertical 设计：[`docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`](docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md)
 - 当前产品 vertical 实施计划：[`docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md`](docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md)
@@ -77,7 +77,7 @@ dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.T
 
 `Repository regression` CI 是当前 repository-wide offline truth；`Revit wall thickness product vertical` CI 是首个产品 vertical 的 focused offline truth。历史 Step workflows 只保留各自 focused/domain/architecture guards。
 
-真实 Revit 产品验收按 [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) 显式运行，不能用 GitHub-hosted offline PASS 代替。最终 capability closure 还要求 final branch SHA 的 dedicated workflow 与 repository regression GREEN，并在合并后观察 merged-main required workflows。
+真实 Revit 产品验收按 [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) 显式运行，不能用 GitHub-hosted offline PASS 代替。Revit wall-thickness product vertical 已完成 capability closure；后续 capability 不得把 GitHub-hosted offline PASS 当作真实 Host acceptance 的替代证据。
 
 ## 目录概览
 
