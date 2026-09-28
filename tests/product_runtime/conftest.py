@@ -44,6 +44,7 @@ from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
 from design_orchestrator.operation_resolver import OperationResolver
 from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
 from design_product_runtime import (
+    PostgresProductTaskStartGate,
     ProductTaskRequest,
     RevitWallThicknessProviderExecutionSnapshotBoundary,
     RevitWallThicknessSemanticBoundary,
@@ -375,6 +376,7 @@ def _compose_case(
     if reset_schema:
         _reset_product_acceptance_schemas(dsn)
     request_store = create_postgres_product_task_request_store(dsn)
+    start_gate = PostgresProductTaskStartGate(dsn)
     artifact_store = create_postgres_artifact_store(dsn)
     checkpointer = create_postgres_checkpointer(dsn)
     saga_store = PostgresExecutionSagaStoreV2(dsn)
@@ -482,6 +484,7 @@ def _compose_case(
         request_store=request_store,
         workflow_runtime=runtime,
         saga_store=saga_store,
+        start_gate=start_gate,
     )
     return SimpleNamespace(
         task_id=task_id,
@@ -490,6 +493,7 @@ def _compose_case(
         runtime=runtime,
         host=host,
         request_store=request_store,
+        start_gate=start_gate,
         artifact_store=artifact_store,
         checkpointer=checkpointer,
         saga_store=saga_store,
@@ -528,6 +532,7 @@ def _close_case(case) -> None:
     for owner in (
         case.dispatch_store,
         case.saga_store,
+        case.start_gate,
         case.request_store,
         case.artifact_store,
         case.checkpointer,
