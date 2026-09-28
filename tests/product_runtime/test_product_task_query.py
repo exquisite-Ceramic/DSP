@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import design_product_runtime as product_runtime
 import pytest
 from design_execution_reconciliation import ExecutionSagaStatusV2
 from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
 from design_product_runtime import ProductFlowStatus, ProductTaskRequest
-import design_product_runtime as product_runtime
 
 
 @dataclass(frozen=True, slots=True)
