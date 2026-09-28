@@ -70,7 +70,7 @@ def _request(task_id: str) -> ProductTaskRequest:
 
 
 def _persist_checkpoint(saver, *, task_id: str) -> None:
-    """通过真实 PostgreSQL LangGraph saver 写入一个无 Saga 的 v2 root checkpoint。"""
+    """通过真实 PostgreSQL LangGraph saver 写入一个无 Saga 的合法 v2 root checkpoint。"""
 
     builder = StateGraph(WorkflowGraphState)
 
@@ -88,7 +88,10 @@ def _persist_checkpoint(saver, *, task_id: str) -> None:
         {
             "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
             "task_id": task_id,
-            "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,
+            # 这里故意使用不需要 human-pause payload 的合法阶段。v2 的
+            # AWAIT_OPERATION_PROPOSAL 必须携带 pending_interaction，不能用无效 fixture
+            # 绕过 Orchestrator 自己已经冻结的 checkpoint integrity contract。
+            "phase": WorkflowPhase.RESOLVE_HOST_CONTEXT.value,
         },
         _runtime_config(task_id),
     )
@@ -148,7 +151,7 @@ def test_postgres_request_and_checkpoint_projects_workflow(
     assert view.state is ProductTaskQueryState.WORKFLOW
     assert view.flow is not None
     assert view.flow.status is ProductFlowStatus.WAITING
-    assert view.flow.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+    assert view.flow.workflow_phase is WorkflowPhase.RESOLVE_HOST_CONTEXT
 
 
 def test_postgres_checkpoint_without_request_fails_only_after_second_request_read(
