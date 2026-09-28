@@ -3,6 +3,8 @@
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
+    ProductTaskQueryState,
+    ProductTaskQueryView,
     ProductTaskRequest,
     ProductTaskRequestError,
 )
@@ -10,6 +12,7 @@ from .postgres_request_store import (
     PostgresProductTaskRequestStore,
     create_postgres_product_task_request_store,
 )
+from .query import ProductTaskCheckpointReadPort, ProductTaskQueryError, ProductTaskQueryService
 from .revit_evidence import RevitWallThicknessVerificationEvidencePort
 from .revit_execution import RevitWallThicknessProviderExecutionSnapshotBoundary
 from .revit_operation_resolution import RevitWallThicknessSemanticBoundary
@@ -20,6 +23,11 @@ __all__ = [
     "PostgresProductTaskRequestStore",
     "ProductFlowStatus",
     "ProductFlowView",
+    "ProductTaskCheckpointReadPort",
+    "ProductTaskQueryError",
+    "ProductTaskQueryService",
+    "ProductTaskQueryState",
+    "ProductTaskQueryView",
     "ProductTaskRequest",
     "ProductTaskRequestError",
     "ProductTaskRequestStore",
