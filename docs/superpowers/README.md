@@ -68,6 +68,7 @@
 | [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | COMPLETED |
 | [`2026-09-23-task8-execution-owner-lookup-amendment-design.md`](specs/2026-09-23-task8-execution-owner-lookup-amendment-design.md) | COMPLETED |
 | [`2026-09-25-revit-wall-thickness-product-vertical-design.md`](specs/2026-09-25-revit-wall-thickness-product-vertical-design.md) | COMPLETED |
+| [`2026-09-28-mcp-agent-front-door-design.md`](specs/2026-09-28-mcp-agent-front-door-design.md) | CURRENT |
 
 ## Implementation Plans
 
