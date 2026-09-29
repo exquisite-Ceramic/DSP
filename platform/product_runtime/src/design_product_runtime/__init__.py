@@ -17,6 +17,11 @@ from .query import ProductTaskCheckpointReadPort, ProductTaskQueryError, Product
 from .revit_evidence import RevitWallThicknessVerificationEvidencePort
 from .revit_execution import RevitWallThicknessProviderExecutionSnapshotBoundary
 from .revit_operation_resolution import RevitWallThicknessSemanticBoundary
+from .revit_reference_composition import (
+    RevitWallThicknessCompositionConfig,
+    RevitWallThicknessRuntimeComposition,
+    build_revit_wall_thickness_reference_composition,
+)
 from .revit_semantics import RevitSemanticBoundaryError
 from .start_gate import ProductTaskStartGate
 from .wall_thickness_flow import ProductTaskRequestStore, WallThicknessProductFlow
@@ -36,9 +41,12 @@ __all__ = [
     "ProductTaskRequestStore",
     "ProductTaskStartGate",
     "RevitSemanticBoundaryError",
+    "RevitWallThicknessCompositionConfig",
     "RevitWallThicknessProviderExecutionSnapshotBoundary",
+    "RevitWallThicknessRuntimeComposition",
     "RevitWallThicknessSemanticBoundary",
     "RevitWallThicknessVerificationEvidencePort",
     "WallThicknessProductFlow",
+    "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",
 ]
