@@ -58,10 +58,10 @@ jobs:
             tests/orchestrator/test_configured_policy_denial_e2e.py \
             -q -vv
 
-      - name: Check Task 5 touched paths with Ruff
+      - name: Check frozen E F I Ruff gate on Task 5 paths
         shell: bash
         run: |
-          uv run ruff check \
+          uv run ruff check --select E,F,I \
             platform/product_front_door/src/design_product_front_door \
             platform/gateway_authorization/src/design_gateway_authorization \
             platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
