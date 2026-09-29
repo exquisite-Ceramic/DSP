@@ -91,3 +91,40 @@ def test_same_correlation_with_different_utterance_fails_closed(
         assert store.get_submission("client-submit-003") == original
     finally:
         store.close()
+
+
+def test_client_restart_before_freeze_recovers_exact_unfrozen_utterance(
+    tmp_path: Path,
+) -> None:
+    """correlation 创建后、模型 freeze 前进程重启，必须仍可重新解释原始 immutable utterance。"""
+
+    db_path = tmp_path / "front-door.sqlite3"
+    utterance = "把当前墙厚改为 300mm；如果信息不足就先问我。"
+
+    first_store = _store(db_path)
+    try:
+        created = first_store.create_submission("client-submit-restart", utterance)
+        assert created.frozen is None
+    finally:
+        first_store.close()
+
+    rebuilt_store = _store(db_path)
+    try:
+        _, state_type, record_type = _state_types()
+        recovered = rebuilt_store.get_submission("client-submit-restart")
+
+        assert isinstance(recovered, record_type)
+        assert recovered.client_submission_ref == "client-submit-restart"
+        assert recovered.utterance == utterance
+        assert recovered.state is state_type.UNFROZEN
+        assert recovered.frozen is None
+        assert rebuilt_store.get_frozen_submission("client-submit-restart") is None
+
+        # 重启读取仍只是 correlation truth；没有 freeze 就绝不能凭数据库状态重建业务身份。
+        assert not hasattr(recovered, "task_id")
+        assert not hasattr(recovered, "session_ref")
+        assert not hasattr(recovered, "proposal_hash")
+        assert not hasattr(recovered, "request")
+        assert not hasattr(recovered, "session_binding")
+    finally:
+        rebuilt_store.close()
