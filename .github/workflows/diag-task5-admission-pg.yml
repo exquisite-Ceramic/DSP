@@ -1,0 +1,41 @@
+name: Task 5 configured admission PostgreSQL diagnostic
+
+on:
+  push:
+
+jobs:
+  task5-admission-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dsp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 诊断 workflow 自身位于隔离分支；实际被测代码始终钉死 feature exact HEAD。
+          ref: 49b7b728996701aa1b755d42fe53e77def6f6e36
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 5 configured admission PostgreSQL acceptance
+        env:
+          DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
+        run: |
+          uv run python -m pytest \
+            tests/product_front_door/test_approval_policy.py \
+            tests/product_front_door/test_approval_admission_postgres.py -q -vv
