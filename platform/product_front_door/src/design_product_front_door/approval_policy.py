@@ -1,11 +1,15 @@
-"""Product Front Door 的 configured local approval policy authority。"""
+"""Product Front Door 的 configured local approval policy 与 admission composition。"""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 
-from design_changeset import canonical_hash
+from design_approval_scope import validate_approval_scope_boundary_v2
+from design_changeset import canonical_hash, validate_changeset_integrity_v2
+from design_gateway_authorization import ApprovalAdmission, compute_admission_fingerprint
+from design_orchestrator.workflow_contracts import StableRef
 
 _POLICY_VERSION = "DSP_PRODUCT_APPROVAL_POLICY_V1"
 _POLICY_FIELDS = frozenset(
@@ -165,4 +169,191 @@ class ConfiguredProductApprovalPolicy:
             )
 
 
-__all__ = ["ConfiguredProductApprovalPolicy"]
+class ConfiguredPolicyApprovalAdmissionPort:
+    """从 authoritative ChangeSet/scope 与 configured policy 签发 durable ApprovalAdmission。"""
+
+    def __init__(
+        self,
+        *,
+        changeset_store: object,
+        approval_scope_store: object,
+        admission_store: object,
+        policy_source: object,
+        clock: object,
+        id_factory: object,
+    ) -> None:
+        """显式接收共享 owner stores；不得通过私有字段或并行 store graph 取业务真相。"""
+
+        if not callable(getattr(changeset_store, "get", None)):
+            raise TypeError("changeset_store must provide get")
+        if not callable(getattr(approval_scope_store, "get_boundary", None)):
+            raise TypeError("approval_scope_store must provide get_boundary")
+        if any(
+            not callable(getattr(admission_store, method_name, None))
+            for method_name in ("get", "issue_or_get")
+        ):
+            raise TypeError("admission_store must provide get and issue_or_get")
+        if not callable(getattr(policy_source, "load", None)):
+            raise TypeError("policy_source must provide load")
+        if not callable(getattr(clock, "now", None)):
+            raise TypeError("clock must provide now")
+        if not callable(id_factory):
+            raise TypeError("id_factory must be callable")
+
+        self._changeset_store = changeset_store
+        self._approval_scope_store = approval_scope_store
+        self._admission_store = admission_store
+        self._policy_source = policy_source
+        self._clock = clock
+        self._id_factory = id_factory
+
+    def request_approval(self, changeset_ref: StableRef) -> ApprovalAdmission:
+        """按 exact final lineage replay 已签发 admission，或在 policy 授权后首次签发。"""
+
+        changeset, boundary, required_operations = self._load_authoritative_lineage(
+            changeset_ref
+        )
+        existing = self._admission_store.get(
+            changeset_hash=changeset.changeset_hash,
+            approved_scope_hash=boundary.scope_hash,
+        )
+        if existing is not None:
+            self._validate_replayed_admission(
+                existing,
+                changeset=changeset,
+                boundary=boundary,
+                required_operations=required_operations,
+            )
+            return existing
+
+        policy = self._policy_source.load()
+        if not isinstance(policy, ConfiguredProductApprovalPolicy):
+            raise _config_error("policy source did not return ConfiguredProductApprovalPolicy")
+        policy.authorize(
+            project_id=changeset.project_id,
+            required_canonical_operations=required_operations,
+        )
+
+        approved_at = self._clock.now()
+        approved_at_text = self._canonical_utc(approved_at)
+        expires_at_text = self._canonical_utc(
+            approved_at + timedelta(seconds=policy.admission_ttl_seconds)
+        )
+        admission_id = self._id_factory()
+        if not isinstance(admission_id, str) or not admission_id.strip():
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_ADMISSION_INVALID: id_factory returned a blank admission id"
+            )
+
+        draft = ApprovalAdmission(
+            admission_id=admission_id.strip(),
+            changeset_hash=changeset.changeset_hash,
+            approved_scope_hash=boundary.scope_hash,
+            semantic_environment_ref=changeset.semantic_environment_ref,
+            approver=policy.principal,
+            policy_snapshot_hash=policy.policy_snapshot_hash,
+            policy_allowed_operations=policy.allowed_canonical_operations,
+            approved_at=approved_at_text,
+            expires_at=expires_at_text,
+            admission_fingerprint="0" * 64,
+        )
+        admission = replace(
+            draft,
+            admission_fingerprint=compute_admission_fingerprint(draft),
+        )
+        return self._admission_store.issue_or_get(admission)
+
+    def _load_authoritative_lineage(
+        self,
+        changeset_ref: StableRef,
+    ) -> tuple[object, object, tuple[str, ...]]:
+        """从共享 owner stores 解析并校验 exact ChangeSet 与最终 ApprovalScope boundary。"""
+
+        if not isinstance(changeset_ref, StableRef):
+            raise TypeError("changeset_ref must be StableRef")
+        if changeset_ref.content_hash is None:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: ChangeSet StableRef requires content hash"
+            )
+
+        changeset = self._changeset_store.get(changeset_ref.ref_id)
+        if changeset.changeset_hash != changeset_ref.content_hash:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: ChangeSet StableRef hash mismatch"
+            )
+        boundary = self._approval_scope_store.get_boundary(
+            f"SCOPE-{changeset.changeset_id}"
+        )
+        validate_approval_scope_boundary_v2(boundary)
+        validate_changeset_integrity_v2(changeset, boundary)
+        if boundary.changeset_hash != changeset.changeset_hash:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: final scope does not reference the ChangeSet"
+            )
+
+        required_operations = tuple(
+            sorted(
+                {
+                    changeset.root_operation.canonical_operation,
+                    *(
+                        operation.canonical_operation
+                        for operation in changeset.derived_operations
+                    ),
+                }
+            )
+        )
+        if not required_operations:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: ChangeSet has no canonical operations"
+            )
+        return changeset, boundary, required_operations
+
+    @staticmethod
+    def _validate_replayed_admission(
+        admission: ApprovalAdmission,
+        *,
+        changeset: object,
+        boundary: object,
+        required_operations: tuple[str, ...],
+    ) -> None:
+        """durable replay 不重读当前 policy，但必须重新证明 stored admission 仍属于该 owner lineage。"""
+
+        if not isinstance(admission, ApprovalAdmission):
+            raise TypeError("admission store returned an invalid approval admission")
+        if compute_admission_fingerprint(admission) != admission.admission_fingerprint:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_ADMISSION_INTEGRITY_INVALID: replay fingerprint mismatch"
+            )
+        if admission.changeset_hash != changeset.changeset_hash:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay changeset hash mismatch"
+            )
+        if admission.approved_scope_hash != boundary.scope_hash:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay scope hash mismatch"
+            )
+        if admission.semantic_environment_ref != changeset.semantic_environment_ref:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay semantic environment mismatch"
+            )
+        if not set(required_operations).issubset(admission.policy_allowed_operations):
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay admission lacks operation authority"
+            )
+
+    @staticmethod
+    def _canonical_utc(value: object) -> str:
+        """把 injected clock 的 timezone-aware datetime 规范化成 Gateway 接受的 UTC Z 时间。"""
+
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise ValueError(
+                "FRONT_DOOR_APPROVAL_CLOCK_INVALID: clock.now() must return timezone-aware datetime"
+            )
+        utc_value = value.astimezone(timezone.utc)
+        return utc_value.isoformat().replace("+00:00", "Z")
+
+
+__all__ = [
+    "ConfiguredPolicyApprovalAdmissionPort",
+    "ConfiguredProductApprovalPolicy",
+]
