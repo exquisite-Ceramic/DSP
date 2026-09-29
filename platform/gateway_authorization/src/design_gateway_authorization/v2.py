@@ -286,7 +286,7 @@ class GatewayAuthorizationServiceV2:
         self,
         request: ApprovalConsumptionRequestV2,
     ) -> ApprovalRecord:
-        """消费 exact BoundaryV2 approval，并复用既有 ApprovalRecord 持久形状。"""
+        """严格首次消费 exact BoundaryV2 approval；已消费 admission 仍按旧语义报错。"""
         if not isinstance(request, ApprovalConsumptionRequestV2):
             _error(
                 "APPROVAL_INPUT_INVALID",
@@ -297,6 +297,45 @@ class GatewayAuthorizationServiceV2:
         self._validate_approval_owners(request)
         self._validate_approval_join(request)
         allowed_operations = self._least_privilege_operations(request)
+        record = self._build_approval_record(request, allowed_operations)
+        return self._store.consume_admission_once(
+            request.admission.admission_id,
+            request.admission.admission_fingerprint,
+            record,
+        )
+
+    def consume_or_get_approval(
+        self,
+        request: ApprovalConsumptionRequestV2,
+    ) -> ApprovalRecord:
+        """首次消费或读取同 owner 生命周期内已经消费的 exact ApprovalRecord。"""
+
+        if not isinstance(request, ApprovalConsumptionRequestV2):
+            _error(
+                "APPROVAL_INPUT_INVALID",
+                "request must be ApprovalConsumptionRequestV2",
+            )
+        self._validate_admission_fingerprint(request)
+        self._validate_approval_owners(request)
+        self._validate_approval_join(request)
+        allowed_operations = self._least_privilege_operations(request)
+
+        read_consumed = getattr(self._store, "get_consumed_approval", None)
+        if not callable(read_consumed):
+            raise TypeError("store must provide get_consumed_approval for replay-safe approval consumption")
+        existing = read_consumed(
+            request.admission.admission_id,
+            request.admission.admission_fingerprint,
+        )
+        if existing is not None:
+            self._validate_replayed_approval(
+                existing,
+                request,
+                allowed_operations,
+            )
+            return existing
+
+        self._validate_admission_expiry(request)
         record = self._build_approval_record(request, allowed_operations)
         return self._store.consume_admission_once(
             request.admission.admission_id,
@@ -485,6 +524,59 @@ class GatewayAuthorizationServiceV2:
             approval_hash=approval_hash,
         )
 
+    @classmethod
+    def _validate_replayed_approval(
+        cls,
+        stored: ApprovalRecord,
+        request: ApprovalConsumptionRequestV2,
+        allowed_operations: tuple[str, ...],
+    ) -> None:
+        """重新验证 durable ApprovalRecord 的 immutable authority；首次 consumed_at 仅作为审计事实保留。"""
+
+        if not isinstance(stored, ApprovalRecord):
+            _error(
+                "APPROVAL_INTEGRITY_INVALID",
+                "stored approval is not an ApprovalRecord",
+            )
+        recomputed_hash = compute_approval_hash(
+            admission_fingerprint=stored.admission_fingerprint,
+            changeset_hash=stored.changeset_hash,
+            approved_scope_hash=stored.approved_scope_hash,
+            semantic_environment_ref=stored.semantic_environment_ref,
+            approver=stored.approver,
+            policy_snapshot_hash=stored.policy_snapshot_hash,
+            allowed_operations=stored.allowed_operations,
+            approved_at=stored.approved_at,
+        )
+        if recomputed_hash != stored.approval_hash:
+            _error(
+                "APPROVAL_INTEGRITY_INVALID",
+                "stored ApprovalRecord hash does not match immutable authority content",
+            )
+
+        expected = cls._build_approval_record(request, allowed_operations)
+        comparable_fields = (
+            "approval_id",
+            "admission_id",
+            "admission_fingerprint",
+            "changeset_hash",
+            "approved_scope_hash",
+            "semantic_environment_ref",
+            "approver",
+            "policy_snapshot_hash",
+            "allowed_operations",
+            "approved_at",
+            "approval_hash",
+        )
+        if any(
+            getattr(stored, field_name) != getattr(expected, field_name)
+            for field_name in comparable_fields
+        ):
+            _error(
+                "APPROVAL_INTEGRITY_INVALID",
+                "stored ApprovalRecord does not match replay authority",
+            )
+
     @staticmethod
     def _validate_execution_plan_owner(
         request: ExecutionGrantRequestV2,
@@ -517,10 +609,7 @@ class GatewayAuthorizationServiceV2:
             for item in execution_plan.execution_slices
             if item.materialization_id == execution_slice.materialization_id
         )
-        if (
-            len(exact_slices) != 1
-            or exact_slices[0] != execution_slice
-        ):
+        if len(exact_slices) != 1 or exact_slices[0] != execution_slice:
             _error(
                 "MATERIALIZATION_AUTHORITY_MISMATCH",
                 "ExecutionSliceV2 is not the exact materialization Slice in ExecutionPlanV2",
@@ -683,7 +772,7 @@ class GatewayAuthorizationServiceV2:
             approval_id=approval.approval_id,
             approval_hash=approval.approval_hash,
             changeset_hash=execution_slice.changeset_hash,
-            approved_scope_hash=execution_slice.approved_scope_ref.scope_hash,
+            approved_scope_hash=execution_slice.approval_scope_ref.scope_hash,
             materialization_plan_hash=execution_slice.materialization_plan_hash,
             materialization_id=execution_slice.materialization_id,
             execution_slice_id=execution_slice.execution_slice_id,
