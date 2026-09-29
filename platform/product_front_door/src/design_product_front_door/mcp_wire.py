@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
 from design_product_runtime import ProductTaskRequest
+from pydantic import BaseModel, ConfigDict
 
 OperationProposalResumeKind = Literal[
     "OPERATION_PROPOSAL_ACCEPTED",
