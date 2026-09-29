@@ -5,11 +5,10 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import design_product_front_door as front_door
 import pytest
 from design_changeset import canonical_hash
 from revit_sidecar import RevitContextObservation, RevitSelectedElement
-
-import design_product_front_door as front_door
 
 
 def _controller_types():
