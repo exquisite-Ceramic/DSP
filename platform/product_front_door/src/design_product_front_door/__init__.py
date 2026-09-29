@@ -5,6 +5,7 @@ from .agent import (
     AgentInterpreterPort,
     AgentProposal,
     NormalizedFreezeProposal,
+    SubprocessAgentInterpreter,
 )
 from .candidate_config import ConfiguredRevitCandidateCatalog
 from .contracts import (
@@ -40,6 +41,7 @@ __all__ = [
     "SubmissionController",
     "SubmissionRecord",
     "SubmissionState",
+    "SubprocessAgentInterpreter",
     "configured_revit_candidate_hash_body",
     "session_binding_hash_body",
 ]
