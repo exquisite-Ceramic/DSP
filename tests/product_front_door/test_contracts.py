@@ -99,7 +99,7 @@ def test_candidate_rejects_title_only_or_relative_document_identity() -> None:
 
 
 def test_session_binding_accepts_exact_authority_hash_and_excludes_title() -> None:
-    """document_title 仅为展示元数据；相同 authority body 可在不同 title 下保持同一 binding_hash。"""
+    """document_title 仅为展示元数据；不同 title 不改变同一 authority binding_hash。"""
 
     _, binding_type = _types()
     candidate = _candidate()

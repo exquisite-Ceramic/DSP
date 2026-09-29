@@ -322,7 +322,10 @@ class GatewayAuthorizationServiceV2:
 
         read_consumed = getattr(self._store, "get_consumed_approval", None)
         if not callable(read_consumed):
-            raise TypeError("store must provide get_consumed_approval for replay-safe approval consumption")
+            raise TypeError(
+                "store must provide get_consumed_approval for replay-safe "
+                "approval consumption"
+            )
         existing = read_consumed(
             request.admission.admission_id,
             request.admission.admission_fingerprint,
@@ -531,7 +534,7 @@ class GatewayAuthorizationServiceV2:
         request: ApprovalConsumptionRequestV2,
         allowed_operations: tuple[str, ...],
     ) -> None:
-        """重新验证 durable ApprovalRecord 的 immutable authority；首次 consumed_at 仅作为审计事实保留。"""
+        """重验 durable ApprovalRecord authority；首次 consumed_at 仅保留为审计事实。"""
 
         if not isinstance(stored, ApprovalRecord):
             _error(

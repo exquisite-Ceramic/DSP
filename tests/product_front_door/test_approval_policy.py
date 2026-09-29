@@ -72,7 +72,7 @@ def test_policy_normalizes_exact_authority_body_and_uses_repository_canonical_ha
 
 
 def test_policy_authorizes_only_complete_exact_canonical_operation_set() -> None:
-    """当前 vertical 必须显式授权 exact `set_wall_thickness.v1`，不能用 provider/tool 名近似替代。"""
+    """当前 vertical 必须显式授权 exact operation，不能用 provider/tool 名近似替代。"""
 
     policy_type = _policy_type()
     policy = policy_type.from_mapping(_valid_payload())

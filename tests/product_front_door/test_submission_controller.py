@@ -555,7 +555,11 @@ def test_candidate_hash_drift_under_same_key_is_a_freeze_conflict(
     reader = reader_type(str(db_path))
     try:
         assert reader.resolve_session(winner.session_binding.session_ref) == winner.session_binding
-        losing_ref = "session-B" if winner.session_binding.session_ref == "session-A" else "session-A"
+        losing_ref = (
+            "session-B"
+            if winner.session_binding.session_ref == "session-A"
+            else "session-A"
+        )
         assert reader.resolve_session(losing_ref) is None
     finally:
         reader.close()

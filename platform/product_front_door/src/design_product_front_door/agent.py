@@ -122,7 +122,8 @@ class SubprocessAgentInterpreter:
 
         if completed.returncode != 0:
             raise ValueError(
-                f"{_AGENT_PROCESS_FAILED}: interpreter process exited with code {completed.returncode}"
+                f"{_AGENT_PROCESS_FAILED}: interpreter process exited with code "
+                f"{completed.returncode}"
             )
 
         return self._decode_output(completed.stdout)

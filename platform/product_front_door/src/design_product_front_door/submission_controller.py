@@ -70,7 +70,7 @@ class SubmissionController:
         client_submission_ref: str,
         utterance: str,
     ) -> FrozenSubmission | AgentClarificationRequired:
-        """create/load correlation；若已冻结先返回 winner，否则解释、验证并竞争一次 atomic freeze。"""
+        """create/load correlation；已冻结返回 winner，否则解释、验证并竞争 atomic freeze。"""
 
         record = self._state_store.create_submission(client_submission_ref, utterance)
         if record.frozen is not None:
@@ -88,7 +88,8 @@ class SubmissionController:
             return interpretation
         if not isinstance(interpretation, AgentProposal):
             raise TypeError(
-                f"{_PROPOSAL_INVALID}: interpreter must return AgentProposal or AgentClarificationRequired"
+                f"{_PROPOSAL_INVALID}: interpreter must return AgentProposal or "
+                "AgentClarificationRequired"
             )
 
         candidate = self._candidate_source.get(interpretation.candidate_key)
@@ -108,7 +109,8 @@ class SubmissionController:
         )
         self._validate_observation(candidate=candidate, observation=observation)
 
-        # task/session identity 只在 proposal + configured candidate + fresh Host evidence 全部通过后分配。
+        # task/session identity 只在 proposal + configured candidate + fresh Host evidence
+        # 全部通过后分配。
         session_ref = self._new_identity(self._session_ref_factory, "session_ref")
         task_id = self._new_identity(self._task_id_factory, "task_id")
         binding = self._build_binding(
@@ -192,7 +194,7 @@ class SubmissionController:
 
     @staticmethod
     def _build_binding(*, session_ref: str, candidate, observation) -> SessionBinding:
-        """把 configured candidate 与 fresh runtime/document evidence 冻结成 immutable SessionBinding。"""
+        """把 configured candidate 与 fresh runtime/document evidence 冻结为 SessionBinding。"""
 
         body = session_binding_hash_body(
             session_ref=session_ref,

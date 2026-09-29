@@ -315,7 +315,8 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
             if existing is not None:
                 if existing["utterance"] != utterance:
                     raise ValueError(
-                        f"{_CORRELATION_CONFLICT}: client_submission_ref already owns a different utterance"
+                        f"{_CORRELATION_CONFLICT}: client_submission_ref already "
+                        "owns a different utterance"
                     )
                 record = self._record_from_row(existing)
                 self._connection.commit()
@@ -400,7 +401,8 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
             if state is SubmissionState.FROZEN:
                 if row["proposal_hash"] != expected_proposal_hash:
                     raise ValueError(
-                        f"{_CORRELATION_CONFLICT}: correlation already froze a different normalized proposal"
+                        f"{_CORRELATION_CONFLICT}: correlation already froze a "
+                        "different normalized proposal"
                     )
                 winner = self._frozen_from_row(row)
                 self._connection.commit()
@@ -438,8 +440,13 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
                 ),
             )
             frozen_row = self._submission_row(normalized_ref)
-            if frozen_row is None or self._state_from_row(frozen_row) is not SubmissionState.FROZEN:
-                raise RuntimeError("Front Door freeze transaction did not publish a complete winner")
+            if (
+                frozen_row is None
+                or self._state_from_row(frozen_row) is not SubmissionState.FROZEN
+            ):
+                raise RuntimeError(
+                    "Front Door freeze transaction did not publish a complete winner"
+                )
             winner = self._frozen_from_row(frozen_row)
             self._connection.commit()
             return winner

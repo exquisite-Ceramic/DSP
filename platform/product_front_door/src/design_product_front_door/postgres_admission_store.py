@@ -5,13 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import psycopg
-from psycopg.rows import dict_row
-
 from design_gateway_authorization import (
     ApprovalAdmission,
     compute_admission_fingerprint,
 )
 from design_impact import SemanticEnvironmentBinding
+from psycopg.rows import dict_row
 
 _OWNER_SCHEMA = "product_policy"
 _TABLE = "admission"
@@ -95,7 +94,7 @@ class PostgresConfiguredPolicyAdmissionStore:
         return self._admission_from_row(row)
 
     def issue_or_get(self, admission: ApprovalAdmission) -> ApprovalAdmission:
-        """首次发布 admission；同 fingerprint replay 返回 durable winner，冲突 authority fail closed。"""
+        """首次发布 admission；同 fingerprint replay 返回 durable winner，冲突时 fail closed。"""
 
         if not isinstance(admission, ApprovalAdmission):
             raise TypeError("admission must be ApprovalAdmission")

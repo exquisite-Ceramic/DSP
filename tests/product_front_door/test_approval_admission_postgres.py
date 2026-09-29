@@ -7,6 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
+import design_product_front_door as front_door
 import psycopg
 import pytest
 from design_approval_scope import (
@@ -17,7 +18,6 @@ from design_approval_scope import (
 from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
 from design_gateway_authorization import ApprovalAdmission, compute_admission_fingerprint
 from design_orchestrator.workflow_contracts import StableRef
-import design_product_front_door as front_door
 
 from tests.materialization_planning._support import build_case
 
