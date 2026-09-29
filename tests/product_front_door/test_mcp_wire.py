@@ -117,10 +117,7 @@ def test_resume_accepts_only_frozen_operation_proposal_decisions(resume_kind: st
         )
     )
 
-    assert decoded.task_id == "task-wire-001"
-    assert decoded.pause_id == "pause-wire-001"
-    assert decoded.resume_kind == resume_kind
-    assert decoded.payload == {}
+    assert decoded == ("task-wire-001", "pause-wire-001", resume_kind)
 
     with pytest.raises(ValidationError):
         ProductTaskResumeOperationProposalInput.model_validate(
