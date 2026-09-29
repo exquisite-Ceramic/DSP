@@ -262,11 +262,13 @@ def test_gate_holder_crash_before_start_rolls_back_and_next_flow_starts_once(
         # submit 的 request-first 规则意味着进程在进入 gate 前已经提交 immutable request。
         first_request_store.create(request)
 
-        with pytest.raises(RuntimeError, match="simulated crash before start"):
-            with first_gate.serialize(request.task_id):
-                assert runtime.get_checkpoint(request.task_id) is None
-                # 异常退出 transaction() 模拟 holder 消失；数据库必须 rollback 并释放行锁。
-                raise RuntimeError("simulated crash before start")
+        with (
+            pytest.raises(RuntimeError, match="simulated crash before start"),
+            first_gate.serialize(request.task_id),
+        ):
+            assert runtime.get_checkpoint(request.task_id) is None
+            # 异常退出 transaction() 模拟 holder 消失；数据库必须 rollback 并释放行锁。
+            raise RuntimeError("simulated crash before start")
 
         second_flow = WallThicknessProductFlow(
             request_store=second_request_store,
