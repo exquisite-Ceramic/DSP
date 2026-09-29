@@ -1,0 +1,39 @@
+name: Diagnostic Task 4 exact-head verification
+
+on:
+  push:
+    branches:
+      - diag/task4-exact-head-verification-574771cb
+
+jobs:
+  task4-exact-head:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 4 feature HEAD
+        uses: actions/checkout@v7
+        with:
+          ref: 574771cb4bf513aa719fd2352ed80b742010d763
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install locked repository environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+
+      - name: Run Task 4 focused acceptance
+        run: |
+          uv run python -m pytest \
+            tests/product_front_door/test_sqlite_state.py \
+            tests/product_front_door/test_submission_controller.py \
+            tests/product_front_door/test_agent.py -q -vv
+
+      - name: Enforce absolute Ruff clean on Task 4 paths
+        run: |
+          uv run ruff check \
+            platform/product_front_door/src/design_product_front_door \
+            tests/product_front_door
