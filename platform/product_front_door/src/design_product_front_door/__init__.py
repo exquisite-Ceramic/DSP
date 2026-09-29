@@ -7,7 +7,10 @@ from .agent import (
     NormalizedFreezeProposal,
     SubprocessAgentInterpreter,
 )
-from .approval_policy import ConfiguredProductApprovalPolicy
+from .approval_policy import (
+    ConfiguredPolicyApprovalAdmissionPort,
+    ConfiguredProductApprovalPolicy,
+)
 from .candidate_config import ConfiguredRevitCandidateCatalog
 from .contracts import (
     ConfiguredRevitCandidate,
@@ -16,6 +19,7 @@ from .contracts import (
     configured_revit_candidate_hash_body,
     session_binding_hash_body,
 )
+from .postgres_admission_store import PostgresConfiguredPolicyAdmissionStore
 from .sqlite_state import (
     FrozenSubmission,
     SessionBindingReadPort,
@@ -30,12 +34,14 @@ __all__ = [
     "AgentClarificationRequired",
     "AgentInterpreterPort",
     "AgentProposal",
+    "ConfiguredPolicyApprovalAdmissionPort",
     "ConfiguredProductApprovalPolicy",
     "ConfiguredRevitCandidate",
     "ConfiguredRevitCandidateCatalog",
     "ConfiguredRevitCandidateSource",
     "FrozenSubmission",
     "NormalizedFreezeProposal",
+    "PostgresConfiguredPolicyAdmissionStore",
     "SessionBinding",
     "SessionBindingReadPort",
     "SqliteFrontDoorStateStore",
