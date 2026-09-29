@@ -25,10 +25,10 @@ def _accept_command(proposal) -> WorkflowResumeCommand:
     )
 
 
-def test_host_outcome_unknown_and_restart_after_dispatch_never_duplicate_execute(
+def test_host_outcome_unknown_never_duplicate_execute(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 10/18：未知 Host 结果在 dispatch 后重启，owner truth 必须阻止第二次 mutation。"""
+    """未知 Host 结果进入 durable recovery 后，重复完成信号不得触发第二次 mutation。"""
 
     task_id = "task-product-host-outcome-unknown"
     case = revit_wall_thickness_product_case(task_id)
@@ -68,11 +68,10 @@ def test_host_outcome_unknown_and_restart_after_dispatch_never_duplicate_execute
     assert intent.status.value == "OUTCOME_UNKNOWN"
     dispatch_intent_id = intent.dispatch_intent_id
 
-    # 场景 18 的 restart 发生在 durable dispatch 之后：request/checkpoint/artifact/Saga/dispatch
-    # 全部重新打开 PostgreSQL connection。恢复只能读取同一 Saga/intent owner truth，不能把
-    # “未知是否已提交”误解释成安全未提交并重新发送 set_wall_thickness。
-    rebuilt = revit_wall_thickness_product_case.rebuild(case, task_id)
-    waiting_after_restart = rebuilt.flow.resume(
+    # v1 不宣称 ContextSnapshot 形成后的任意 server-process rebuild。这里验证真正需要的
+    # recovery invariant：同一 live composition 收到后续完成信号时，只读取既有 Saga/intent
+    # owner truth，不能把“未知是否已提交”降格成安全未提交并重新发送 mutation。
+    waiting_again = case.flow.resume(
         task_id,
         WorkflowResumeCommand(
             resume_kind="ASYNC_OPERATION_COMPLETED",
@@ -80,14 +79,14 @@ def test_host_outcome_unknown_and_restart_after_dispatch_never_duplicate_execute
         ),
     )
 
-    assert waiting_after_restart.status is ProductFlowStatus.RECOVERY_REQUIRED
-    assert waiting_after_restart.workflow_phase is WorkflowPhase.APPLY_WAIT
-    assert waiting_after_restart.saga_id == waiting.saga_id
-    assert rebuilt.host.execute_count == 1
+    assert waiting_again.status is ProductFlowStatus.RECOVERY_REQUIRED
+    assert waiting_again.workflow_phase is WorkflowPhase.APPLY_WAIT
+    assert waiting_again.saga_id == waiting.saga_id
+    assert case.host.execute_count == 1
 
-    reloaded = rebuilt.saga_store.get_saga(waiting.saga_id)
+    reloaded = case.saga_store.get_saga(waiting.saga_id)
     assert reloaded is not None
-    reloaded_intent = rebuilt.dispatch_store.get_for_saga_slice(
+    reloaded_intent = case.dispatch_store.get_for_saga_slice(
         waiting.saga_id,
         slice_hash,
     )
@@ -96,10 +95,10 @@ def test_host_outcome_unknown_and_restart_after_dispatch_never_duplicate_execute
     assert reloaded_intent.status.value == "OUTCOME_UNKNOWN"
 
 
-def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_execute(
+def test_transport_response_loss_after_host_commit_never_duplicate_execute(
     revit_wall_thickness_product_case,
 ) -> None:
-    """真实 mutation 已完成但 response 丢失时，必须持久化 unknown outcome 并禁止重发。"""
+    """真实 mutation 已完成但 response 丢失时，durable unknown outcome 必须禁止重发。"""
 
     task_id = "task-product-response-lost-after-commit"
     case = revit_wall_thickness_product_case(task_id)
@@ -132,8 +131,7 @@ def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_e
     assert intent.status.value == "OUTCOME_UNKNOWN"
     dispatch_intent_id = intent.dispatch_intent_id
 
-    rebuilt = revit_wall_thickness_product_case.rebuild(case, task_id)
-    waiting_after_restart = rebuilt.flow.resume(
+    waiting_again = case.flow.resume(
         task_id,
         WorkflowResumeCommand(
             resume_kind="ASYNC_OPERATION_COMPLETED",
@@ -141,14 +139,14 @@ def test_transport_response_loss_after_host_commit_and_restart_never_duplicate_e
         ),
     )
 
-    assert waiting_after_restart.status is ProductFlowStatus.RECOVERY_REQUIRED
-    assert waiting_after_restart.workflow_phase is WorkflowPhase.APPLY_WAIT
-    assert waiting_after_restart.saga_id == waiting.saga_id
-    assert rebuilt.host.execute_count == 1
-    assert rebuilt.host.current_thickness_mm == 300.0
-    assert rebuilt.host.current_revision == 43
+    assert waiting_again.status is ProductFlowStatus.RECOVERY_REQUIRED
+    assert waiting_again.workflow_phase is WorkflowPhase.APPLY_WAIT
+    assert waiting_again.saga_id == waiting.saga_id
+    assert case.host.execute_count == 1
+    assert case.host.current_thickness_mm == 300.0
+    assert case.host.current_revision == 43
 
-    reloaded_intent = rebuilt.dispatch_store.get_for_saga_slice(
+    reloaded_intent = case.dispatch_store.get_for_saga_slice(
         waiting.saga_id,
         slice_hash,
     )
@@ -224,12 +222,12 @@ def test_host_success_from_other_commit_start_revision_requires_recovery(
     assert intent.status.value == "OUTCOME_UNKNOWN"
 
 
-def test_restart_at_operation_proposal_restores_exact_request_and_refs(
+def test_operation_proposal_get_and_resume_reuse_same_reference_composition(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 17/19：proposal HITL 重启后恢复 exact request/refs，不在恢复读取时重算 context。"""
+    """proposal pause 后 get 不触碰 Host，human resume 继续复用同一 in-memory snapshot owner。"""
 
-    task_id = "task-product-restart-at-proposal"
+    task_id = "task-product-same-composition-proposal"
     case = revit_wall_thickness_product_case(task_id)
     proposal = _submit_to_proposal(case)
     context_ref = proposal.checkpoint.context_snapshot_ref
@@ -240,13 +238,10 @@ def test_restart_at_operation_proposal_restores_exact_request_and_refs(
     assert pending is not None
     request_hash = case.request.request_hash
 
-    # proposal 形成前已有两次合法 current-selection READ：初始 capture 与 freshness exact re-read。
-    # 这里冻结实际计数，只要求 process rebuild + get() 本身不产生第三次 context recompute。
     context_reads_before = case.host.command_operations().count("context.current_selection")
     assert context_reads_before >= 1
 
-    rebuilt = revit_wall_thickness_product_case.rebuild(case, task_id)
-    restored = rebuilt.flow.get(task_id)
+    restored = case.flow.get(task_id)
 
     assert restored is not None
     assert restored.status is ProductFlowStatus.WAITING
@@ -254,19 +249,19 @@ def test_restart_at_operation_proposal_restores_exact_request_and_refs(
     assert restored.checkpoint.context_snapshot_ref == context_ref
     assert restored.checkpoint.operation_ref == operation_ref
     assert restored.checkpoint.pending_interaction == pending
-    persisted_request = rebuilt.request_store.get(task_id)
+    persisted_request = case.request_store.get(task_id)
     assert persisted_request is not None
     assert persisted_request.request_hash == request_hash
-    assert persisted_request == rebuilt.request
-    assert rebuilt.host.execute_count == 0
+    assert persisted_request == case.request
+    assert case.host.execute_count == 0
     assert (
-        rebuilt.host.command_operations().count("context.current_selection")
+        case.host.command_operations().count("context.current_selection")
         == context_reads_before
     )
 
-    completed = rebuilt.flow.resume(task_id, _accept_command(restored))
+    completed = case.flow.resume(task_id, _accept_command(restored))
 
     assert completed.status is ProductFlowStatus.SUCCEEDED
     assert completed.workflow_phase is WorkflowPhase.COMPLETED
-    assert rebuilt.host.execute_count == 1
-    assert rebuilt.request_store.get(task_id).request_hash == request_hash
+    assert case.host.execute_count == 1
+    assert case.request_store.get(task_id).request_hash == request_hash
