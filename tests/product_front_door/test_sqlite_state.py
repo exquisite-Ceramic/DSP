@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import design_product_front_door as front_door
+import pytest
 
 
 def _state_types():
