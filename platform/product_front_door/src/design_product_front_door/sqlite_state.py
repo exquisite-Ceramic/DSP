@@ -573,7 +573,7 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
         except (TypeError, json.JSONDecodeError) as exc:
             raise ValueError(f"{_STATE_INVALID}: frozen request JSON is invalid") from exc
         if not isinstance(request_body, dict):
-            raise ValueError(f"{_STATE_INVALID}: frozen request JSON must be an object")
+            raise TypeError(f"{_STATE_INVALID}: frozen request JSON must be an object")
         if request_body.get("request_hash") != row["request_hash"]:
             raise ValueError(f"{_STATE_INVALID}: frozen request hash columns disagree")
 
