@@ -138,7 +138,7 @@ class SubprocessAgentInterpreter:
                 f"{_AGENT_OUTPUT_INVALID}: stdout must contain exactly one JSON document"
             ) from exc
         if not isinstance(payload, Mapping):
-            raise ValueError(f"{_AGENT_OUTPUT_INVALID}: stdout JSON must be an object")
+            raise TypeError(f"{_AGENT_OUTPUT_INVALID}: stdout JSON must be an object")
 
         kind = payload.get("kind")
         if kind == "PROPOSAL":
