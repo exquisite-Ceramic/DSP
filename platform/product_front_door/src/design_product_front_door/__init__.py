@@ -7,6 +7,7 @@ from .agent import (
     NormalizedFreezeProposal,
     SubprocessAgentInterpreter,
 )
+from .approval_policy import ConfiguredProductApprovalPolicy
 from .candidate_config import ConfiguredRevitCandidateCatalog
 from .contracts import (
     ConfiguredRevitCandidate,
@@ -29,6 +30,7 @@ __all__ = [
     "AgentClarificationRequired",
     "AgentInterpreterPort",
     "AgentProposal",
+    "ConfiguredProductApprovalPolicy",
     "ConfiguredRevitCandidate",
     "ConfiguredRevitCandidateCatalog",
     "ConfiguredRevitCandidateSource",
