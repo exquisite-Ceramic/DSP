@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .contracts import (
+    ApprovalRecord,
     ApprovalState,
     GatewayAuthorizationError,
     GrantState,
@@ -37,6 +38,31 @@ class InMemoryGatewayAuthorizationStoreV2(InMemoryGatewayAuthorizationStore):
         super().__init__()
         self._grants_v2: dict[str, _StoredGrantV2] = {}
         self._lineages_v2: dict[tuple[str, str, str, str], list[str]] = {}
+
+    def get_consumed_approval(
+        self,
+        admission_id: str,
+        admission_fingerprint: str,
+    ) -> ApprovalRecord | None:
+        """读取同 owner 生命周期内已经消费的 exact admission；不改变 strict consume 语义。"""
+
+        with self._lock:
+            existing = self._consumptions.get(admission_id)
+            if existing is None:
+                return None
+            existing_fingerprint, approval_id = existing
+            if existing_fingerprint != admission_fingerprint:
+                raise GatewayAuthorizationError(
+                    "APPROVAL_ADMISSION_CONFLICT",
+                    "ApprovalAdmission id is already bound to different authority content",
+                )
+            stored = self._approvals.get(approval_id)
+            if stored is None:
+                raise GatewayAuthorizationError(
+                    "APPROVAL_INTEGRITY_INVALID",
+                    "consumed admission references a missing ApprovalRecord",
+                )
+            return stored.record
 
     @staticmethod
     def _lineage_v2(grant: ExecutionGrantV2) -> tuple[str, str, str, str]:
