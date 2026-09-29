@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import fields
 from datetime import datetime, timezone
 
-import pytest
 import design_product_runtime.revit_reference_composition as composition_module
+import pytest
 from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore
 from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
