@@ -7,30 +7,19 @@ import os
 import subprocess
 import uuid
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from design_execution_planning import (
-    MaterializationRoutingEvidence,
-    MaterializationRuntimeRoute,
-    compute_materialization_routing_hash,
-)
 from design_execution_reconciliation import (
     ExecutionSagaStatusV2,
     SliceReconciliationStatusV2,
 )
 from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
 from design_product_runtime import ProductFlowStatus
-from design_provider_binding import (
-    compute_host_binding_fingerprint,
-    compute_provider_snapshot_hash_v2,
-)
 from host_contracts import HostCommand
 from revit_sidecar.named_pipe import NamedPipeTransport
 
 from tests.integration.test_phase_h_revit_wall_thickness_live import _load_fixture_manifest
-from tests.orchestrator import test_real_owner_workflow_end_to_end as _owner_support
 from tests.product_runtime import conftest as _product_support
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -71,7 +60,7 @@ class _RecordingNamedPipeTransport:
         self.current_revision = 0
 
     def request(self, command: HostCommand) -> dict:
-        """原样委托真实 transport，并维护 RevisionBarrier 可读取的最新 Host revision。"""
+        """原样委托真实 transport，并记录最近一次 Host revision 供 evidence 输出。"""
 
         response = self._inner.request(command)
         self.calls.append((command, response))
@@ -119,97 +108,6 @@ def _discover_live_context(
     )
 
 
-def _patch_live_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    document_id: str,
-    host_instance_id: str,
-    wall_unique_id: str,
-) -> None:
-    """把 Task 9 已审查 composition 的环境 evidence seam 绑定到本次真实 Revit 身份。"""
-
-    monkeypatch.setattr(_product_support, "_DOCUMENT_REF", document_id)
-    monkeypatch.setattr(_product_support, "_HOST_INSTANCE_ID", host_instance_id)
-    monkeypatch.setattr(_product_support, "_WALL_UNIQUE_ID", wall_unique_id)
-    monkeypatch.setattr(_owner_support, "_DOCUMENT_REF", document_id)
-
-    class _LiveMaterializationRoutingBoundary(
-        _owner_support._MaterializationRoutingBoundary
-    ):
-        """仅替换 runtime identity；routing hash 仍按 production contract 重算。"""
-
-        def routing_evidence(self, materialization_plan, topology_snapshot):
-            base = super().routing_evidence(materialization_plan, topology_snapshot)
-            routes = tuple(
-                MaterializationRuntimeRoute(
-                    materialization_id=route.materialization_id,
-                    host_runtime_ref=replace(
-                        route.host_runtime_ref,
-                        host_instance_id=host_instance_id,
-                    ),
-                )
-                for route in base.routes
-            )
-            return MaterializationRoutingEvidence(
-                routing_snapshot_id=base.routing_snapshot_id,
-                routes=routes,
-                routing_snapshot_hash=compute_materialization_routing_hash(routes),
-            )
-
-    class _LiveProviderExecutionSnapshotBoundary(
-        _owner_support._ProviderExecutionSnapshotBoundary
-    ):
-        """仅把 reviewed provider runtime evidence 的 native target 换成真实 Wall.UniqueId。"""
-
-        def __call__(self, execution_slice):
-            base = super().__call__(execution_slice)
-            old_target = base.native_target_bindings[0]
-            unsigned_target = replace(
-                old_target,
-                native_id=wall_unique_id,
-                host_binding_fingerprint="0" * 64,
-            )
-            target = replace(
-                unsigned_target,
-                host_binding_fingerprint=compute_host_binding_fingerprint(unsigned_target),
-            )
-            candidate = base.provider_candidates[0]
-            old_material = base.candidate_binding_materials[
-                candidate.candidate_fingerprint
-            ]
-            provider_arguments = dict(old_material.provider_arguments)
-            provider_arguments["native_ids"] = [wall_unique_id]
-            material = replace(
-                old_material,
-                native_targets=(target,),
-                provider_arguments=provider_arguments,
-            )
-            unsigned_snapshot = replace(
-                base,
-                host_runtime_ref=execution_slice.host_runtime_ref,
-                native_target_bindings=(target,),
-                candidate_binding_materials={
-                    candidate.candidate_fingerprint: material,
-                },
-                snapshot_hash="0" * 64,
-            )
-            return replace(
-                unsigned_snapshot,
-                snapshot_hash=compute_provider_snapshot_hash_v2(unsigned_snapshot),
-            )
-
-    monkeypatch.setattr(
-        _product_support,
-        "_MaterializationRoutingBoundary",
-        _LiveMaterializationRoutingBoundary,
-    )
-    monkeypatch.setattr(
-        _product_support,
-        "_ProviderExecutionSnapshotBoundary",
-        _LiveProviderExecutionSnapshotBoundary,
-    )
-
-
 def _accept_command(proposal) -> WorkflowResumeCommand:
     """接受当前 durable operation proposal，保留原 pause identity。"""
 
@@ -230,10 +128,8 @@ def _git_head() -> str:
     ).strip()
 
 
-def test_revit_wall_thickness_product_live_happy_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """真实 ProductFlow 必须经完整 owner 链完成一次 300mm commit 与独立 READ 证明。"""
+def test_revit_wall_thickness_product_live_happy_path() -> None:
+    """真实 ProductFlow 必须经 public reference factory 完成一次 300mm commit 与独立 READ 证明。"""
 
     if os.name != "nt":
         pytest.fail("DSP_REVIT_LIVE=1 requires the pinned Windows/Revit acceptance machine")
@@ -252,19 +148,20 @@ def test_revit_wall_thickness_product_live_happy_path(
     assert selected[0]["unique_id"] == isolated_wall
     assert selected[0]["native_kind"] == "Wall"
 
-    _patch_live_environment(
-        monkeypatch,
+    dsn = os.environ["DSP_TEST_POSTGRES_DSN"]
+    task_id = f"task-revit-product-live-{uuid.uuid4().hex}"
+    config = _product_support._reference_config(
+        dsn,
         document_id=document_id,
         host_instance_id=host_instance_id,
-        wall_unique_id=isolated_wall,
+        native_target_unique_id=isolated_wall,
     )
-
-    task_id = f"task-revit-product-live-{uuid.uuid4().hex}"
-    case = _product_support._compose_case(
-        os.environ["DSP_TEST_POSTGRES_DSN"],
+    case = _product_support._build_reference_case(
+        dsn,
         task_id,
         reset_schema=True,
         host=transport,
+        config=config,
     )
     try:
         proposal = case.flow.submit(case.request)
