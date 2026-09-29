@@ -6,6 +6,7 @@ import threading
 
 import design_product_runtime as product_runtime
 import psycopg
+import pytest
 from design_orchestrator import (
     LangGraphWorkflowCheckpointReader,
     WorkflowCheckpointView,
@@ -64,9 +65,10 @@ class _NoSagaStore:
 class _PostgresCountingRuntime:
     """用真实 PostgreSQL checkpointer 持久化 checkpoint，并记录本实例的 start 次数。"""
 
-    def __init__(self, saver) -> None:
+    def __init__(self, saver, *, fail_after_persist: bool = False) -> None:
         self._saver = saver
         self._reader = LangGraphWorkflowCheckpointReader(checkpointer=saver)
+        self._fail_after_persist = fail_after_persist
         self.start_requests: list[WorkflowStartRequest] = []
 
         builder = StateGraph(WorkflowGraphState)
@@ -101,6 +103,11 @@ class _PostgresCountingRuntime:
         )
         checkpoint = self._reader.get_checkpoint(request.task_id)
         assert checkpoint is not None
+        if self._fail_after_persist:
+            # 模拟 start 已 durable commit，但调用方在收到返回值前丢失响应。这个异常不能让
+            # 第二个 submit 再次调用 start；它必须重新读取刚刚已经持久化的 checkpoint。
+            self._fail_after_persist = False
+            raise RuntimeError("simulated response loss after checkpoint persistence")
         return checkpoint
 
     def resume(self, task_id: str, command=None) -> WorkflowCheckpointView:
@@ -189,8 +196,6 @@ def test_two_independent_product_flows_start_same_task_only_once(
     request = _request("TASK-FLOW-START-ONCE")
 
     try:
-        # 当前 RED 要求 facade 显式接收真实 gate；尚未接线时应在这里精确失败，而不是依赖
-        # 两个线程碰巧同时读到 checkpoint=None 才形成不稳定的概率性 RED。
         first_flow = WallThicknessProductFlow(
             request_store=first_request_store,
             workflow_runtime=first_runtime,
@@ -229,6 +234,108 @@ def test_two_independent_product_flows_start_same_task_only_once(
         ).get_checkpoint(request.task_id)
         assert checkpoint is not None
         assert checkpoint.task_id == request.task_id
+    finally:
+        first_gate.close()
+        second_gate.close()
+        first_saver.close()
+        second_saver.close()
+        first_request_store.close()
+        second_request_store.close()
+
+
+def test_gate_holder_crash_before_start_rolls_back_and_next_flow_starts_once(
+    product_task_postgres_dsn: str,
+) -> None:
+    """request 已持久化但首个 holder 在 start 前崩溃时，后继进程必须取得锁并仅启动一次。"""
+
+    _reset_start_test_schemas(product_task_postgres_dsn)
+    gate_type = _gate_type()
+    first_request_store = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    second_request_store = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    saver = create_postgres_checkpointer(product_task_postgres_dsn)
+    runtime = _PostgresCountingRuntime(saver)
+    first_gate = gate_type(product_task_postgres_dsn)
+    second_gate = gate_type(product_task_postgres_dsn)
+    request = _request("TASK-CRASH-BEFORE-START")
+
+    try:
+        # submit 的 request-first 规则意味着进程在进入 gate 前已经提交 immutable request。
+        first_request_store.create(request)
+
+        with pytest.raises(RuntimeError, match="simulated crash before start"):
+            with first_gate.serialize(request.task_id):
+                assert runtime.get_checkpoint(request.task_id) is None
+                # 异常退出 transaction() 模拟 holder 消失；数据库必须 rollback 并释放行锁。
+                raise RuntimeError("simulated crash before start")
+
+        second_flow = WallThicknessProductFlow(
+            request_store=second_request_store,
+            workflow_runtime=runtime,
+            saga_store=_NoSagaStore(),
+            start_gate=second_gate,
+        )
+        view = second_flow.submit(request)
+
+        assert view.checkpoint.task_id == request.task_id
+        assert len(runtime.start_requests) == 1
+        assert runtime.get_checkpoint(request.task_id) is not None
+    finally:
+        first_gate.close()
+        second_gate.close()
+        saver.close()
+        first_request_store.close()
+        second_request_store.close()
+
+
+def test_response_loss_after_checkpoint_persist_does_not_start_again(
+    product_task_postgres_dsn: str,
+) -> None:
+    """首个 start 已持久化 checkpoint 但响应丢失时，第二次 submit 只能复用 checkpoint。"""
+
+    _reset_start_test_schemas(product_task_postgres_dsn)
+    gate_type = _gate_type()
+    first_request_store = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    second_request_store = create_postgres_product_task_request_store(product_task_postgres_dsn)
+    first_saver = create_postgres_checkpointer(product_task_postgres_dsn)
+    second_saver = create_postgres_checkpointer(product_task_postgres_dsn)
+    first_runtime = _PostgresCountingRuntime(first_saver, fail_after_persist=True)
+    second_runtime = _PostgresCountingRuntime(second_saver)
+    first_gate = gate_type(product_task_postgres_dsn)
+    second_gate = gate_type(product_task_postgres_dsn)
+    request = _request("TASK-RESPONSE-LOSS-AFTER-CHECKPOINT")
+
+    try:
+        first_flow = WallThicknessProductFlow(
+            request_store=first_request_store,
+            workflow_runtime=first_runtime,
+            saga_store=_NoSagaStore(),
+            start_gate=first_gate,
+        )
+        second_flow = WallThicknessProductFlow(
+            request_store=second_request_store,
+            workflow_runtime=second_runtime,
+            saga_store=_NoSagaStore(),
+            start_gate=second_gate,
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match="simulated response loss after checkpoint persistence",
+        ):
+            first_flow.submit(request)
+
+        # gate 事务回滚不能回滚独立 checkpoint owner 的 durable 写入。
+        durable_checkpoint = LangGraphWorkflowCheckpointReader(
+            checkpointer=second_saver
+        ).get_checkpoint(request.task_id)
+        assert durable_checkpoint is not None
+        assert len(first_runtime.start_requests) == 1
+
+        replayed = second_flow.submit(request)
+
+        assert replayed.checkpoint.task_id == request.task_id
+        assert second_runtime.start_requests == []
+        assert len(first_runtime.start_requests) + len(second_runtime.start_requests) == 1
     finally:
         first_gate.close()
         second_gate.close()
