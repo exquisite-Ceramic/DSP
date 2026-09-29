@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # 诊断 workflow 自身位于隔离分支；实际被测代码始终钉死 feature exact HEAD。
-          ref: 49b7b728996701aa1b755d42fe53e77def6f6e36
+          ref: 5d6a3cfc35b4f48eb87bc26b853a9b22bf577e6e
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
