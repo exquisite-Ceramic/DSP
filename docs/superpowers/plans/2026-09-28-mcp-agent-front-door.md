@@ -10,11 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md`
 
-**Status:** Written implementation plan — pending review  
-**Date:** 2026-09-28  
-**Plan source base:** `architecture/mcp-agent-front-door@41247215ca4dc70d62e17577a68bfadc5fa1ec5c`  
-**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`  
-**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`  
+**Status:** Written implementation plan — pending review
+**Date:** 2026-09-28
+**Plan source base:** `architecture/mcp-agent-front-door@41247215ca4dc70d62e17577a68bfadc5fa1ec5c`
+**Workflow authority:** `docs/adr/ADR-010-workflow-orchestrator-runtime-ownership.md`
+**Persistence authority:** `docs/adr/ADR-008-durable-state-persistence-ownership.md`
 **Delivery/recovery authority:** `docs/adr/ADR-009-cross-owner-delivery-crash-recovery.md`
 
 ## Global Constraints
