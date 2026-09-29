@@ -1,0 +1,36 @@
+name: Diagnostic Task 5 policy GREEN
+
+on:
+  push:
+    branches:
+      - diag/task5-policy-green-1d1909ec
+
+jobs:
+  task5-policy-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 5 policy GREEN HEAD
+        uses: actions/checkout@v7
+        with:
+          ref: 1d1909ec1b75fe12da8c43d4ffdf2ea935c3b0a0
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install locked repository environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+
+      - name: Run Task 5 policy focused tests
+        run: |
+          uv run python -m pytest tests/product_front_door/test_approval_policy.py -q -vv
+
+      - name: Enforce Ruff on Task 5 policy paths
+        run: |
+          uv run ruff check \
+            platform/product_front_door/src/design_product_front_door/approval_policy.py \
+            tests/product_front_door/test_approval_policy.py
