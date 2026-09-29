@@ -579,8 +579,8 @@ def build_revit_wall_thickness_reference_composition(
         topology_registry.register(_topology(config))
 
         approval_admission = build_admission(
-            changeset_store,
-            approval_scope_store,
+            changeset_store=changeset_store,
+            approval_scope_store=approval_scope_store,
         )
         owner_ports = CanonicalWorkflowOwnerPorts(
             snapshot_registry=snapshot_registry,
