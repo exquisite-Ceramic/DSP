@@ -1,7 +1,7 @@
 # MCP/Agent Front Door Design
 
-Status: DESIGN-REVIEW  
-Date: 2026-09-28  
+Status: DESIGN-REVIEW
+Date: 2026-09-28
 Baseline: `architecture/mcp-agent-front-door` @ `b79e0f051bd3952cb533e288d191a1f332a92451`
 
 ## 1. Scope and context
