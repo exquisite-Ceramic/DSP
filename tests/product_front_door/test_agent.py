@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import sys
 
-import pytest
-
 import design_product_front_door as front_door
+import pytest
 
 
 def _interpreter_type():
