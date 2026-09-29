@@ -772,7 +772,7 @@ class GatewayAuthorizationServiceV2:
             approval_id=approval.approval_id,
             approval_hash=approval.approval_hash,
             changeset_hash=execution_slice.changeset_hash,
-            approved_scope_hash=execution_slice.approval_scope_ref.scope_hash,
+            approved_scope_hash=execution_slice.approved_scope_ref.scope_hash,
             materialization_plan_hash=execution_slice.materialization_plan_hash,
             materialization_id=execution_slice.materialization_id,
             execution_slice_id=execution_slice.execution_slice_id,
