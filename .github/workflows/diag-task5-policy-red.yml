@@ -1,0 +1,30 @@
+name: Diagnostic Task 5 policy RED
+
+on:
+  push:
+    branches:
+      - diag/task5-policy-red-ce4adc43
+
+jobs:
+  task5-policy-red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Task 5 RED HEAD
+        uses: actions/checkout@v7
+        with:
+          ref: ce4adc439b7889d3cadfd313d10ac2ac8dd21639
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install locked repository environment
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+
+      - name: Run Task 5 policy RED
+        run: |
+          uv run python -m pytest tests/product_front_door/test_approval_policy.py -q -vv
