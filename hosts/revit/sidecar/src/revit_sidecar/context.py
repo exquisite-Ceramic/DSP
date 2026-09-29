@@ -1,4 +1,4 @@
-"""Revit 当前上下文的严格只读 transport/evidence 适配器。"""
+"""Revit 当前上下文的严格只读 transport/evidence 适配器；locator 不承担 Host 身份证明。"""
 
 from __future__ import annotations
 
