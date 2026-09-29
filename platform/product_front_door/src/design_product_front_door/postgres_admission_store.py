@@ -7,7 +7,10 @@ from collections.abc import Mapping
 import psycopg
 from psycopg.rows import dict_row
 
-from design_gateway_authorization import ApprovalAdmission, compute_admission_fingerprint
+from design_gateway_authorization import (
+    ApprovalAdmission,
+    compute_admission_fingerprint,
+)
 from design_impact import SemanticEnvironmentBinding
 
 _OWNER_SCHEMA = "product_policy"
@@ -193,7 +196,9 @@ class PostgresConfiguredPolicyAdmissionStore:
             )
             raw_operations = row["policy_allowed_operations"]
             if not isinstance(raw_operations, list):
-                raise TypeError("policy_allowed_operations must be a PostgreSQL text array")
+                raise TypeError(
+                    "policy_allowed_operations must be a PostgreSQL text array"
+                )
             admission = ApprovalAdmission(
                 admission_id=row["admission_id"],
                 changeset_hash=row["changeset_hash"],

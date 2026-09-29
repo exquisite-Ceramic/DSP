@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+import design_product_front_door as front_door
 import pytest
 from design_orchestrator.workflow_contracts import WorkflowPhase, WorkflowResumeCommand
 from design_orchestrator.workflow_services import WorkflowStateError
-import design_product_front_door as front_door
 
 from tests.orchestrator.test_real_owner_workflow_end_to_end import (
     _build_real_owner_case,
@@ -121,7 +121,7 @@ def test_operation_proposal_acceptance_cannot_bypass_configured_policy_denial(
     kind: str,
     expected_policy_code: str,
 ) -> None:
-    """HITL 接受只允许解释继续；policy deny 前后都不能产生 approval/planning/grant/Host mutation。"""
+    """HITL 接受只允许解释继续；policy deny 前后均不能产生执行 authority 或 Host mutation。"""
 
     case = _build_real_owner_case(f"task5-policy-deny-{kind}")
     admission_store = _install_configured_policy_admission(case, kind=kind)

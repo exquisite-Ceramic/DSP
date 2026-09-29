@@ -185,7 +185,9 @@ class SubprocessAgentInterpreter:
         )
 
     @staticmethod
-    def _decode_clarification(payload: Mapping[str, object]) -> AgentClarificationRequired:
+    def _decode_clarification(
+        payload: Mapping[str, object],
+    ) -> AgentClarificationRequired:
         """只接受 kind + question，澄清结果不能夹带 candidate 或业务 identity。"""
 
         if set(payload) != {"kind", "question"}:

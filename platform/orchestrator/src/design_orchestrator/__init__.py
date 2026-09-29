@@ -62,12 +62,6 @@ from design_orchestrator.workflow_contracts import (
 from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 
 if TYPE_CHECKING:
-    # LangGraph runtime adapter 是可选 infrastructure dependency。静态检查可见公共类型，
-    # 普通 Host-neutral 消费方只有真正访问 reader 时才加载 LangGraph。
-    from design_orchestrator.langgraph_checkpoint_reader import (
-        LangGraphWorkflowCheckpointReader,
-    )
-
     # PostgreSQL adapter 是可选的 durable infrastructure dependency。
     # 仅在静态类型检查阶段导入，避免普通 Orchestrator/D6 消费方在运行时被迫安装 psycopg。
     from design_orchestrator.artifact_postgres import (
@@ -83,6 +77,12 @@ if TYPE_CHECKING:
         InteractiveParameterResolver,
         OperationInteractionRecipe,
         SlotInteractionRecipe,
+    )
+
+    # LangGraph runtime adapter 是可选 infrastructure dependency。静态检查可见公共类型，
+    # 普通 Host-neutral 消费方只有真正访问 reader 时才加载 LangGraph。
+    from design_orchestrator.langgraph_checkpoint_reader import (
+        LangGraphWorkflowCheckpointReader,
     )
 
 

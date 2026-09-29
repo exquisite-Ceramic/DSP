@@ -91,15 +91,21 @@ class ConfiguredProductApprovalPolicy:
         if not isinstance(payload, Mapping):
             raise _config_error("policy config must be a mapping")
         if set(payload) != _POLICY_FIELDS:
-            raise _config_error("top-level keys do not match DSP_PRODUCT_APPROVAL_POLICY_V1")
+            raise _config_error(
+                "top-level keys do not match DSP_PRODUCT_APPROVAL_POLICY_V1"
+            )
         if payload.get("version") != _POLICY_VERSION:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_VERSION_INVALID: unsupported policy config version"
+                "FRONT_DOOR_APPROVAL_POLICY_VERSION_INVALID: "
+                "unsupported policy config version"
             )
 
         policy_id = _non_blank(payload.get("policy_id"), "policy_id")
         principal = _non_blank(payload.get("principal"), "principal")
-        project_ids = _normalized_unique_strings(payload.get("project_ids"), "project_ids")
+        project_ids = _normalized_unique_strings(
+            payload.get("project_ids"),
+            "project_ids",
+        )
         allowed_operations = _normalized_unique_strings(
             payload.get("allowed_canonical_operations"),
             "allowed_canonical_operations",
@@ -133,39 +139,47 @@ class ConfiguredProductApprovalPolicy:
     ) -> None:
         """验证 project 与完整 canonical-operation 集合；任何不匹配都 fail closed。"""
 
-        normalized_project_id = project_id.strip() if isinstance(project_id, str) else ""
+        normalized_project_id = (
+            project_id.strip() if isinstance(project_id, str) else ""
+        )
         if not normalized_project_id or normalized_project_id not in self.project_ids:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_DENIED: project is not authorized by configured policy"
+                "FRONT_DOOR_APPROVAL_POLICY_DENIED: "
+                "project is not authorized by configured policy"
             )
 
         try:
             raw_operations = tuple(required_canonical_operations)
         except TypeError as exc:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_DENIED: required canonical operations are invalid"
+                "FRONT_DOOR_APPROVAL_POLICY_DENIED: "
+                "required canonical operations are invalid"
             ) from exc
         if not raw_operations:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_DENIED: required canonical operation set is empty"
+                "FRONT_DOOR_APPROVAL_POLICY_DENIED: "
+                "required canonical operation set is empty"
             )
 
         normalized_operations: list[str] = []
         for operation in raw_operations:
             if not isinstance(operation, str) or not operation.strip():
                 raise ValueError(
-                    "FRONT_DOOR_APPROVAL_POLICY_DENIED: required canonical operation is invalid"
+                    "FRONT_DOOR_APPROVAL_POLICY_DENIED: "
+                    "required canonical operation is invalid"
                 )
             normalized_operations.append(operation.strip())
         if len(set(normalized_operations)) != len(normalized_operations):
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_DENIED: required canonical operations contain duplicates"
+                "FRONT_DOOR_APPROVAL_POLICY_DENIED: "
+                "required canonical operations contain duplicates"
             )
 
         allowed = set(self.allowed_canonical_operations)
         if any(operation not in allowed for operation in normalized_operations):
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_POLICY_DENIED: configured policy does not authorize the complete canonical operation set"
+                "FRONT_DOOR_APPROVAL_POLICY_DENIED: configured policy does not "
+                "authorize the complete canonical operation set"
             )
 
 
@@ -228,7 +242,9 @@ class ConfiguredPolicyApprovalAdmissionPort:
 
         policy = self._policy_source.load()
         if not isinstance(policy, ConfiguredProductApprovalPolicy):
-            raise _config_error("policy source did not return ConfiguredProductApprovalPolicy")
+            raise _config_error(
+                "policy source did not return ConfiguredProductApprovalPolicy"
+            )
         policy.authorize(
             project_id=changeset.project_id,
             required_canonical_operations=required_operations,
@@ -242,7 +258,8 @@ class ConfiguredPolicyApprovalAdmissionPort:
         admission_id = self._id_factory()
         if not isinstance(admission_id, str) or not admission_id.strip():
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_ADMISSION_INVALID: id_factory returned a blank admission id"
+                "FRONT_DOOR_APPROVAL_ADMISSION_INVALID: "
+                "id_factory returned a blank admission id"
             )
 
         draft = ApprovalAdmission(
@@ -273,7 +290,8 @@ class ConfiguredPolicyApprovalAdmissionPort:
             raise TypeError("changeset_ref must be StableRef")
         if changeset_ref.content_hash is None:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: ChangeSet StableRef requires content hash"
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: "
+                "ChangeSet StableRef requires content hash"
             )
 
         changeset = self._changeset_store.get(changeset_ref.ref_id)
@@ -288,7 +306,8 @@ class ConfiguredPolicyApprovalAdmissionPort:
         validate_changeset_integrity_v2(changeset, boundary)
         if boundary.changeset_hash != changeset.changeset_hash:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: final scope does not reference the ChangeSet"
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: "
+                "final scope does not reference the ChangeSet"
             )
 
         required_operations = tuple(
@@ -304,7 +323,8 @@ class ConfiguredPolicyApprovalAdmissionPort:
         )
         if not required_operations:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: ChangeSet has no canonical operations"
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: "
+                "ChangeSet has no canonical operations"
             )
         return changeset, boundary, required_operations
 
@@ -316,13 +336,14 @@ class ConfiguredPolicyApprovalAdmissionPort:
         boundary: object,
         required_operations: tuple[str, ...],
     ) -> None:
-        """durable replay 不重读当前 policy，但必须重新证明 stored admission 仍属于该 owner lineage。"""
+        """durable replay 不重读当前 policy，但重新证明 stored admission 属于该 owner lineage。"""
 
         if not isinstance(admission, ApprovalAdmission):
             raise TypeError("admission store returned an invalid approval admission")
         if compute_admission_fingerprint(admission) != admission.admission_fingerprint:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_ADMISSION_INTEGRITY_INVALID: replay fingerprint mismatch"
+                "FRONT_DOOR_APPROVAL_ADMISSION_INTEGRITY_INVALID: "
+                "replay fingerprint mismatch"
             )
         if admission.changeset_hash != changeset.changeset_hash:
             raise ValueError(
@@ -334,11 +355,13 @@ class ConfiguredPolicyApprovalAdmissionPort:
             )
         if admission.semantic_environment_ref != changeset.semantic_environment_ref:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay semantic environment mismatch"
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: "
+                "replay semantic environment mismatch"
             )
         if not set(required_operations).issubset(admission.policy_allowed_operations):
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: replay admission lacks operation authority"
+                "FRONT_DOOR_APPROVAL_LINEAGE_INVALID: "
+                "replay admission lacks operation authority"
             )
 
     @staticmethod
@@ -347,7 +370,8 @@ class ConfiguredPolicyApprovalAdmissionPort:
 
         if not isinstance(value, datetime) or value.tzinfo is None:
             raise ValueError(
-                "FRONT_DOOR_APPROVAL_CLOCK_INVALID: clock.now() must return timezone-aware datetime"
+                "FRONT_DOOR_APPROVAL_CLOCK_INVALID: "
+                "clock.now() must return timezone-aware datetime"
             )
         utc_value = value.astimezone(timezone.utc)
         return utc_value.isoformat().replace("+00:00", "Z")
