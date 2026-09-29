@@ -13,7 +13,7 @@ from design_product_front_door.mcp_wire import (
     decode_resume_operation_proposal_input,
     decode_submit_input,
 )
-from design_product_runtime import ProductTaskRequest
+from design_product_runtime import ProductTaskRequest, ProductTaskRequestError
 
 
 def _request() -> ProductTaskRequest:
@@ -52,7 +52,9 @@ def test_submit_requires_complete_frozen_product_task() -> None:
     """MCP submit 只解码完整 ProductTask，不替调用方补身份字段或重算 request hash。"""
 
     request = _request()
-    decoded = decode_submit_input(ProductTaskSubmitInput.model_validate(_submit_payload(request)))
+    decoded = decode_submit_input(
+        ProductTaskSubmitInput.model_validate(_submit_payload(request))
+    )
 
     assert decoded == request
 
@@ -83,18 +85,23 @@ def test_submit_rejects_extra_fields_and_invalid_request_integrity() -> None:
     invalid_hash = ProductTaskSubmitInput.model_validate(
         {**_submit_payload(request), "request_hash": "0" * 64}
     )
-    with pytest.raises(ValueError, match="PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"):
+    with pytest.raises(ProductTaskRequestError) as exc_info:
         decode_submit_input(invalid_hash)
+    assert exc_info.value.code == "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
 
 
 def test_get_accepts_only_exact_task_id() -> None:
     """get 的 wire surface 只定位 exact task_id，不暴露 listing/search/session 参数。"""
 
-    decoded = decode_get_input(ProductTaskGetInput.model_validate({"task_id": "task-wire-001"}))
+    decoded = decode_get_input(
+        ProductTaskGetInput.model_validate({"task_id": "task-wire-001"})
+    )
     assert decoded == "task-wire-001"
 
     with pytest.raises(ValidationError):
-        ProductTaskGetInput.model_validate({"task_id": "task-wire-001", "session_ref": "session-wire"})
+        ProductTaskGetInput.model_validate(
+            {"task_id": "task-wire-001", "session_ref": "session-wire"}
+        )
 
     with pytest.raises((ValidationError, ValueError)):
         decode_get_input(ProductTaskGetInput.model_validate({"task_id": "   "}))
