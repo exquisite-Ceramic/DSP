@@ -68,11 +68,13 @@ class ProductFrontDoorService:
         view = self._query_service.get(request.task_id)
         if view is None:
             raise ValueError(
-                "FRONT_DOOR_TASK_QUERY_MISSING: submit completed without durable ProductTask query"
+                "FRONT_DOOR_TASK_QUERY_MISSING: "
+                "submit completed without durable ProductTask query"
             )
         if view.task_id != request.task_id or view.request_hash != request.request_hash:
             raise ValueError(
-                "FRONT_DOOR_TASK_QUERY_INTEGRITY_INVALID: query identity does not match submitted request"
+                "FRONT_DOOR_TASK_QUERY_INTEGRITY_INVALID: "
+                "query identity does not match submitted request"
             )
         return view
 
@@ -106,7 +108,8 @@ class ProductFrontDoorService:
         )
         if binding.binding_hash != expected_hash:
             raise ValueError(
-                "FRONT_DOOR_BINDING_HASH_INVALID: binding_hash does not match authority body"
+                "FRONT_DOOR_BINDING_HASH_INVALID: "
+                "binding_hash does not match authority body"
             )
         if (
             request.session_ref != binding.session_ref
@@ -114,7 +117,8 @@ class ProductFrontDoorService:
             or request.host_kind != binding.host_kind
         ):
             raise ValueError(
-                "FRONT_DOOR_REQUEST_BINDING_MISMATCH: request authority does not match frozen session"
+                "FRONT_DOOR_REQUEST_BINDING_MISMATCH: "
+                "request authority does not match frozen session"
             )
         return binding
 
@@ -134,15 +138,18 @@ class ProductFrontDoorService:
             )
         if not isinstance(candidate, ConfiguredRevitCandidate):
             raise ValueError(
-                "FRONT_DOOR_CANDIDATE_INVALID: candidate source returned an invalid candidate"
+                "FRONT_DOOR_CANDIDATE_INVALID: "
+                "candidate source returned an invalid candidate"
             )
         if candidate.candidate_key != binding.candidate_key:
             raise ValueError(
-                "FRONT_DOOR_CANDIDATE_INVALID: candidate source returned the wrong exact key"
+                "FRONT_DOOR_CANDIDATE_INVALID: "
+                "candidate source returned the wrong exact key"
             )
         if candidate.candidate_hash != binding.candidate_hash:
             raise ValueError(
-                "FRONT_DOOR_CANDIDATE_DRIFT: current candidate hash differs from frozen binding"
+                "FRONT_DOOR_CANDIDATE_DRIFT: "
+                "current candidate hash differs from frozen binding"
             )
         if (
             candidate.project_id != binding.project_id
@@ -150,7 +157,8 @@ class ProductFrontDoorService:
             or candidate.document_id != binding.document_id
         ):
             raise ValueError(
-                "FRONT_DOOR_BINDING_CANDIDATE_MISMATCH: frozen binding does not match candidate authority"
+                "FRONT_DOOR_BINDING_CANDIDATE_MISMATCH: "
+                "frozen binding does not match candidate authority"
             )
         return candidate
 
@@ -177,19 +185,23 @@ class ProductFrontDoorService:
             document_id=binding.document_id,
         )
         if observation is None:
-            raise ValueError("FRONT_DOOR_CONTEXT_INVALID: context probe returned no observation")
+            raise ValueError(
+                "FRONT_DOOR_CONTEXT_INVALID: context probe returned no observation"
+            )
         if (
             getattr(observation, "host_instance_id", None) != binding.host_instance_id
             or getattr(observation, "document_id", None) != binding.document_id
         ):
             raise ValueError(
-                "FRONT_DOOR_CONTEXT_INVALID: fresh runtime/document does not match frozen binding"
+                "FRONT_DOOR_CONTEXT_INVALID: "
+                "fresh runtime/document does not match frozen binding"
             )
 
         selected_elements = getattr(observation, "selected_elements", None)
         if not isinstance(selected_elements, tuple) or len(selected_elements) != 1:
             raise ValueError(
-                "FRONT_DOOR_SELECTION_INVALID: exactly one configured Wall must be selected"
+                "FRONT_DOOR_SELECTION_INVALID: "
+                "exactly one configured Wall must be selected"
             )
         selected = selected_elements[0]
         if (
@@ -197,7 +209,8 @@ class ProductFrontDoorService:
             or getattr(selected, "native_kind", None) != "Wall"
         ):
             raise ValueError(
-                "FRONT_DOOR_SELECTION_INVALID: selected Host target does not match configured Wall"
+                "FRONT_DOOR_SELECTION_INVALID: "
+                "selected Host target does not match configured Wall"
             )
 
 
