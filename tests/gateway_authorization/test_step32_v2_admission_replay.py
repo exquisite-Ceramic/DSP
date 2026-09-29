@@ -10,7 +10,6 @@ from design_changeset import validate_changeset_integrity_v2
 from design_gateway_authorization import (
     ApprovalAdmission,
     ApprovalConsumptionRequestV2,
-    ApprovalRecord,
     GatewayAuthorizationError,
     GatewayAuthorizationServiceV2,
     InMemoryGatewayAuthorizationStoreV2,
