@@ -206,7 +206,7 @@ class _HostRevisionObservation:
         self._config = config
 
     def current_revision(self, document_ref: str) -> str:
-        """读取 exact runtime/document 的当前 revision。"""
+        """读取 exact runtime/document/selected-target 的当前 revision evidence。"""
 
         normalized = _required_text(document_ref, "document_ref")
         if normalized != self._config.document_id:
@@ -218,6 +218,15 @@ class _HostRevisionObservation:
             document_id=self._config.document_id,
             host_instance_id=self._config.host_instance_id,
         )
+        selected = observation.selected_elements
+        if (
+            len(selected) != 1
+            or selected[0].native_kind != "Wall"
+            or selected[0].unique_id != self._config.native_target_unique_id
+        ):
+            raise ValueError(
+                "reference composition selected target does not match exact session"
+            )
         return str(observation.revision)
 
 
