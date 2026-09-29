@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from datetime import datetime, timezone
 
+import pytest
 import design_product_runtime.revit_reference_composition as composition_module
+from design_approval_scope import InMemoryApprovalScopeStore
+from design_changeset import InMemoryChangeSetStore
+from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator.workflow_services import WorkflowStateError
+from design_product_front_door import (
+    ConfiguredPolicyApprovalAdmissionPort,
+    ConfiguredProductApprovalPolicy,
+    PostgresConfiguredPolicyAdmissionStore,
+)
 from design_product_runtime import (
+    ProductFlowStatus,
+    ProductTaskRequest,
     RevitWallThicknessCompositionConfig,
     build_revit_wall_thickness_reference_composition,
 )
+
+from tests.product_runtime.conftest import StatefulRevitTransport
 
 
 class _NoIoRevitTransport:
@@ -36,6 +51,65 @@ class _RecordingApprovalAdmissionFactory:
         return _RejectingAdmissionPort()
 
 
+class _StaticPolicySource:
+    """reference acceptance 使用冻结 policy，不从环境隐式发现授权。"""
+
+    def __init__(self, policy: ConfiguredProductApprovalPolicy) -> None:
+        self._policy = policy
+
+    def load(self) -> ConfiguredProductApprovalPolicy:
+        return self._policy
+
+
+class _PolicyClock:
+    """为 configured-policy issuance 提供 timezone-aware UTC 时间。"""
+
+    def now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+
+class _ConfiguredPolicyAdmissionFactory:
+    """只在 supplied authoritative stores 上构造真实 configured-policy admission port。"""
+
+    def __init__(self, dsn: str, *, parallel_store_graph: bool = False) -> None:
+        self._dsn = dsn
+        self._parallel_store_graph = parallel_store_graph
+        self._stores: list[PostgresConfiguredPolicyAdmissionStore] = []
+
+    def build(self, *, changeset_store, approval_scope_store):
+        """正常路径复用 supplied stores；负例显式制造错误平行 store graph。"""
+
+        if self._parallel_store_graph:
+            changeset_store = InMemoryChangeSetStore()
+            approval_scope_store = InMemoryApprovalScopeStore()
+        admission_store = PostgresConfiguredPolicyAdmissionStore(self._dsn)
+        self._stores.append(admission_store)
+        policy = ConfiguredProductApprovalPolicy.from_mapping(
+            {
+                "version": "DSP_PRODUCT_APPROVAL_POLICY_V1",
+                "policy_id": "task6-reference-policy",
+                "principal": "user:task6-reference",
+                "project_ids": ["project-task9"],
+                "allowed_canonical_operations": ["set_wall_thickness.v1"],
+                "admission_ttl_seconds": 3600,
+            }
+        )
+        return ConfiguredPolicyApprovalAdmissionPort(
+            changeset_store=changeset_store,
+            approval_scope_store=approval_scope_store,
+            admission_store=admission_store,
+            policy_source=_StaticPolicySource(policy),
+            clock=_PolicyClock(),
+            id_factory=lambda: "ADM-TASK6-REFERENCE",
+        )
+
+    def close(self) -> None:
+        """关闭 test factory 创建的 durable admission stores。"""
+
+        for store in reversed(self._stores):
+            store.close()
+
+
 def _config() -> RevitWallThicknessCompositionConfig:
     return RevitWallThicknessCompositionConfig(
         dsn="postgresql://unused-by-shape-test",
@@ -44,6 +118,43 @@ def _config() -> RevitWallThicknessCompositionConfig:
         host_instance_id="REVIT-TASK6-REFERENCE",
         semantic_target_id="WALL-001",
         native_target_unique_id="REVIT-UNIQUE-ID-TASK6",
+    )
+
+
+def _real_config(dsn: str) -> RevitWallThicknessCompositionConfig:
+    """与 StatefulRevitTransport 暴露的 exact runtime/document/target identity 对齐。"""
+
+    return RevitWallThicknessCompositionConfig(
+        dsn=dsn,
+        session_ref="revit-session-product-e2e",
+        document_id="DOC-TASK9",
+        host_instance_id="REVIT-TASK9",
+        semantic_target_id="WALL-001",
+        native_target_unique_id="REVIT-UNIQUE-ID-TASK9",
+    )
+
+
+def _request(task_id: str) -> ProductTaskRequest:
+    """构造 reference composition 的 exact immutable wall-thickness request。"""
+
+    return ProductTaskRequest.create(
+        task_id=task_id,
+        project_id="project-task9",
+        host_kind="REVIT",
+        session_ref="revit-session-product-e2e",
+        requested_action="SET_SELECTED_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+
+
+def _accept(proposal) -> WorkflowResumeCommand:
+    """只接受 owner 暴露的 exact operation-proposal pause。"""
+
+    pending = proposal.checkpoint.pending_interaction
+    assert pending is not None
+    return WorkflowResumeCommand(
+        resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+        pause_id=pending.pause_id,
     )
 
 
@@ -105,3 +216,67 @@ def test_reference_composition_passes_exact_same_changeset_and_scope_stores_to_p
         assert composition.snapshot_registry is not None
     finally:
         composition.close()
+
+
+def test_real_configured_policy_authorizes_exact_workflow_lineage_on_same_composition(
+    product_task_postgres_dsn: str,
+) -> None:
+    """真实 policy port 必须消费本 workflow 的 final ChangeSet/scope 并在同 composition 完成。"""
+
+    host = StatefulRevitTransport()
+    approval_factory = _ConfiguredPolicyAdmissionFactory(product_task_postgres_dsn)
+    composition = build_revit_wall_thickness_reference_composition(
+        config=_real_config(product_task_postgres_dsn),
+        transport=host,
+        approval_admission_factory=approval_factory,
+    )
+    try:
+        proposal = composition.flow.submit(_request("task6-reference-policy-happy"))
+        assert proposal.status is ProductFlowStatus.WAITING
+        assert proposal.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        assert host.execute_count == 0
+
+        completed = composition.flow.resume(
+            proposal.task_id,
+            _accept(proposal),
+        )
+
+        assert completed.status is ProductFlowStatus.SUCCEEDED
+        assert completed.workflow_phase is WorkflowPhase.COMPLETED
+        assert host.execute_count == 1
+        assert host.current_thickness_mm == 300.0
+    finally:
+        composition.close()
+        approval_factory.close()
+
+
+def test_parallel_policy_store_graph_fails_closed_before_host_mutation(
+    product_task_postgres_dsn: str,
+) -> None:
+    """configured-policy 若接到平行空 owner graph，必须在 Gateway/Host mutation 前失败。"""
+
+    host = StatefulRevitTransport()
+    approval_factory = _ConfiguredPolicyAdmissionFactory(
+        product_task_postgres_dsn,
+        parallel_store_graph=True,
+    )
+    composition = build_revit_wall_thickness_reference_composition(
+        config=_real_config(product_task_postgres_dsn),
+        transport=host,
+        approval_admission_factory=approval_factory,
+    )
+    try:
+        proposal = composition.flow.submit(_request("task6-reference-policy-wrong-store"))
+        assert proposal.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+
+        with pytest.raises(WorkflowStateError):
+            composition.flow.resume(
+                proposal.task_id,
+                _accept(proposal),
+            )
+
+        assert host.execute_count == 0
+        assert "set_wall_thickness" not in host.command_operations()
+    finally:
+        composition.close()
+        approval_factory.close()
