@@ -29,7 +29,9 @@ class _RecordingApprovalAdmissionFactory:
     def __init__(self) -> None:
         self.calls: list[tuple[object, object]] = []
 
-    def build(self, changeset_store, approval_scope_store):
+    def build(self, *, changeset_store, approval_scope_store):
+        """只接受冻结 Protocol 的 keyword-only shared-store seam。"""
+
         self.calls.append((changeset_store, approval_scope_store))
         return _RejectingAdmissionPort()
 
