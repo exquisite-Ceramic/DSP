@@ -231,7 +231,7 @@ class SessionBinding:
         )
         document_id = _absolute_document_id(self.document_id)
         if not isinstance(self.document_title, str):
-            raise ValueError("FRONT_DOOR_BINDING_INVALID: document_title must be a string")
+            raise TypeError("FRONT_DOOR_BINDING_INVALID: document_title must be a string")
         binding_hash = _sha256_hex(
             self.binding_hash,
             code="FRONT_DOOR_BINDING_HASH_INVALID",
