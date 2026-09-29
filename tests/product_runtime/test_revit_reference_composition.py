@@ -62,7 +62,7 @@ def test_reference_composition_passes_exact_same_changeset_and_scope_stores_to_p
     product_task_postgres_dsn: str,
     monkeypatch,
 ) -> None:
-    """workflow 与 configured-policy factory 必须共享同一组 ChangeSet/ApprovalScope owner stores。"""
+    """workflow 与 configured-policy factory 必须共享同一组 authoritative owner stores。"""
 
     owner_seen: dict[str, object] = {}
     real_owner_ports = composition_module.CanonicalWorkflowOwnerPorts
