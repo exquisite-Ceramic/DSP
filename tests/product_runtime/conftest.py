@@ -40,7 +40,10 @@ def product_task_postgres_dsn() -> str:
 
 
 class StatefulRevitTransport:
-    """只模拟外部 Revit Host transport；平台 owners 与 sidecar adapters 全部来自 production factory。"""
+    """只模拟外部 Revit Host transport。
+
+    平台 owners 与 sidecar adapters 全部来自 production factory。
+    """
 
     def __init__(self) -> None:
         self.current_revision = _INITIAL_REVISION
