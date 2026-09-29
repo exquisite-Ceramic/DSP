@@ -87,7 +87,7 @@ class SubmissionController:
                 raise ValueError(f"{_PROPOSAL_INVALID}: clarification question must be non-blank")
             return interpretation
         if not isinstance(interpretation, AgentProposal):
-            raise ValueError(
+            raise TypeError(
                 f"{_PROPOSAL_INVALID}: interpreter must return AgentProposal or AgentClarificationRequired"
             )
 
