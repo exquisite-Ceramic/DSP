@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import design_product_front_door as front_door
 import pytest
@@ -17,7 +18,7 @@ class _ProposalInterpreter:
         self.calls: list[tuple[str, str]] = []
 
     def interpret(self, *, client_submission_ref: str, utterance: str):
-        """记录 exact correlation/utterance，不接收任何 transport 或 authority metadata。"""
+        """记录 exact correlation/utterance，不接收 transport 或 authority metadata。"""
 
         self.calls.append((client_submission_ref, utterance))
         return front_door.AgentProposal(
@@ -89,6 +90,44 @@ class _ProbeFactory:
         return _Probe(self._observation)
 
 
+class _FixedFactory:
+    """为竞争测试返回调用方指定的 opaque identity。"""
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def __call__(self) -> str:
+        """返回固定 identity。"""
+
+        return self._value
+
+
+class _BarrierFreezeStore(front_door.SqliteFrontDoorStateStore):
+    """只在测试中同步 freeze 起跑线；不改变 SQLite owner 的事务实现。"""
+
+    def __init__(self, database_path: str, barrier: Barrier) -> None:
+        super().__init__(database_path)
+        self._freeze_barrier = barrier
+
+    def freeze_submission(
+        self,
+        *,
+        client_submission_ref,
+        proposal,
+        binding,
+        request,
+    ):
+        """两个独立连接都完成解释/Host 校验后，才同时进入真实 atomic freeze。"""
+
+        self._freeze_barrier.wait(timeout=10)
+        return super().freeze_submission(
+            client_submission_ref=client_submission_ref,
+            proposal=proposal,
+            binding=binding,
+            request=request,
+        )
+
+
 def _forbidden_probe_factory(*args, **kwargs):
     """已冻结 rebuild 后不得访问 Host。"""
 
@@ -102,18 +141,6 @@ def _forbidden_identity_factory() -> str:
     raise AssertionError("frozen recovery must not allocate a new identity")
 
 
-class _FixedFactory:
-    """为竞争测试返回调用方指定的 opaque identity。"""
-
-    def __init__(self, value: str) -> None:
-        self._value = value
-
-    def __call__(self) -> str:
-        """返回固定 identity。"""
-
-        return self._value
-
-
 def _candidate(*, target_suffix: str = "001"):
     """构造带 canonical hash 的 configured Revit candidate。"""
 
@@ -121,7 +148,7 @@ def _candidate(*, target_suffix: str = "001"):
         "candidate_key": "primary-revit",
         "project_id": "project-001",
         "transport_locator": f"revit-pipe-{target_suffix}",
-        "document_id": rf"C:\\DSP\\fixtures\\front-door-{target_suffix}.rvt",
+        "document_id": rf"C:\DSP\fixtures\front-door-{target_suffix}.rvt",
         "semantic_target_id": f"WALL-{target_suffix}",
         "native_target_unique_id": f"wall-native-{target_suffix}",
     }
@@ -247,7 +274,7 @@ def test_rebuild_after_freeze_recovers_exact_request_without_model_or_host(tmp_p
 def test_two_sqlite_controllers_race_same_correlation_same_proposal_one_winner(
     tmp_path,
 ) -> None:
-    """两个独立 SQLite connection 同时 freeze 等价 proposal，只发布一个 durable winner。"""
+    """两个 worker-local SQLite 连接同时 freeze 等价 proposal，只发布一个 durable winner。"""
 
     database = tmp_path / "front-door-same-proposal-race.sqlite3"
     seed_store = front_door.SqliteFrontDoorStateStore(str(database))
@@ -256,31 +283,29 @@ def test_two_sqlite_controllers_race_same_correlation_same_proposal_one_winner(
         "把当前墙厚改成 300mm",
     )
     seed_store.close()
+    freeze_barrier = Barrier(2)
 
-    store_a = front_door.SqliteFrontDoorStateStore(str(database))
-    store_b = front_door.SqliteFrontDoorStateStore(str(database))
-    controller_a = _controller(
-        store=store_a,
-        interpreter=_ProposalInterpreter(),
-        identity_suffix="race-a",
-    )
-    controller_b = _controller(
-        store=store_b,
-        interpreter=_ProposalInterpreter(),
-        identity_suffix="race-b",
-    )
-
-    def _prepare(controller):
-        return controller.prepare_submission(
-            client_submission_ref="submission-task9-same-race",
-            utterance="把当前墙厚改成 300mm",
-        )
+    def _prepare(identity_suffix: str):
+        # 每个竞争者在自己的 worker 线程内打开、使用并关闭独立 SQLite connection。
+        worker_store = _BarrierFreezeStore(str(database), freeze_barrier)
+        try:
+            worker_controller = _controller(
+                store=worker_store,
+                interpreter=_ProposalInterpreter(),
+                identity_suffix=identity_suffix,
+            )
+            return worker_controller.prepare_submission(
+                client_submission_ref="submission-task9-same-race",
+                utterance="把当前墙厚改成 300mm",
+            )
+        finally:
+            worker_store.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        result_a = executor.submit(_prepare, controller_a)
-        result_b = executor.submit(_prepare, controller_b)
-        frozen_a = result_a.result(timeout=10)
-        frozen_b = result_b.result(timeout=10)
+        future_a = executor.submit(_prepare, "race-a")
+        future_b = executor.submit(_prepare, "race-b")
+        frozen_a = future_a.result(timeout=15)
+        frozen_b = future_b.result(timeout=15)
 
     assert frozen_a == frozen_b
     assert frozen_a.request.task_id in {"task-task9-race-a", "task-task9-race-b"}
@@ -288,16 +313,15 @@ def test_two_sqlite_controllers_race_same_correlation_same_proposal_one_winner(
         "session-task9-race-a",
         "session-task9-race-b",
     }
-    assert store_a.get_frozen_submission("submission-task9-same-race") == frozen_a
-    assert store_b.get_frozen_submission("submission-task9-same-race") == frozen_a
-    store_a.close()
-    store_b.close()
+    verifier = front_door.SqliteFrontDoorStateStore(str(database))
+    assert verifier.get_frozen_submission("submission-task9-same-race") == frozen_a
+    verifier.close()
 
 
 def test_two_sqlite_controllers_race_changed_candidate_one_winner_one_conflict(
     tmp_path,
 ) -> None:
-    """同 correlation 若 candidate/target authority 不同，只允许一个 freeze winner。"""
+    """同 correlation 并发解释出不同 candidate authority 时，只允许一 winner 一 conflict。"""
 
     database = tmp_path / "front-door-conflicting-proposal-race.sqlite3"
     seed_store = front_door.SqliteFrontDoorStateStore(str(database))
@@ -306,38 +330,37 @@ def test_two_sqlite_controllers_race_changed_candidate_one_winner_one_conflict(
         "把当前墙厚改成 300mm",
     )
     seed_store.close()
+    freeze_barrier = Barrier(2)
 
-    store_a = front_door.SqliteFrontDoorStateStore(str(database))
-    store_b = front_door.SqliteFrontDoorStateStore(str(database))
-    controller_a = _controller(
-        store=store_a,
-        interpreter=_ProposalInterpreter(),
-        candidate=_candidate(target_suffix="race-a"),
-        identity_suffix="conflict-a",
-    )
-    controller_b = _controller(
-        store=store_b,
-        interpreter=_ProposalInterpreter(),
-        candidate=_candidate(target_suffix="race-b"),
-        identity_suffix="conflict-b",
-    )
-
-    def _capture(controller):
+    def _capture(target_suffix: str, identity_suffix: str):
+        # barrier 放在 freeze 入口，确保两边都先从 UNFROZEN 完成各自 proposal/evidence 构造。
+        worker_store = _BarrierFreezeStore(str(database), freeze_barrier)
         try:
-            return (
-                "winner",
-                controller.prepare_submission(
-                    client_submission_ref="submission-task9-conflict-race",
-                    utterance="把当前墙厚改成 300mm",
-                ),
+            worker_controller = _controller(
+                store=worker_store,
+                interpreter=_ProposalInterpreter(),
+                candidate=_candidate(target_suffix=target_suffix),
+                identity_suffix=identity_suffix,
             )
-        except ValueError as exc:
-            return ("conflict", str(exc))
+            try:
+                return (
+                    "winner",
+                    worker_controller.prepare_submission(
+                        client_submission_ref="submission-task9-conflict-race",
+                        utterance="把当前墙厚改成 300mm",
+                    ),
+                )
+            except ValueError as exc:
+                return ("conflict", str(exc))
+        finally:
+            worker_store.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
+        future_a = executor.submit(_capture, "race-a", "conflict-a")
+        future_b = executor.submit(_capture, "race-b", "conflict-b")
         outcomes = [
-            executor.submit(_capture, controller_a).result(timeout=10),
-            executor.submit(_capture, controller_b).result(timeout=10),
+            future_a.result(timeout=15),
+            future_b.result(timeout=15),
         ]
 
     kinds = sorted(kind for kind, _ in outcomes)
@@ -346,10 +369,9 @@ def test_two_sqlite_controllers_race_changed_candidate_one_winner_one_conflict(
     assert "FRONT_DOOR_CORRELATION_CONFLICT" in conflict
 
     winner = next(payload for kind, payload in outcomes if kind == "winner")
-    assert store_a.get_frozen_submission("submission-task9-conflict-race") == winner
-    assert store_b.get_frozen_submission("submission-task9-conflict-race") == winner
-    store_a.close()
-    store_b.close()
+    verifier = front_door.SqliteFrontDoorStateStore(str(database))
+    assert verifier.get_frozen_submission("submission-task9-conflict-race") == winner
+    verifier.close()
 
 
 @pytest.mark.parametrize("changed_utterance", ["改成 350mm", "改另一面墙到 300mm"])
