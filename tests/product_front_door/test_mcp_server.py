@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from mcp import Client
 
-from design_product_front_door.mcp_server import ProductFrontDoorMcpServer
+from design_product_front_door.mcp_server import (
+    ProductFrontDoorMcpServer,
+    build_mcp_server,
+)
 from design_product_runtime import ProductTaskRequest
 
 
@@ -12,6 +16,23 @@ _FROZEN_TOOL_NAMES = {
     "product.wall_thickness.submit",
     "product.wall_thickness.get",
     "product.wall_thickness.resume_operation_proposal",
+}
+_FROZEN_TOOL_PROPERTIES = {
+    "product.wall_thickness.submit": {
+        "task_id",
+        "project_id",
+        "host_kind",
+        "session_ref",
+        "requested_action",
+        "intent_arguments",
+        "request_hash",
+    },
+    "product.wall_thickness.get": {"task_id"},
+    "product.wall_thickness.resume_operation_proposal": {
+        "task_id",
+        "pause_id",
+        "resume_kind",
+    },
 }
 
 
@@ -81,7 +102,7 @@ def _submit_payload(request: ProductTaskRequest) -> dict[str, object]:
 
 
 def test_mcp_server_lists_only_frozen_product_tools() -> None:
-    """MCP catalog 只能暴露冻结的三个产品工具，不能出现 generic approval/passthrough。"""
+    """adapter catalog 只能暴露冻结的三个产品工具，不能出现 generic approval/passthrough。"""
 
     service = _RecordingService()
     server = ProductFrontDoorMcpServer(service=service)
@@ -94,6 +115,28 @@ def test_mcp_server_lists_only_frozen_product_tools() -> None:
     assert all("admission" not in name for name in tool_names)
     assert all("gateway" not in name for name in tool_names)
     assert all("sidecar" not in name for name in tool_names)
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_real_mcp_catalog_matches_frozen_product_surface_and_schema() -> None:
+    """真实 MCPServer catalog 必须只注册三个工具，且 transport/session 字段不能进入业务 schema。"""
+
+    service = _RecordingService()
+    server = build_mcp_server(service)
+
+    async with Client(server) as client:
+        listed = await client.list_tools()
+
+    tools = {tool.name: tool for tool in listed.tools}
+    assert set(tools) == _FROZEN_TOOL_NAMES
+    for name, tool in tools.items():
+        assert set(tool.input_schema["properties"]) == _FROZEN_TOOL_PROPERTIES[name]
+        assert set(tool.input_schema.get("required", [])) == _FROZEN_TOOL_PROPERTIES[name]
+        assert "session_id" not in tool.input_schema["properties"]
+        assert "approval" not in tool.input_schema["properties"]
+        assert "admission" not in tool.input_schema["properties"]
+
     assert service.calls == []
 
 
