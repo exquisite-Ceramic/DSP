@@ -94,6 +94,7 @@ def _request(
 
 _CANDIDATE_DRIFT_SERVER = r'''
 import sys
+from pathlib import Path
 
 from design_changeset import canonical_hash
 from design_product_front_door import (
@@ -131,6 +132,31 @@ class _Forbidden:
     def __call__(self, *args, **kwargs):
         raise AssertionError(
             f"candidate drift must fail before Host access: {args=} {kwargs=}"
+        )
+
+
+class _RecordingService:
+    """仅把 server 侧真实错误写入 test telemetry；MCP 仍保持默认错误净化。"""
+
+    def __init__(self, delegate, telemetry_path):
+        self._delegate = delegate
+        self._telemetry_path = Path(telemetry_path)
+
+    def submit(self, request):
+        try:
+            return self._delegate.submit(request)
+        except Exception as exc:
+            self._telemetry_path.write_text(str(exc), encoding="utf-8")
+            raise
+
+    def get(self, task_id):
+        return self._delegate.get(task_id)
+
+    def resume_operation_proposal(self, *, task_id, pause_id, resume_kind):
+        return self._delegate.resume_operation_proposal(
+            task_id=task_id,
+            pause_id=pause_id,
+            resume_kind=resume_kind,
         )
 
 
@@ -184,7 +210,11 @@ service = ProductFrontDoorService(
     query_service=forbidden,
     composition_pool=forbidden,
 )
-run_streamable_http(service, host="127.0.0.1", port=int(sys.argv[1]))
+run_streamable_http(
+    _RecordingService(service, sys.argv[2]),
+    host="127.0.0.1",
+    port=int(sys.argv[1]),
+)
 '''
 
 
@@ -256,14 +286,19 @@ def _reset_query_schemas(dsn: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_real_mcp_submit_candidate_drift_fails_before_host_or_workflow() -> None:
+async def test_real_mcp_submit_candidate_drift_fails_before_host_or_workflow(
+    tmp_path,
+) -> None:
     """freeze 后 same-key candidate 漂移时，真实 MCP submit 必须在 Host/flow 前 fail closed。"""
 
     request = _request("task-task9-candidate-drift")
-    with _real_mcp_server(_CANDIDATE_DRIFT_SERVER) as endpoint_url:
+    telemetry = tmp_path / "candidate-drift.txt"
+    with _real_mcp_server(_CANDIDATE_DRIFT_SERVER, str(telemetry)) as endpoint_url:
         client = front_door.ProductFrontDoorMcpClient(endpoint_url)
-        with pytest.raises(RuntimeError, match="FRONT_DOOR_CANDIDATE_DRIFT"):
+        with pytest.raises(RuntimeError, match="Product Front Door MCP tool failed"):
             await client.submit(request)
+
+    assert telemetry.read_text(encoding="utf-8") == "FRONT_DOOR_CANDIDATE_DRIFT"
 
 
 @pytest.mark.asyncio
