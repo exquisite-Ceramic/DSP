@@ -1,0 +1,36 @@
+name: Task 8 reference CLI RED 938b9cbb
+
+on:
+  push:
+    branches:
+      - diag/task8-reference-cli-red-938b9cbb
+
+permissions:
+  contents: read
+
+jobs:
+  verify-red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 938b9cbb3a95c3195985d56827747b128ebeeca6
+          fetch-depth: 0
+
+      - name: Assert exact RED head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "938b9cbb3a95c3195985d56827747b128ebeeca6"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install committed verification stack
+        shell: bash
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+
+      - name: Run Task 8 CLI RED
+        shell: bash
+        run: uv run pytest tests/product_front_door/test_reference_client_cli.py -q -vv
