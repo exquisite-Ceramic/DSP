@@ -23,7 +23,12 @@ from .mcp_client import ProductFrontDoorMcpClient
 from .mcp_server import build_mcp_server
 from .mcp_transport import run_streamable_http
 from .postgres_admission_store import PostgresConfiguredPolicyAdmissionStore
-from .reference_client import HumanDecisionPort, ReferenceClient
+from .reference_client import (
+    HumanDecisionPort,
+    ReferenceClient,
+    render_reference_result,
+    run_reference_cli,
+)
 from .sqlite_state import (
     FrozenSubmission,
     SessionBindingReadPort,
@@ -59,6 +64,8 @@ __all__ = [
     "SubprocessAgentInterpreter",
     "build_mcp_server",
     "configured_revit_candidate_hash_body",
+    "render_reference_result",
+    "run_reference_cli",
     "run_streamable_http",
     "session_binding_hash_body",
 ]
