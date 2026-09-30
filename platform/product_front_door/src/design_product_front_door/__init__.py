@@ -19,9 +19,11 @@ from .contracts import (
     configured_revit_candidate_hash_body,
     session_binding_hash_body,
 )
+from .mcp_client import ProductFrontDoorMcpClient
 from .mcp_server import build_mcp_server
 from .mcp_transport import run_streamable_http
 from .postgres_admission_store import PostgresConfiguredPolicyAdmissionStore
+from .reference_client import HumanDecisionPort, ReferenceClient
 from .sqlite_state import (
     FrozenSubmission,
     SessionBindingReadPort,
@@ -42,8 +44,11 @@ __all__ = [
     "ConfiguredRevitCandidateCatalog",
     "ConfiguredRevitCandidateSource",
     "FrozenSubmission",
+    "HumanDecisionPort",
     "NormalizedFreezeProposal",
     "PostgresConfiguredPolicyAdmissionStore",
+    "ProductFrontDoorMcpClient",
+    "ReferenceClient",
     "SessionBinding",
     "SessionBindingReadPort",
     "SqliteFrontDoorStateStore",
