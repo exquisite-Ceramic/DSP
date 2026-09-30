@@ -1,0 +1,50 @@
+name: Task 8 format GREEN fd60ce64
+
+on:
+  push:
+    branches:
+      - diag/task8-format-green-fd60ce64
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fd60ce646e7f1f2ec0cfea7d4764562ca620c3f6
+          fetch-depth: 0
+
+      - name: Assert exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "fd60ce646e7f1f2ec0cfea7d4764562ca620c3f6"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install committed verification stack
+        shell: bash
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+
+      - name: Run focused tests
+        shell: bash
+        run: |
+          uv run pytest \
+            tests/product_front_door/test_mcp_client.py \
+            tests/product_front_door/test_reference_client.py \
+            -q -vv
+
+      - name: Run scoped Ruff
+        shell: bash
+        run: |
+          uv run ruff check \
+            platform/product_front_door/src/design_product_front_door/mcp_client.py \
+            platform/product_front_door/src/design_product_front_door/reference_client.py \
+            platform/product_front_door/src/design_product_front_door/__init__.py \
+            tests/product_front_door/test_mcp_client.py \
+            tests/product_front_door/test_reference_client.py
