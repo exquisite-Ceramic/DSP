@@ -326,8 +326,11 @@ from tests.product_runtime.conftest import (
 )
 
 
+_REFERENCE_DOCUMENT_ID = "/DSP/fixtures/Task9Reference.rvt"
+
+
 class _RecordingTransport(StatefulRevitTransport):
-    """只给 external Revit fake 增加 test telemetry，不改变其 Host 行为。"""
+    """只给 external Revit fake 增加 test telemetry，并统一 Front Door saved-document identity。"""
 
     def __init__(self, telemetry_path):
         super().__init__()
@@ -335,6 +338,13 @@ class _RecordingTransport(StatefulRevitTransport):
 
     def request(self, command):
         result = super().request(command)
+        # Product Runtime fixture 原本使用抽象 DOC-TASK9；跨 Front Door 验收必须让
+        # context/readiness evidence 与 frozen absolute saved-document path 精确一致。
+        if command.operation in {
+            "context.current_selection",
+            "check_wall_thickness_readiness",
+        }:
+            result["payload"]["document_id"] = _REFERENCE_DOCUMENT_ID
         with self._telemetry_path.open("a", encoding="utf-8") as stream:
             stream.write(
                 json.dumps(
@@ -394,7 +404,7 @@ candidate_source = ConfiguredRevitCandidateCatalog.from_mapping(
                 "candidate_key": "revit-task9-reference",
                 "project_id": "project-task9",
                 "transport_locator": "task9-reference-transport",
-                "document_id": "DOC-TASK9",
+                "document_id": _REFERENCE_DOCUMENT_ID,
                 "semantic_target_id": "WALL-001",
                 "native_target_unique_id": "REVIT-UNIQUE-ID-TASK9",
             }
@@ -487,7 +497,7 @@ def _freeze_reference_submission(database_path: Path, request: ProductTaskReques
                     "candidate_key": "revit-task9-reference",
                     "project_id": "project-task9",
                     "transport_locator": "task9-reference-transport",
-                    "document_id": "DOC-TASK9",
+                    "document_id": "/DSP/fixtures/Task9Reference.rvt",
                     "semantic_target_id": "WALL-001",
                     "native_target_unique_id": "REVIT-UNIQUE-ID-TASK9",
                 }
