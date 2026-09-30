@@ -15,7 +15,6 @@ import pytest
 from design_product_runtime import ProductTaskQueryState, ProductTaskRequest
 from mcp import Client
 
-
 _FROZEN_TOOLS = {
     "product.wall_thickness.submit",
     "product.wall_thickness.get",
