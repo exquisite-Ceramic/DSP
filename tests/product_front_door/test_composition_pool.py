@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
 from design_changeset import canonical_hash
 from design_product_front_door.composition_pool import ExactSessionCompositionPool
 from design_product_front_door.contracts import (

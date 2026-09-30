@@ -178,7 +178,8 @@ class ProductFrontDoorService:
                 "FRONT_DOOR_SESSION_NOT_FOUND: exact frozen session does not exist"
             )
         if not isinstance(binding, SessionBinding):
-            raise ValueError(
+            # 保留既有 Front Door authority-value 错误契约；adapter 返回错类型也按无效 authority 处理。
+            raise ValueError(  # noqa: TRY004
                 "FRONT_DOOR_BINDING_INVALID: session reader returned an invalid binding"
             )
 
@@ -225,7 +226,8 @@ class ProductFrontDoorService:
                 "FRONT_DOOR_CANDIDATE_NOT_FOUND: frozen candidate key no longer exists"
             )
         if not isinstance(candidate, ConfiguredRevitCandidate):
-            raise ValueError(
+            # 保留既有 Front Door authority-value 错误契约；candidate source 错类型不改变公开异常族。
+            raise ValueError(  # noqa: TRY004
                 "FRONT_DOOR_CANDIDATE_INVALID: "
                 "candidate source returned an invalid candidate"
             )

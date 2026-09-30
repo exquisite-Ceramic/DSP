@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
 from design_changeset import canonical_hash
 from design_product_front_door.contracts import (
     ConfiguredRevitCandidate,
@@ -17,7 +18,6 @@ from design_product_runtime import (
     ProductTaskQueryView,
     ProductTaskRequest,
 )
-import pytest
 from revit_sidecar import RevitContextObservation, RevitSelectedElement
 
 

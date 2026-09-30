@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from design_approval_scope import validate_approval_scope_boundary_v2
 from design_changeset import canonical_hash, validate_changeset_integrity_v2
@@ -373,7 +373,7 @@ class ConfiguredPolicyApprovalAdmissionPort:
                 "FRONT_DOOR_APPROVAL_CLOCK_INVALID: "
                 "clock.now() must return timezone-aware datetime"
             )
-        utc_value = value.astimezone(timezone.utc)
+        utc_value = value.astimezone(UTC)
         return utc_value.isoformat().replace("+00:00", "Z")
 
 

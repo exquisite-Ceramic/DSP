@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from design_product_front_door.mcp_wire import (
     ProductTaskGetInput,
     ProductTaskResumeOperationProposalInput,
@@ -14,6 +12,7 @@ from design_product_front_door.mcp_wire import (
     decode_submit_input,
 )
 from design_product_runtime import ProductTaskRequest, ProductTaskRequestError
+from pydantic import ValidationError
 
 
 def _request() -> ProductTaskRequest:

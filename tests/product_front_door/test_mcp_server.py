@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from mcp import Client
-
 from design_product_front_door.mcp_server import (
     ProductFrontDoorMcpServer,
     build_mcp_server,
 )
 from design_product_runtime import ProductTaskRequest
-
+from mcp import Client
 
 _FROZEN_TOOL_NAMES = {
     "product.wall_thickness.submit",
@@ -48,13 +46,11 @@ class _RecordingService:
         """记录完整 frozen ProductTask 委托。"""
 
         self.calls.append(("submit", request))
-        return None
 
     def get(self, task_id: str) -> None:
         """记录 exact task 查询；返回 None 表示 durable query 没有该 task。"""
 
         self.calls.append(("get", task_id))
-        return None
 
     def resume_operation_proposal(
         self,
@@ -66,7 +62,6 @@ class _RecordingService:
         """记录 exact Operation Proposal human-resume 委托。"""
 
         self.calls.append(("resume", (task_id, pause_id, resume_kind)))
-        return None
 
 
 def _request() -> ProductTaskRequest:

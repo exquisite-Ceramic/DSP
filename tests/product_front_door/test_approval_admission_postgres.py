@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import design_product_front_door as front_door
 import psycopg
@@ -63,12 +63,12 @@ class _Clock:
     """提供可预测的 UTC issuance 时间。"""
 
     def __init__(self, value: str) -> None:
-        self._value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        self._value = datetime.fromisoformat(value)
 
     def now(self) -> datetime:
         """返回 timezone-aware UTC datetime。"""
 
-        return self._value.astimezone(timezone.utc)
+        return self._value.astimezone(UTC)
 
 
 def _public_types():

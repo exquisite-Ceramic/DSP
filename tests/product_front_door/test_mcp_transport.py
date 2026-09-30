@@ -5,7 +5,6 @@ from __future__ import annotations
 from inspect import signature
 
 import pytest
-
 from design_product_front_door.mcp_transport import (
     run_streamable_http,
     validate_bind_address,
