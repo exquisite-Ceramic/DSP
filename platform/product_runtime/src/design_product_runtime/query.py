@@ -54,6 +54,21 @@ class ProductTaskQueryService:
         self._checkpoint_reader = checkpoint_reader
         self._saga_store = saga_store
 
+    def get_request(self, task_id: str) -> ProductTaskRequest | None:
+        """只按 exact task_id 读取 immutable request owner，不读取 checkpoint 或 Saga。"""
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ProductTaskQueryError(
+                "PRODUCT_TASK_QUERY_INVALID",
+                "task_id must be a non-blank string",
+            )
+        normalized_task_id = task_id.strip()
+        request = self._request_store.get(normalized_task_id)
+        if request is None:
+            return None
+        self._require_exact_request(request, normalized_task_id)
+        return request
+
     def get(self, task_id: str) -> ProductTaskQueryView | None:
         """执行 request→checkpoint→必要时 request 稳定化重读的冻结查询顺序。"""
 
