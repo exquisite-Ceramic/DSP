@@ -13,7 +13,11 @@ from pathlib import Path
 import design_product_front_door as front_door
 import psycopg
 import pytest
-from design_product_runtime import ProductTaskQueryState, ProductTaskRequest
+from design_product_runtime import (
+    ProductTaskQueryState,
+    ProductTaskRequest,
+    create_postgres_product_task_request_store,
+)
 
 
 def _reserve_loopback_port() -> int:
@@ -94,12 +98,12 @@ import sys
 from design_changeset import canonical_hash
 from design_product_front_door import (
     ConfiguredRevitCandidate,
-    ProductFrontDoorService,
     SessionBinding,
     configured_revit_candidate_hash_body,
     run_streamable_http,
     session_binding_hash_body,
 )
+from design_product_front_door.service import ProductFrontDoorService
 
 
 class _SessionReader:
@@ -189,7 +193,8 @@ import sys
 
 from design_orchestrator import LangGraphWorkflowCheckpointReader
 from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
-from design_product_front_door import ProductFrontDoorService, run_streamable_http
+from design_product_front_door import run_streamable_http
+from design_product_front_door.service import ProductFrontDoorService
 from design_product_runtime import (
     ProductTaskQueryService,
     create_postgres_product_task_request_store,
@@ -270,8 +275,6 @@ async def test_real_mcp_get_reads_postgres_when_host_is_unavailable() -> None:
     request = _request("task-task9-host-unavailable")
 
     # 先由独立 caller durable-create ProductTask，再关闭连接，模拟 server 进程之外的已提交事实。
-    from design_product_runtime import create_postgres_product_task_request_store
-
     request_store = create_postgres_product_task_request_store(dsn)
     try:
         request_store.create(request)
