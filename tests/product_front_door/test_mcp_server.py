@@ -1,10 +1,11 @@
-"""Product Front Door MCP server 的最小 tool-catalog 与 fail-closed RED contract。"""
+"""Product Front Door MCP server 的最小 tool-catalog 与 fail-closed contract。"""
 
 from __future__ import annotations
 
 import pytest
 
 from design_product_front_door.mcp_server import ProductFrontDoorMcpServer
+from design_product_runtime import ProductTaskRequest
 
 
 _FROZEN_TOOL_NAMES = {
@@ -18,15 +19,65 @@ class _RecordingService:
     """记录 MCP adapter 是否越过冻结 tool surface 调用了应用 service。"""
 
     def __init__(self) -> None:
-        """初始化调用记录；RED 测试不构造任何 Host、Gateway 或 durable owner。"""
+        """初始化调用记录；测试不构造任何 Host、Gateway 或 durable owner。"""
 
         self.calls: list[tuple[str, object]] = []
+
+    def submit(self, request: ProductTaskRequest) -> None:
+        """记录完整 frozen ProductTask 委托。"""
+
+        self.calls.append(("submit", request))
+        return None
 
     def get(self, task_id: str) -> None:
         """记录 exact task 查询；返回 None 表示 durable query 没有该 task。"""
 
         self.calls.append(("get", task_id))
         return None
+
+    def resume_operation_proposal(
+        self,
+        *,
+        task_id: str,
+        pause_id: str,
+        resume_kind: str,
+    ) -> None:
+        """记录 exact Operation Proposal human-resume 委托。"""
+
+        self.calls.append(("resume", (task_id, pause_id, resume_kind)))
+        return None
+
+
+def _request() -> ProductTaskRequest:
+    """构造带 canonical request_hash 的完整 frozen ProductTask。"""
+
+    return ProductTaskRequest.create(
+        task_id="task-mcp-server-red",
+        project_id="project-mcp-server",
+        host_kind="REVIT",
+        session_ref="session-product-authority",
+        requested_action="SET_SELECTED_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 350.0, "unit": "mm"}},
+    )
+
+
+def _submit_payload(request: ProductTaskRequest) -> dict[str, object]:
+    """按 frozen ProductTask 七字段 authority body 构造 MCP submit 参数。"""
+
+    return {
+        "task_id": request.task_id,
+        "project_id": request.project_id,
+        "host_kind": request.host_kind,
+        "session_ref": request.session_ref,
+        "requested_action": request.requested_action,
+        "intent_arguments": {
+            "thickness": {
+                "value": request.intent_arguments["thickness"]["value"],
+                "unit": request.intent_arguments["thickness"]["unit"],
+            }
+        },
+        "request_hash": request.request_hash,
+    }
 
 
 def test_mcp_server_lists_only_frozen_product_tools() -> None:
@@ -62,6 +113,22 @@ def test_mcp_server_unknown_tool_fails_closed_without_touching_service() -> None
     assert service.calls == []
 
 
+def test_mcp_server_submit_decodes_complete_request_and_ignores_transport_session() -> None:
+    """submit 只委托 payload 中的完整 ProductTask，transport session 不能替代业务 session_ref。"""
+
+    request = _request()
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+
+    server.call_tool(
+        tool_name="product.wall_thickness.submit",
+        payload=_submit_payload(request),
+        session_id="mcp-session-must-not-become-product-session",
+    )
+
+    assert service.calls == [("submit", request)]
+
+
 def test_mcp_server_get_delegates_exact_task_id_only() -> None:
     """get tool 只把 strict DTO 解出的 exact task_id 委托给现有 service，不做 session fallback。"""
 
@@ -89,3 +156,43 @@ def test_mcp_server_get_delegates_exact_task_id_only() -> None:
         )
 
     assert service.calls == [("get", "task-mcp-server-red")]
+
+
+def test_mcp_server_resume_delegates_only_exact_frozen_human_decision() -> None:
+    """resume 只委托 exact task/pause/decision 三元组，不接收任意 approval payload。"""
+
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+
+    server.call_tool(
+        tool_name="product.wall_thickness.resume_operation_proposal",
+        payload={
+            "task_id": "task-mcp-server-red",
+            "pause_id": "pause-mcp-server-red",
+            "resume_kind": "OPERATION_PROPOSAL_ACCEPTED",
+        },
+        session_id="mcp-session-red",
+    )
+
+    assert service.calls == [
+        (
+            "resume",
+            (
+                "task-mcp-server-red",
+                "pause-mcp-server-red",
+                "OPERATION_PROPOSAL_ACCEPTED",
+            ),
+        )
+    ]
+
+    with pytest.raises((TypeError, ValueError)):
+        server.call_tool(
+            tool_name="product.wall_thickness.resume_operation_proposal",
+            payload={
+                "task_id": "task-mcp-server-red",
+                "pause_id": "pause-mcp-server-red",
+                "resume_kind": "OPERATION_PROPOSAL_ACCEPTED",
+                "approval": True,
+            },
+            session_id="mcp-session-red",
+        )
