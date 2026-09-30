@@ -93,7 +93,8 @@ class ProductFrontDoorService:
         current = self._query_service.get(task_id)
         if request is None or current is None:
             raise ValueError(
-                "FRONT_DOOR_RESUME_TASK_NOT_FOUND: exact ProductTask request/checkpoint is unavailable"
+                "FRONT_DOOR_RESUME_TASK_NOT_FOUND: "
+                "exact ProductTask request/checkpoint is unavailable"
             )
         self._require_query_identity(current, request, action="resume")
 
@@ -156,7 +157,8 @@ class ProductFrontDoorService:
 
         if view is None:
             raise ValueError(
-                f"FRONT_DOOR_TASK_QUERY_MISSING: {action} completed without durable ProductTask query"
+                "FRONT_DOOR_TASK_QUERY_MISSING: "
+                f"{action} completed without durable ProductTask query"
             )
         if view.task_id != request.task_id or view.request_hash != request.request_hash:
             raise ValueError(
