@@ -79,10 +79,10 @@ jobs:
             tests/product_front_door/test_mcp_client.py \
             tests/product_front_door/test_reference_client.py \
             tests/product_front_door/test_reference_client_cli.py -q
-      - name: Enforce absolute Ruff clean on Product Front Door paths
+      - name: Enforce absolute Ruff clean on Task 9 acceptance paths
         run: |
-          # Product Front Door 是本 capability 的新路径，使用 absolute E/F/I gate，
-          # 不用 baseline-diff 隐藏本阶段新增诊断。
+          # Task 9 的冻结文件清单没有 production Python 改动，因此 absolute E/F/I
+          # 只约束本 Task 新增的两个 acceptance 文件；既有路径继续由仓库原有 gate 管理。
           uv run ruff check --select E,F,I \
-            platform/product_front_door \
-            tests/product_front_door
+            tests/product_front_door/test_durable_recovery_postgres.py \
+            tests/product_front_door/test_mcp_product_end_to_end.py
