@@ -57,7 +57,8 @@ jobs:
       - name: Verify Task 9 durable recovery and real MCP product behavior
         run: |
           # 两个 Task 9 acceptance 文件覆盖 client rebuild、SQLite atomic freeze、
-          # real loopback Streamable HTTP、candidate drift 与 Host-independent durable GET。
+          # real loopback Streamable HTTP、candidate drift、Host-independent durable GET，
+          # 以及 ContextSnapshot 后 composition rebuild 的当前 fail-closed 边界。
           uv run python -m pytest \
             tests/product_front_door/test_durable_recovery_postgres.py \
             tests/product_front_door/test_mcp_product_end_to_end.py -q -vv
@@ -68,6 +69,15 @@ jobs:
           uv run python -m pytest \
             tests/product_runtime/test_product_task_query_postgres.py \
             tests/product_runtime/test_product_task_start_gate_postgres.py -q
+      - name: Verify real Product Runtime owner chain and fail-closed recovery
+        run: |
+          # 复用既有 public reference composition 的真实 policy/Gateway/Saga/Reconciliation
+          # 与外部 Revit fake，证明 operation proposal、live-composition resume、Host response-loss
+          # idempotency、approval-scope/grant fail-closed 都与 Front Door gate 同步回归。
+          uv run python -m pytest \
+            tests/product_runtime/test_revit_wall_thickness_product_e2e.py \
+            tests/product_runtime/test_revit_wall_thickness_product_recovery.py \
+            tests/product_runtime/test_revit_wall_thickness_product_authorization_failures.py -q
       - name: Verify Front Door service and MCP authority regressions
         run: |
           # 保持 submit/get/resume 的 authority ordering、wire schema 与真实 client transport
