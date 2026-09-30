@@ -298,7 +298,9 @@ async def test_real_mcp_submit_candidate_drift_fails_before_host_or_workflow(
         with pytest.raises(RuntimeError, match="Product Front Door MCP tool failed"):
             await client.submit(request)
 
-    assert telemetry.read_text(encoding="utf-8") == "FRONT_DOOR_CANDIDATE_DRIFT"
+    assert telemetry.read_text(encoding="utf-8").startswith(
+        "FRONT_DOOR_CANDIDATE_DRIFT:"
+    )
 
 
 @pytest.mark.asyncio
