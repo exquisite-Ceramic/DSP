@@ -256,7 +256,7 @@ jobs:
           echo "::endgroup::"
       - name: Upload Ruff diagnostic evidence
         if: ${{ always() && steps.ruff_gate.outcome == 'failure' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ruff-diagnostics-${{ github.job }}
           path: ruff-diagnostics/
