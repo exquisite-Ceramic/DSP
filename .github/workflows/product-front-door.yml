@@ -1,0 +1,88 @@
+name: Product Front Door verification
+
+on:
+  push:
+    paths:
+      - ".github/workflows/product-front-door.yml"
+      - "platform/product_front_door/**"
+      - "platform/product_runtime/**"
+      - "platform/orchestrator/**"
+      - "hosts/revit/sidecar/**"
+      - "tests/product_front_door/**"
+      - "tests/product_runtime/**"
+  pull_request:
+    paths:
+      - ".github/workflows/product-front-door.yml"
+      - "platform/product_front_door/**"
+      - "platform/product_runtime/**"
+      - "platform/orchestrator/**"
+      - "hosts/revit/sidecar/**"
+      - "tests/product_front_door/**"
+      - "tests/product_runtime/**"
+  workflow_dispatch:
+
+jobs:
+  product-front-door-postgres:
+    name: Product Front Door PostgreSQL 17 gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dsp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install repository verification stack from committed lock
+        run: |
+          # Task 9 必须从 committed uv.lock 重建，避免 MCP/PostgreSQL 验收依赖漂移。
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Verify Task 9 durable recovery and real MCP product behavior
+        run: |
+          # 两个 Task 9 acceptance 文件覆盖 client rebuild、SQLite atomic freeze、
+          # real loopback Streamable HTTP、candidate drift 与 Host-independent durable GET。
+          uv run python -m pytest \
+            tests/product_front_door/test_durable_recovery_postgres.py \
+            tests/product_front_door/test_mcp_product_end_to_end.py -q -vv
+      - name: Verify ProductTask PostgreSQL query and start-gate crash windows
+        run: |
+          # Task 9 不重写 ProductTask owner；这里把其既有 exact-query / single-lineage
+          # PostgreSQL 契约与 Front Door acceptance 绑定在同一 PG17 gate。
+          uv run python -m pytest \
+            tests/product_runtime/test_product_task_query_postgres.py \
+            tests/product_runtime/test_product_task_start_gate_postgres.py -q
+      - name: Verify Front Door service and MCP authority regressions
+        run: |
+          # 保持 submit/get/resume 的 authority ordering、wire schema 与真实 client transport
+          # 一起回归，避免 Task 9 acceptance 通过但薄边界契约发生漂移。
+          uv run python -m pytest \
+            tests/product_front_door/test_service.py \
+            tests/product_front_door/test_service_resume.py \
+            tests/product_front_door/test_mcp_wire.py \
+            tests/product_front_door/test_mcp_client.py \
+            tests/product_front_door/test_reference_client.py \
+            tests/product_front_door/test_reference_client_cli.py -q
+      - name: Enforce absolute Ruff clean on Product Front Door paths
+        run: |
+          # Product Front Door 是本 capability 的新路径，使用 absolute E/F/I gate，
+          # 不用 baseline-diff 隐藏本阶段新增诊断。
+          uv run ruff check --select E,F,I \
+            platform/product_front_door \
+            tests/product_front_door
