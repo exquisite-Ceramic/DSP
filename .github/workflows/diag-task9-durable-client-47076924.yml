@@ -1,0 +1,31 @@
+name: Task 9 durable client 47076924
+
+on:
+  push:
+    branches:
+      - diag/task9-durable-client-47076924
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 470769246b42f66d27984b161dbcb7dd753d1ed4
+          fetch-depth: 0
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "470769246b42f66d27984b161dbcb7dd753d1ed4"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install committed verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run Task 9 durable client acceptance
+        run: uv run pytest tests/product_front_door/test_durable_recovery_postgres.py -q -vv
+      - name: Run Task 9 test Ruff
+        run: uv run ruff check tests/product_front_door/test_durable_recovery_postgres.py
