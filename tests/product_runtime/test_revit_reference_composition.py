@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import design_product_runtime.revit_reference_composition as composition_module
 import pytest
