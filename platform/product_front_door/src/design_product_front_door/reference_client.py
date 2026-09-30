@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+import argparse
+import sys
+from collections.abc import Callable, Sequence
+from typing import Protocol, TextIO
+from uuid import uuid4
 
 from design_orchestrator import PendingInteractionKind, PendingInteractionView
 from design_product_runtime import ProductTaskQueryState, ProductTaskQueryView
@@ -199,4 +203,96 @@ class ReferenceClient:
         return value.strip()
 
 
-__all__ = ["HumanDecisionPort", "ReferenceClient"]
+def render_reference_result(
+    result: ProductTaskQueryView | AgentClarificationRequired,
+) -> str:
+    """把 owner-derived 结果做最小用户呈现，不折叠或重新解释业务状态。"""
+
+    if isinstance(result, AgentClarificationRequired):
+        return f"CLARIFICATION_REQUIRED: {result.question}"
+    if not isinstance(result, ProductTaskQueryView):
+        raise TypeError(
+            "reference result must be ProductTaskQueryView or AgentClarificationRequired"
+        )
+    if result.state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW:
+        return f"{result.state.value} task_id={result.task_id}"
+    if result.flow is None:
+        raise ValueError("WORKFLOW reference result requires ProductFlowView")
+    return f"{result.flow.status.value} task_id={result.task_id}"
+
+
+def _default_submission_ref() -> str:
+    """为一次新的显式 CLI submit 生成 opaque client delivery correlation。"""
+
+    return f"submission-{uuid4()}"
+
+
+def _build_reference_cli_parser() -> argparse.ArgumentParser:
+    """构造最小 reference CLI；不声明模型 vendor、credential 或通用 MCP tool 参数。"""
+
+    parser = argparse.ArgumentParser(prog="dsp-product-front-door")
+    parser.add_argument(
+        "--submission-ref",
+        dest="submission_ref",
+        help="恢复已有 client submission；省略时为新提交生成 correlation。",
+    )
+    parser.add_argument(
+        "utterance",
+        nargs="?",
+        help="新提交的自然语言；恢复时可省略并从 durable state 读取。",
+    )
+    return parser
+
+
+async def run_reference_cli(
+    *,
+    reference_client: ReferenceClient,
+    argv: Sequence[str],
+    submission_ref_factory: Callable[[], str] = _default_submission_ref,
+    stdout: TextIO | None = None,
+) -> ProductTaskQueryView | AgentClarificationRequired:
+    """执行一次最小 CLI submit/recovery，并在任何模型/网络工作前公布 correlation。"""
+
+    if not callable(getattr(reference_client, "run_submission", None)):
+        raise TypeError("reference_client must provide run_submission")
+    if isinstance(argv, (str, bytes)) or not isinstance(argv, Sequence):
+        raise TypeError("argv must be a sequence of strings")
+    if not callable(submission_ref_factory):
+        raise TypeError("submission_ref_factory must be callable")
+
+    args = _build_reference_cli_parser().parse_args(tuple(argv))
+    if args.submission_ref is None:
+        submission_ref = submission_ref_factory()
+    else:
+        submission_ref = args.submission_ref
+    submission_ref = ReferenceClient._require_nonblank(
+        submission_ref,
+        "client_submission_ref",
+    )
+
+    output = sys.stdout if stdout is None else stdout
+    if not callable(getattr(output, "write", None)) or not callable(
+        getattr(output, "flush", None)
+    ):
+        raise TypeError("stdout must provide write and flush")
+
+    # 这是恢复身份的用户可见 durable locator。必须在任何模型、Host probe 或 MCP 调用前
+    # 单次写出并显式 flush，避免进程崩溃后用户连 correlation 都无法恢复。
+    output.write(f"client_submission_ref={submission_ref}\n")
+    output.flush()
+
+    result = await reference_client.run_submission(
+        client_submission_ref=submission_ref,
+        utterance=args.utterance,
+    )
+    output.write(f"{render_reference_result(result)}\n")
+    output.flush()
+    return result
+
+
+__all__ = [
+    "HumanDecisionPort",
+    "ReferenceClient",
+    "render_reference_result",
+    "run_reference_cli",
+]
