@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import socket
 import subprocess
@@ -13,7 +14,10 @@ from pathlib import Path
 import design_product_front_door as front_door
 import psycopg
 import pytest
+from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import (
+    ProductFlowStatus,
     ProductTaskQueryState,
     ProductTaskRequest,
     create_postgres_product_task_request_store,
@@ -90,6 +94,24 @@ def _request(
         requested_action="SET_SELECTED_WALL_THICKNESS",
         intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
     )
+
+
+def _load_product_runtime_acceptance_helpers():
+    """复用现有 Product Runtime acceptance composition，不复制第二套 runtime fixture。"""
+
+    helper_path = (
+        Path(__file__).resolve().parents[1] / "product_runtime" / "conftest.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "_task9_product_runtime_acceptance_helpers",
+        helper_path,
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 _CANDIDATE_DRIFT_SERVER = r'''
@@ -327,3 +349,60 @@ async def test_real_mcp_get_reads_postgres_when_host_is_unavailable() -> None:
     assert view.request_hash == request.request_hash
     assert view.state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW
     assert view.flow is None
+
+
+def test_context_snapshot_pause_composition_rebuild_fails_closed_without_host_mutation() -> None:
+    """ContextSnapshot 形成后重建 composition 只能恢复 durable pause，resume 必须 fail closed。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    task_id = "task-front-door-context-restart"
+    first = helpers._build_reference_case(
+        dsn,
+        task_id,
+        reset_schema=True,
+    )
+    host = first.host
+    request = first.request
+    try:
+        proposal = first.flow.submit(request)
+        assert proposal.status is ProductFlowStatus.WAITING
+        assert proposal.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        pending = proposal.checkpoint.pending_interaction
+        assert pending is not None
+        context_ref = proposal.checkpoint.context_snapshot_ref
+        assert context_ref is not None
+        snapshot = first.snapshot_registry.get_snapshot(context_ref.ref_id)
+        assert snapshot.hash == context_ref.content_hash
+        assert host.execute_count == 0
+        command = WorkflowResumeCommand(
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+            pause_id=pending.pause_id,
+        )
+    finally:
+        helpers._close_case(first)
+
+    # 新 composition 复用 PostgreSQL durable owners 与同一 Host，但天然创建新的内存
+    # SnapshotRegistry；Task 9 只验证当前 v1 fail-closed，不伪造跨进程 snapshot recovery。
+    rebuilt = helpers._build_reference_case(
+        dsn,
+        task_id,
+        reset_schema=False,
+        host=host,
+        request=request,
+    )
+    try:
+        restored = rebuilt.flow.get(task_id)
+        assert restored is not None
+        assert restored.status is ProductFlowStatus.WAITING
+        assert restored.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        assert restored.checkpoint.context_snapshot_ref == context_ref
+        assert host.execute_count == 0
+
+        with pytest.raises(WorkflowStateError) as captured:
+            rebuilt.flow.resume(task_id, command)
+
+        assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
+        assert host.execute_count == 0
+    finally:
+        helpers._close_case(rebuilt)
