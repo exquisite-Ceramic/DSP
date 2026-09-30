@@ -13,7 +13,7 @@ from pathlib import Path
 import design_product_front_door as front_door
 import pytest
 from design_product_runtime import ProductTaskQueryState, ProductTaskRequest
-from mcp.client import Client
+from mcp import Client
 
 
 _FROZEN_TOOLS = {
