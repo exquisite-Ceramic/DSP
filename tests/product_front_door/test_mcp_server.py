@@ -1,0 +1,91 @@
+"""Product Front Door MCP server 的最小 tool-catalog 与 fail-closed RED contract。"""
+
+from __future__ import annotations
+
+import pytest
+
+from design_product_front_door.mcp_server import ProductFrontDoorMcpServer
+
+
+_FROZEN_TOOL_NAMES = {
+    "product.wall_thickness.submit",
+    "product.wall_thickness.get",
+    "product.wall_thickness.resume_operation_proposal",
+}
+
+
+class _RecordingService:
+    """记录 MCP adapter 是否越过冻结 tool surface 调用了应用 service。"""
+
+    def __init__(self) -> None:
+        """初始化调用记录；RED 测试不构造任何 Host、Gateway 或 durable owner。"""
+
+        self.calls: list[tuple[str, object]] = []
+
+    def get(self, task_id: str) -> None:
+        """记录 exact task 查询；返回 None 表示 durable query 没有该 task。"""
+
+        self.calls.append(("get", task_id))
+        return None
+
+
+def test_mcp_server_lists_only_frozen_product_tools() -> None:
+    """MCP catalog 只能暴露冻结的三个产品工具，不能出现 generic approval/passthrough。"""
+
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+
+    tool_names = server.list_tools()
+
+    assert len(tool_names) == 3
+    assert set(tool_names) == _FROZEN_TOOL_NAMES
+    assert all("approval" not in name for name in tool_names)
+    assert all("admission" not in name for name in tool_names)
+    assert all("gateway" not in name for name in tool_names)
+    assert all("sidecar" not in name for name in tool_names)
+    assert service.calls == []
+
+
+def test_mcp_server_unknown_tool_fails_closed_without_touching_service() -> None:
+    """未知 tool 必须在 adapter 边界直接拒绝，不能降级成 generic service/Host passthrough。"""
+
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+
+    with pytest.raises((KeyError, ValueError)):
+        server.call_tool(
+            tool_name="gateway.execute",
+            payload={"task_id": "task-mcp-server-red"},
+            session_id="mcp-session-red",
+        )
+
+    assert service.calls == []
+
+
+def test_mcp_server_get_delegates_exact_task_id_only() -> None:
+    """get tool 只把 strict DTO 解出的 exact task_id 委托给现有 service，不做 session fallback。"""
+
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+
+    server.call_tool(
+        tool_name="product.wall_thickness.get",
+        payload={"task_id": "task-mcp-server-red"},
+        session_id="mcp-session-red",
+    )
+
+    assert service.calls == [("get", "task-mcp-server-red")]
+
+    # 额外 locator/session 字段必须由 strict MCP DTO 在 service 调用前拒绝；
+    # adapter 不能把 transport session 当成 ProductTask 的 session_ref fallback。
+    with pytest.raises((TypeError, ValueError)):
+        server.call_tool(
+            tool_name="product.wall_thickness.get",
+            payload={
+                "task_id": "task-mcp-server-red",
+                "session_ref": "must-not-enter-get-wire",
+            },
+            session_id="mcp-session-red",
+        )
+
+    assert service.calls == [("get", "task-mcp-server-red")]
