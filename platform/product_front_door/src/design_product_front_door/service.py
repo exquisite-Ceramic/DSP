@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from design_changeset import canonical_hash
+from design_orchestrator import PendingInteractionKind, WorkflowResumeCommand
 from design_product_runtime import (
     ProductTaskQueryService,
+    ProductTaskQueryState,
     ProductTaskQueryView,
     ProductTaskRequest,
 )
@@ -50,7 +52,7 @@ class ProductFrontDoorService:
         binding = self._resolve_binding(request)
         candidate = self._resolve_current_candidate(binding)
         self._validate_fresh_context(
-            request=request,
+            command_id=f"front-door-submit:{request.task_id}",
             binding=binding,
             candidate=candidate,
         )
@@ -66,17 +68,101 @@ class ProductFrontDoorService:
         submit(request)
 
         view = self._query_service.get(request.task_id)
+        self._require_query_identity(view, request, action="submit")
+        return view
+
+    def resume_operation_proposal(
+        self,
+        *,
+        task_id: str,
+        pause_id: str,
+        resume_kind: str,
+    ) -> ProductTaskQueryView:
+        """只恢复当前 exact Operation Proposal pause，并在触发 runtime 前重验 Host authority。"""
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("FRONT_DOOR_RESUME_INVALID: task_id must be non-blank")
+        if not isinstance(pause_id, str) or not pause_id.strip():
+            raise ValueError("FRONT_DOOR_RESUME_INVALID: pause_id must be non-blank")
+        if not isinstance(resume_kind, str) or not resume_kind.strip():
+            raise ValueError("FRONT_DOOR_RESUME_INVALID: resume_kind must be non-blank")
+
+        # request 与 checkpoint/query 必须先从 authoritative durable owners 读取；
+        # 在 human-pause authority 未确认前，不得解析 session、访问 Host 或取得 composition。
+        request = self._query_service.get_request(task_id)
+        current = self._query_service.get(task_id)
+        if request is None or current is None:
+            raise ValueError(
+                "FRONT_DOOR_RESUME_TASK_NOT_FOUND: exact ProductTask request/checkpoint is unavailable"
+            )
+        self._require_query_identity(current, request, action="resume")
+
+        if current.state != ProductTaskQueryState.WORKFLOW or current.flow is None:
+            raise ValueError(
+                "FRONT_DOOR_RESUME_NOT_PENDING: task is not at a workflow human pause"
+            )
+        checkpoint = current.flow.checkpoint
+        pending = checkpoint.pending_interaction
+        if pending is None or pending.kind != PendingInteractionKind.OPERATION_PROPOSAL:
+            raise ValueError(
+                "FRONT_DOOR_RESUME_NOT_PENDING: current pause is not an Operation Proposal"
+            )
+        if pending.pause_id != pause_id:
+            raise ValueError(
+                "FRONT_DOOR_RESUME_PAUSE_MISMATCH: pause_id does not match current durable pause"
+            )
+        if resume_kind not in pending.allowed_resume_kinds:
+            raise ValueError(
+                "FRONT_DOOR_RESUME_KIND_INVALID: resume_kind is not allowed by current pause"
+            )
+
+        binding = self._resolve_binding(request)
+        candidate = self._resolve_current_candidate(binding)
+        self._validate_fresh_context(
+            command_id=f"front-door-resume:{task_id}:{pause_id}",
+            binding=binding,
+            candidate=candidate,
+        )
+
+        get_or_create = getattr(self._composition_pool, "get_or_create", None)
+        if not callable(get_or_create):
+            raise TypeError("composition_pool must provide get_or_create")
+        composition = get_or_create(binding=binding, candidate=candidate)
+        flow = getattr(composition, "flow", None)
+        resume = getattr(flow, "resume", None)
+        if not callable(resume):
+            raise TypeError("composition must expose flow.resume")
+        resume(
+            task_id,
+            WorkflowResumeCommand(
+                resume_kind=resume_kind,
+                payload={},
+                pause_id=pause_id,
+            ),
+        )
+
+        view = self._query_service.get(task_id)
+        self._require_query_identity(view, request, action="resume")
+        return view
+
+    @staticmethod
+    def _require_query_identity(
+        view: ProductTaskQueryView | None,
+        request: ProductTaskRequest,
+        *,
+        action: str,
+    ) -> None:
+        """所有 Host-bound action 完成后只接受与 immutable request 一致的 durable query。"""
+
         if view is None:
             raise ValueError(
-                "FRONT_DOOR_TASK_QUERY_MISSING: "
-                "submit completed without durable ProductTask query"
+                f"FRONT_DOOR_TASK_QUERY_MISSING: {action} completed without durable ProductTask query"
             )
         if view.task_id != request.task_id or view.request_hash != request.request_hash:
             raise ValueError(
                 "FRONT_DOOR_TASK_QUERY_INTEGRITY_INVALID: "
-                "query identity does not match submitted request"
+                "query identity does not match authoritative request"
             )
-        return view
 
     def _resolve_binding(self, request: ProductTaskRequest) -> SessionBinding:
         """按 exact session 读取并重新验证 binding hash 与 request authority 关系。"""
@@ -165,7 +251,7 @@ class ProductFrontDoorService:
     def _validate_fresh_context(
         self,
         *,
-        request: ProductTaskRequest,
+        command_id: str,
         binding: SessionBinding,
         candidate: ConfiguredRevitCandidate,
     ) -> None:
@@ -181,7 +267,7 @@ class ProductFrontDoorService:
         if not callable(discover):
             raise TypeError("context_probe must return an object with discover")
         observation = discover(
-            command_id=f"front-door-submit:{request.task_id}",
+            command_id=command_id,
             document_id=binding.document_id,
         )
         if observation is None:
