@@ -1,4 +1,4 @@
-name: Task 8 import fix d1706d6c
+name: Task 8 import diff d1706d6c
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  diagnose:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -31,20 +31,6 @@ jobs:
           python -m pip install uv
           uv sync --locked --all-packages
 
-      - name: Run focused tests
+      - name: Show Ruff canonical import diff
         shell: bash
-        run: |
-          uv run pytest \
-            tests/product_front_door/test_mcp_client.py \
-            tests/product_front_door/test_reference_client.py \
-            -q -vv
-
-      - name: Run scoped Ruff
-        shell: bash
-        run: |
-          uv run ruff check \
-            platform/product_front_door/src/design_product_front_door/mcp_client.py \
-            platform/product_front_door/src/design_product_front_door/reference_client.py \
-            platform/product_front_door/src/design_product_front_door/__init__.py \
-            tests/product_front_door/test_mcp_client.py \
-            tests/product_front_door/test_reference_client.py
+        run: uv run ruff check --fix --diff tests/product_front_door/test_mcp_client.py
