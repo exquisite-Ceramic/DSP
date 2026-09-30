@@ -19,6 +19,8 @@ from .contracts import (
     configured_revit_candidate_hash_body,
     session_binding_hash_body,
 )
+from .mcp_server import build_mcp_server
+from .mcp_transport import run_streamable_http
 from .postgres_admission_store import PostgresConfiguredPolicyAdmissionStore
 from .sqlite_state import (
     FrozenSubmission,
@@ -50,6 +52,8 @@ __all__ = [
     "SubmissionRecord",
     "SubmissionState",
     "SubprocessAgentInterpreter",
+    "build_mcp_server",
     "configured_revit_candidate_hash_body",
+    "run_streamable_http",
     "session_binding_hash_body",
 ]
