@@ -1,0 +1,39 @@
+name: Task 7 MCP final exact-head verification 6708efad
+
+on:
+  push:
+    branches:
+      - diag/task7-mcp-final-6708efad
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 6708efad571dcb21d7975325750ac69c3ce15626
+          fetch-depth: 0
+      - name: Assert exact feature head
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "6708efad571dcb21d7975325750ac69c3ce15626"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install committed verification stack
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Run focused Product Front Door tests
+        run: |
+          uv run pytest \
+            tests/product_front_door/test_service.py \
+            tests/product_front_door/test_composition_pool.py \
+            tests/product_front_door/test_mcp_wire.py \
+            tests/product_front_door/test_mcp_server.py \
+            tests/product_front_door/test_mcp_transport.py -q -vv
+      - name: Run absolute Product Front Door Ruff
+        run: |
+          uv run ruff check \
+            platform/product_front_door/src/design_product_front_door \
+            tests/product_front_door
