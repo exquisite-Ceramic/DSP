@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import design_product_runtime.revit_reference_composition as composition_module
 import pytest
@@ -65,7 +65,7 @@ class _PolicyClock:
     """为 configured-policy issuance 提供 timezone-aware UTC 时间。"""
 
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class _ConfiguredPolicyAdmissionFactory:

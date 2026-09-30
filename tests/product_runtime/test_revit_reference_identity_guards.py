@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 from design_orchestrator import WorkflowPhase
@@ -62,7 +62,7 @@ class _PolicyClock:
     """为真实 configured-policy issuance 提供 timezone-aware UTC 时间。"""
 
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class _UniqueConfiguredPolicyAdmissionFactory:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from hashlib import sha256
 from typing import Any
 
@@ -262,14 +262,14 @@ class _UtcCoordinationClock:
     """Gateway/coordination 使用 timezone-aware UTC datetime。"""
 
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class _UtcExecutionClock:
     """Saga/Host coordination 使用 canonical UTC Z 文本。"""
 
     def now(self) -> str:
-        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class _ReferenceMaterializationRouting:

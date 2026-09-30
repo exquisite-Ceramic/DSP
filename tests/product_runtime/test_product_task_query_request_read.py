@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-
 from design_product_runtime import (
     ProductTaskQueryError,
     ProductTaskQueryService,

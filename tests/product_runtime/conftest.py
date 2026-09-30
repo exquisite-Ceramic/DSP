@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from types import SimpleNamespace
 
 import psycopg
@@ -177,7 +177,7 @@ class _AcceptancePolicyClock:
     """固定 issuance 时间，避免测试运行日期改变授权生命周期语义。"""
 
     def now(self) -> datetime:
-        return datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
+        return datetime(2026, 9, 24, 9, 0, tzinfo=UTC)
 
 
 class _ConfiguredPolicyAdmissionFactory:
