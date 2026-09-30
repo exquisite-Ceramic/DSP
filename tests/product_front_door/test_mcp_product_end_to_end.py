@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import socket
 import subprocess
@@ -14,6 +15,7 @@ from pathlib import Path
 import design_product_front_door as front_door
 import psycopg
 import pytest
+from design_changeset import canonical_hash
 from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
 from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import (
@@ -290,6 +292,173 @@ run_streamable_http(service, host="127.0.0.1", port=port)
 '''
 
 
+_REFERENCE_PRODUCT_SERVER = r'''
+import json
+import sys
+from pathlib import Path
+
+from design_execution_reconciliation.postgres import (
+    apply_execution_saga_migrations,
+    connect_postgres,
+)
+from design_execution_reconciliation.postgres_saga_store_v2 import (
+    PostgresExecutionSagaStoreV2,
+)
+from design_orchestrator import LangGraphWorkflowCheckpointReader
+from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
+from design_product_front_door import (
+    ConfiguredRevitCandidateCatalog,
+    SqliteSessionBindingReader,
+    run_streamable_http,
+)
+from design_product_front_door.composition_pool import ExactSessionCompositionPool
+from design_product_front_door.service import ProductFrontDoorService
+from design_product_runtime import (
+    ProductTaskQueryService,
+    RevitWallThicknessCompositionConfig,
+    build_revit_wall_thickness_reference_composition,
+    create_postgres_product_task_request_store,
+)
+from revit_sidecar import RevitCurrentContextProbe
+from tests.product_runtime.conftest import (
+    StatefulRevitTransport,
+    _ConfiguredPolicyAdmissionFactory,
+)
+
+
+class _RecordingTransport(StatefulRevitTransport):
+    """只给 external Revit fake 增加 test telemetry，不改变其 Host 行为。"""
+
+    def __init__(self, telemetry_path):
+        super().__init__()
+        self._telemetry_path = Path(telemetry_path)
+
+    def request(self, command):
+        result = super().request(command)
+        with self._telemetry_path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "operation": command.operation,
+                        "execute_count": self.execute_count,
+                        "revision": self.current_revision,
+                        "thickness_mm": self.current_thickness_mm,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        return result
+
+
+class _RecordingService:
+    """只记录 server 侧 domain error，MCP 对客户端仍使用 SDK 默认错误净化。"""
+
+    def __init__(self, delegate, error_path):
+        self._delegate = delegate
+        self._error_path = Path(error_path)
+
+    def _record(self, callback, *args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except Exception as exc:
+            self._error_path.write_text(str(exc), encoding="utf-8")
+            raise
+
+    def submit(self, request):
+        return self._record(self._delegate.submit, request)
+
+    def get(self, task_id):
+        return self._record(self._delegate.get, task_id)
+
+    def resume_operation_proposal(self, *, task_id, pause_id, resume_kind):
+        return self._record(
+            self._delegate.resume_operation_proposal,
+            task_id=task_id,
+            pause_id=pause_id,
+            resume_kind=resume_kind,
+        )
+
+
+port = int(sys.argv[1])
+dsn = sys.argv[2]
+sqlite_path = sys.argv[3]
+telemetry_path = sys.argv[4]
+error_path = sys.argv[5]
+
+candidate_source = ConfiguredRevitCandidateCatalog.from_mapping(
+    {
+        "version": "DSP_REVIT_CANDIDATES_V1",
+        "candidates": [
+            {
+                "candidate_key": "revit-task9-reference",
+                "project_id": "project-task9",
+                "transport_locator": "task9-reference-transport",
+                "document_id": "DOC-TASK9",
+                "semantic_target_id": "WALL-001",
+                "native_target_unique_id": "REVIT-UNIQUE-ID-TASK9",
+            }
+        ],
+    }
+)
+session_reader = SqliteSessionBindingReader(sqlite_path)
+transport = _RecordingTransport(telemetry_path)
+
+
+def transport_factory(locator):
+    assert locator == "task9-reference-transport"
+    return transport
+
+
+approval_factory = _ConfiguredPolicyAdmissionFactory(
+    dsn,
+    admission_prefix="ADM-TASK9-MCP",
+)
+
+
+def composition_factory(*, binding, candidate):
+    return build_revit_wall_thickness_reference_composition(
+        config=RevitWallThicknessCompositionConfig(
+            dsn=dsn,
+            session_ref=binding.session_ref,
+            document_id=binding.document_id,
+            host_instance_id=binding.host_instance_id,
+            semantic_target_id=candidate.semantic_target_id,
+            native_target_unique_id=candidate.native_target_unique_id,
+        ),
+        transport=transport,
+        approval_admission_factory=approval_factory,
+    )
+
+
+apply_connection = connect_postgres(dsn)
+apply_execution_saga_migrations(apply_connection)
+apply_connection.close()
+request_store = create_postgres_product_task_request_store(dsn)
+checkpointer = create_postgres_checkpointer(dsn)
+saga_connection = connect_postgres(dsn)
+saga_store = PostgresExecutionSagaStoreV2(saga_connection)
+query = ProductTaskQueryService(
+    request_store=request_store,
+    checkpoint_reader=LangGraphWorkflowCheckpointReader(checkpointer=checkpointer),
+    saga_store=saga_store,
+)
+service = ProductFrontDoorService(
+    session_binding_reader=session_reader,
+    candidate_source=candidate_source,
+    context_probe=RevitCurrentContextProbe,
+    transport_factory=transport_factory,
+    query_service=query,
+    composition_pool=ExactSessionCompositionPool(factory=composition_factory),
+)
+run_streamable_http(
+    _RecordingService(service, error_path),
+    host="127.0.0.1",
+    port=port,
+)
+'''
+
+
 def _postgres_dsn() -> str:
     """Task 9 durable MCP acceptance 只在显式 PostgreSQL 17 lane 运行。"""
 
@@ -305,6 +474,77 @@ def _reset_query_schemas(dsn: str) -> None:
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA IF EXISTS product_task CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS orchestrator_checkpoint CASCADE")
+
+
+def _freeze_reference_submission(database_path: Path, request: ProductTaskRequest) -> None:
+    """把 production-shaped request/session binding 原子冻结进 SQLite，供独立 MCP server 读取。"""
+
+    candidate_source = front_door.ConfiguredRevitCandidateCatalog.from_mapping(
+        {
+            "version": "DSP_REVIT_CANDIDATES_V1",
+            "candidates": [
+                {
+                    "candidate_key": "revit-task9-reference",
+                    "project_id": "project-task9",
+                    "transport_locator": "task9-reference-transport",
+                    "document_id": "DOC-TASK9",
+                    "semantic_target_id": "WALL-001",
+                    "native_target_unique_id": "REVIT-UNIQUE-ID-TASK9",
+                }
+            ],
+        }
+    )
+    candidate = candidate_source.get("revit-task9-reference")
+    assert candidate is not None
+    binding_body = front_door.session_binding_hash_body(
+        session_ref=request.session_ref,
+        project_id=request.project_id,
+        host_kind=request.host_kind,
+        candidate_key=candidate.candidate_key,
+        candidate_hash=candidate.candidate_hash,
+        transport_locator=candidate.transport_locator,
+        host_instance_id="REVIT-TASK9",
+        document_id=candidate.document_id,
+    )
+    binding = front_door.SessionBinding(
+        **binding_body,
+        document_title="Product E2E Fixture",
+        binding_hash=canonical_hash(binding_body),
+    )
+    proposal = front_door.NormalizedFreezeProposal(
+        project_id=request.project_id,
+        host_kind=request.host_kind,
+        requested_action=request.requested_action,
+        intent_arguments=request.intent_arguments,
+        candidate_key=candidate.candidate_key,
+        candidate_hash=candidate.candidate_hash,
+    )
+    store = front_door.SqliteFrontDoorStateStore(str(database_path))
+    try:
+        correlation = f"submission:{request.task_id}"
+        store.create_submission(correlation, "把当前选中墙体厚度改成 300mm")
+        frozen = store.freeze_submission(
+            client_submission_ref=correlation,
+            proposal=proposal,
+            binding=binding,
+            request=request,
+        )
+        assert frozen.request == request
+        assert frozen.session_binding == binding
+    finally:
+        store.close()
+
+
+def _telemetry_operations(path: Path) -> tuple[str, ...]:
+    """读取子进程写出的 Host operation 顺序；空文件精确表示没有 Host I/O。"""
+
+    if not path.exists():
+        return ()
+    return tuple(
+        json.loads(line)["operation"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 @pytest.mark.asyncio
@@ -406,3 +646,120 @@ def test_context_snapshot_pause_composition_rebuild_fails_closed_without_host_mu
         assert host.execute_count == 0
     finally:
         helpers._close_case(rebuilt)
+
+
+@pytest.mark.asyncio
+async def test_real_mcp_reference_flow_replays_submit_then_resumes_same_server(
+    tmp_path,
+) -> None:
+    """真实 MCP 正向流必须复用 exact-session composition，并把重送 submit 收敛到同一 pause。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    helpers._reset_product_acceptance_schemas(dsn)
+    request = helpers._request("task-front-door-real-mcp-positive")
+    database_path = tmp_path / "front-door.sqlite3"
+    telemetry_path = tmp_path / "host-telemetry.jsonl"
+    error_path = tmp_path / "server-error.txt"
+    _freeze_reference_submission(database_path, request)
+
+    with _real_mcp_server(
+        _REFERENCE_PRODUCT_SERVER,
+        dsn,
+        str(database_path),
+        str(telemetry_path),
+        str(error_path),
+    ) as endpoint_url:
+        client = front_door.ProductFrontDoorMcpClient(endpoint_url)
+        first = await client.submit(request)
+        assert first.state is ProductTaskQueryState.WORKFLOW
+        assert first.flow is not None
+        assert first.flow.status is ProductFlowStatus.WAITING
+        assert first.flow.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        pending = first.flow.checkpoint.pending_interaction
+        assert pending is not None
+        assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
+
+        # 模拟 submit response loss：客户端只用同一个 frozen request 重送，不能生成新 task/session。
+        replayed = await client.submit(request)
+        assert replayed.task_id == first.task_id
+        assert replayed.request_hash == first.request_hash
+        assert replayed.flow is not None
+        assert replayed.flow.checkpoint.pending_interaction == pending
+        assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
+
+        completed = await client.resume_operation_proposal(
+            task_id=request.task_id,
+            pause_id=pending.pause_id,
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+        )
+        assert completed.state is ProductTaskQueryState.WORKFLOW
+        assert completed.flow is not None
+        assert completed.flow.status is ProductFlowStatus.SUCCEEDED
+        assert completed.flow.workflow_phase is WorkflowPhase.COMPLETED
+
+    operations = _telemetry_operations(telemetry_path)
+    assert operations.count("set_wall_thickness") == 1
+    assert not error_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_real_mcp_server_restart_keeps_get_but_resume_fails_closed(
+    tmp_path,
+) -> None:
+    """pause 后真实 server 进程重启：durable GET 仍可读，但丢失内存 snapshot 后 resume 必须拒绝。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    helpers._reset_product_acceptance_schemas(dsn)
+    request = helpers._request("task-front-door-real-mcp-restart")
+    database_path = tmp_path / "front-door.sqlite3"
+    telemetry_path = tmp_path / "host-telemetry.jsonl"
+    first_error = tmp_path / "first-server-error.txt"
+    second_error = tmp_path / "second-server-error.txt"
+    _freeze_reference_submission(database_path, request)
+
+    with _real_mcp_server(
+        _REFERENCE_PRODUCT_SERVER,
+        dsn,
+        str(database_path),
+        str(telemetry_path),
+        str(first_error),
+    ) as endpoint_url:
+        first_client = front_door.ProductFrontDoorMcpClient(endpoint_url)
+        paused = await first_client.submit(request)
+        assert paused.flow is not None
+        assert paused.flow.status is ProductFlowStatus.WAITING
+        pending = paused.flow.checkpoint.pending_interaction
+        assert pending is not None
+        context_ref = paused.flow.checkpoint.context_snapshot_ref
+        assert context_ref is not None
+
+    assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
+
+    # 第二个 context manager 启动全新的 Python/MCP server 进程；只复用 SQLite/PostgreSQL durable facts。
+    with _real_mcp_server(
+        _REFERENCE_PRODUCT_SERVER,
+        dsn,
+        str(database_path),
+        str(telemetry_path),
+        str(second_error),
+    ) as endpoint_url:
+        rebuilt_client = front_door.ProductFrontDoorMcpClient(endpoint_url)
+        restored = await rebuilt_client.get(request.task_id)
+        assert restored is not None
+        assert restored.flow is not None
+        assert restored.flow.status is ProductFlowStatus.WAITING
+        assert restored.flow.checkpoint.context_snapshot_ref == context_ref
+
+        with pytest.raises(RuntimeError, match="Product Front Door MCP tool failed"):
+            await rebuilt_client.resume_operation_proposal(
+                task_id=request.task_id,
+                pause_id=pending.pause_id,
+                resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+            )
+
+    assert second_error.read_text(encoding="utf-8").startswith(
+        "WORKFLOW_SERVICE_FAILURE:"
+    )
+    assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
