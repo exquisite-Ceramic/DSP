@@ -96,7 +96,10 @@ def test_run_streamable_http_uses_repository_mcp_2x_transport(
 
 
 def test_public_package_exports_mcp_server_and_http_runner() -> None:
-    """source-only Product Front Door public API 必须包含 MCP builder/runner，不要求缩减既有导出。"""
+    """
+    source-only Product Front Door public API 必须包含 MCP builder/runner，
+    不要求缩减既有导出。
+    """
 
     import design_product_front_door
 

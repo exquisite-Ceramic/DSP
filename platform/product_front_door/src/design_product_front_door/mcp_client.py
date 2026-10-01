@@ -207,7 +207,9 @@ class ProductFrontDoorMcpClient:
         try:
             port = parsed.port
         except ValueError as exc:
-            raise ValueError("Product Front Door MCP endpoint must use a valid loopback port") from exc
+            raise ValueError(
+                "Product Front Door MCP endpoint must use a valid loopback port"
+            ) from exc
         if port is not None and not 1 <= port <= 65535:
             raise ValueError("Product Front Door MCP endpoint must use a valid loopback port")
         self.endpoint_url = normalized
