@@ -29,6 +29,7 @@
 $env:DSP_FRONT_DOOR_LIVE="1"
 $env:DSP_AGENT_INTERPRETER_COMMAND='["python","C:\\dsp-live\\real_model_interpreter.py"]'
 $env:DSP_AGENT_MODEL_NAME="provider/model-version"
+$env:DSP_AGENT_INTERPRETER_ENV_KEYS='["PATH","SYSTEMROOT","TEMP","TMP","VIRTUAL_ENV","DSP_AGENT_MODEL_NAME"]'
 $env:DSP_FRONT_DOOR_CANDIDATES_FILE="C:\dsp-live\revit-candidates.json"
 $env:DSP_FRONT_DOOR_POLICY_FILE="C:\dsp-live\approval-policy.json"
 $env:DSP_FRONT_DOOR_STATE_DB="C:\dsp-live\front-door-state.sqlite3"
@@ -42,7 +43,24 @@ $env:DSP_REVIT_FIXTURE="C:\dsp-live\fixtures\FrontDoorAcceptance.rvt"
 $env:DSP_TEST_POSTGRES_DSN="postgresql://<acceptance-user>:<secret>@localhost:5432/<acceptance-db>"
 ```
 
-`DSP_AGENT_MODEL_NAME` 是证据标签，不是 credential。真实 model command 自己从本机安全 credential source 取凭据；不要把凭据放进 argv 或 stdout。
+`DSP_AGENT_MODEL_NAME` 是证据标签，不是 credential。`DSP_AGENT_INTERPRETER_ENV_KEYS` 是传给模型子进程的**显式环境变量名 allowlist**；模型子进程不会继承 controller/server 的完整环境。若真实 model wrapper 通过环境变量读取 provider credential，只把所需 credential 的**变量名**追加到这个 JSON array，值继续保留在本机环境中；不要把凭据放进 argv、stdout 或 evidence。严禁把 `DSP_TEST_POSTGRES_DSN`、`DSP_FRONT_DOOR_STATE_DB`、`DSP_FRONT_DOOR_CANDIDATES_FILE`、`DSP_FRONT_DOOR_POLICY_FILE`、`DSP_FRONT_DOOR_HOST`、`DSP_FRONT_DOOR_PORT`、`DSP_REVIT_PIPE`、`DSP_REVIT_FIXTURE` 或 `DSP_FRONT_DOOR_EVIDENCE_FILE` 加入模型 allowlist。
+
+server/client 是 acceptance 工作目录中的外置脚本，而 `product_front_door`、`product_runtime` 及其几个直接依赖保持 source-only，不因 live acceptance 升级成 workspace package。从仓库根目录运行脚本前，先同步 committed lock，并显式建立 controller 进程的 source-tree import path：
+
+```powershell
+uv sync --locked --all-packages
+$repo = (Resolve-Path ".").Path
+$sourceRoots = @(
+  "$repo\platform\product_front_door\src",
+  "$repo\platform\product_runtime\src",
+  "$repo\platform\interaction\src",
+  "$repo\platform\impact\src",
+  "$repo\platform\approval_scope\src"
+)
+$env:PYTHONPATH = ($sourceRoots -join [IO.Path]::PathSeparator)
+```
+
+这个 `PYTHONPATH` 只属于 controller/server/reference-client 进程；除非变量名被显式加入上面的 model allowlist，它不会传给模型子进程。
 
 ### 2.1 Candidate 配置
 
@@ -133,6 +151,7 @@ from design_product_front_door import (
     ConfiguredProductApprovalPolicy,
     ConfiguredRevitCandidateCatalog,
     PostgresConfiguredPolicyAdmissionStore,
+    SqliteFrontDoorStateStore,
     SqliteSessionBindingReader,
     run_streamable_http,
 )
@@ -235,6 +254,9 @@ def main() -> None:
         Path(os.environ["DSP_FRONT_DOOR_CANDIDATES_FILE"]).read_text(encoding="utf-8")
     )
     candidate_source = ConfiguredRevitCandidateCatalog.from_mapping(candidates_payload)
+    # fresh acceptance 路径先由 writable owner 建立/迁移 schema，再交给 server 的 read-only reader。
+    state_initializer = SqliteFrontDoorStateStore(state_db)
+    state_initializer.close()
     session_reader = SqliteSessionBindingReader(state_db)
 
     def transport_factory(locator: str):
@@ -377,7 +399,36 @@ def main() -> None:
     ):
         raise ValueError("DSP_AGENT_INTERPRETER_COMMAND must be a JSON argv array")
 
-    interpreter = SubprocessAgentInterpreter(command=command)
+    env_keys = json.loads(
+        os.environ.get("DSP_AGENT_INTERPRETER_ENV_KEYS", "[]")
+    )
+    if (
+        not isinstance(env_keys, list)
+        or any(not isinstance(key, str) or not key for key in env_keys)
+    ):
+        raise ValueError("DSP_AGENT_INTERPRETER_ENV_KEYS must be a JSON string array")
+    forbidden_model_env = {
+        "DSP_TEST_POSTGRES_DSN",
+        "DSP_FRONT_DOOR_STATE_DB",
+        "DSP_FRONT_DOOR_CANDIDATES_FILE",
+        "DSP_FRONT_DOOR_POLICY_FILE",
+        "DSP_FRONT_DOOR_HOST",
+        "DSP_FRONT_DOOR_PORT",
+        "DSP_REVIT_PIPE",
+        "DSP_REVIT_FIXTURE",
+        "DSP_FRONT_DOOR_EVIDENCE_FILE",
+    }
+    leaked = forbidden_model_env.intersection(env_keys)
+    if leaked:
+        raise ValueError(
+            "model environment allowlist contains controller authority variables: "
+            + ",".join(sorted(leaked))
+        )
+    model_environment = {key: os.environ[key] for key in env_keys}
+    interpreter = SubprocessAgentInterpreter(
+        command=command,
+        environment=model_environment,
+    )
 
     def context_probe_factory(locator: str):
         return RevitCurrentContextProbe(NamedPipeTransport(pipe_name=locator))
