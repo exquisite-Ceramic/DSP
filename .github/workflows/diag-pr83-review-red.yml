@@ -5,23 +5,130 @@ on:
     branches:
       - diag/pr83-review-red-6acd1d94
 
+permissions:
+  contents: write
+
 jobs:
-  review-red:
+  apply-runbook-fixes:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 56878c6950cd4c5337d4362d04cd94687731cfdd
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-      - name: Install repository verification stack from committed lock
+          ref: tdd/mcp-agent-front-door-20260928
+          fetch-depth: 0
+      - name: Assert expected feature head
+        shell: bash
         run: |
-          python -m pip install uv
-          uv sync --locked --all-packages
-      - name: Verify composition single-flight
+          test "$(git rev-parse HEAD)" = "56878c6950cd4c5337d4362d04cd94687731cfdd"
+      - name: Apply exact runbook fixes
+        shell: python
         run: |
-          uv run python -m pytest tests/product_front_door/test_composition_pool.py -q -vv
-          uv run ruff check --select E,F,I \
-            platform/product_front_door/src/design_product_front_door/composition_pool.py \
-            tests/product_front_door/test_composition_pool.py
+          from pathlib import Path
+
+          path = Path("docs/runbooks/mcp-agent-front-door.md")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  '$env:DSP_AGENT_MODEL_NAME="provider/model-version"\n',
+                  '$env:DSP_AGENT_MODEL_NAME="provider/model-version"\n'
+                  '$env:DSP_AGENT_INTERPRETER_ENV_KEYS=\'['
+                  '"PATH","SYSTEMROOT","TEMP","TMP","VIRTUAL_ENV",'
+                  '"DSP_AGENT_MODEL_NAME"]\'\n',
+              ),
+              (
+                  '`DSP_AGENT_MODEL_NAME` 是证据标签，不是 credential。真实 model command 自己从本机安全 credential source 取凭据；不要把凭据放进 argv 或 stdout。\n',
+                  '`DSP_AGENT_MODEL_NAME` 是证据标签，不是 credential。'
+                  '`DSP_AGENT_INTERPRETER_ENV_KEYS` 是传给模型子进程的**显式环境变量名 allowlist**；'
+                  '模型子进程不会继承 controller/server 的完整环境。若真实 model wrapper 通过环境变量读取 provider credential，'
+                  '只把所需 credential 的**变量名**追加到这个 JSON array，值继续保留在本机环境中；不要把凭据放进 argv、stdout 或 evidence。'
+                  '严禁把 `DSP_TEST_POSTGRES_DSN`、`DSP_FRONT_DOOR_STATE_DB`、`DSP_FRONT_DOOR_CANDIDATES_FILE`、'
+                  '`DSP_FRONT_DOOR_POLICY_FILE`、`DSP_FRONT_DOOR_HOST`、`DSP_FRONT_DOOR_PORT`、`DSP_REVIT_PIPE`、'
+                  '`DSP_REVIT_FIXTURE` 或 `DSP_FRONT_DOOR_EVIDENCE_FILE` 加入模型 allowlist。\n\n'
+                  'server/client 是 acceptance 工作目录中的外置脚本，而 `product_front_door`、`product_runtime` 及其几个直接依赖保持 source-only，'
+                  '不因 live acceptance 升级成 workspace package。从仓库根目录运行脚本前，先同步 committed lock，并显式建立 controller 进程的 source-tree import path：\n\n'
+                  '```powershell\n'
+                  'uv sync --locked --all-packages\n'
+                  '$repo = (Resolve-Path ".").Path\n'
+                  '$sourceRoots = @(\n'
+                  '  "$repo\\platform\\product_front_door\\src",\n'
+                  '  "$repo\\platform\\product_runtime\\src",\n'
+                  '  "$repo\\platform\\interaction\\src",\n'
+                  '  "$repo\\platform\\impact\\src",\n'
+                  '  "$repo\\platform\\approval_scope\\src"\n'
+                  ')\n'
+                  '$env:PYTHONPATH = ($sourceRoots -join [IO.Path]::PathSeparator)\n'
+                  '```\n\n'
+                  '这个 `PYTHONPATH` 只属于 controller/server/reference-client 进程；除非变量名被显式加入上面的 model allowlist，'
+                  '它不会传给模型子进程。\n',
+              ),
+              (
+                  '    PostgresConfiguredPolicyAdmissionStore,\n'
+                  '    SqliteSessionBindingReader,\n'
+                  '    run_streamable_http,\n',
+                  '    PostgresConfiguredPolicyAdmissionStore,\n'
+                  '    SqliteFrontDoorStateStore,\n'
+                  '    SqliteSessionBindingReader,\n'
+                  '    run_streamable_http,\n',
+              ),
+              (
+                  '    candidate_source = ConfiguredRevitCandidateCatalog.from_mapping(candidates_payload)\n'
+                  '    session_reader = SqliteSessionBindingReader(state_db)\n',
+                  '    candidate_source = ConfiguredRevitCandidateCatalog.from_mapping(candidates_payload)\n'
+                  '    # fresh acceptance 路径先由 writable owner 建立/迁移 schema，再交给 server 的 read-only reader。\n'
+                  '    state_initializer = SqliteFrontDoorStateStore(state_db)\n'
+                  '    state_initializer.close()\n'
+                  '    session_reader = SqliteSessionBindingReader(state_db)\n',
+              ),
+              (
+                  '    interpreter = SubprocessAgentInterpreter(command=command)\n',
+                  '    env_keys = json.loads(\n'
+                  '        os.environ.get("DSP_AGENT_INTERPRETER_ENV_KEYS", "[]")\n'
+                  '    )\n'
+                  '    if (\n'
+                  '        not isinstance(env_keys, list)\n'
+                  '        or any(not isinstance(key, str) or not key for key in env_keys)\n'
+                  '    ):\n'
+                  '        raise ValueError("DSP_AGENT_INTERPRETER_ENV_KEYS must be a JSON string array")\n'
+                  '    forbidden_model_env = {\n'
+                  '        "DSP_TEST_POSTGRES_DSN",\n'
+                  '        "DSP_FRONT_DOOR_STATE_DB",\n'
+                  '        "DSP_FRONT_DOOR_CANDIDATES_FILE",\n'
+                  '        "DSP_FRONT_DOOR_POLICY_FILE",\n'
+                  '        "DSP_FRONT_DOOR_HOST",\n'
+                  '        "DSP_FRONT_DOOR_PORT",\n'
+                  '        "DSP_REVIT_PIPE",\n'
+                  '        "DSP_REVIT_FIXTURE",\n'
+                  '        "DSP_FRONT_DOOR_EVIDENCE_FILE",\n'
+                  '    }\n'
+                  '    leaked = forbidden_model_env.intersection(env_keys)\n'
+                  '    if leaked:\n'
+                  '        raise ValueError(\n'
+                  '            "model environment allowlist contains controller authority variables: "\n'
+                  '            + ",".join(sorted(leaked))\n'
+                  '        )\n'
+                  '    model_environment = {key: os.environ[key] for key in env_keys}\n'
+                  '    interpreter = SubprocessAgentInterpreter(\n'
+                  '        command=command,\n'
+                  '        environment=model_environment,\n'
+                  '    )\n',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one runbook match, found {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+      - name: Commit exact runbook fixes
+        shell: bash
+        run: |
+          git diff --check
+          git diff -- docs/runbooks/mcp-agent-front-door.md
+          git config user.name "FangBin"
+          git config user.email "52097203+exquisite-Ceramic@users.noreply.github.com"
+          git add docs/runbooks/mcp-agent-front-door.md
+          git commit -m "docs: harden MCP live bootstrap"
+          git push origin HEAD:tdd/mcp-agent-front-door-20260928
