@@ -1,8 +1,11 @@
 # Cross-Host Product Vertical — Design Specification
 
-Status: **FINAL CONSISTENCY REVIEW — not yet approved for implementation**  
-Date: 2026-10-01  
-Baseline: `main@1dd35413d4cadb3b3e7f3ba023919c760f5ab42f`  
+Status: **FINAL CONSISTENCY REVIEW — not yet approved for implementation**
+
+Date: 2026-10-01
+
+Baseline: `main@1dd35413d4cadb3b3e7f3ba023919c760f5ab42f`
+
 Predecessor: MCP / Agent Front Door, implementation PR #83 and lifecycle closeout PR #84
 
 ## 1. Outcome and agreed scope
@@ -1088,7 +1091,9 @@ reconciliation evidence persistence
 client SQLite before server acceptance
 ```
 
-No in-memory owner is allowed on the mandatory product path.
+The task input, human decision and invalidation state, workflow manifests, Saga, dispatch truth, and V2 query-required evidence that this phase explicitly requires to survive restart or support offline query MUST NOT rely solely on in-memory state.
+
+Other intermediate artifacts that carry authoritative facts required for restart recovery or offline query MUST have an explicit durable or safe reconstruction path. If an exact artifact cannot be safely reconstructed, §8.7 fail-closed semantics apply rather than silently widening this phase into a blanket migration of every domain store.
 
 ### 8.2 One ProductTask, one Saga
 
@@ -1502,7 +1507,7 @@ A missing public owner contract or insufficient production Host evidence is an i
 
 It is not waived as a test limitation.
 
-This Design introduces no product code and changes no lifecycle status.
+This Design introduces no product code and does not mark the successor capability implementation as started.
 
 Current gate:
 
