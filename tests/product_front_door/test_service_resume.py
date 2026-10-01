@@ -339,7 +339,8 @@ def test_resume_candidate_drift_after_pause_fails_before_host_pool_or_runtime() 
     assert flow.resume_calls == []
 
 
-def test_resume_validates_authority_reuses_exact_composition_and_delegates_existing_command() -> None:
+def test_resume_validates_authority_reuses_exact_composition_and_delegates_existing_command(
+) -> None:
     candidate = _candidate()
     binding = _binding(candidate)
     request = _request(binding)
