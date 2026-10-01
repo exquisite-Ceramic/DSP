@@ -62,7 +62,10 @@ def test_lifecycle_summary_names_current_repository_state() -> None:
     assert "Capability Phase — MCP / Agent front door COMPLETED" in text
     assert "Capability Phase successor — NOT YET DEFINED / NOT YET STARTED" in text
     assert "**Latest completed capability phase:** MCP / Agent front door" in root_text
-    assert "**Current engineering activity:** No capability phase currently active" in root_text
+    assert (
+        "**Current engineering activity:** No capability phase currently active"
+        in root_text
+    )
     assert "**Next capability phase:** NOT YET DEFINED / NOT YET STARTED" in root_text
     assert "**Latest product acceptance:** MCP / Agent front door controlled live GREEN" in root_text
 
