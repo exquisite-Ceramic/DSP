@@ -53,7 +53,7 @@ def test_mcp_transport_rejects_invalid_ports(port: object) -> None:
 
 
 def test_mcp_transport_uses_frozen_default_loopback_endpoint() -> None:
-    """transport entrypoint 的默认地址必须冻结为 127.0.0.1:8010，避免意外扩大 trust boundary。"""
+    """冻结 transport 默认地址为 127.0.0.1:8010，避免意外扩大 trust boundary。"""
 
     parameters = signature(run_streamable_http).parameters
 
@@ -61,7 +61,9 @@ def test_mcp_transport_uses_frozen_default_loopback_endpoint() -> None:
     assert parameters["port"].default == 8010
 
 
-def test_run_streamable_http_uses_repository_mcp_2x_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_streamable_http_uses_repository_mcp_2x_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """HTTP runner 必须通过真实 MCPServer builder 启动 stateless JSON Streamable HTTP。"""
 
     import design_product_front_door.mcp_transport as transport_module
