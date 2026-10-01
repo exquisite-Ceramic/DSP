@@ -11,7 +11,7 @@
 - Capability Phase — real E2E workflow COMPLETED
 - Capability Phase — Revit wall-thickness product vertical COMPLETED
 - Capability Phase — MCP / Agent front door COMPLETED
-- Capability Phase successor — Cross-Host Product Vertical DESIGN REVIEW / IMPLEMENTATION NOT STARTED
+- Capability Phase successor — NOT YET DEFINED / NOT YET STARTED
 
 ## 主规格 authority
 
@@ -123,4 +123,4 @@
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
 - Technology Modernization、Architecture Modernization Phase II、HITL pause/resume、real E2E workflow、Revit wall-thickness product vertical 与 MCP / Agent front door 均已完成并保留为工程证据。
 - MCP / Agent front door implementation 已由 PR #83 合并到 `main@dd3ab785cfabf0d69068d6004a579d5d946b23b5`；该 merge SHA 的 20 条 fresh push workflows 全部成功，最终 controlled live 在实现 HEAD `c67c7d7475f79218b57f4322e001f85b4e6feee9` 上通过。本文档只记录 lifecycle completion，不改写历史 Design/Plan 正文。
-- Cross-Host Product Vertical 已登记为 `CURRENT` design candidate，仍处于 FINAL CONSISTENCY REVIEW；implementation 尚未开始。进入实现前仍须完成 Written Spec approval 与 Implementation Plan / Written-Plan Review。
+- Cross-Host Product Vertical 已登记为 `CURRENT` design candidate，仍处于 FINAL CONSISTENCY REVIEW；此登记不改变 `Capability Phase successor — NOT YET DEFINED / NOT YET STARTED` 的 lifecycle summary，implementation 尚未开始。进入实现前仍须完成 Written Spec approval 与 Implementation Plan / Written-Plan Review。
