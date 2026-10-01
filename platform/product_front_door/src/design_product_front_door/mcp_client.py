@@ -93,7 +93,10 @@ def _decode_pending(value: object) -> PendingInteractionView | None:
         not isinstance(item, str) for item in raw_allowed
     ):
         raise TypeError("pending_interaction.allowed_resume_kinds must be a string array")
-    subject_ref = _decode_stable_ref(body.get("subject_ref"), "pending_interaction.subject_ref")
+    subject_ref = _decode_stable_ref(
+        body.get("subject_ref"),
+        "pending_interaction.subject_ref",
+    )
     if subject_ref is None:
         raise ValueError("pending_interaction.subject_ref is required")
     return PendingInteractionView(
