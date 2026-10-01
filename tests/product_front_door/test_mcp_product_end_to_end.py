@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import design_product_front_door as front_door
@@ -24,6 +25,7 @@ from design_product_runtime import (
     ProductTaskRequest,
     create_postgres_product_task_request_store,
 )
+from revit_sidecar import RevitCurrentContextProbe
 
 
 def _reserve_loopback_port() -> int:
@@ -556,6 +558,70 @@ def _telemetry_operations(path: Path) -> tuple[str, ...]:
     )
 
 
+def _accept_command(proposal) -> WorkflowResumeCommand:
+    """从真实 operation-proposal pause 构造 exact accept command。"""
+
+    pending = proposal.checkpoint.pending_interaction
+    assert pending is not None
+    return WorkflowResumeCommand(
+        resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+        pause_id=pending.pause_id,
+    )
+
+
+class _PolicySource:
+    """返回固定 configured policy，并记录完整 ProductFlow 是否真正进入 policy boundary。"""
+
+    def __init__(self, policy) -> None:
+        self._policy = policy
+        self.calls = 0
+
+    def load(self):
+        """返回测试指定 policy authority。"""
+
+        self.calls += 1
+        return self._policy
+
+
+class _ForbiddenPolicySource:
+    """错误 owner graph 必须在读取 configured policy 之前 fail closed。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def load(self):
+        """任何 policy 读取都代表 lineage gate 顺序错误。"""
+
+        self.calls += 1
+        raise AssertionError("wrong owner graph must fail before policy authorization")
+
+
+class _PolicyClock:
+    """为 Task 9 configured-policy acceptance 提供固定 UTC issuance 时间。"""
+
+    def now(self) -> datetime:
+        """返回 deterministic timezone-aware UTC。"""
+
+        return datetime(2026, 9, 24, 9, 0, tzinfo=UTC)
+
+
+class _WrongChangeSetOwner:
+    """模拟误接到平行业务图的 ChangeSet owner；返回与 exact StableRef 不同的 hash。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def get(self, changeset_id: str):
+        """记录 lookup，并返回明确不属于当前 workflow lineage 的对象。"""
+
+        self.calls.append(changeset_id)
+
+        class _WrongChangeSet:
+            changeset_hash = "f" * 64
+
+        return _WrongChangeSet()
+
+
 @pytest.mark.asyncio
 async def test_real_mcp_submit_candidate_drift_fails_before_host_or_workflow(
     tmp_path,
@@ -657,6 +723,92 @@ def test_context_snapshot_pause_composition_rebuild_fails_closed_without_host_mu
         helpers._close_case(rebuilt)
 
 
+def test_configured_policy_denies_after_proposal_before_host_mutation() -> None:
+    """human accept 后 configured policy 拒绝 exact operation 时，完整 ProductFlow 不得触发 Host 写入。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    case = helpers._build_reference_case(
+        dsn,
+        "task-front-door-policy-deny",
+        reset_schema=True,
+    )
+    admission_store = front_door.PostgresConfiguredPolicyAdmissionStore(dsn)
+    try:
+        proposal = case.flow.submit(case.request)
+        assert proposal.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        owner_ports = case.runtime._services._external_owners
+        deny_policy = front_door.ConfiguredProductApprovalPolicy.from_mapping(
+            {
+                "version": "DSP_PRODUCT_APPROVAL_POLICY_V1",
+                "policy_id": "task9-deny-set-wall-thickness",
+                "principal": "user:task9-policy-test",
+                "project_ids": ["project-task9"],
+                "allowed_canonical_operations": ["inspect_wall.v1"],
+                "admission_ttl_seconds": 900,
+            }
+        )
+        policy_source = _PolicySource(deny_policy)
+        owner_ports._approval_admission = front_door.ConfiguredPolicyApprovalAdmissionPort(
+            changeset_store=owner_ports._changeset_store,
+            approval_scope_store=owner_ports._approval_scope_store,
+            admission_store=admission_store,
+            policy_source=policy_source,
+            clock=_PolicyClock(),
+            id_factory=lambda: "ADM-TASK9-MUST-NOT-ISSUE",
+        )
+
+        with pytest.raises(WorkflowStateError) as captured:
+            case.flow.resume(case.task_id, _accept_command(proposal))
+
+        assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
+        assert policy_source.calls == 1
+        assert case.host.execute_count == 0
+        assert "set_wall_thickness" not in case.host.command_operations()
+    finally:
+        admission_store.close()
+        helpers._close_case(case)
+
+
+def test_wrong_changeset_owner_graph_fails_before_policy_or_host_mutation() -> None:
+    """configured-policy 若误接平行 ChangeSet owner，必须在 policy issuance 与 Host 写入前 fail closed。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    case = helpers._build_reference_case(
+        dsn,
+        "task-front-door-wrong-owner-graph",
+        reset_schema=True,
+    )
+    admission_store = front_door.PostgresConfiguredPolicyAdmissionStore(dsn)
+    try:
+        proposal = case.flow.submit(case.request)
+        assert proposal.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        owner_ports = case.runtime._services._external_owners
+        wrong_changesets = _WrongChangeSetOwner()
+        forbidden_policy = _ForbiddenPolicySource()
+        owner_ports._approval_admission = front_door.ConfiguredPolicyApprovalAdmissionPort(
+            changeset_store=wrong_changesets,
+            approval_scope_store=owner_ports._approval_scope_store,
+            admission_store=admission_store,
+            policy_source=forbidden_policy,
+            clock=_PolicyClock(),
+            id_factory=lambda: "ADM-TASK9-MUST-NOT-ISSUE",
+        )
+
+        with pytest.raises(WorkflowStateError) as captured:
+            case.flow.resume(case.task_id, _accept_command(proposal))
+
+        assert captured.value.code == "WORKFLOW_SERVICE_FAILURE"
+        assert len(wrong_changesets.calls) == 1
+        assert forbidden_policy.calls == 0
+        assert case.host.execute_count == 0
+        assert "set_wall_thickness" not in case.host.command_operations()
+    finally:
+        admission_store.close()
+        helpers._close_case(case)
+
+
 @pytest.mark.asyncio
 async def test_real_mcp_reference_flow_replays_submit_then_resumes_same_server(
     tmp_path,
@@ -710,6 +862,125 @@ async def test_real_mcp_reference_flow_replays_submit_then_resumes_same_server(
     operations = _telemetry_operations(telemetry_path)
     assert operations.count("set_wall_thickness") == 1
     assert not error_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_client_uses_fake_agent_human_with_real_mcp_product_path(
+    tmp_path,
+) -> None:
+    """offline positive path 必须把 deterministic Agent/HumanDecision 与真实 MCP/owners 串成一条。"""
+
+    helpers = _load_product_runtime_acceptance_helpers()
+    dsn = _postgres_dsn()
+    helpers._reset_product_acceptance_schemas(dsn)
+    database_path = tmp_path / "reference-client.sqlite3"
+    telemetry_path = tmp_path / "reference-client-host.jsonl"
+    error_path = tmp_path / "reference-client-server-error.txt"
+    candidate_source = front_door.ConfiguredRevitCandidateCatalog.from_mapping(
+        {
+            "version": "DSP_REVIT_CANDIDATES_V1",
+            "candidates": [
+                {
+                    "candidate_key": "revit-task9-reference",
+                    "project_id": "project-task9",
+                    "transport_locator": "task9-reference-transport",
+                    "document_id": "/DSP/fixtures/Task9Reference.rvt",
+                    "semantic_target_id": "WALL-001",
+                    "native_target_unique_id": "REVIT-UNIQUE-ID-TASK9",
+                }
+            ],
+        }
+    )
+
+    class _DeterministicAgent:
+        """只把固定自然语言解释成冻结的窄 proposal，不拥有业务 identity。"""
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def interpret(self, *, client_submission_ref: str, utterance: str):
+            """记录 correlation/utterance，并返回固定 300mm proposal。"""
+
+            self.calls.append((client_submission_ref, utterance))
+            return front_door.AgentProposal(
+                candidate_key="revit-task9-reference",
+                thickness_value=300.0,
+                thickness_unit="mm",
+            )
+
+    class _ClientContextTransport:
+        """仅模拟 reference client freeze 前的外部 Revit context READ。"""
+
+        def __init__(self) -> None:
+            self._delegate = helpers.StatefulRevitTransport()
+
+        def request(self, command):
+            """复用既有 Revit fake，并把 saved-document identity 对齐 candidate。"""
+
+            result = self._delegate.request(command)
+            if command.operation == "context.current_selection":
+                result["payload"]["document_id"] = "/DSP/fixtures/Task9Reference.rvt"
+            return result
+
+    class _AcceptHumanDecision:
+        """只对 owner-derived operation proposal 返回显式 accept。"""
+
+        def __init__(self) -> None:
+            self.pending: list[object] = []
+
+        def decide(self, pending):
+            """记录真实 pending，并返回其中允许的 accept resume kind。"""
+
+            self.pending.append(pending)
+            assert "OPERATION_PROPOSAL_ACCEPTED" in pending.allowed_resume_kinds
+            return "OPERATION_PROPOSAL_ACCEPTED"
+
+    store = front_door.SqliteFrontDoorStateStore(str(database_path))
+    agent = _DeterministicAgent()
+    human = _AcceptHumanDecision()
+    client_transport = _ClientContextTransport()
+    controller = front_door.SubmissionController(
+        state_store=store,
+        agent_interpreter=agent,
+        candidate_source=candidate_source,
+        context_probe_factory=lambda locator: RevitCurrentContextProbe(client_transport),
+        session_ref_factory=lambda: "revit-session-product-e2e",
+        task_id_factory=lambda: "task-front-door-reference-client-real-mcp",
+    )
+    try:
+        with _real_mcp_server(
+            _REFERENCE_PRODUCT_SERVER,
+            dsn,
+            str(database_path),
+            str(telemetry_path),
+            str(error_path),
+        ) as endpoint_url:
+            reference_client = front_door.ReferenceClient(
+                state_store=store,
+                submission_controller=controller,
+                mcp_client=front_door.ProductFrontDoorMcpClient(endpoint_url),
+                human_decision_port=human,
+            )
+            result = await reference_client.run_submission(
+                client_submission_ref="submission-task9-reference-client",
+                utterance="把当前选中的墙体厚度改成 300mm",
+            )
+
+        assert result.state is ProductTaskQueryState.WORKFLOW
+        assert result.flow is not None
+        assert result.flow.status is ProductFlowStatus.SUCCEEDED
+        assert result.flow.workflow_phase is WorkflowPhase.COMPLETED
+        assert agent.calls == [
+            (
+                "submission-task9-reference-client",
+                "把当前选中的墙体厚度改成 300mm",
+            )
+        ]
+        assert len(human.pending) == 1
+        assert _telemetry_operations(telemetry_path).count("set_wall_thickness") == 1
+        assert not error_path.exists()
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
