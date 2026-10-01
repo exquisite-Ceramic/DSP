@@ -620,7 +620,13 @@ class SqliteSessionBindingReader(_BindingReaderMixin):
         if not isinstance(database_path, str) or not database_path.strip():
             raise ValueError("database_path must be a non-blank string")
         database_uri = f"{Path(database_path).resolve().as_uri()}?mode=ro"
-        self._connection = sqlite3.connect(database_uri, uri=True)
+        # MCP 同步 tool 可能在线程池 worker 中调用这个只读 resolver。该连接以
+        # mode=ro 打开并且只执行 SELECT，因此允许跨 worker 线程读取不会扩大写入 authority。
+        self._connection = sqlite3.connect(
+            database_uri,
+            uri=True,
+            check_same_thread=False,
+        )
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
 
