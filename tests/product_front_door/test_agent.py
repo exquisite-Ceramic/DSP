@@ -32,6 +32,21 @@ def _command_for_payload(payload: object, *, inspect_input: bool = True) -> list
     return [sys.executable, "-c", ";".join(statements)]
 
 
+def _command_for_environment(payload: object) -> list[str]:
+    """构造会检查显式 model env 与 controller env 隔离的真实子进程。"""
+
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    statements = [
+        "import json,os,sys",
+        "json.load(sys.stdin)",
+        "assert os.environ.get('MODEL_API_TOKEN')=='allowed-model-token'",
+        "assert 'DSP_TEST_POSTGRES_DSN' not in os.environ",
+        "assert 'DSP_FRONT_DOOR_STATE_DB' not in os.environ",
+        f"print({encoded!r})",
+    ]
+    return [sys.executable, "-c", ";".join(statements)]
+
+
 def test_subprocess_interpreter_sends_only_correlation_and_utterance_and_decodes_proposal() -> None:
     """真实 subprocess stdin 不携带业务 identity；合法 proposal 被还原为窄 dataclass。"""
 
@@ -196,3 +211,28 @@ def test_subprocess_interpreter_maps_nonzero_process_exit_to_stable_error() -> N
             client_submission_ref="agent-001",
             utterance="把墙改成 300mm。",
         )
+
+
+def test_subprocess_interpreter_uses_only_explicit_model_environment(monkeypatch) -> None:
+    """controller credential/locator env 不得隐式泄露给真实模型子进程。"""
+
+    monkeypatch.setenv("DSP_TEST_POSTGRES_DSN", "postgresql://controller-secret")
+    monkeypatch.setenv("DSP_FRONT_DOOR_STATE_DB", "C:/controller/state.db")
+    interpreter_type = _interpreter_type()
+    interpreter = interpreter_type(
+        command=_command_for_environment(
+            {
+                "kind": "PROPOSAL",
+                "candidate_key": "primary-revit",
+                "thickness": {"value": 300, "unit": "mm"},
+            }
+        ),
+        environment={"MODEL_API_TOKEN": "allowed-model-token"},
+    )
+
+    result = interpreter.interpret(
+        client_submission_ref="agent-001",
+        utterance="把墙改成 300mm。",
+    )
+
+    assert isinstance(result, front_door.AgentProposal)
