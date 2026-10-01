@@ -84,10 +84,12 @@ jobs:
       - name: Verify ProductTask PostgreSQL query and start-gate crash windows
         run: |
           # Task 9 不重写 ProductTask owner；这里把其既有 exact-query / single-lineage
-          # PostgreSQL 契约与 Front Door acceptance 绑定在同一 PG17 gate。
+          # PostgreSQL 契约与 Front Door acceptance 绑定在同一 PG17 gate，并覆盖 production
+          # composition 会复用的 shared flow/shared gate 并发入口。
           uv run python -m pytest \
             tests/product_runtime/test_product_task_query_postgres.py \
-            tests/product_runtime/test_product_task_start_gate_postgres.py -q
+            tests/product_runtime/test_product_task_start_gate_postgres.py \
+            tests/product_runtime/test_product_task_shared_start_gate_postgres.py -q
       - name: Verify real Product Runtime owner chain and fail-closed recovery
         run: |
           # 复用既有 public reference composition 的真实 policy/Gateway/Saga/Reconciliation
@@ -110,9 +112,10 @@ jobs:
             tests/product_front_door/test_reference_client_cli.py -q
       - name: Enforce absolute Ruff clean on Task 9 and Task 10 acceptance paths
         run: |
-          # Task 9/10 的冻结文件清单没有 legacy production Python 改动，因此新 acceptance
-          # 路径直接要求 absolute E/F/I clean；既有路径继续由 Repository Regression 管理。
+          # Task 9/10 与后续 review regression 的新增 acceptance 直接要求 absolute E/F/I clean；
+          # 既有路径继续由 Repository Regression 管理。
           uv run ruff check --select E,F,I \
             tests/product_front_door/test_durable_recovery_postgres.py \
             tests/product_front_door/test_mcp_product_end_to_end.py \
+            tests/product_runtime/test_product_task_shared_start_gate_postgres.py \
             tests/integration/test_mcp_agent_front_door_live_support.py
