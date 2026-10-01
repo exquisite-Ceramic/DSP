@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: f438c67358b16dfe6575dead365d675d27dbf5ee
+          ref: 56878c6950cd4c5337d4362d04cd94687731cfdd
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -19,9 +19,9 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
-      - name: Verify agent environment isolation
+      - name: Verify composition single-flight
         run: |
-          uv run python -m pytest tests/product_front_door/test_agent.py -q -vv
+          uv run python -m pytest tests/product_front_door/test_composition_pool.py -q -vv
           uv run ruff check --select E,F,I \
-            platform/product_front_door/src/design_product_front_door/agent.py \
-            tests/product_front_door/test_agent.py
+            platform/product_front_door/src/design_product_front_door/composition_pool.py \
+            tests/product_front_door/test_composition_pool.py
