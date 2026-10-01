@@ -724,7 +724,10 @@ def test_context_snapshot_pause_composition_rebuild_fails_closed_without_host_mu
 
 
 def test_configured_policy_denies_after_proposal_before_host_mutation() -> None:
-    """human accept 后 configured policy 拒绝 exact operation 时，完整 ProductFlow 不得触发 Host 写入。"""
+    """human accept 后 configured policy 拒绝 exact operation 时：
+
+    完整 ProductFlow 必须在 Host 写入之前 fail closed。
+    """
 
     helpers = _load_product_runtime_acceptance_helpers()
     dsn = _postgres_dsn()
@@ -771,7 +774,10 @@ def test_configured_policy_denies_after_proposal_before_host_mutation() -> None:
 
 
 def test_wrong_changeset_owner_graph_fails_before_policy_or_host_mutation() -> None:
-    """configured-policy 若误接平行 ChangeSet owner，必须在 policy issuance 与 Host 写入前 fail closed。"""
+    """configured-policy 误接平行 ChangeSet owner 时：
+
+    必须在 policy issuance 与 Host 写入之前 fail closed。
+    """
 
     helpers = _load_product_runtime_acceptance_helpers()
     dsn = _postgres_dsn()
@@ -868,7 +874,10 @@ async def test_real_mcp_reference_flow_replays_submit_then_resumes_same_server(
 async def test_reference_client_uses_fake_agent_human_with_real_mcp_product_path(
     tmp_path,
 ) -> None:
-    """offline positive path 必须把 deterministic Agent/HumanDecision 与真实 MCP/owners 串成一条。"""
+    """offline positive path 串联：
+
+    deterministic Agent/HumanDecision、真实 MCP transport 与 production owners。
+    """
 
     helpers = _load_product_runtime_acceptance_helpers()
     dsn = _postgres_dsn()
