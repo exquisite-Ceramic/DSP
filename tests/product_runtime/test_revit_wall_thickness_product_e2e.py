@@ -74,15 +74,15 @@ def test_product_flow_happy_path_commits_once_and_succeeds_from_authoritative_sa
     assert reread.saga_id == completed.saga_id
 
 
-def test_300_350_interleaving_survives_full_product_composition_rebuild(
+def test_300_350_interleaving_stays_isolated_on_same_reference_composition(
     revit_wall_thickness_product_case,
 ) -> None:
-    """场景 5/19：A=300/B=350 在 binder 前暂停，重建后 B→A 全流恢复不得串 request lineage。"""
+    """A=300/B=350 在同一 exact-session composition 内 B→A resume 不得串 request lineage。"""
 
     task_a = "task-product-interleave-A"
     task_b = "task-product-interleave-B"
-    initial = revit_wall_thickness_product_case(task_a)
-    request_a = initial.request
+    case = revit_wall_thickness_product_case(task_a)
+    request_a = case.request
     request_b = ProductTaskRequest.create(
         task_id=task_b,
         project_id=request_a.project_id,
@@ -92,8 +92,8 @@ def test_300_350_interleaving_survives_full_product_composition_rebuild(
         intent_arguments={"thickness": {"value": 350.0, "unit": "mm"}},
     )
 
-    pause_a = initial.flow.submit(request_a)
-    pause_b = initial.flow.submit(request_b)
+    pause_a = case.flow.submit(request_a)
+    pause_b = case.flow.submit(request_b)
 
     assert pause_a.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
     assert pause_b.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
@@ -102,25 +102,24 @@ def test_300_350_interleaving_survives_full_product_composition_rebuild(
     assert pause_a.checkpoint.operation_ref is not None
     assert pause_b.checkpoint.operation_ref is not None
     assert request_a.request_hash != request_b.request_hash
-    assert initial.host.execute_count == 0
+    assert case.host.execute_count == 0
 
-    # 模拟进程重建：旧 PG connections/runtime/adapters 全部关闭并重新创建；恢复唯一允许
-    # 依赖的是 durable request/checkpoint/artifact 与 authoritative ContextSnapshot owner truth。
-    rebuilt = revit_wall_thickness_product_case.rebuild(initial, task_a)
-    assert rebuilt.request_store.get(task_a) == request_a
-    assert rebuilt.request_store.get(task_b) == request_b
+    # v1 reference composition 的 SnapshotRegistry 是进程内 owner；两个 pending task 必须在
+    # 同一 exact-session composition 生命周期里继续，不伪造 pause 后 server rebuild 保证。
+    assert case.request_store.get(task_a) == request_a
+    assert case.request_store.get(task_b) == request_b
 
-    completed_b = rebuilt.flow.resume(task_b, _accept_command(pause_b))
+    completed_b = case.flow.resume(task_b, _accept_command(pause_b))
 
     assert completed_b.status is ProductFlowStatus.SUCCEEDED
     assert completed_b.workflow_phase is WorkflowPhase.COMPLETED
-    assert rebuilt.host.execute_count == 1
-    assert rebuilt.host.current_thickness_mm == 350.0
-    assert rebuilt.host.current_revision == 43
+    assert case.host.execute_count == 1
+    assert case.host.current_thickness_mm == 350.0
+    assert case.host.current_revision == 43
     assert completed_b.checkpoint.operation_ref is not None
     assert completed_b.checkpoint.changeset_ref is not None
 
-    bound_b = rebuilt.artifact_store.get(completed_b.checkpoint.operation_ref)
+    bound_b = case.artifact_store.get(completed_b.checkpoint.operation_ref)
     assert isinstance(bound_b, BoundOperationProposal)
     assert bound_b.arguments["thickness"] == {"value": 350.0, "unit": "mm"}
     assert bound_b.context_snapshot_ref.context_snapshot_id == (
@@ -129,23 +128,23 @@ def test_300_350_interleaving_survives_full_product_composition_rebuild(
     assert bound_b.context_snapshot_ref.context_snapshot_hash == (
         pause_b.checkpoint.context_snapshot_ref.content_hash
     )
-    changeset_b = rebuilt.changeset_store.get(completed_b.checkpoint.changeset_ref.ref_id)
+    changeset_b = case.changeset_store.get(completed_b.checkpoint.changeset_ref.ref_id)
     assert changeset_b.root_operation.arguments["thickness"] == {
         "value": 350.0,
         "unit": "mm",
     }
 
-    completed_a = rebuilt.flow.resume(task_a, _accept_command(pause_a))
+    completed_a = case.flow.resume(task_a, _accept_command(pause_a))
 
     assert completed_a.status is ProductFlowStatus.SUCCEEDED
     assert completed_a.workflow_phase is WorkflowPhase.COMPLETED
-    assert rebuilt.host.execute_count == 2
-    assert rebuilt.host.current_thickness_mm == 300.0
-    assert rebuilt.host.current_revision == 44
+    assert case.host.execute_count == 2
+    assert case.host.current_thickness_mm == 300.0
+    assert case.host.current_revision == 44
     assert completed_a.checkpoint.operation_ref is not None
     assert completed_a.checkpoint.changeset_ref is not None
 
-    bound_a = rebuilt.artifact_store.get(completed_a.checkpoint.operation_ref)
+    bound_a = case.artifact_store.get(completed_a.checkpoint.operation_ref)
     assert isinstance(bound_a, BoundOperationProposal)
     assert bound_a.arguments["thickness"] == {"value": 300.0, "unit": "mm"}
     assert bound_a.context_snapshot_ref.context_snapshot_id == (
@@ -154,7 +153,7 @@ def test_300_350_interleaving_survives_full_product_composition_rebuild(
     assert bound_a.context_snapshot_ref.context_snapshot_hash == (
         pause_a.checkpoint.context_snapshot_ref.content_hash
     )
-    changeset_a = rebuilt.changeset_store.get(completed_a.checkpoint.changeset_ref.ref_id)
+    changeset_a = case.changeset_store.get(completed_a.checkpoint.changeset_ref.ref_id)
     assert changeset_a.root_operation.arguments["thickness"] == {
         "value": 300.0,
         "unit": "mm",
@@ -162,12 +161,12 @@ def test_300_350_interleaving_survives_full_product_composition_rebuild(
 
     assert completed_b.checkpoint.operation_ref != completed_a.checkpoint.operation_ref
     assert changeset_b.changeset_hash != changeset_a.changeset_hash
-    assert rebuilt.request_store.get(task_b).request_hash == request_b.request_hash
-    assert rebuilt.request_store.get(task_a).request_hash == request_a.request_hash
+    assert case.request_store.get(task_b).request_hash == request_b.request_hash
+    assert case.request_store.get(task_a).request_hash == request_a.request_hash
 
     execute_commands = [
         command
-        for command in rebuilt.host.commands
+        for command in case.host.commands
         if command.operation == "set_wall_thickness"
     ]
     assert [command.arguments["thickness"]["value"] for command in execute_commands] == [

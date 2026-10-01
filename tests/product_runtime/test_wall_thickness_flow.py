@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
@@ -61,6 +62,25 @@ class _RequestStore:
 
         self.events.append("request.get")
         return self.requests.get(task_id)
+
+
+class _StartGate:
+    """非并发 focused tests 的窄 fake；只证明 facade 的临界区调用顺序。"""
+
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    @contextmanager
+    def serialize(self, task_id: str):
+        """记录 enter/exit；真实并发正确性由 PostgreSQL gate tests 证明。"""
+
+        if not task_id:
+            raise AssertionError("测试 start gate 需要 exact task_id")
+        self.events.append("gate.enter")
+        try:
+            yield
+        finally:
+            self.events.append("gate.exit")
 
 
 class _Runtime:
@@ -145,17 +165,19 @@ def _flow(
     request_store: _RequestStore | None = None,
     runtime: _Runtime | None = None,
 ) -> tuple[WallThicknessProductFlow, _RequestStore, _Runtime, _SagaStore]:
-    """组装只包含 Task 8 三个 owner port 的 facade 测试环境。"""
+    """组装三个 owner port 与一个非并发 gate fake 的 facade 测试环境。"""
 
     owned_events = events if events is not None else []
     owned_request_store = request_store or _RequestStore(owned_events)
     owned_runtime = runtime or _Runtime(owned_events, checkpoint=checkpoint)
     saga_store = _SagaStore(saga_snapshots)
+    start_gate = _StartGate(owned_events)
     return (
         WallThicknessProductFlow(
             request_store=owned_request_store,
             workflow_runtime=owned_runtime,
             saga_store=saga_store,
+            start_gate=start_gate,
         ),
         owned_request_store,
         owned_runtime,
@@ -164,7 +186,7 @@ def _flow(
 
 
 def test_submit_persists_request_before_checkpoint_lookup_and_starts_only_when_absent() -> None:
-    """request 必须先 durable create；没有 checkpoint 时才允许启动 workflow。"""
+    """request 必须先 durable create；gate 内重读 checkpoint，缺失时才允许启动 workflow。"""
 
     events: list[str] = []
     flow, request_store, runtime, _ = _flow(events=events)
@@ -172,10 +194,12 @@ def test_submit_persists_request_before_checkpoint_lookup_and_starts_only_when_a
 
     view = flow.submit(request)
 
-    assert events[:3] == [
+    assert events[:5] == [
         "request.create",
+        "gate.enter",
         "runtime.get_checkpoint",
         "runtime.start",
+        "gate.exit",
     ]
     assert request_store.requests[request.task_id] == request
     assert len(runtime.start_requests) == 1
@@ -187,7 +211,7 @@ def test_submit_persists_request_before_checkpoint_lookup_and_starts_only_when_a
 
 
 def test_submit_with_existing_checkpoint_never_starts_a_second_workflow() -> None:
-    """已有 durable checkpoint 时 submit 只能复用 owner truth，不能创建并行 workflow。"""
+    """已有 durable checkpoint 时 submit 只能在 gate 内复用 owner truth，不能创建并行 workflow。"""
 
     events: list[str] = []
     checkpoint = WorkflowCheckpointView(
@@ -198,7 +222,12 @@ def test_submit_with_existing_checkpoint_never_starts_a_second_workflow() -> Non
 
     view = flow.submit(_request())
 
-    assert events == ["request.create", "runtime.get_checkpoint"]
+    assert events == [
+        "request.create",
+        "gate.enter",
+        "runtime.get_checkpoint",
+        "gate.exit",
+    ]
     assert runtime.start_requests == []
     assert view.status is ProductFlowStatus.WAITING
     assert view.workflow_phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
@@ -220,11 +249,16 @@ def test_request_written_before_start_crash_is_recoverable_from_fresh_flow() -> 
     with pytest.raises(RuntimeError, match="simulated crash"):
         first_flow.submit(request)
 
-    # 崩溃发生时 request 已经 durable；不能通过回滚 request 来掩盖启动窗口。
+    # 崩溃发生时 request 已经 durable；gate 会正常退出，但不能通过回滚 request 掩盖启动窗口。
     assert request_store.requests[request.task_id] == request
-    assert events[:2] == ["request.create", "runtime.get_checkpoint"]
+    assert events[:4] == [
+        "request.create",
+        "gate.enter",
+        "runtime.get_checkpoint",
+        "gate.exit",
+    ]
 
-    # 新 runtime 没有 checkpoint，同 body replay 必须幂等，然后正常 start。
+    # 新 runtime 没有 checkpoint，同 body replay 必须幂等，然后在新的 gate 临界区正常 start。
     rebuilt_runtime = _Runtime(events)
     rebuilt_flow, _, _, _ = _flow(
         events=events,

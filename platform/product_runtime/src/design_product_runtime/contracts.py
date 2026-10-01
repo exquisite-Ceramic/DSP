@@ -313,3 +313,37 @@ class ProductFlowView:
         """返回 checkpoint 已持有的 authoritative Saga locator。"""
 
         return self.checkpoint.saga_id
+
+
+class ProductTaskQueryState(str, Enum):
+    """exact ProductTask query 可公开的 durable 组合状态。"""
+
+    ACCEPTED_PRE_WORKFLOW = "ACCEPTED_PRE_WORKFLOW"
+    WORKFLOW = "WORKFLOW"
+
+
+@dataclass(frozen=True, slots=True)
+class ProductTaskQueryView:
+    """只组合 request owner 与 workflow/Saga owner truth，不持久化第二份任务状态。"""
+
+    task_id: str
+    request_hash: str
+    state: ProductTaskQueryState | str
+    flow: ProductFlowView | None
+
+    def __post_init__(self) -> None:
+        """冻结 query state，并验证 request/workflow identity 没有发生漂移。"""
+
+        task_id = _require_nonblank(self.task_id, "task_id")
+        request_hash = _validate_request_hash(self.request_hash)
+        state = ProductTaskQueryState(self.state)
+        if state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW and self.flow is not None:
+            raise ValueError("ACCEPTED_PRE_WORKFLOW query view must not contain workflow state")
+        if state is ProductTaskQueryState.WORKFLOW:
+            if not isinstance(self.flow, ProductFlowView):
+                raise ValueError("WORKFLOW query view requires ProductFlowView")
+            if self.flow.task_id != task_id:
+                raise ValueError("query flow task_id does not match request task_id")
+        object.__setattr__(self, "task_id", task_id)
+        object.__setattr__(self, "request_hash", request_hash)
+        object.__setattr__(self, "state", state)

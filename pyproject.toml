@@ -55,6 +55,7 @@ pythonpath = [
     "hosts/revit/sidecar/src",
     "platform/orchestrator/src",
     "platform/product_runtime/src",
+    "platform/product_front_door/src",
     "platform/interaction/src",
     "platform/impact/src",
     "platform/approval_scope/src",

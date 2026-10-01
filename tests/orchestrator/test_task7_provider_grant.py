@@ -151,9 +151,14 @@ class _CountingGatewayV2:
         self.admitted_authorities: list[object] = []
 
     def consume_approval(self, request):
-        """Approval truth 仍由真实 Gateway V2 创建。"""
+        """保留旧测试入口；Approval truth 仍由真实 Gateway V2 创建。"""
 
         return self._delegate.consume_approval(request)
+
+    def consume_or_get_approval(self, request):
+        """Task 5 replay seam 直接委托真实 Gateway，不在 counting fake 内实现授权规则。"""
+
+        return self._delegate.consume_or_get_approval(request)
 
     def issue_execution_grant(self, request):
         """记录 request 后交给真实 Gateway V2 校验并签发。"""

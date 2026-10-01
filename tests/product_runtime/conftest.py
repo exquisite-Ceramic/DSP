@@ -1,95 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import psycopg
 import pytest
-from design_approval_scope import ApprovalScopePlanner, InMemoryApprovalScopeStore
-from design_changeset import ChangeSetBuilder, InMemoryChangeSetStore
-from design_convergence import CrossHostConvergenceVerifier
-from design_execution_coordination import (
-    CrossHostReadinessBarrier,
-    MaterializedExecutionSagaCoordinator,
-    project_execution_recovery,
+from design_product_front_door import (
+    ConfiguredPolicyApprovalAdmissionPort,
+    ConfiguredProductApprovalPolicy,
+    PostgresConfiguredPolicyAdmissionStore,
 )
-from design_execution_planning import InMemoryExecutionPlanV2Store
-from design_execution_reconciliation import ExecutionReconciliationServiceV2
-from design_execution_reconciliation.postgres import (
-    apply_execution_saga_migrations,
-    connect_postgres,
-)
-from design_execution_reconciliation.postgres_dispatch_intent import (
-    PostgresHostDispatchIntentStore,
-)
-from design_execution_reconciliation.postgres_saga_store_v2 import (
-    PostgresExecutionSagaStoreV2,
-)
-from design_gateway_authorization import (
-    GatewayAuthorizationServiceV2,
-    InMemoryGatewayAuthorizationStoreV2,
-)
-from design_impact import ImpactAnalyzer, InMemoryImpactAnalysisStore
-from design_materialization_planning import InMemoryMaterializationPlanStore, MaterializationPlanner
-from design_materialization_topology import MaterializationTopologyRegistry
-from design_orchestrator.artifact_postgres import create_postgres_artifact_store
-from design_orchestrator.canonical_operations import (
-    MVP_CANONICAL_OPERATIONS,
-    SET_WALL_THICKNESS_V1,
-)
-from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
-from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
-from design_orchestrator.default_workflow_services import DefaultWorkflowServices
-from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
-from design_orchestrator.operation_resolver import OperationResolver
-from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
 from design_product_runtime import (
     ProductTaskRequest,
-    RevitWallThicknessProviderExecutionSnapshotBoundary,
-    RevitWallThicknessSemanticBoundary,
-    RevitWallThicknessVerificationEvidencePort,
-    WallThicknessProductFlow,
-    create_postgres_product_task_request_store,
-)
-from design_provider_binding import (
-    InMemoryProviderBindingSetV2Store,
-    compute_candidate_fingerprint,
-    compute_provider_snapshot_hash_v2,
-)
-from dsp_core_semantic_provider import DSP_CORE_PROVIDER
-from enterprise_mapping_provider import ENTERPRISE_MAPPING_PROVIDER
-from ifc43_semantic_provider import IFC43_PROVIDER
-from revit_sidecar import (
-    RevitContextReadPort,
-    RevitWallThicknessExecutionPort,
-    RevitWallThicknessReadinessPort,
-    RevitWallThicknessSnapshotReadPort,
-)
-from revit_sidecar.design_fact_adapter import DesignFactAdapter
-from semantic_runtime import (
-    DirtyMap,
-    FreshnessResolver,
-    HostBinding,
-    IdentityRegistry,
-    InMemorySnapshotRegistry,
-    RevisionBarrier,
-)
-from semantic_service import (
-    ProviderRef,
-    SemanticEnvironmentStore,
-    SemanticProviderRegistry,
-    SemanticService,
-)
-
-from tests.orchestrator.test_real_owner_workflow_end_to_end import (
-    _ApprovalAdmissionBoundary,
-    _ExecutionClock,
-    _GatewayClock,
-    _MaterializationRoutingBoundary,
-    _PreviewBoundary,
-    _ProviderExecutionSnapshotBoundary,
-    _topology,
-    _WallCapabilityProfile,
+    RevitWallThicknessCompositionConfig,
+    build_revit_wall_thickness_reference_composition,
 )
 
 _DOCUMENT_REF = "DOC-TASK9"
@@ -116,7 +40,10 @@ def product_task_postgres_dsn() -> str:
 
 
 class StatefulRevitTransport:
-    """只模拟外部 Revit Host transport；所有平台 owner 与 sidecar adapter 使用 production。"""
+    """只模拟外部 Revit Host transport。
+
+    平台 owners 与 sidecar adapters 全部来自 production factory。
+    """
 
     def __init__(self) -> None:
         self.current_revision = _INITIAL_REVISION
@@ -236,103 +163,70 @@ class StatefulRevitTransport:
         return tuple(command.operation for command in self.commands)
 
 
-class _HostRevisionObservation:
-    """RevisionBarrier 只读取 stateful Host 当前 revision，不复制 barrier 规则。"""
+class _StaticPolicySource:
+    """mandatory offline/live acceptance 使用固定 configured policy，不绕过真实 policy owner。"""
 
-    def __init__(self, host: StatefulRevitTransport) -> None:
-        self._host = host
+    def __init__(self, policy: ConfiguredProductApprovalPolicy) -> None:
+        self._policy = policy
 
-    def current_revision(self, document_ref: str) -> str:
-        assert document_ref == _DOCUMENT_REF
-        return str(self._host.current_revision)
-
-
-class _ReadinessRegistry:
-    """把 Revit runtime 解析到 production readiness adapter。"""
-
-    def __init__(self, port) -> None:
-        self._port = port
-
-    def resolve(self, runtime_ref):
-        assert runtime_ref.host_type == "revit"
-        return self._port
+    def load(self) -> ConfiguredProductApprovalPolicy:
+        return self._policy
 
 
-class _HostRegistry:
-    """把 Revit runtime 解析到 production execution adapter。"""
+class _AcceptancePolicyClock:
+    """固定 issuance 时间，避免测试运行日期改变授权生命周期语义。"""
 
-    def __init__(self, port) -> None:
-        self._port = port
-
-    def resolve(self, runtime_ref):
-        assert runtime_ref.host_type == "revit"
-        return self._port
+    def now(self) -> datetime:
+        return datetime(2026, 9, 24, 9, 0, tzinfo=UTC)
 
 
-def _real_semantic_environment():
-    """注册真实 semantic providers，并 pin 本 vertical 使用的 environment。"""
+class _ConfiguredPolicyAdmissionFactory:
+    """从 public composition 提供的 exact owner stores 构造真实 configured-policy admission。"""
 
-    providers = (IFC43_PROVIDER, DSP_CORE_PROVIDER, ENTERPRISE_MAPPING_PROVIDER)
-    registry = SemanticProviderRegistry()
-    for provider in providers:
-        registry.register(provider)
-    environments = SemanticEnvironmentStore()
-    environment = environments.pin(
-        tuple(
-            ProviderRef(provider.manifest.provider_id, provider.manifest.version)
-            for provider in providers
-        ),
-        registry,
-    )
-    return SemanticService(registry, environments), environment
+    def __init__(self, dsn: str, *, admission_prefix: str) -> None:
+        self._dsn = dsn
+        self._admission_prefix = admission_prefix
+        self._stores: list[PostgresConfiguredPolicyAdmissionStore] = []
+        self._next_sequence = 0
 
+    def build(self, *, changeset_store, approval_scope_store):
+        """只使用 factory 提供的 authoritative stores；不创建第二份 ChangeSet/scope graph。"""
 
-def _identity_registry() -> IdentityRegistry:
-    """只注册既有 semantic↔Revit identity；产品边界不得临时发明 identity。"""
-
-    registry = IdentityRegistry()
-    registry.ensure_identity(_SEMANTIC_WALL_ID)
-    registry.bind_host(
-        HostBinding(
-            semantic_id=_SEMANTIC_WALL_ID,
-            host_type="revit",
-            document_id=_DOCUMENT_REF,
-            native_id=_WALL_UNIQUE_ID,
-            native_kind="Wall",
+        admission_store = PostgresConfiguredPolicyAdmissionStore(self._dsn)
+        self._stores.append(admission_store)
+        policy = ConfiguredProductApprovalPolicy.from_mapping(
+            {
+                "version": "DSP_PRODUCT_APPROVAL_POLICY_V1",
+                "policy_id": "product-reference-acceptance",
+                "principal": "user:product-reference-acceptance",
+                "project_ids": [_PROJECT_ID],
+                "allowed_canonical_operations": ["set_wall_thickness.v1"],
+                "admission_ttl_seconds": 31_536_000,
+            }
         )
-    )
-    return registry
 
+        def next_admission_id() -> str:
+            self._next_sequence += 1
+            return f"{self._admission_prefix}-{self._next_sequence}"
 
-def _provider_snapshot(execution_slice):
-    """复用既有 runtime evidence，只把 provider tool 收敛到真实 Revit namespace。"""
+        return ConfiguredPolicyApprovalAdmissionPort(
+            changeset_store=changeset_store,
+            approval_scope_store=approval_scope_store,
+            admission_store=admission_store,
+            policy_source=_StaticPolicySource(policy),
+            clock=_AcceptancePolicyClock(),
+            id_factory=next_admission_id,
+        )
 
-    base = _ProviderExecutionSnapshotBoundary()(execution_slice)
-    old_candidate = base.provider_candidates[0]
-    unsigned_candidate = replace(
-        old_candidate,
-        provider_tool="revit.set_wall_thickness",
-        candidate_fingerprint="0" * 64,
-    )
-    candidate = replace(
-        unsigned_candidate,
-        candidate_fingerprint=compute_candidate_fingerprint(unsigned_candidate),
-    )
-    material = base.candidate_binding_materials[old_candidate.candidate_fingerprint]
-    unsigned_snapshot = replace(
-        base,
-        provider_candidates=(candidate,),
-        candidate_binding_materials={candidate.candidate_fingerprint: material},
-        snapshot_hash="0" * 64,
-    )
-    return replace(
-        unsigned_snapshot,
-        snapshot_hash=compute_provider_snapshot_hash_v2(unsigned_snapshot),
-    )
+    def close(self) -> None:
+        """关闭本 test factory 创建的 durable admission stores。"""
+
+        for store in reversed(self._stores):
+            store.close()
 
 
 def _reset_product_acceptance_schemas(dsn: str) -> None:
-    """每个 acceptance case 从 fresh ProductTask/Orchestrator/Saga owner schemas 开始。"""
+    """每个 acceptance case 从 fresh ProductTask/Orchestrator/Saga/Policy owner schemas 开始。"""
 
     with psycopg.connect(dsn, autocommit=True) as conn:
         for schema in (
@@ -340,13 +234,9 @@ def _reset_product_acceptance_schemas(dsn: str) -> None:
             "orchestrator_checkpoint",
             "orchestrator_artifact",
             "execution_saga",
+            "product_policy",
         ):
             conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
-    conn = connect_postgres(dsn)
-    try:
-        apply_execution_saga_migrations(conn)
-    finally:
-        conn.close()
 
 
 def _request(task_id: str, *, thickness_mm: float = 300.0) -> ProductTaskRequest:
@@ -362,201 +252,95 @@ def _request(task_id: str, *, thickness_mm: float = 300.0) -> ProductTaskRequest
     )
 
 
-def _compose_case(
+def _reference_config(
+    dsn: str,
+    *,
+    document_id: str = _DOCUMENT_REF,
+    host_instance_id: str = _HOST_INSTANCE_ID,
+    native_target_unique_id: str = _WALL_UNIQUE_ID,
+) -> RevitWallThicknessCompositionConfig:
+    """构造 mandatory acceptance 的 exact-session public composition config。"""
+
+    return RevitWallThicknessCompositionConfig(
+        dsn=dsn,
+        session_ref=_SESSION_REF,
+        document_id=document_id,
+        host_instance_id=host_instance_id,
+        semantic_target_id=_SEMANTIC_WALL_ID,
+        native_target_unique_id=native_target_unique_id,
+    )
+
+
+def _build_reference_case(
     dsn: str,
     task_id: str,
     *,
     reset_schema: bool,
-    host: StatefulRevitTransport | None = None,
-    snapshot_registry: InMemorySnapshotRegistry | None = None,
+    host: object | None = None,
+    config: RevitWallThicknessCompositionConfig | None = None,
+    request: ProductTaskRequest | None = None,
 ):
-    """组合真实 Task 9 owners；重建时只复用外部 Host 状态与 authoritative snapshot owner。"""
+    """只经 public reference factory 组合 mandatory product acceptance case。"""
 
     if reset_schema:
         _reset_product_acceptance_schemas(dsn)
-    request_store = create_postgres_product_task_request_store(dsn)
-    artifact_store = create_postgres_artifact_store(dsn)
-    checkpointer = create_postgres_checkpointer(dsn)
-    saga_store = PostgresExecutionSagaStoreV2(dsn)
-    dispatch_store = PostgresHostDispatchIntentStore(dsn)
-
     host = host or StatefulRevitTransport()
-    snapshot_reader = RevitWallThicknessSnapshotReadPort(host)
-    snapshot_registry = snapshot_registry or InMemorySnapshotRegistry()
-    semantic_service, semantic_environment = _real_semantic_environment()
-    semantic_boundary = RevitWallThicknessSemanticBoundary(
-        request_store=request_store,
-        context_reader=RevitContextReadPort(host),
-        identity_registry=_identity_registry(),
-        session_ref=_SESSION_REF,
-        document_id=_DOCUMENT_REF,
-        host_instance_id=_HOST_INSTANCE_ID,
-        snapshot_reader=snapshot_reader,
-        design_fact_adapter=DesignFactAdapter(),
-        semantic_service=semantic_service,
-        semantic_environment=semantic_environment,
-        snapshot_registry=snapshot_registry,
-        capability_profiles=(_WallCapabilityProfile(),),
+    config = config or _reference_config(dsn)
+    request = request or _request(task_id)
+    approval_factory = _ConfiguredPolicyAdmissionFactory(
+        dsn,
+        admission_prefix=f"ADM-{task_id}",
     )
-    host_revision = _HostRevisionObservation(host)
-    impact_store = InMemoryImpactAnalysisStore()
-    scope_store = InMemoryApprovalScopeStore()
-    changeset_store = InMemoryChangeSetStore()
-    materialization_store = InMemoryMaterializationPlanStore()
-    execution_store = InMemoryExecutionPlanV2Store()
-    gateway_store = InMemoryGatewayAuthorizationStoreV2()
-    gateway = GatewayAuthorizationServiceV2(gateway_store)
-    provider_store = InMemoryProviderBindingSetV2Store()
-    reconciliation = ExecutionReconciliationServiceV2(store=saga_store)
-    convergence = CrossHostConvergenceVerifier()
-    coordinator = MaterializedExecutionSagaCoordinator(
-        readiness_barrier=CrossHostReadinessBarrier(
-            _ReadinessRegistry(RevitWallThicknessReadinessPort(host))
-        ),
-        reconciliation=reconciliation,
-        host_registry=_HostRegistry(
-            RevitWallThicknessExecutionPort(
-                host,
-                clock=lambda: "2026-09-24T10:01:00Z",
-            )
-        ),
-        dispatch_intents=dispatch_store,
-        evidence_port=RevitWallThicknessVerificationEvidencePort(
-            snapshot_reader=snapshot_reader,
-            design_fact_adapter=DesignFactAdapter(),
-            semantic_service=semantic_service,
-            semantic_environment=semantic_environment,
-        ),
-        convergence_verifier=convergence,
-        clock=_ExecutionClock(),
+    composition = build_revit_wall_thickness_reference_composition(
+        config=config,
+        transport=host,
+        approval_admission_factory=approval_factory,
     )
-    topology_registry = MaterializationTopologyRegistry()
-    topology_registry.register(_topology())
-    adapter = CanonicalWorkflowOwnerPorts(
-        snapshot_registry=snapshot_registry,
-        freshness_resolver=FreshnessResolver(DirtyMap()),
-        workflow_artifact_store=artifact_store,
-        host_revision_observation=host_revision,
-        canonical_operations=MVP_CANONICAL_OPERATIONS,
-        impact_analyzer=ImpactAnalyzer(),
-        impact_store=impact_store,
-        approval_scope_planner=ApprovalScopePlanner(),
-        approval_scope_store=scope_store,
-        changeset_builder=ChangeSetBuilder(),
-        changeset_store=changeset_store,
-        materialization_planner=MaterializationPlanner(),
-        materialization_plan_store=materialization_store,
-        topology_registry=topology_registry,
-        topology_environment_id="TOPOLOGY-TASK9",
-        topology_revision=1,
-        execution_plan_store=execution_store,
-        revision_barrier=RevisionBarrier(host_revision),
-        gateway_authorization=gateway,
-        gateway_authorization_store=gateway_store,
-        coordination_clock=_GatewayClock(),
-        provider_binding_store=provider_store,
-        dispatch_intent_store=dispatch_store,
-        execution_recovery_projection=project_execution_recovery,
-        saga_store=saga_store,
-        execution_coordinator=coordinator,
-        reconciliation_service=reconciliation,
-        convergence_verifier=convergence,
-        semantic_reconstruction=semantic_boundary,
-        preview_port=_PreviewBoundary(),
-        approval_admission=_ApprovalAdmissionBoundary(changeset_store, scope_store),
-        materialization_routing=_MaterializationRoutingBoundary(),
-        provider_execution_snapshot=RevitWallThicknessProviderExecutionSnapshotBoundary(
-            changeset_store=changeset_store,
-            snapshot_registry=snapshot_registry,
-            provider_snapshot_factory=_provider_snapshot,
-        ),
-    )
-    services = DefaultWorkflowServices(
-        operation_resolver=OperationResolver((SET_WALL_THICKNESS_V1,)),
-        parameter_binder=ParameterBinder(MVP_CANONICAL_OPERATIONS, MVP_BINDING_RECIPES),
-        artifact_store=artifact_store,
-        external_owners=adapter,
-    )
-    runtime = LangGraphWorkflowRuntime(services=services, checkpointer=checkpointer)
-    flow = WallThicknessProductFlow(
-        request_store=request_store,
-        workflow_runtime=runtime,
-        saga_store=saga_store,
-    )
+    owner_ports = composition.runtime._services._external_owners
     return SimpleNamespace(
         task_id=task_id,
-        request=_request(task_id),
-        flow=flow,
-        runtime=runtime,
+        request=request,
+        composition=composition,
+        flow=composition.flow,
+        runtime=composition.runtime,
         host=host,
-        request_store=request_store,
-        artifact_store=artifact_store,
-        checkpointer=checkpointer,
-        saga_store=saga_store,
-        dispatch_store=dispatch_store,
-        snapshot_registry=snapshot_registry,
-        changeset_store=changeset_store,
-        gateway_store=gateway_store,
-        execution_store=execution_store,
-    )
-
-
-def _build_case(dsn: str, task_id: str):
-    """从全新 owner schemas 创建一个 Task 9 产品 acceptance composition。"""
-
-    return _compose_case(dsn, task_id, reset_schema=True)
-
-
-def _rebuild_case(dsn: str, previous, task_id: str):
-    """关闭旧进程连接后重建 stores/runtime/adapters，但保留 Host 与 exact snapshot owner truth。"""
-
-    host = previous.host
-    snapshot_registry = previous.snapshot_registry
-    _close_case(previous)
-    return _compose_case(
-        dsn,
-        task_id,
-        reset_schema=False,
-        host=host,
-        snapshot_registry=snapshot_registry,
+        request_store=composition.request_store,
+        start_gate=composition.start_gate,
+        snapshot_registry=composition.snapshot_registry,
+        saga_store=composition.saga_store,
+        artifact_store=owner_ports._workflow_artifact_store,
+        changeset_store=owner_ports._changeset_store,
+        gateway_store=owner_ports._gateway_authorization_store,
+        execution_store=owner_ports._execution_plan_store,
+        dispatch_store=owner_ports._dispatch_intent_store,
+        approval_factory=approval_factory,
     )
 
 
 def _close_case(case) -> None:
-    """按 owner 生命周期显式关闭所有 PostgreSQL 连接。"""
+    """按 composition/factory ownership 显式关闭 mandatory acceptance resources。"""
 
-    for owner in (
-        case.dispatch_store,
-        case.saga_store,
-        case.request_store,
-        case.artifact_store,
-        case.checkpointer,
-    ):
-        close = getattr(owner, "close", None)
-        if callable(close):
-            close()
+    try:
+        case.composition.close()
+    finally:
+        case.approval_factory.close()
 
 
 @pytest.fixture
 def revit_wall_thickness_product_case(product_task_postgres_dsn: str):
-    """返回 fresh Task 9 composition factory；factory.rebuild 用于 process-rebuild 场景。"""
+    """返回 fresh public-reference composition factory；pause/resume 必须保持同一实例。"""
 
     cases = []
 
     def build(task_id: str):
-        case = _build_case(product_task_postgres_dsn, task_id)
+        case = _build_reference_case(
+            product_task_postgres_dsn,
+            task_id,
+            reset_schema=True,
+        )
         cases.append(case)
         return case
 
-    def rebuild(previous, task_id: str):
-        """移除旧 composition 并重建全新 PostgreSQL connections/runtime/adapters。"""
-
-        cases[:] = [case for case in cases if case is not previous]
-        case = _rebuild_case(product_task_postgres_dsn, previous, task_id)
-        cases.append(case)
-        return case
-
-    build.rebuild = rebuild
     yield build
 
     for case in reversed(cases):

@@ -9,7 +9,8 @@
 - Architecture Modernization Phase II — COMPLETED
 - Capability Phase — HITL pause/resume COMPLETED
 - Capability Phase — real E2E workflow COMPLETED
-- Capability Phase successor — semantic -> plan -> approve -> execute -> reconcile, NOT YET STARTED
+- Capability Phase — Revit wall-thickness product vertical COMPLETED
+- Capability Phase successor — MCP / Agent front door IMPLEMENTATION PLAN REVIEW
 
 ## 主规格 authority
 
@@ -66,7 +67,8 @@
 | [`2026-09-19-hitl-pause-resume-design.md`](specs/2026-09-19-hitl-pause-resume-design.md) | COMPLETED |
 | [`2026-09-20-real-owner-e2e-workflow-design.md`](specs/2026-09-20-real-owner-e2e-workflow-design.md) | COMPLETED |
 | [`2026-09-23-task8-execution-owner-lookup-amendment-design.md`](specs/2026-09-23-task8-execution-owner-lookup-amendment-design.md) | COMPLETED |
-| [`2026-09-25-revit-wall-thickness-product-vertical-design.md`](specs/2026-09-25-revit-wall-thickness-product-vertical-design.md) | CURRENT |
+| [`2026-09-25-revit-wall-thickness-product-vertical-design.md`](specs/2026-09-25-revit-wall-thickness-product-vertical-design.md) | COMPLETED |
+| [`2026-09-28-mcp-agent-front-door-design.md`](specs/2026-09-28-mcp-agent-front-door-design.md) | CURRENT |
 
 ## Implementation Plans
 
@@ -110,11 +112,12 @@
 | [`2026-09-20-real-owner-e2e-workflow.md`](plans/2026-09-20-real-owner-e2e-workflow.md) | COMPLETED |
 | [`2026-09-23-task8-execution-owner-lookup-amendment.md`](plans/2026-09-23-task8-execution-owner-lookup-amendment.md) | COMPLETED |
 | [`2026-09-24-task9-parameter-binding-context-lineage-amendment.md`](plans/2026-09-24-task9-parameter-binding-context-lineage-amendment.md) | COMPLETED |
-| [`2026-09-25-revit-wall-thickness-product-vertical.md`](plans/2026-09-25-revit-wall-thickness-product-vertical.md) | CURRENT |
+| [`2026-09-25-revit-wall-thickness-product-vertical.md`](plans/2026-09-25-revit-wall-thickness-product-vertical.md) | COMPLETED |
+| [`2026-09-28-mcp-agent-front-door.md`](plans/2026-09-28-mcp-agent-front-door.md) | CURRENT |
 
 ## 使用规则
 
 - 当前系统级 contract 以 v0.6 主规格为 authority；历史阶段文档用于解释设计演进与实现证据。
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
-- Technology Modernization、Architecture Modernization Phase II 与 HITL pause/resume capability 已完成并保留为工程证据；real E2E workflow capability 已完成 implementation merge 与 merged-main verification，并通过本 docs-only lifecycle closeout 标记为 `COMPLETED`。
-- 本 closeout 只记录已完成生命周期事实，不授权 successor implementation；successor `semantic -> plan -> approve -> execute -> reconcile` 保持 `NOT YET STARTED`，仍需独立 Design Spec / Implementation Plan gate。
+- Technology Modernization、Architecture Modernization Phase II、HITL pause/resume、real E2E workflow 与 Revit wall-thickness product vertical 均已完成并保留为工程证据。
+- MCP / Agent front door 的 Written Design Review 已在设计基线 `41247215ca4dc70d62e17577a68bfadc5fa1ec5c` 通过；当前仅进入 Implementation Plan review。Plan 尚未通过前，不授权产品代码实现或 capability 完成声明。

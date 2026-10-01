@@ -855,7 +855,7 @@ class CanonicalWorkflowOwnerPorts:
         boundary = self._approval_scope_store.get_boundary(
             f"SCOPE-{changeset.changeset_id}"
         )
-        approval = self._gateway_authorization.consume_approval(
+        approval = self._gateway_authorization.consume_or_get_approval(
             ApprovalConsumptionRequestV2(
                 admission=admission,
                 canonical_changeset=changeset,

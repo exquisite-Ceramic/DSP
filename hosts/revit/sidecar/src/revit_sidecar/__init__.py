@@ -3,6 +3,7 @@
 from .context import (
     RevitContextObservation,
     RevitContextReadPort,
+    RevitCurrentContextProbe,
     RevitSelectedElement,
 )
 from .execution import RevitWallThicknessExecutionPort
@@ -18,6 +19,7 @@ __all__ = [
     "NamedPipeTransport",
     "RevitContextObservation",
     "RevitContextReadPort",
+    "RevitCurrentContextProbe",
     "RevitHostAdapter",
     "RevitSelectedElement",
     "RevitWallThicknessExecutionPort",
