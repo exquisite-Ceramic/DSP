@@ -63,8 +63,9 @@ class SubprocessAgentInterpreter:
         *,
         command: Sequence[str],
         timeout_seconds: float = 30.0,
+        environment: Mapping[str, str] | None = None,
     ) -> None:
-        """冻结可执行命令与超时；永远使用 shell=False，避免扩大命令解释边界。"""
+        """冻结命令、超时与显式 model env；不继承 controller 进程环境。"""
 
         if isinstance(command, (str, bytes)) or not isinstance(command, Sequence):
             raise TypeError("command must be a sequence of strings")
@@ -80,9 +81,22 @@ class SubprocessAgentInterpreter:
             or float(timeout_seconds) <= 0.0
         ):
             raise ValueError("timeout_seconds must be a finite positive number")
+        if environment is None:
+            normalized_environment: dict[str, str] = {}
+        else:
+            if not isinstance(environment, Mapping):
+                raise TypeError("environment must be a string mapping")
+            normalized_environment = {}
+            for key, value in environment.items():
+                if not isinstance(key, str) or not key:
+                    raise TypeError("environment keys must be non-empty strings")
+                if not isinstance(value, str):
+                    raise TypeError("environment values must be strings")
+                normalized_environment[key] = value
 
         self._command = normalized_command
         self._timeout_seconds = float(timeout_seconds)
+        self._environment = normalized_environment
 
     def interpret(
         self,
@@ -114,6 +128,7 @@ class SubprocessAgentInterpreter:
                 capture_output=True,
                 check=False,
                 timeout=self._timeout_seconds,
+                env=self._environment,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError(
