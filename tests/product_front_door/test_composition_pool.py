@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from threading import Event, Lock
 
 import pytest
 from design_changeset import canonical_hash
@@ -74,6 +76,30 @@ class _Factory:
         return _Composition(marker=binding.session_ref)
 
 
+class _ConcurrentFactory:
+    """强制首个 factory call 暂停，使无 single-flight 的第二个 call 可进入。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[SessionBinding, ConfiguredRevitCandidate]] = []
+        self._lock = Lock()
+        self._second_entered = Event()
+
+    def __call__(
+        self,
+        *,
+        binding: SessionBinding,
+        candidate: ConfiguredRevitCandidate,
+    ) -> _Composition:
+        with self._lock:
+            self.calls.append((binding, candidate))
+            call_number = len(self.calls)
+        if call_number == 1:
+            self._second_entered.wait(timeout=0.5)
+        else:
+            self._second_entered.set()
+        return _Composition(marker=f"{binding.session_ref}:{call_number}")
+
+
 def test_same_exact_session_binding_returns_same_live_composition() -> None:
     candidate = _candidate()
     binding = _binding(candidate)
@@ -131,6 +157,28 @@ def test_distinct_session_refs_never_reverse_reuse_existing_composition() -> Non
         "session-1",
         "session-2",
     ]
+
+
+def test_concurrent_same_session_creation_is_single_flight() -> None:
+    candidate = _candidate()
+    binding = _binding(candidate)
+    factory = _ConcurrentFactory()
+    pool = ExactSessionCompositionPool(factory=factory)
+    start = Event()
+
+    def get_or_create() -> object:
+        start.wait()
+        return pool.get_or_create(binding=binding, candidate=candidate)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(get_or_create)
+        second_future = executor.submit(get_or_create)
+        start.set()
+        first = first_future.result(timeout=2.0)
+        second = second_future.result(timeout=2.0)
+
+    assert second is first
+    assert factory.calls == [(binding, candidate)]
 
 
 def test_close_releases_each_exact_session_handle_once() -> None:
