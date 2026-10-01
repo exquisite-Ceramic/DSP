@@ -446,8 +446,7 @@ apply_execution_saga_migrations(apply_connection)
 apply_connection.close()
 request_store = create_postgres_product_task_request_store(dsn)
 checkpointer = create_postgres_checkpointer(dsn)
-saga_connection = connect_postgres(dsn)
-saga_store = PostgresExecutionSagaStoreV2(saga_connection)
+saga_store = PostgresExecutionSagaStoreV2(dsn)
 query = ProductTaskQueryService(
     request_store=request_store,
     checkpoint_reader=LangGraphWorkflowCheckpointReader(checkpointer=checkpointer),
