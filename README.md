@@ -5,7 +5,7 @@
 ## 当前状态
 
 - **Latest completed capability phase:** MCP / Agent front door
-- **Current engineering activity:** MCP / Agent front door — COMPLETED
+- **Current engineering activity:** No capability phase currently active
 - **Next capability phase:** NOT YET DEFINED / NOT YET STARTED
 - **Latest product acceptance:** MCP / Agent front door controlled live GREEN；真实模型 → real MCP → explicit human HITL → configured policy → Gateway/Saga → real Revit → independent READ/reconciliation 已在实现 HEAD `c67c7d7475f79218b57f4322e001f85b4e6feee9` 完成，PR #83 合并后 `main@dd3ab785cfabf0d69068d6004a579d5d946b23b5` 的 20 条 fresh push workflows 全部 GREEN
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
