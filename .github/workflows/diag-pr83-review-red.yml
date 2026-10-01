@@ -1,54 +1,71 @@
-name: PR83 review RED
+name: PR83 review format fix
 
 on:
   push:
     branches:
       - diag/pr83-review-red-6acd1d94
 
+permissions:
+  contents: write
+
 jobs:
-  verify-review-fixes:
+  apply-format-fix:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 099e4e78476d370b39472fcad050ec5c3ac343f7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-      - name: Install repository verification stack from committed lock
-        run: |
-          python -m pip install uv
-          uv sync --locked --all-packages
-      - name: Verify reviewer regression tests
-        run: |
-          uv run python -m pytest \
-            tests/product_front_door/test_agent.py \
-            tests/product_front_door/test_composition_pool.py -q -vv
-          uv run ruff check --select E,F,I \
-            platform/product_front_door/src/design_product_front_door/agent.py \
-            platform/product_front_door/src/design_product_front_door/composition_pool.py \
-            tests/product_front_door/test_agent.py \
-            tests/product_front_door/test_composition_pool.py
-      - name: Verify source-only external-script bootstrap and fresh SQLite initialization
+          ref: tdd/mcp-agent-front-door-20260928
+          fetch-depth: 0
+      - name: Assert expected feature head
         shell: bash
         run: |
-          cat > "$RUNNER_TEMP/front-door-bootstrap-smoke.py" <<'PY'
+          test "$(git rev-parse HEAD)" = "099e4e78476d370b39472fcad050ec5c3ac343f7"
+      - name: Apply exact Ruff-only wraps
+        shell: python
+        run: |
           from pathlib import Path
-          from tempfile import TemporaryDirectory
 
-          from design_product_front_door import (
-              SqliteFrontDoorStateStore,
-              SqliteSessionBindingReader,
-          )
-          from design_product_runtime import ProductTaskQueryService
+          replacements = {
+              Path("platform/product_front_door/src/design_product_front_door/mcp_client.py"): [
+                  (
+                      '            raise ValueError("Product Front Door MCP endpoint must use a valid loopback port") from exc\n',
+                      '            raise ValueError(\n'
+                      '                "Product Front Door MCP endpoint must use a valid loopback port"\n'
+                      '            ) from exc\n',
+                  ),
+              ],
+              Path("tests/product_front_door/test_mcp_transport.py"): [
+                  (
+                      '    """source-only Product Front Door public API 必须包含 MCP builder/runner，不要求缩减既有导出。"""\n',
+                      '    """\n'
+                      '    source-only Product Front Door public API 必须包含 MCP builder/runner，\n'
+                      '    不要求缩减既有导出。\n'
+                      '    """\n',
+                  ),
+              ],
+          }
 
-          assert ProductTaskQueryService is not None
-          with TemporaryDirectory() as directory:
-              database_path = str(Path(directory) / "fresh-front-door.sqlite3")
-              initializer = SqliteFrontDoorStateStore(database_path)
-              initializer.close()
-              reader = SqliteSessionBindingReader(database_path)
-              reader.close()
-          PY
-          export PYTHONPATH="$(pwd)/platform/product_front_door/src:$(pwd)/platform/product_runtime/src:$(pwd)/platform/interaction/src:$(pwd)/platform/impact/src:$(pwd)/platform/approval_scope/src"
-          uv run python "$RUNNER_TEMP/front-door-bootstrap-smoke.py"
+          for path, path_replacements in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              for old, new in path_replacements:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(
+                          f"expected one exact match in {path}, found {count}: {old!r}"
+                      )
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+      - name: Verify and commit format-only delta
+        shell: bash
+        run: |
+          git diff --check
+          git diff -- \
+            platform/product_front_door/src/design_product_front_door/mcp_client.py \
+            tests/product_front_door/test_mcp_transport.py
+          git config user.name "FangBin"
+          git config user.email "52097203+exquisite-Ceramic@users.noreply.github.com"
+          git add \
+            platform/product_front_door/src/design_product_front_door/mcp_client.py \
+            tests/product_front_door/test_mcp_transport.py
+          git commit -m "style: satisfy PR 83 Ruff delta"
+          git push origin HEAD:tdd/mcp-agent-front-door-20260928
