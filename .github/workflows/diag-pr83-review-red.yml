@@ -1,0 +1,26 @@
+name: PR83 review RED
+
+on:
+  push:
+    branches:
+      - diag/pr83-review-red-6acd1d94
+
+jobs:
+  review-red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 6acd1d949da73bc89f40b921d7c5db948a32e559
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install repository verification stack from committed lock
+        run: |
+          python -m pip install uv
+          uv sync --locked --all-packages
+      - name: Prove review REDs
+        run: |
+          uv run python -m pytest \
+            tests/product_front_door/test_agent.py \
+            tests/product_front_door/test_composition_pool.py -q -vv
