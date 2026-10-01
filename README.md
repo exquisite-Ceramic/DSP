@@ -4,12 +4,13 @@
 
 ## 当前状态
 
-- **Latest completed capability phase:** Revit wall-thickness product vertical
-- **Current engineering activity:** MCP / Agent front door — implementation plan review
-- **Latest product acceptance:** selected Revit Wall thickness → 300 mm，真实 Revit happy path GREEN；Front Door Written Design Review 已通过，当前仅评审 Implementation Plan，尚未进入产品实现
+- **Latest completed capability phase:** MCP / Agent front door
+- **Current engineering activity:** No capability phase currently active
+- **Next capability phase:** NOT YET DEFINED / NOT YET STARTED
+- **Latest product acceptance:** MCP / Agent front door controlled live GREEN；真实模型 → real MCP → explicit human HITL → configured policy → Gateway/Saga → real Revit → independent READ/reconciliation 已在实现 HEAD `c67c7d7475f79218b57f4322e001f85b4e6feee9` 完成，PR #83 合并后 `main@dd3ab785cfabf0d69068d6004a579d5d946b23b5` 的 20 条 fresh push workflows 全部 GREEN
 - 当前主规格：[`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md)
-- 当前 Front Door 设计：[`docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md`](docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md)
-- 当前 Front Door 实施计划：[`docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md`](docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md)
+- 已完成 Front Door 设计：[`docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md`](docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md)
+- 已完成 Front Door 实施计划：[`docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md`](docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md)
 - 已完成 Revit 产品 vertical 设计：[`docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`](docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md)
 - 已完成 Revit 产品 vertical 实施计划：[`docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md`](docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md)
 - 已完成 Technology Modernization Design：[`docs/superpowers/specs/2026-09-13-dsp-modernization-design.md`](docs/superpowers/specs/2026-09-13-dsp-modernization-design.md)
@@ -44,9 +45,11 @@ ActualDelta / independent read-back / reconciliation / convergence
 - 真实 AutoCAD + Revit acceptance；
 - durable ProductTask request owner 与 explicit task lineage；
 - Revit 当前选择墙体厚度修改为 300 mm 的完整产品 vertical：request → semantic context → canonical operation → approval → planning/binding/admission → Saga → 真实 Revit mutation → 独立 post-commit READ → Step33 verification → convergence → product projection；
+- MCP / Agent Front Door：durable client correlation 与 immutable request freeze、exact SessionBinding、真实 loopback MCP submit/get/resume、明确 human operation-proposal decision、configured-policy admission/default deny、Gateway/Saga、真实 Revit mutation、独立 READ/reconciliation/convergence，以及 Host 不可用时的 durable exact task query；
+- 同一 ProductTask 首次 workflow start 由 PostgreSQL durable row lock 串行化；同一 exact-session composition 下的并发 submit 也只能进入一个有效 `workflow.start()` lineage；
 - Host commit outcome unknown、Windows Named Pipe I/O 与 commit-revision mismatch 的 fail-closed / recovery-required 处理，禁止把未知提交状态误判为可安全重试。
 
-Revit wall-thickness product vertical 的真实 Host acceptance 已证明 revision 按一次提交推进、独立 READ 在 exact committed revision 重新测得 300 mm、Saga 与 Product 均达到 `SUCCEEDED`。真实验收仍按受控 Windows/Revit 环境执行；GitHub-hosted CI 只运行 offline matrix 并验证 live test 可 collection/明确 skip。
+Revit wall-thickness product vertical 的真实 Host acceptance 已证明 revision 按一次提交推进、独立 READ 在 exact committed revision 重新测得 300 mm、Saga 与 Product 均达到 `SUCCEEDED`。MCP / Agent Front Door controlled live 进一步证明真实自然语言模型调用、真实 MCP、显式 human decision、configured policy deny/allow、Gateway/Saga 与真实 Revit mutation 可以在同一产品路径闭环；negative case 保持 200 mm / revision `0 → 0`，positive case 达到 300 mm / revision `0 → 1`，并由独立 READ、Revit UI、verification 与 convergence 共同确认。真实验收仍按受控 Windows/Revit 环境执行；GitHub-hosted CI 只运行 offline matrix 并验证 live test 可 collection/明确 skip。
 
 Host-specific API 继续被限制在各 Host 的 native/plugin 边界内；平台层使用 provider-neutral contracts 与 evidence，不把 AutoCAD/Revit 原生类型扩散进 canonical runtime。
 
@@ -55,8 +58,9 @@ Host-specific API 继续被限制在各 Host 的 native/plugin 边界内；平�
 | 文档 | 用途 |
 | --- | --- |
 | [`docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md`](docs/spec/Enterprise_Collaborative_Design_Agent_Spec_v0.6.md) | 当前系统级 contract authority |
-| [`docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md`](docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md) | MCP / Agent Front Door 已通过 Written Design Review 的设计基线 |
-| [`docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md`](docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md) | 当前待评审 Implementation Plan；尚不授权产品实现 |
+| [`docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md`](docs/superpowers/specs/2026-09-28-mcp-agent-front-door-design.md) | 已完成的 MCP / Agent Front Door 设计基线与历史工程记录 |
+| [`docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md`](docs/superpowers/plans/2026-09-28-mcp-agent-front-door.md) | 已完成的 MCP / Agent Front Door implementation / closeout gate |
+| [`docs/runbooks/mcp-agent-front-door.md`](docs/runbooks/mcp-agent-front-door.md) | MCP / Agent Front Door controlled live acceptance |
 | [`docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md`](docs/superpowers/specs/2026-09-25-revit-wall-thickness-product-vertical-design.md) | 已完成的首个真实 Revit 产品 vertical 设计边界 |
 | [`docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md`](docs/superpowers/plans/2026-09-25-revit-wall-thickness-product-vertical.md) | 已完成的产品 vertical implementation / closeout gate |
 | [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) | 真实 Revit 产品 vertical live acceptance |
@@ -79,9 +83,9 @@ python -m pytest -q
 dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
 ```
 
-`Repository regression` CI 是当前 repository-wide offline truth；`Revit wall thickness product vertical` CI 是首个产品 vertical 的 focused offline truth。历史 Step workflows 只保留各自 focused/domain/architecture guards。
+`Repository regression` CI 是当前 repository-wide offline truth；`Product Front Door verification` 是 MCP / Agent Front Door 的 focused PostgreSQL/MCP/authority truth；`Revit wall thickness product vertical` CI 保留产品 vertical 的 focused offline truth。历史 Step workflows 继续保留各自 focused/domain/architecture guards。
 
-真实 Revit 产品验收按 [`docs/runbooks/revit-wall-thickness-product-vertical.md`](docs/runbooks/revit-wall-thickness-product-vertical.md) 显式运行，不能用 GitHub-hosted offline PASS 代替。Revit wall-thickness product vertical 已完成 capability closure；MCP / Agent Front Door 当前仍停在 Implementation Plan review，尚无新增 front-door implementation/live acceptance 证据。
+MCP / Agent Front Door implementation 已通过 PR #83 合并到 `main@dd3ab785cfabf0d69068d6004a579d5d946b23b5`，该 merge SHA 的 20 条 fresh push workflows 全部成功；最终 controlled live 绑定实现 HEAD `c67c7d7475f79218b57f4322e001f85b4e6feee9` 并通过 negative + positive 两组真实 Windows/Revit 验收。Front Door capability 已满足 implementation merge 与 merged-main observation 的 lifecycle closeout 前提；successor 尚未定义，也尚未开始，后续工作必须重新经过独立 Design Spec / Implementation Plan gate。
 
 ## 目录概览
 
