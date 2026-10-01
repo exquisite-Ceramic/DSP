@@ -13,6 +13,10 @@
 - Capability Phase — MCP / Agent front door COMPLETED
 - Capability Phase successor — NOT YET DEFINED / NOT YET STARTED
 
+### Successor design proposal under review
+
+[`2026-10-01-cross-host-product-vertical-design.md`](specs/2026-10-01-cross-host-product-vertical-design.md) is a DESIGN-REVIEW proposal: Revit initiates one ProductTask targeting reviewed AutoCAD/Revit wall bindings. Its detailed contracts are not yet approved; no implementation plan or capability implementation has started. The successor status above remains the last approved lifecycle state until the written design is accepted.
+
 ## 主规格 authority
 
 | Document | Authority |
