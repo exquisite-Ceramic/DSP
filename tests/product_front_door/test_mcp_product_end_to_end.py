@@ -746,7 +746,8 @@ async def test_real_mcp_server_restart_keeps_get_but_resume_fails_closed(
 
     assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
 
-    # 第二个 context manager 启动全新的 Python/MCP server 进程；只复用 SQLite/PostgreSQL durable facts。
+    # 第二个 context manager 启动全新的 Python/MCP server 进程；
+    # 只复用 SQLite/PostgreSQL durable facts。
     with _real_mcp_server(
         _REFERENCE_PRODUCT_SERVER,
         dsn,
