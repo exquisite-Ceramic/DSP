@@ -10,6 +10,8 @@ on:
       - "hosts/revit/sidecar/**"
       - "tests/product_front_door/**"
       - "tests/product_runtime/**"
+      - "tests/integration/test_mcp_agent_front_door_live_support.py"
+      - "docs/runbooks/mcp-agent-front-door.md"
   pull_request:
     paths:
       - ".github/workflows/product-front-door.yml"
@@ -19,6 +21,8 @@ on:
       - "hosts/revit/sidecar/**"
       - "tests/product_front_door/**"
       - "tests/product_runtime/**"
+      - "tests/integration/test_mcp_agent_front_door_live_support.py"
+      - "docs/runbooks/mcp-agent-front-door.md"
   workflow_dispatch:
 
 jobs:
@@ -51,9 +55,16 @@ jobs:
           python-version: "3.11"
       - name: Install repository verification stack from committed lock
         run: |
-          # Task 9 必须从 committed uv.lock 重建，避免 MCP/PostgreSQL 验收依赖漂移。
+          # Task 9/10 都必须从 committed uv.lock 重建，避免 MCP/PostgreSQL 验收依赖漂移。
           python -m pip install uv
           uv sync --locked --all-packages
+      - name: Collect Task 10 live support without claiming interactive acceptance
+        run: |
+          # GitHub-hosted CI 故意不设置 DSP_FRONT_DOOR_LIVE，也不提供 fake Revit/model/human。
+          # 这里必须只证明 live-support test 可被收集并安全 SKIP；mandatory controlled live gate
+          # 仍只能按 runbook 在真实 Windows/Revit 环境执行。
+          uv run python -m pytest \
+            tests/integration/test_mcp_agent_front_door_live_support.py -q -vv
       - name: Verify Task 9 durable recovery and real MCP product behavior
         run: |
           # 两个 Task 9 acceptance 文件覆盖 client rebuild、SQLite atomic freeze、
@@ -97,10 +108,11 @@ jobs:
             tests/product_front_door/test_mcp_client.py \
             tests/product_front_door/test_reference_client.py \
             tests/product_front_door/test_reference_client_cli.py -q
-      - name: Enforce absolute Ruff clean on Task 9 acceptance paths
+      - name: Enforce absolute Ruff clean on Task 9 and Task 10 acceptance paths
         run: |
-          # Task 9 的冻结文件清单没有 production Python 改动，因此 absolute E/F/I
-          # 只约束本 Task 新增的两个 acceptance 文件；既有路径继续由仓库原有 gate 管理。
+          # Task 9/10 的冻结文件清单没有 legacy production Python 改动，因此新 acceptance
+          # 路径直接要求 absolute E/F/I clean；既有路径继续由 Repository Regression 管理。
           uv run ruff check --select E,F,I \
             tests/product_front_door/test_durable_recovery_postgres.py \
-            tests/product_front_door/test_mcp_product_end_to_end.py
+            tests/product_front_door/test_mcp_product_end_to_end.py \
+            tests/integration/test_mcp_agent_front_door_live_support.py
