@@ -62,6 +62,14 @@ jobs:
           uv run python -m pytest \
             tests/product_front_door/test_durable_recovery_postgres.py \
             tests/product_front_door/test_mcp_product_end_to_end.py -q -vv
+      - name: Expose Task 9 server-side failure telemetry
+        if: failure()
+        run: |
+          # MCP SDK 会把 server domain exception 净化成通用 tool error；失败时只输出
+          # Task 9 临时目录里的 server-side telemetry，避免靠猜测修改生产协议。
+          find /tmp/pytest-of-runner -type f \
+            \( -name '*server-error*.txt' -o -name 'first-server-error.txt' -o -name 'second-server-error.txt' \) \
+            -print -exec sh -c 'echo "--- $1"; cat "$1"' _ {} \; 2>/dev/null || true
       - name: Verify ProductTask PostgreSQL query and start-gate crash windows
         run: |
           # Task 9 不重写 ProductTask owner；这里把其既有 exact-query / single-lineage
