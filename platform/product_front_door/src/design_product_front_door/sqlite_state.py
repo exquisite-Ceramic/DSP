@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Protocol
 
 from design_changeset import canonical_hash
-from design_product_runtime import ProductTaskRequest
+from design_product_runtime import ProductTaskRequest, ProductTaskRequestV2
 
 from .agent import NormalizedFreezeProposal
-from .contracts import SessionBinding
+from .contracts import SessionBinding, SessionBindingMemberV2, SessionBindingV2
 
 _CORRELATION_CONFLICT = "FRONT_DOOR_CORRELATION_CONFLICT"
 _CORRELATION_NOT_FOUND = "FRONT_DOOR_CORRELATION_NOT_FOUND"
@@ -40,6 +40,30 @@ class FrozenSubmission:
     session_binding: SessionBinding
     request: ProductTaskRequest
     delivery_state: str
+
+
+@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
+class FrozenSubmissionV2:
+    """V2 原子 freeze 后可可靠重送的 exact request + exact dual-Host binding。"""
+
+    client_submission_ref: str
+    utterance: str
+    proposal_hash: str
+    reviewed_configuration_hash: str
+    session_binding: SessionBindingV2
+    request: ProductTaskRequestV2
+    delivery_state: str
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionRecordV2:
+    """V2 correlation 的只读生命周期投影。"""
+
+    client_submission_ref: str
+    utterance: str
+    state: SubmissionState
+    frozen: FrozenSubmissionV2 | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +118,121 @@ def _request_payload(request: ProductTaskRequest) -> dict[str, object]:
         },
         "request_hash": request.request_hash,
     }
+
+
+def _request_payload_v2(request: ProductTaskRequestV2) -> dict[str, object]:
+    """把 V2 request 投影为完整可重建 JSON body。"""
+
+    thickness = request.intent_arguments["thickness"]
+    return {
+        "version": request.version,
+        "task_id": request.task_id,
+        "project_id": request.project_id,
+        "initiating_host_kind": request.initiating_host_kind,
+        "session_ref": request.session_ref,
+        "session_binding_hash": request.session_binding_hash,
+        "requested_action": request.requested_action,
+        "intent_arguments": {
+            "thickness": {
+                "value": thickness["value"],
+                "unit": thickness["unit"],
+            }
+        },
+        "request_hash": request.request_hash,
+    }
+
+
+def _binding_payload_v2(binding: SessionBindingV2) -> dict[str, object]:
+    """把 exact dual-Host binding 投影为完整 durable JSON body。"""
+
+    return {
+        "session_ref": binding.session_ref,
+        "project_id": binding.project_id,
+        "semantic_target_id": binding.semantic_target_id,
+        "semantic_environment_id": binding.semantic_environment_id,
+        "semantic_environment_hash": binding.semantic_environment_hash,
+        "topology_environment_id": binding.topology_environment_id,
+        "topology_revision": binding.topology_revision,
+        "topology_snapshot_hash": binding.topology_snapshot_hash,
+        "initiating_host_kind": binding.initiating_host_kind,
+        "members": [
+            {
+                "host_kind": member.host_kind,
+                "role": member.role,
+                "configured_reference_id": member.configured_reference_id,
+                "configured_reference_hash": member.configured_reference_hash,
+                "transport_locator": member.transport_locator,
+                "host_instance_id": member.host_instance_id,
+                "document_id": member.document_id,
+                "native_target_id": member.native_target_id,
+                "host_binding_fingerprint": member.host_binding_fingerprint,
+            }
+            for member in binding.members
+        ],
+        "binding_hash": binding.binding_hash,
+    }
+
+
+def _binding_from_payload_v2(payload: object) -> SessionBindingV2:
+    """从 durable JSON 重建 V2 binding，并再次运行 contract 完整性校验。"""
+
+    if not isinstance(payload, dict):
+        raise TypeError(f"{_STATE_INVALID}: stored V2 binding must be an object")
+    raw_members = payload.get("members")
+    if not isinstance(raw_members, list):
+        raise TypeError(f"{_STATE_INVALID}: stored V2 binding members must be an array")
+    members = tuple(
+        SessionBindingMemberV2(
+            host_kind=member.get("host_kind"),
+            role=member.get("role"),
+            configured_reference_id=member.get("configured_reference_id"),
+            configured_reference_hash=member.get("configured_reference_hash"),
+            transport_locator=member.get("transport_locator"),
+            host_instance_id=member.get("host_instance_id"),
+            document_id=member.get("document_id"),
+            native_target_id=member.get("native_target_id"),
+            host_binding_fingerprint=member.get("host_binding_fingerprint"),
+        )
+        for member in raw_members
+        if isinstance(member, dict)
+    )
+    if len(members) != len(raw_members):
+        raise TypeError(f"{_STATE_INVALID}: stored V2 binding member is not an object")
+    return SessionBindingV2(
+        session_ref=payload.get("session_ref"),
+        project_id=payload.get("project_id"),
+        semantic_target_id=payload.get("semantic_target_id"),
+        semantic_environment_id=payload.get("semantic_environment_id"),
+        semantic_environment_hash=payload.get("semantic_environment_hash"),
+        topology_environment_id=payload.get("topology_environment_id"),
+        topology_revision=payload.get("topology_revision"),
+        topology_snapshot_hash=payload.get("topology_snapshot_hash"),
+        initiating_host_kind=payload.get("initiating_host_kind"),
+        members=members,
+        binding_hash=payload.get("binding_hash"),
+    )
+
+
+def _proposal_hash_v2(
+    request: ProductTaskRequestV2,
+    reviewed_configuration_hash: str,
+) -> str:
+    """只哈希 identity 分配前等价输入；task/session 不参与 callback 等价。"""
+
+    return canonical_hash(
+        {
+            "project_id": request.project_id,
+            "initiating_host_kind": request.initiating_host_kind,
+            "requested_action": request.requested_action,
+            "intent_arguments": {
+                "thickness": {
+                    "value": request.intent_arguments["thickness"]["value"],
+                    "unit": request.intent_arguments["thickness"]["unit"],
+                }
+            },
+            "reviewed_configuration_hash": reviewed_configuration_hash,
+        }
+    )
 
 
 def _binding_values(binding: SessionBinding) -> tuple[str, ...]:
@@ -180,6 +319,29 @@ class _BindingReaderMixin:
             binding_hash=row["binding_hash"],
         )
 
+    def resolve_session_v2(self, session_ref: str) -> SessionBindingV2 | None:
+        """按 exact session_ref 读取 V2 binding body；不依赖 client outbox。"""
+
+        normalized_ref = self._validate_nonblank(session_ref, "session_ref")
+        row = self._connection.execute(
+            """
+            SELECT binding_json, binding_hash
+            FROM session_binding_v2
+            WHERE session_ref = ?
+            """,
+            (normalized_ref,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["binding_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{_STATE_INVALID}: stored V2 binding JSON is invalid") from exc
+        binding = _binding_from_payload_v2(payload)
+        if binding.binding_hash != row["binding_hash"]:
+            raise ValueError(f"{_STATE_INVALID}: stored V2 binding hash columns disagree")
+        return binding
+
     @staticmethod
     def _validate_nonblank(value: object, field_name: str) -> str:
         """locator/状态字段必须是非空字符串，并只规范化外围空白。"""
@@ -260,6 +422,53 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
                 raise
         else:
             self._create_submission_table()
+        self._initialize_v2_schema()
+
+    def _initialize_v2_schema(self) -> None:
+        """建立独立 V2 binding/outbox 表，避免改写既有 V1 SQLite row 语义。"""
+
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_binding_v2 (
+                session_ref TEXT PRIMARY KEY,
+                binding_hash TEXT NOT NULL UNIQUE,
+                binding_json TEXT NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS client_submission_v2 (
+                client_submission_ref TEXT PRIMARY KEY,
+                utterance TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('UNFROZEN', 'FROZEN')),
+                proposal_hash TEXT,
+                reviewed_configuration_hash TEXT,
+                session_ref TEXT,
+                request_json TEXT,
+                request_hash TEXT,
+                delivery_state TEXT,
+                FOREIGN KEY (session_ref) REFERENCES session_binding_v2(session_ref),
+                CHECK (
+                    (state = 'UNFROZEN'
+                        AND proposal_hash IS NULL
+                        AND reviewed_configuration_hash IS NULL
+                        AND session_ref IS NULL
+                        AND request_json IS NULL
+                        AND request_hash IS NULL
+                        AND delivery_state IS NULL)
+                    OR
+                    (state = 'FROZEN'
+                        AND proposal_hash IS NOT NULL
+                        AND reviewed_configuration_hash IS NOT NULL
+                        AND session_ref IS NOT NULL
+                        AND request_json IS NOT NULL
+                        AND request_hash IS NOT NULL
+                        AND delivery_state IS NOT NULL)
+                )
+            )
+            """
+        )
 
     def _create_submission_table(self) -> None:
         """创建 correlation + frozen outbox 表；FROZEN 行必须拥有完整 request/binding locator。"""
@@ -454,6 +663,270 @@ class SqliteFrontDoorStateStore(_BindingReaderMixin):
             self._connection.rollback()
             raise
 
+    def create_submission_v2(
+        self,
+        client_submission_ref: str,
+        utterance: str,
+    ) -> SubmissionRecordV2:
+        """V2 模型调用前 create-once 持久化 correlation；不提前分配 task/session。"""
+
+        normalized_ref = self._validate_nonblank(
+            client_submission_ref,
+            "client_submission_ref",
+        )
+        if not isinstance(utterance, str):
+            raise TypeError("utterance must be a string")
+
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._v2_submission_row(normalized_ref)
+            if row is None:
+                self._connection.execute(
+                    """
+                    INSERT INTO client_submission_v2 (
+                        client_submission_ref,
+                        utterance,
+                        state
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    (normalized_ref, utterance, SubmissionState.UNFROZEN.value),
+                )
+                row = self._v2_submission_row(normalized_ref)
+            elif row["utterance"] != utterance:
+                raise ValueError(
+                    f"{_CORRELATION_CONFLICT}: client_submission_ref already "
+                    "owns a different utterance"
+                )
+            if row is None:
+                raise RuntimeError("created V2 correlation could not be reloaded")
+            record = self._v2_record_from_row(row)
+            self._connection.commit()
+            return record
+        except BaseException:
+            self._connection.rollback()
+            raise
+
+    def get_frozen_submission_v2(
+        self,
+        client_submission_ref: str,
+    ) -> FrozenSubmissionV2 | None:
+        """返回 exact V2 freeze winner；UNFROZEN/unknown correlation 返回 None。"""
+
+        normalized_ref = self._validate_nonblank(
+            client_submission_ref,
+            "client_submission_ref",
+        )
+        row = self._v2_submission_row(normalized_ref)
+        if row is None or self._state_from_row(row) is SubmissionState.UNFROZEN:
+            return None
+        return self._frozen_v2_from_row(row)
+
+    def freeze_submission_v2(
+        self,
+        *,
+        client_submission_ref: str,
+        reviewed_configuration_hash: str,
+        binding: SessionBindingV2,
+        request: ProductTaskRequestV2,
+    ) -> FrozenSubmissionV2:
+        """原子发布 V2 binding + request + outbox；同 correlation 只能拥有一个 winner。"""
+
+        normalized_ref = self._validate_nonblank(
+            client_submission_ref,
+            "client_submission_ref",
+        )
+        if not isinstance(binding, SessionBindingV2):
+            raise TypeError("binding must be SessionBindingV2")
+        if not isinstance(request, ProductTaskRequestV2):
+            raise TypeError("request must be ProductTaskRequestV2")
+        if (
+            request.project_id != binding.project_id
+            or request.session_ref != binding.session_ref
+            or request.session_binding_hash != binding.binding_hash
+        ):
+            raise ValueError(f"{_FREEZE_INVALID}: V2 request does not match SessionBindingV2")
+        reviewed_hash = self._validate_nonblank(
+            reviewed_configuration_hash,
+            "reviewed_configuration_hash",
+        )
+        expected_proposal_hash = _proposal_hash_v2(request, reviewed_hash)
+
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._v2_submission_row(normalized_ref)
+            if row is None:
+                raise ValueError(
+                    f"{_CORRELATION_NOT_FOUND}: create_submission_v2 must commit before freeze"
+                )
+            if self._state_from_row(row) is SubmissionState.FROZEN:
+                winner = self._frozen_v2_from_row(row)
+                if (
+                    row["proposal_hash"] != expected_proposal_hash
+                    or row["reviewed_configuration_hash"] != reviewed_hash
+                    or winner.session_binding != binding
+                    or winner.request != request
+                ):
+                    raise ValueError(
+                        f"{_CORRELATION_CONFLICT}: correlation already froze a different V2 winner"
+                    )
+                self._connection.commit()
+                return winner
+
+            self._insert_or_validate_binding_v2(binding)
+            request_json = json.dumps(
+                _request_payload_v2(request),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            self._connection.execute(
+                """
+                UPDATE client_submission_v2
+                SET
+                    state = ?,
+                    proposal_hash = ?,
+                    reviewed_configuration_hash = ?,
+                    session_ref = ?,
+                    request_json = ?,
+                    request_hash = ?,
+                    delivery_state = ?
+                WHERE client_submission_ref = ? AND state = ?
+                """,
+                (
+                    SubmissionState.FROZEN.value,
+                    expected_proposal_hash,
+                    reviewed_hash,
+                    binding.session_ref,
+                    request_json,
+                    request.request_hash,
+                    _DELIVERY_PENDING,
+                    normalized_ref,
+                    SubmissionState.UNFROZEN.value,
+                ),
+            )
+            frozen_row = self._v2_submission_row(normalized_ref)
+            if (
+                frozen_row is None
+                or self._state_from_row(frozen_row) is not SubmissionState.FROZEN
+            ):
+                raise RuntimeError("V2 freeze did not publish a complete winner")
+            winner = self._frozen_v2_from_row(frozen_row)
+            self._connection.commit()
+            return winner
+        except BaseException:
+            self._connection.rollback()
+            raise
+
+    def _insert_or_validate_binding_v2(self, binding: SessionBindingV2) -> None:
+        """V2 SessionBinding create-once；相同 session_ref 只能拥有相同完整 body。"""
+
+        existing = self.resolve_session_v2(binding.session_ref)
+        if existing is not None:
+            if existing != binding:
+                raise ValueError(
+                    f"{_SESSION_CONFLICT}: session_ref already owns a different V2 binding"
+                )
+            return
+        binding_json = json.dumps(
+            _binding_payload_v2(binding),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        self._connection.execute(
+            """
+            INSERT INTO session_binding_v2 (session_ref, binding_hash, binding_json)
+            VALUES (?, ?, ?)
+            """,
+            (binding.session_ref, binding.binding_hash, binding_json),
+        )
+
+    def _v2_submission_row(self, client_submission_ref: str) -> sqlite3.Row | None:
+        """读取 V2 correlation row；不与 V1 outbox 做 latest/implicit 合并。"""
+
+        return self._connection.execute(
+            """
+            SELECT
+                client_submission_ref,
+                utterance,
+                state,
+                proposal_hash,
+                reviewed_configuration_hash,
+                session_ref,
+                request_json,
+                request_hash,
+                delivery_state
+            FROM client_submission_v2
+            WHERE client_submission_ref = ?
+            """,
+            (client_submission_ref,),
+        ).fetchone()
+
+    def _v2_record_from_row(self, row: sqlite3.Row) -> SubmissionRecordV2:
+        """构造 V2 correlation read model。"""
+
+        state = self._state_from_row(row)
+        frozen = None if state is SubmissionState.UNFROZEN else self._frozen_v2_from_row(row)
+        return SubmissionRecordV2(
+            client_submission_ref=row["client_submission_ref"],
+            utterance=row["utterance"],
+            state=state,
+            frozen=frozen,
+        )
+
+    def _frozen_v2_from_row(self, row: sqlite3.Row) -> FrozenSubmissionV2:
+        """从 SQLite 重建 V2 request/binding，并重新运行完整性校验。"""
+
+        required = (
+            row["proposal_hash"],
+            row["reviewed_configuration_hash"],
+            row["session_ref"],
+            row["request_json"],
+            row["request_hash"],
+            row["delivery_state"],
+        )
+        if any(value is None for value in required):
+            raise ValueError(f"{_STATE_INVALID}: FROZEN V2 submission is incomplete")
+        binding = self.resolve_session_v2(row["session_ref"])
+        if binding is None:
+            raise ValueError(f"{_STATE_INVALID}: FROZEN V2 binding is missing")
+        try:
+            request_body = json.loads(row["request_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{_STATE_INVALID}: frozen V2 request JSON is invalid") from exc
+        if not isinstance(request_body, dict):
+            raise TypeError(f"{_STATE_INVALID}: frozen V2 request JSON must be an object")
+        if request_body.get("request_hash") != row["request_hash"]:
+            raise ValueError(f"{_STATE_INVALID}: frozen V2 request hash columns disagree")
+        request = ProductTaskRequestV2(
+            version=request_body.get("version"),
+            task_id=request_body.get("task_id"),
+            project_id=request_body.get("project_id"),
+            initiating_host_kind=request_body.get("initiating_host_kind"),
+            session_ref=request_body.get("session_ref"),
+            session_binding_hash=request_body.get("session_binding_hash"),
+            requested_action=request_body.get("requested_action"),
+            intent_arguments=request_body.get("intent_arguments"),
+            request_hash=request_body.get("request_hash"),
+        )
+        if (
+            request.session_ref != binding.session_ref
+            or request.session_binding_hash != binding.binding_hash
+        ):
+            raise ValueError(f"{_STATE_INVALID}: V2 request/binding lineage is inconsistent")
+        return FrozenSubmissionV2(
+            client_submission_ref=row["client_submission_ref"],
+            utterance=row["utterance"],
+            proposal_hash=row["proposal_hash"],
+            reviewed_configuration_hash=row["reviewed_configuration_hash"],
+            session_binding=binding,
+            request=request,
+            delivery_state=row["delivery_state"],
+        )
+
     def mark_delivery(self, client_submission_ref: str, state: str) -> FrozenSubmission:
         """只更新 client-owned delivery 状态；绝不改写 frozen request 或 SessionBinding。"""
 
@@ -638,9 +1111,11 @@ class SqliteSessionBindingReader(_BindingReaderMixin):
 
 __all__ = [
     "FrozenSubmission",
+    "FrozenSubmissionV2",
     "SessionBindingReadPort",
     "SqliteFrontDoorStateStore",
     "SqliteSessionBindingReader",
     "SubmissionRecord",
+    "SubmissionRecordV2",
     "SubmissionState",
 ]

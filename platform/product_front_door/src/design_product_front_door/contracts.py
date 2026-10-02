@@ -446,6 +446,19 @@ class SessionBindingV2:
         object.__setattr__(self, "members", members)
         object.__setattr__(self, "binding_hash", binding_hash)
 
+    def member(self, host_kind: str) -> SessionBindingMemberV2:
+        """按 exact Host kind 返回冻结成员；禁止 latest/fuzzy fallback。"""
+
+        normalized = _non_blank(
+            host_kind,
+            code="FRONT_DOOR_BINDING_V2_INVALID",
+            field_name="host_kind",
+        )
+        for member in self.members:
+            if member.host_kind == normalized:
+                return member
+        raise KeyError(f"SessionBindingV2 member not found: {normalized}")
+
     @classmethod
     def create(
         cls,

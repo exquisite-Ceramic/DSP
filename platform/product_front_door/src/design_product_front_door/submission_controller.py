@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable
 
 from design_changeset import canonical_hash
-from design_product_runtime import ProductTaskRequest
+from design_product_runtime import ProductTaskRequest, ProductTaskRequestV2
 
 from .agent import (
     AgentClarificationRequired,
@@ -17,9 +17,12 @@ from .agent import (
 from .contracts import (
     ConfiguredRevitCandidateSource,
     SessionBinding,
+    SessionBindingMemberV2,
+    SessionBindingV2,
     session_binding_hash_body,
 )
-from .sqlite_state import FrozenSubmission, SqliteFrontDoorStateStore
+from .cross_host_config import ConfiguredCrossHostWallThicknessTargetSource
+from .sqlite_state import FrozenSubmission, FrozenSubmissionV2, SqliteFrontDoorStateStore
 
 _HOST_KIND = "REVIT"
 _REQUESTED_ACTION = "SET_SELECTED_WALL_THICKNESS"
@@ -41,6 +44,8 @@ class SubmissionController:
         context_probe_factory: Callable[[str], object],
         session_ref_factory: Callable[[], str],
         task_id_factory: Callable[[], str],
+        cross_host_target_source: ConfiguredCrossHostWallThicknessTargetSource | None = None,
+        cross_host_probe_factory: Callable[[str, str], object] | None = None,
     ) -> None:
         """注入全部外部 authority/factory；不在 controller 内隐藏全局单例。"""
 
@@ -63,6 +68,8 @@ class SubmissionController:
         self._context_probe_factory = context_probe_factory
         self._session_ref_factory = session_ref_factory
         self._task_id_factory = task_id_factory
+        self._cross_host_target_source = cross_host_target_source
+        self._cross_host_probe_factory = cross_host_probe_factory
 
     def prepare_submission(
         self,
@@ -140,6 +147,129 @@ class SubmissionController:
             binding=binding,
             request=request,
         )
+
+    def prepare_cross_host_submission(
+        self,
+        *,
+        client_submission_ref: str,
+        utterance: str,
+    ) -> FrozenSubmissionV2 | AgentClarificationRequired:
+        """按 reviewed 双 Host config + fresh runtime evidence 冻结 V2 client winner。"""
+
+        if self._cross_host_target_source is None:
+            raise TypeError("cross_host_target_source is required for V2 submission")
+        if not callable(self._cross_host_probe_factory):
+            raise TypeError("cross_host_probe_factory is required for V2 submission")
+
+        record = self._state_store.create_submission_v2(client_submission_ref, utterance)
+        if record.frozen is not None:
+            return record.frozen
+
+        interpretation = self._agent_interpreter.interpret(
+            client_submission_ref=record.client_submission_ref,
+            utterance=record.utterance,
+        )
+        if isinstance(interpretation, AgentClarificationRequired):
+            return interpretation
+        if not isinstance(interpretation, AgentProposal):
+            raise TypeError(
+                f"{_PROPOSAL_INVALID}: interpreter must return AgentProposal or "
+                "AgentClarificationRequired"
+            )
+
+        target = self._cross_host_target_source.get(interpretation.candidate_key)
+        if target is None:
+            raise ValueError(
+                f"{_CANDIDATE_NOT_FOUND}: configured cross-host target does not exist"
+            )
+        intent_arguments = self._normalize_thickness_intent(interpretation)
+
+        binding_members: list[SessionBindingMemberV2] = []
+        for configured_member in target.members:
+            probe = self._cross_host_probe_factory(
+                configured_member.host_kind,
+                configured_member.transport_locator,
+            )
+            discover = getattr(probe, "discover", None)
+            if not callable(discover):
+                raise TypeError(
+                    "cross_host_probe_factory must return an object with discover"
+                )
+            observation = discover(
+                command_id=(
+                    f"front-door-v2-probe:{record.client_submission_ref}:"
+                    f"{configured_member.host_kind}"
+                ),
+                document_id=configured_member.document_id,
+            )
+            self._validate_cross_host_observation(
+                configured_member=configured_member,
+                observation=observation,
+            )
+            binding_members.append(
+                SessionBindingMemberV2(
+                    host_kind=configured_member.host_kind,
+                    role=configured_member.role,
+                    configured_reference_id=configured_member.configured_reference_id,
+                    configured_reference_hash=configured_member.configured_reference_hash,
+                    transport_locator=configured_member.transport_locator,
+                    host_instance_id=observation.host_instance_id,
+                    document_id=configured_member.document_id,
+                    native_target_id=configured_member.native_target_id,
+                    host_binding_fingerprint=observation.host_binding_fingerprint,
+                )
+            )
+
+        session_ref = self._new_identity(self._session_ref_factory, "session_ref")
+        task_id = self._new_identity(self._task_id_factory, "task_id")
+        binding = SessionBindingV2.create(
+            session_ref=session_ref,
+            project_id=target.project_id,
+            semantic_target_id=target.semantic_target_id,
+            semantic_environment_id=target.semantic_environment_id,
+            semantic_environment_hash=target.semantic_environment_hash,
+            topology_environment_id=target.topology_environment_id,
+            topology_revision=target.topology_revision,
+            topology_snapshot_hash=target.topology_snapshot_hash,
+            initiating_host_kind="REVIT",
+            members=tuple(binding_members),
+        )
+        request = ProductTaskRequestV2.create(
+            task_id=task_id,
+            project_id=target.project_id,
+            initiating_host_kind="REVIT",
+            session_ref=binding.session_ref,
+            session_binding_hash=binding.binding_hash,
+            requested_action="SET_BOUND_WALL_THICKNESS",
+            intent_arguments=intent_arguments,
+        )
+        return self._state_store.freeze_submission_v2(
+            client_submission_ref=record.client_submission_ref,
+            reviewed_configuration_hash=target.reviewed_configuration_hash,
+            binding=binding,
+            request=request,
+        )
+
+    @staticmethod
+    def _validate_cross_host_observation(*, configured_member, observation) -> None:
+        """Task 2 只验证 runtime/document/native binding evidence；语义 freshness 留给后续 owner。"""
+
+        if observation is None:
+            raise ValueError(f"{_CONTEXT_INVALID}: cross-host probe returned no observation")
+        if getattr(observation, "document_id", None) != configured_member.document_id:
+            raise ValueError(
+                f"{_CONTEXT_INVALID}: V2 runtime document does not match reviewed config"
+            )
+        host_instance_id = getattr(observation, "host_instance_id", None)
+        if not isinstance(host_instance_id, str) or not host_instance_id.strip():
+            raise ValueError(f"{_CONTEXT_INVALID}: V2 host_instance_id is missing")
+        if getattr(observation, "native_target_id", None) != configured_member.native_target_id:
+            raise ValueError(
+                f"{_SELECTION_INVALID}: V2 native target does not match reviewed config"
+            )
+        fingerprint = getattr(observation, "host_binding_fingerprint", None)
+        if not isinstance(fingerprint, str) or not fingerprint.strip():
+            raise ValueError(f"{_CONTEXT_INVALID}: V2 HostBinding fingerprint is missing")
 
     @staticmethod
     def _normalize_thickness_intent(proposal: AgentProposal) -> dict[str, object]:

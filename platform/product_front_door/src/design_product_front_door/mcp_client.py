@@ -21,6 +21,7 @@ from design_product_runtime import (
     ProductTaskQueryState,
     ProductTaskQueryView,
     ProductTaskRequest,
+    ProductTaskRequestV2,
 )
 from mcp.client import Client
 from mcp.types import TextContent
@@ -224,20 +225,36 @@ class ProductFrontDoorMcpClient:
             result = await client.call_tool(tool_name, arguments)
         return _result_payload(result)
 
-    async def submit(self, request: ProductTaskRequest) -> ProductTaskQueryView:
-        """发送完整 frozen request；客户端不分配或重算 task/session identity。"""
+    async def submit(
+        self,
+        request: ProductTaskRequest | ProductTaskRequestV2,
+    ) -> ProductTaskQueryView:
+        """发送完整 frozen request；V2 只携带 binding hash，不复制本机 binding body。"""
 
-        if not isinstance(request, ProductTaskRequest):
-            raise TypeError("request must be a ProductTaskRequest")
-        payload = {
-            "task_id": request.task_id,
-            "project_id": request.project_id,
-            "host_kind": request.host_kind,
-            "session_ref": request.session_ref,
-            "requested_action": request.requested_action,
-            "intent_arguments": _plain_json(request.intent_arguments),
-            "request_hash": request.request_hash,
-        }
+        if isinstance(request, ProductTaskRequestV2):
+            payload = {
+                "version": request.version,
+                "task_id": request.task_id,
+                "project_id": request.project_id,
+                "initiating_host_kind": request.initiating_host_kind,
+                "session_ref": request.session_ref,
+                "session_binding_hash": request.session_binding_hash,
+                "requested_action": request.requested_action,
+                "intent_arguments": _plain_json(request.intent_arguments),
+                "request_hash": request.request_hash,
+            }
+        elif isinstance(request, ProductTaskRequest):
+            payload = {
+                "task_id": request.task_id,
+                "project_id": request.project_id,
+                "host_kind": request.host_kind,
+                "session_ref": request.session_ref,
+                "requested_action": request.requested_action,
+                "intent_arguments": _plain_json(request.intent_arguments),
+                "request_hash": request.request_hash,
+            }
+        else:
+            raise TypeError("request must be ProductTaskRequest or ProductTaskRequestV2")
         view = _decode_query_view(await self._call(_SUBMIT_TOOL, payload))
         if view is None:
             raise ValueError("Product Front Door submit returned null task view")

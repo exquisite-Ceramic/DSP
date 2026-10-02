@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
-from design_product_runtime import ProductTaskRequest
+from design_product_runtime import ProductTaskRequest, ProductTaskRequestV2
 from pydantic import BaseModel, ConfigDict
 
 OperationProposalResumeKind = Literal[
@@ -22,6 +23,22 @@ class ProductTaskSubmitInput(BaseModel):
     project_id: str
     host_kind: str
     session_ref: str
+    requested_action: str
+    intent_arguments: dict[str, object]
+    request_hash: str
+
+
+class ProductTaskSubmitInputV2(BaseModel):
+    """显式 V2 submit；完整 SessionBinding body 不进入 MCP wire。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    version: Literal["V2"]
+    task_id: str
+    project_id: str
+    initiating_host_kind: str
+    session_ref: str
+    session_binding_hash: str
     requested_action: str
     intent_arguments: dict[str, object]
     request_hash: str
@@ -67,6 +84,37 @@ def decode_submit_input(value: ProductTaskSubmitInput) -> ProductTaskRequest:
     )
 
 
+def decode_submit_v2_input(value: ProductTaskSubmitInputV2) -> ProductTaskRequestV2:
+    """把 strict V2 DTO 解码为 versioned ProductTask authority contract。"""
+
+    return ProductTaskRequestV2(
+        version=value.version,
+        task_id=value.task_id,
+        project_id=value.project_id,
+        initiating_host_kind=value.initiating_host_kind,
+        session_ref=value.session_ref,
+        session_binding_hash=value.session_binding_hash,
+        requested_action=value.requested_action,
+        intent_arguments=value.intent_arguments,
+        request_hash=value.request_hash,
+    )
+
+
+def decode_submit_payload(
+    payload: Mapping[str, object],
+) -> ProductTaskRequest | ProductTaskRequestV2:
+    """同一 submit tool 按显式 version 分流；缺失 version 精确保持 V1。"""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError("ProductTask submit payload must be an object")
+    if "version" not in payload:
+        return decode_submit_input(ProductTaskSubmitInput.model_validate(payload))
+    version = payload.get("version")
+    if version == "V2":
+        return decode_submit_v2_input(ProductTaskSubmitInputV2.model_validate(payload))
+    raise ValueError(f"unsupported ProductTask submit version: {version}")
+
+
 def decode_get_input(value: ProductTaskGetInput) -> str:
     """返回 exact task_id；不提供 listing、search 或 session fallback。"""
 
@@ -88,7 +136,10 @@ __all__ = [
     "ProductTaskGetInput",
     "ProductTaskResumeOperationProposalInput",
     "ProductTaskSubmitInput",
+    "ProductTaskSubmitInputV2",
     "decode_get_input",
     "decode_resume_operation_proposal_input",
     "decode_submit_input",
+    "decode_submit_payload",
+    "decode_submit_v2_input",
 ]

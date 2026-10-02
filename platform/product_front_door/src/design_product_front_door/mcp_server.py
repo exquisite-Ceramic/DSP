@@ -15,10 +15,9 @@ from .mcp_wire import (
     OperationProposalResumeKind,
     ProductTaskGetInput,
     ProductTaskResumeOperationProposalInput,
-    ProductTaskSubmitInput,
     decode_get_input,
     decode_resume_operation_proposal_input,
-    decode_submit_input,
+    decode_submit_payload,
 )
 
 _SUBMIT_TOOL = "product.wall_thickness.submit"
@@ -100,7 +99,7 @@ class ProductFrontDoorMcpServer:
         _ = session_id
 
         if tool_name == _SUBMIT_TOOL:
-            request = decode_submit_input(ProductTaskSubmitInput.model_validate(payload))
+            request = decode_submit_payload(payload)
             return self._service_method("submit")(request)
 
         if tool_name == _GET_TOOL:
@@ -138,26 +137,38 @@ def build_mcp_server(service: object) -> MCPServer:
     def submit(
         task_id: str,
         project_id: str,
-        host_kind: str,
         session_ref: str,
         requested_action: str,
         intent_arguments: dict[str, object],
         request_hash: str,
+        host_kind: str | None = None,
+        version: str | None = None,
+        initiating_host_kind: str | None = None,
+        session_binding_hash: str | None = None,
     ) -> CallToolResult:
-        """提交完整 frozen ProductTask；不补写任何 identity/authority。"""
+        """提交 V1/V2 frozen request；V2 binding body 保持在本机 durable reader。"""
 
+        payload: dict[str, object] = {
+            "task_id": task_id,
+            "project_id": project_id,
+            "session_ref": session_ref,
+            "requested_action": requested_action,
+            "intent_arguments": intent_arguments,
+            "request_hash": request_hash,
+        }
+        if version is None:
+            if host_kind is not None:
+                payload["host_kind"] = host_kind
+        else:
+            payload["version"] = version
+            if initiating_host_kind is not None:
+                payload["initiating_host_kind"] = initiating_host_kind
+            if session_binding_hash is not None:
+                payload["session_binding_hash"] = session_binding_hash
         return _success_result(
             adapter.call_tool(
                 tool_name=_SUBMIT_TOOL,
-                payload={
-                    "task_id": task_id,
-                    "project_id": project_id,
-                    "host_kind": host_kind,
-                    "session_ref": session_ref,
-                    "requested_action": requested_action,
-                    "intent_arguments": intent_arguments,
-                    "request_hash": request_hash,
-                },
+                payload=payload,
             )
         )
 

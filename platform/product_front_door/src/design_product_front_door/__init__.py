@@ -12,6 +12,12 @@ from .approval_policy import (
     ConfiguredProductApprovalPolicy,
 )
 from .candidate_config import ConfiguredRevitCandidateCatalog
+from .cross_host_config import (
+    ConfiguredCrossHostMemberTarget,
+    ConfiguredCrossHostWallThicknessTarget,
+    ConfiguredCrossHostWallThicknessTargetSource,
+    reviewed_cross_host_configuration_hash_body,
+)
 from .contracts import (
     ConfiguredRevitCandidate,
     ConfiguredRevitCandidateSource,
@@ -35,10 +41,12 @@ from .reference_client import (
 )
 from .sqlite_state import (
     FrozenSubmission,
+    FrozenSubmissionV2,
     SessionBindingReadPort,
     SqliteFrontDoorStateStore,
     SqliteSessionBindingReader,
     SubmissionRecord,
+    SubmissionRecordV2,
     SubmissionState,
 )
 from .submission_controller import SubmissionController
@@ -47,12 +55,16 @@ __all__ = [
     "AgentClarificationRequired",
     "AgentInterpreterPort",
     "AgentProposal",
+    "ConfiguredCrossHostMemberTarget",
+    "ConfiguredCrossHostWallThicknessTarget",
+    "ConfiguredCrossHostWallThicknessTargetSource",
     "ConfiguredPolicyApprovalAdmissionPort",
     "ConfiguredProductApprovalPolicy",
     "ConfiguredRevitCandidate",
     "ConfiguredRevitCandidateCatalog",
     "ConfiguredRevitCandidateSource",
     "FrozenSubmission",
+    "FrozenSubmissionV2",
     "HumanDecisionPort",
     "NormalizedFreezeProposal",
     "PostgresConfiguredPolicyAdmissionStore",
@@ -66,12 +78,14 @@ __all__ = [
     "SqliteSessionBindingReader",
     "SubmissionController",
     "SubmissionRecord",
+    "SubmissionRecordV2",
     "SubmissionState",
     "SubprocessAgentInterpreter",
     "build_mcp_server",
     "configured_revit_candidate_hash_body",
     "render_reference_result",
     "run_reference_cli",
+    "reviewed_cross_host_configuration_hash_body",
     "run_streamable_http",
     "session_binding_hash_body",
     "session_binding_member_v2_hash_body",
