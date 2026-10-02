@@ -349,8 +349,8 @@ DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/
 - Create: `platform/orchestrator/src/design_orchestrator/proposal_decision_postgres.py`
 - Modify: `platform/product_front_door/src/design_product_front_door/service.py`
 - Modify: `platform/product_runtime/src/design_product_runtime/query.py`
-- Reuse unchanged: `platform/product_runtime/src/design_product_runtime/start_gate.py`
-- Reuse unchanged: `platform/product_runtime/src/design_product_runtime/postgres_start_gate.py`
+- Modify: `platform/product_runtime/src/design_product_runtime/start_gate.py`
+- Modify: `platform/product_runtime/src/design_product_runtime/postgres_start_gate.py`
 - Create: `tests/orchestrator/test_proposal_decision_postgres.py`
 - Create: `tests/product_front_door/test_cross_host_gate_a.py`
 - Modify: `tests/product_front_door/test_service_resume.py`
@@ -366,7 +366,16 @@ ProposalDecisionStore.invalidate_gate_a(task_id, pause_id, subject_ref, reason) 
 ProposalDecisionStore.invalidate_gate_b(task_id, pause_id, subject_ref, reason) -> ProposalDecisionRecord
 ProposalDecisionStore.get(task_id, pause_id, subject_ref) -> ProposalDecisionRecord | None
 ```
-- `ProductFrontDoorService` receives a task-scoped `decision_consume_gate` exposing the existing `serialize(task_id)` context-manager shape. Production wiring MUST reuse `PostgresProductTaskStartGate` (or the exact same existing PostgreSQL row-lock implementation) against the same `product_task.start_gate` task row. Do not add a lease, advisory-lock protocol, process mutex, second lock table or distributed-lock service.
+- Add a semantic resume-consumption port without inventing a new locking algorithm:
+```python
+class ProductTaskResumeConsumeGate(Protocol):
+    def serialize(self, task_id: str) -> AbstractContextManager[None]: ...
+
+class PostgresProductTaskResumeConsumeGate:
+    def serialize(self, task_id: str) -> AbstractContextManager[None]: ...
+```
+- `PostgresProductTaskResumeConsumeGate` MUST reuse the existing `product_task.start_gate` row keyed by exact `task_id` and the existing independent-connection → transaction → `INSERT ... ON CONFLICT` → `SELECT ... FOR UPDATE` mechanism. It is a separate semantic port because `ProductTaskStartGate` remains start-only; it is **not** a second lock table, lease, advisory-lock protocol, process mutex or distributed-lock service. The two gate implementations may share a private row-lock helper, but their public contracts remain distinct.
+- `ProductFrontDoorService` receives `decision_consume_gate: ProductTaskResumeConsumeGate`; production bootstrap constructs it from the same ProductTask PostgreSQL DSN as the start gate.
 - Decision transition and decision consumption are distinct guarantees:
   - the decision store CAS determines **which durable human/continuation transition wins**;
   - the PostgreSQL task-row critical section determines **which worker may consume that durable decision into the LangGraph pause**.
@@ -425,6 +434,7 @@ Every path that might consume ACCEPT or REJECT MUST enter the same task-scoped P
 
 ```text
 with decision_consume_gate.serialize(task_id):
+    # PostgreSQL owns the exact task-row lock until this block exits.
     re-read immutable request
     re-read ProductTask query / current checkpoint
     re-read ProposalDecisionRecord
