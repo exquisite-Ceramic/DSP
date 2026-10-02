@@ -246,7 +246,8 @@ async def test_client_v2_submit_sends_only_versioned_request_not_binding_body(mo
         requested_action="SET_BOUND_WALL_THICKNESS",
         intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
     )
-    client = _client_type("http://127.0.0.1:9999/mcp")
+    client_type = _client_type()
+    client = client_type("http://127.0.0.1:9999/mcp")
     captured = {}
 
     async def fake_call(tool_name, arguments):
