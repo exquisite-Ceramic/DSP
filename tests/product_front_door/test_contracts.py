@@ -181,3 +181,138 @@ def test_session_binding_rejects_relative_document_identity() -> None:
             document_title="Fixture",
             binding_hash=canonical_hash(body),
         )
+
+
+def _v2_member(module, *, host_kind: str):
+    """构造一个 exact REQUIRED Host member；哈希字段只表达已冻结 owner refs。"""
+
+    if host_kind == "REVIT":
+        return module.SessionBindingMemberV2(
+            host_kind="REVIT",
+            role="INITIATOR",
+            configured_reference_id="primary-revit",
+            configured_reference_hash="1" * 64,
+            transport_locator="configured-revit-pipe",
+            host_instance_id="revit-runtime-7",
+            document_id=r"C:\path\to\fixture.rvt",
+            native_target_id="reviewed-wall-unique-id",
+            host_binding_fingerprint="2" * 64,
+        )
+    return module.SessionBindingMemberV2(
+        host_kind="AUTOCAD",
+        role="BOUND_REQUIRED",
+        configured_reference_id="primary-autocad",
+        configured_reference_hash="3" * 64,
+        transport_locator="configured-autocad-pipe",
+        host_instance_id="autocad-runtime-3",
+        document_id=r"C:\path\to\fixture.dwg",
+        native_target_id="reviewed-wall-entity-id",
+        host_binding_fingerprint="4" * 64,
+    )
+
+
+def _create_v2_binding(*, members=None):
+    """通过公开 create API 构造 exact 两 Host binding。"""
+
+    module = _front_door_module()
+    binding_type = getattr(module, "SessionBindingV2", None)
+    member_type = getattr(module, "SessionBindingMemberV2", None)
+    assert binding_type is not None, "SessionBindingV2 尚未实现"
+    assert member_type is not None, "SessionBindingMemberV2 尚未实现"
+    if members is None:
+        members = (_v2_member(module, host_kind="REVIT"), _v2_member(module, host_kind="AUTOCAD"))
+    return binding_type.create(
+        session_ref="session-cross-host-1",
+        project_id="project-id",
+        semantic_target_id="WALL-001",
+        semantic_environment_id="SEM-ENV-1",
+        semantic_environment_hash="5" * 64,
+        topology_environment_id="TOPOLOGY-1",
+        topology_revision=7,
+        topology_snapshot_hash="6" * 64,
+        initiating_host_kind="REVIT",
+        members=members,
+    )
+
+
+def test_v2_binding_requires_exact_revit_and_autocad_members_and_canonical_order() -> None:
+    """V2 binding 必须恰好覆盖 REQUIRED AutoCAD+Revit，输入顺序不能改变 binding identity。"""
+
+    module = _front_door_module()
+    revit = _v2_member(module, host_kind="REVIT")
+    autocad = _v2_member(module, host_kind="AUTOCAD")
+
+    first = _create_v2_binding(members=(revit, autocad))
+    second = _create_v2_binding(members=(autocad, revit))
+
+    assert first.binding_hash == second.binding_hash
+    assert tuple(member.host_kind for member in first.members) == ("AUTOCAD", "REVIT")
+    assert first.members == second.members
+
+
+@pytest.mark.parametrize("members_kind", ["missing", "duplicate", "extra"])
+def test_v2_binding_rejects_missing_duplicate_or_extra_members(members_kind: str) -> None:
+    """任一缺失、重复或额外 REQUIRED member 都必须在 binding owner 边界 fail closed。"""
+
+    module = _front_door_module()
+    revit = _v2_member(module, host_kind="REVIT")
+    autocad = _v2_member(module, host_kind="AUTOCAD")
+    if members_kind == "missing":
+        members = (revit,)
+    elif members_kind == "duplicate":
+        members = (revit, revit)
+    else:
+        members = (
+            revit,
+            autocad,
+            module.SessionBindingMemberV2(
+                host_kind="IFC",
+                role="BOUND_REQUIRED",
+                configured_reference_id="unexpected-ifc",
+                configured_reference_hash="7" * 64,
+                transport_locator="unexpected-ifc",
+                host_instance_id="ifc-runtime",
+                document_id="/tmp/unexpected.ifc",
+                native_target_id="ifc-wall",
+                host_binding_fingerprint="8" * 64,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="FRONT_DOOR_BINDING_V2_INVALID"):
+        _create_v2_binding(members=members)
+
+
+def test_v2_binding_rejects_wrong_roles_or_initiating_host() -> None:
+    """Revit 必须是 INITIATOR，AutoCAD 必须是 BOUND_REQUIRED，且发起 Host 固定为 Revit。"""
+
+    module = _front_door_module()
+    bad_revit = module.SessionBindingMemberV2(
+        host_kind="REVIT",
+        role="BOUND_REQUIRED",
+        configured_reference_id="primary-revit",
+        configured_reference_hash="1" * 64,
+        transport_locator="configured-revit-pipe",
+        host_instance_id="revit-runtime-7",
+        document_id=r"C:\path\to\fixture.rvt",
+        native_target_id="reviewed-wall-unique-id",
+        host_binding_fingerprint="2" * 64,
+    )
+    autocad = _v2_member(module, host_kind="AUTOCAD")
+
+    with pytest.raises(ValueError, match="FRONT_DOOR_BINDING_V2_INVALID"):
+        _create_v2_binding(members=(bad_revit, autocad))
+
+    binding_type = getattr(module, "SessionBindingV2")
+    with pytest.raises(ValueError, match="FRONT_DOOR_BINDING_V2_INVALID"):
+        binding_type.create(
+            session_ref="session-cross-host-1",
+            project_id="project-id",
+            semantic_target_id="WALL-001",
+            semantic_environment_id="SEM-ENV-1",
+            semantic_environment_hash="5" * 64,
+            topology_environment_id="TOPOLOGY-1",
+            topology_revision=7,
+            topology_snapshot_hash="6" * 64,
+            initiating_host_kind="AUTOCAD",
+            members=(_v2_member(module, host_kind="REVIT"), autocad),
+        )

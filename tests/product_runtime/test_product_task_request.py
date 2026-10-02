@@ -190,3 +190,18 @@ def test_direct_construction_rejects_request_hash_mismatch() -> None:
         )
 
     assert captured.value.code == "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
+
+
+def test_v1_request_payload_keys_and_hash_contract_remain_unchanged() -> None:
+    """V2 引入前后，V1 持久化 payload 仍必须保持冻结的五字段结构。"""
+
+    module = import_module("design_product_runtime.contracts")
+    request = _create_request()
+
+    assert module.product_task_request_payload(request) == {
+        "project_id": "PROJECT-1",
+        "host_kind": "REVIT",
+        "session_ref": "SESSION-1",
+        "requested_action": "SET_SELECTED_WALL_THICKNESS",
+        "intent_arguments": {"thickness": {"value": 300.0, "unit": "mm"}},
+    }
