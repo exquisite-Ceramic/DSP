@@ -666,8 +666,9 @@ uv run pytest tests/product_runtime/test_cross_host_runtime_registry.py tests/pr
 - Modify: existing recovery tests under `tests/orchestrator`
 
 **Interfaces:**
-- `ExecutionOwnerView` gains `unresolved_dispatch_recoveries: tuple[HostDispatchRecoveryView, ...]`.
-- Preserve source compatibility for current single-slice callers through an `active_dispatch_recovery` compatibility projection when exactly one unresolved item exists.
+- `ExecutionOwnerView` gains `unresolved_dispatch_recoveries: tuple[HostDispatchRecoveryView, ...] = ()` while retaining the existing constructor field `active_dispatch_recovery: HostDispatchRecoveryView | None = None` during this capability.
+- `__post_init__` canonicalizes compatibility inputs: legacy `active_dispatch_recovery=X` with an empty tuple becomes `(X,)`; a one-item tuple with `active_dispatch_recovery=None` projects that item back to the legacy field; a multi-item tuple requires the legacy field to be `None`; conflicting duplicate representations fail closed.
+- All recovery classification and new V2 logic reads the canonical tuple, never only the legacy field. This preserves existing single-slice constructors without allowing one active item to hide a second unresolved Slice.
 - Classification checks every unresolved required Slice before aggregate Saga status.
 
 - [ ] **Step 1: Write RED for multiple unresolved dispatches.**
@@ -991,7 +992,11 @@ Also run the Task 16 controlled live command from the runbook against the same F
 
 - [ ] **Step 4: Require exact-head GitHub Actions GREEN.**
 
-Require `cross-host-product-vertical.yml`, Repository Regression, Durable Persistence and Workflow Orchestrator PostgreSQL on the same FINAL_SHA. Record run IDs/URLs outside the branch; do not commit generated evidence back after pinning.
+```bash
+gh run list --repo exquisite-Ceramic/DSP --commit "$FINAL_SHA" --json databaseId,name,headSha,status,conclusion,url
+```
+
+Require `cross-host-product-vertical.yml`, Repository Regression, Durable Persistence and Workflow Orchestrator PostgreSQL on the same FINAL_SHA. If the implementation runner does not use GitHub CLI, perform the equivalent exact-SHA query through the connected GitHub API. Record run IDs/URLs outside the branch; do not commit generated evidence back after pinning.
 
 - [ ] **Step 5: Independent whole-branch review.**
 

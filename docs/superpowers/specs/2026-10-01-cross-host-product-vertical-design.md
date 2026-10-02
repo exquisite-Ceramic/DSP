@@ -1528,4 +1528,4 @@ PRODUCTION IMPLEMENTATION REQUIRES WRITTEN-PLAN REVIEW
 
 The next step is Implementation Plan drafting and Written-Plan Review. Production implementation remains blocked until that plan is explicitly approved and an execution method is selected.
 
-Only after explicit approval of this complete merged Spec may the project proceed to Implementation Plan authoring and Written-Plan Review.
+Written-Plan Review is now the active gate. Production implementation remains blocked until the Implementation Plan is explicitly approved and an execution method is selected.
