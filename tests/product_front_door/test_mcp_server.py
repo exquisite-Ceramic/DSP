@@ -234,3 +234,39 @@ def test_mcp_server_resume_delegates_only_exact_frozen_human_decision() -> None:
             },
             session_id="mcp-session-red",
         )
+
+
+def test_mcp_server_v2_submit_delegates_versioned_request_without_binding_body() -> None:
+    """server adapter 必须按 version 解码 V2 request，transport/session 不补写 binding。"""
+
+    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    request = request_type.create(
+        task_id="task-mcp-server-v2",
+        project_id="project-mcp-server",
+        initiating_host_kind="REVIT",
+        session_ref="session-v2",
+        session_binding_hash="a" * 64,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+    service = _RecordingService()
+    server = ProductFrontDoorMcpServer(service=service)
+    payload = {
+        "version": request.version,
+        "task_id": request.task_id,
+        "project_id": request.project_id,
+        "initiating_host_kind": request.initiating_host_kind,
+        "session_ref": request.session_ref,
+        "session_binding_hash": request.session_binding_hash,
+        "requested_action": request.requested_action,
+        "intent_arguments": {"thickness": {"value": 300.0, "unit": "mm"}},
+        "request_hash": request.request_hash,
+    }
+
+    server.call_tool(
+        tool_name="product.wall_thickness.submit",
+        payload=payload,
+        session_id="transport-session-must-not-be-authority",
+    )
+
+    assert service.calls == [("submit", request)]

@@ -612,3 +612,151 @@ def test_crash_reopen_after_freeze_recovers_exact_request_binding_and_pending_de
     finally:
         reader.close()
         reopened.close()
+
+
+class _CrossHostTargetSource:
+    """按模型 proposal key 返回 exact reviewed cross-Host target。"""
+
+    def __init__(self, target) -> None:
+        self.target = target
+
+    def get(self, candidate_key: str):
+        """未知 key 不做 latest/fuzzy fallback。"""
+
+        return self.target if candidate_key == self.target.candidate_key else None
+
+
+class _CrossHostObservation:
+    """Task 2 只提供 binding freeze 所需 runtime/document/target evidence。"""
+
+    def __init__(
+        self,
+        *,
+        document_id: str,
+        host_instance_id: str,
+        native_target_id: str,
+        host_binding_fingerprint: str,
+    ) -> None:
+        self.document_id = document_id
+        self.host_instance_id = host_instance_id
+        self.native_target_id = native_target_id
+        self.host_binding_fingerprint = host_binding_fingerprint
+
+
+class _CrossHostProbe:
+    """按配置文档返回一个固定 runtime observation。"""
+
+    def __init__(self, observation: _CrossHostObservation) -> None:
+        self.observation = observation
+
+    def discover(self, *, command_id: str, document_id: str):
+        """验证 exact document locator 后返回 fresh runtime evidence。"""
+
+        assert command_id
+        assert document_id == self.observation.document_id
+        return self.observation
+
+
+class _CrossHostProbeFactory:
+    """按 Host kind + transport locator 返回对应 probe。"""
+
+    def __init__(self, observations: dict[str, _CrossHostObservation]) -> None:
+        self.observations = observations
+
+    def __call__(self, host_kind: str, transport_locator: str):
+        """transport locator 只用于连接，不参与 reviewed config hash。"""
+
+        assert transport_locator
+        return _CrossHostProbe(self.observations[host_kind])
+
+
+def _cross_host_target():
+    """构造 exact reviewed 双 Host target。"""
+
+    member_type = getattr(front_door, "ConfiguredCrossHostMemberTarget", None)
+    target_type = getattr(front_door, "ConfiguredCrossHostWallThicknessTarget", None)
+    assert member_type is not None and target_type is not None
+    return target_type.create(
+        candidate_key="cross-host-primary",
+        project_id="project-001",
+        semantic_target_id="WALL-001",
+        semantic_environment_id="SEM-ENV-1",
+        semantic_environment_hash="3" * 64,
+        topology_environment_id="TOPOLOGY-1",
+        topology_revision=7,
+        topology_snapshot_hash="4" * 64,
+        members=(
+            member_type(
+                host_kind="REVIT",
+                role="INITIATOR",
+                configured_reference_id="primary-revit",
+                configured_reference_hash="1" * 64,
+                transport_locator="revit-pipe-v2",
+                document_id=r"C:\DSP\fixtures\cross-host.rvt",
+                native_target_id="revit-wall-001",
+            ),
+            member_type(
+                host_kind="AUTOCAD",
+                role="BOUND_REQUIRED",
+                configured_reference_id="primary-autocad",
+                configured_reference_hash="2" * 64,
+                transport_locator="autocad-pipe-v2",
+                document_id=r"C:\DSP\fixtures\cross-host.dwg",
+                native_target_id="autocad-wall-001",
+            ),
+        ),
+    )
+
+
+def test_prepare_cross_host_submission_freezes_exact_two_runtime_members(tmp_path: Path) -> None:
+    """Revit-entry V2 controller 必须先 fresh-read 两端，再分配 identity 并原子 freeze。"""
+
+    target = _cross_host_target()
+    proposal = front_door.AgentProposal(
+        candidate_key=target.candidate_key,
+        thickness_value=300.0,
+        thickness_unit="mm",
+    )
+    store = front_door.SqliteFrontDoorStateStore(str(tmp_path / "front-door-v2.sqlite3"))
+    controller_type, _ = _controller_types()
+    controller = controller_type(
+        state_store=store,
+        agent_interpreter=_ProposalInterpreter(proposal),
+        candidate_source=_ForbiddenCandidateSource(),
+        context_probe_factory=_forbidden_probe_factory,
+        session_ref_factory=_FixedIdentityFactory("session-cross-host-controller"),
+        task_id_factory=_FixedIdentityFactory("task-cross-host-controller"),
+        cross_host_target_source=_CrossHostTargetSource(target),
+        cross_host_probe_factory=_CrossHostProbeFactory(
+            {
+                "REVIT": _CrossHostObservation(
+                    document_id=target.member("REVIT").document_id,
+                    host_instance_id="revit-runtime-99",
+                    native_target_id=target.member("REVIT").native_target_id,
+                    host_binding_fingerprint="8" * 64,
+                ),
+                "AUTOCAD": _CrossHostObservation(
+                    document_id=target.member("AUTOCAD").document_id,
+                    host_instance_id="autocad-runtime-88",
+                    native_target_id=target.member("AUTOCAD").native_target_id,
+                    host_binding_fingerprint="9" * 64,
+                ),
+            }
+        ),
+    )
+    try:
+        frozen = controller.prepare_cross_host_submission(
+            client_submission_ref="controller-v2-001",
+            utterance="把跨 Host 墙厚改为 300mm",
+        )
+        assert isinstance(frozen, front_door.FrozenSubmissionV2)
+        assert frozen.request.version == "V2"
+        assert frozen.request.session_binding_hash == frozen.session_binding.binding_hash
+        assert tuple(member.host_kind for member in frozen.session_binding.members) == (
+            "AUTOCAD",
+            "REVIT",
+        )
+        assert frozen.session_binding.member("REVIT").host_instance_id == "revit-runtime-99"
+        assert frozen.session_binding.member("AUTOCAD").host_instance_id == "autocad-runtime-88"
+    finally:
+        store.close()

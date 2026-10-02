@@ -230,3 +230,41 @@ def test_mcp_client_rejects_non_loopback_endpoint(endpoint_url: str) -> None:
     client_type = _client_type()
     with pytest.raises(ValueError, match="loopback"):
         client_type(endpoint_url)
+
+
+@pytest.mark.asyncio
+async def test_client_v2_submit_sends_only_versioned_request_not_binding_body(monkeypatch) -> None:
+    """V2 client wire 只携带 request/session_binding_hash，完整 binding 留在本机 durable reader。"""
+
+    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    request = request_type.create(
+        task_id="task-mcp-client-v2",
+        project_id="project-001",
+        initiating_host_kind="REVIT",
+        session_ref="session-mcp-client-v2",
+        session_binding_hash="a" * 64,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+    client = _client_type("http://127.0.0.1:9999/mcp")
+    captured = {}
+
+    async def fake_call(tool_name, arguments):
+        captured["tool_name"] = tool_name
+        captured["arguments"] = arguments
+        return {
+            "task_id": request.task_id,
+            "request_hash": request.request_hash,
+            "state": "ACCEPTED_PRE_WORKFLOW",
+            "flow": None,
+        }
+
+    monkeypatch.setattr(client, "_call", fake_call)
+    view = await client.submit(request)
+
+    assert view.task_id == request.task_id
+    assert captured["tool_name"] == "product.wall_thickness.submit"
+    assert captured["arguments"]["version"] == "V2"
+    assert captured["arguments"]["session_binding_hash"] == request.session_binding_hash
+    assert "session_binding" not in captured["arguments"]
+    assert "host_kind" not in captured["arguments"]

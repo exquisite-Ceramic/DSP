@@ -147,3 +147,63 @@ def test_resume_rejects_non_operation_proposal_kind() -> None:
                 "resume_kind": "EXECUTION_APPROVED",
             }
         )
+
+
+def _v2_request():
+    """构造 explicit V2 submit request。"""
+
+    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    return request_type.create(
+        task_id="task-wire-v2",
+        project_id="project-wire",
+        initiating_host_kind="REVIT",
+        session_ref="session-wire-v2",
+        session_binding_hash="a" * 64,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+
+
+def _v2_submit_payload(request) -> dict[str, object]:
+    """V2 wire 只传 request，不重复传完整 SessionBinding body。"""
+
+    return {
+        "version": request.version,
+        "task_id": request.task_id,
+        "project_id": request.project_id,
+        "initiating_host_kind": request.initiating_host_kind,
+        "session_ref": request.session_ref,
+        "session_binding_hash": request.session_binding_hash,
+        "requested_action": request.requested_action,
+        "intent_arguments": {
+            "thickness": {
+                "value": request.intent_arguments["thickness"]["value"],
+                "unit": request.intent_arguments["thickness"]["unit"],
+            }
+        },
+        "request_hash": request.request_hash,
+    }
+
+
+def test_missing_wire_version_decodes_as_v1_and_explicit_v2_decodes_as_v2() -> None:
+    """同一 submit tool 必须保留 V1 payload，并用显式 version 分流 V2。"""
+
+    module = __import__("design_product_front_door.mcp_wire", fromlist=["decode_submit_payload"])
+    v1 = _request()
+    assert module.decode_submit_payload(_submit_payload(v1)) == v1
+
+    v2 = _v2_request()
+    payload = _v2_submit_payload(v2)
+    assert "session_binding" not in payload
+    assert module.decode_submit_payload(payload) == v2
+
+
+def test_unknown_wire_version_fails_closed() -> None:
+    """未知版本不能降级为 V1 或猜测 request schema。"""
+
+    module = __import__("design_product_front_door.mcp_wire", fromlist=["decode_submit_payload"])
+    payload = _v2_submit_payload(_v2_request())
+    payload["version"] = "V99"
+
+    with pytest.raises(ValueError, match="unsupported ProductTask submit version"):
+        module.decode_submit_payload(payload)
