@@ -1,6 +1,8 @@
 # Cross-Host Product Vertical — Design Specification
 
-Status: **FINAL CONSISTENCY REVIEW — not yet approved for implementation**
+Status: **WRITTEN SPEC APPROVED — implementation planning authorized; production implementation not yet authorized**
+
+Approval authority: `dc2b20cc4a83ed8b3d9211e24ac00b49a9aa6686`
 
 Date: 2026-10-01
 
@@ -1519,8 +1521,9 @@ Amendment B: PASS
 Amendment C: PASS
 
 Merged Written Spec:
-FINAL CONSISTENCY REVIEW
-NOT YET FORMALLY APPROVED
+APPROVED @ dc2b20cc4a83ed8b3d9211e24ac00b49a9aa6686
+IMPLEMENTATION PLANNING AUTHORIZED
+PRODUCTION IMPLEMENTATION REQUIRES WRITTEN-PLAN REVIEW
 ```
 
 The next step is one final Written-Spec consistency review of this merged document.

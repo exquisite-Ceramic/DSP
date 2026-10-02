@@ -76,6 +76,7 @@
 
 | Implementation Plan | Lifecycle |
 | --- | --- |
+| [`2026-10-02-cross-host-product-vertical.md`](plans/2026-10-02-cross-host-product-vertical.md) | CURRENT |
 | [`2026-08-27-grpc-loopback-transport.md`](plans/2026-08-27-grpc-loopback-transport.md) | COMPLETED |
 | [`2026-08-28-dsp-core-semantic-provider.md`](plans/2026-08-28-dsp-core-semantic-provider.md) | COMPLETED |
 | [`2026-08-28-ifc43-semantic-provider.md`](plans/2026-08-28-ifc43-semantic-provider.md) | COMPLETED |
@@ -123,4 +124,4 @@
 - 不通过改写历史正文来表达当前状态；生命周期变化只更新本索引或其他显式状态元数据。
 - Technology Modernization、Architecture Modernization Phase II、HITL pause/resume、real E2E workflow、Revit wall-thickness product vertical 与 MCP / Agent front door 均已完成并保留为工程证据。
 - MCP / Agent front door implementation 已由 PR #83 合并到 `main@dd3ab785cfabf0d69068d6004a579d5d946b23b5`；该 merge SHA 的 20 条 fresh push workflows 全部成功，最终 controlled live 在实现 HEAD `c67c7d7475f79218b57f4322e001f85b4e6feee9` 上通过。本文档只记录 lifecycle completion，不改写历史 Design/Plan 正文。
-- Cross-Host Product Vertical 已登记为 `CURRENT` design candidate，仍处于 FINAL CONSISTENCY REVIEW；此登记不改变 `Capability Phase successor — NOT YET DEFINED / NOT YET STARTED` 的 lifecycle summary，implementation 尚未开始。进入实现前仍须完成 Written Spec approval 与 Implementation Plan / Written-Plan Review。
+- Cross-Host Product Vertical Written Spec 已由人工评审明确批准，approval authority 为 `dc2b20cc4a83ed8b3d9211e24ac00b49a9aa6686`；Implementation Plan 现登记为 `CURRENT` draft。此记录不改变 `Capability Phase successor — NOT YET DEFINED / NOT YET STARTED` 的 lifecycle summary，production implementation 尚未开始；进入实现前仍须完成 Written-Plan Review 与执行方式确认。
