@@ -40,6 +40,8 @@
 3. **Evidence-body crash windows:** body-before-reference may leave an unreferenced body, but a Saga-published V2 hash without a durable body is corruption/recovery-required; Task 13 owns this.
 4. **More than one unresolved dispatch:** no successful/committed Slice may hide OUTCOME_UNKNOWN/RECOVERY_REQUIRED/SAFE_TO_RETRY on another required Slice; Task 11 owns this.
 5. **Corrupt/partial manifest during GET/restart:** resolution must fail closed without readiness, re-admission, dispatch or mutation; Task 8, Task 9 and Task 14 own this.
+6. **Policy replay after config drift:** a durable V2 admission must prove the exact policy snapshot that issued it; replay may not silently authorize topology/required-host dimensions from the current mutable config. Task 7 owns this.
+7. **Decision committed before LangGraph consumes it:** ACCEPT/REJECT survives the crash window and is consumed idempotently without rerunning Gate A or issuing a second resume. Task 5 owns this.
 
 ---
 
@@ -209,7 +211,10 @@ Keep the existing V1 tables/readers valid. Add version-aware request JSON and a 
 
 - [ ] **Step 4: GREEN + V1 wire regression.**
 
-Run the command from Step 2 plus `tests/product_front_door/test_mcp_product_end_to_end.py --collect-only`.
+```bash
+uv run pytest tests/product_front_door/test_cross_host_config.py tests/product_front_door/test_sqlite_state.py tests/product_front_door/test_submission_controller.py tests/product_front_door/test_mcp_wire.py tests/product_front_door/test_mcp_client.py tests/product_front_door/test_mcp_server.py -q -vv
+uv run pytest tests/product_front_door/test_mcp_product_end_to_end.py --collect-only -q
+```
 
 - [ ] **Step 5: Commit** `feat: freeze cross-host client submission and wire version`.
 
@@ -266,7 +271,9 @@ V2 submit order is exact local binding read → binding-hash validation → revi
 
 - [ ] **Step 5: GREEN + request/start-gate concurrency regression.**
 
-Run Step 2 plus `tests/product_runtime/test_product_task_shared_start_gate_postgres.py` and `test_request_binding_interleaving.py`.
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_runtime/test_product_task_accepted_input_v2_postgres.py tests/product_runtime/test_product_task_request_postgres.py tests/product_front_door/test_durable_recovery_postgres.py tests/product_runtime/test_product_task_shared_start_gate_postgres.py tests/product_runtime/test_request_binding_interleaving.py -q -vv
+```
 
 - [ ] **Step 6: Commit** `feat: persist immutable cross-host accepted input`.
 
@@ -287,6 +294,7 @@ Run Step 2 plus `tests/product_runtime/test_product_task_shared_start_gate_postg
 
 **Interfaces:**
 - Produces: `CrossHostProposalObservationV2` and `CrossHostOperationProposalSubjectV2`.
+- Adds `InteractionSubjectArtifactResolution(ref: StableRef, source: str)` alongside the existing `OperationArtifactResolution`; do not repurpose the operation-only result type.
 - Adds:
 ```python
 WorkflowServices.prepare_operation_proposal_subject(
@@ -300,9 +308,9 @@ WorkflowServices.ensure_interaction_subject_artifact(
     context_snapshot_ref: StableRef,
     *,
     allow_legacy_rehydrate: bool,
-) -> OperationArtifactResolution
+) -> InteractionSubjectArtifactResolution
 ```
-- V1 default returns/validates the durable operation artifact; V2 returns a durable proposal-subject artifact.
+- Keep `ensure_operation_artifact(...)` unchanged for legacy operation-artifact migration. V1 current checkpoints resolve their operation subject through the new generic validator; V2 resolves a durable proposal-subject artifact.
 - Private graph state keeps `proposal_subject_ref`; `pending_interaction.subject_ref` equals it and is no longer required to equal `operation_ref`.
 
 - [ ] **Step 1: Write RED for subject content and V1 HITL compatibility.**
@@ -375,13 +383,24 @@ DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/
 
 Use expected current record revision/state; loser re-reads and returns authoritative winner. Gate A stale leaves human state `AWAITING` and sets continuation `STALE_GATE_A`; ACCEPT winner records `ACCEPTED + CONTINUABLE`.
 
-- [ ] **Step 4: Wire V2 resume.**
+- [ ] **Step 4: Wire V2 resume and close the decision→checkpoint crash window.**
 
-For ACCEPT: durable query/pause check → exact accepted input/subject → fresh two-Host READ → stable comparison → CAS accept or stale → only ACCEPT winner may call `flow.resume()`. Front Door never edits checkpoint directly.
+For an `AWAITING` decision: durable query/pause check → exact accepted input/subject → fresh two-Host READ → stable comparison → CAS ACCEPT/REJECT or Gate-A stale. After the CAS commits, the decision owner is authoritative.
 
-- [ ] **Step 5: GREEN including delayed/concurrent requests.**
+If ACCEPT or REJECT is already durable but the same LangGraph pause is still pending after a process crash, retry consumes that durable decision without rerunning Gate A. If the checkpoint already advanced, retry returns the current durable query without issuing a second resume. `STALE_GATE_A` never calls `flow.resume()`. Gate B remains responsible for drift that occurs after ACCEPT wins. Front Door never edits checkpoint directly.
 
-Run Step 2 plus existing `tests/product_front_door/test_service_resume.py`.
+Add:
+```python
+def test_accept_committed_before_graph_resume_recovers_without_second_gate_a(): ...
+def test_reject_committed_before_graph_resume_recovers_idempotently(): ...
+def test_checkpoint_already_advanced_does_not_consume_decision_twice(): ...
+```
+
+- [ ] **Step 5: GREEN including delayed/concurrent/crash-window requests.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/test_proposal_decision_postgres.py tests/product_front_door/test_cross_host_gate_a.py tests/product_front_door/test_service_resume.py -q -vv
+```
 
 - [ ] **Step 6: Commit** `feat: serialize human accept and proposal staleness`.
 
@@ -435,7 +454,9 @@ On continuity failure, atomically preserve `HumanDecisionState.ACCEPTED`, set `S
 
 - [ ] **Step 5: GREEN + dual-member RevisionBarrier proof.**
 
-Run Step 2 plus focused RevisionBarrier tests.
+```bash
+uv run pytest tests/product_runtime/test_cross_host_planning.py tests/semantic_runtime/test_revision_barrier.py tests/orchestrator/test_task7_revision_barrier.py tests/orchestrator/test_canonical_owner_ports.py -q -vv
+```
 
 - [ ] **Step 6: Commit** `feat: add dual-host planning continuity`.
 
@@ -445,6 +466,7 @@ Run Step 2 plus focused RevisionBarrier tests.
 
 **Files:**
 - Create: `platform/product_front_door/src/design_product_front_door/approval_policy_v2.py`
+- Modify: `platform/product_front_door/src/design_product_front_door/postgres_admission_store.py`
 - Modify: `platform/product_front_door/src/design_product_front_door/__init__.py`
 - Create: `tests/product_front_door/test_approval_policy_v2.py`
 - Modify: `tests/product_front_door/test_approval_policy.py`, `test_approval_admission_postgres.py`
@@ -453,7 +475,23 @@ Run Step 2 plus focused RevisionBarrier tests.
 - `ConfiguredProductApprovalPolicyV2` version is exactly `DSP_PRODUCT_APPROVAL_POLICY_V2`.
 - Stable authority fields: project, canonical operations, reviewed configuration hash, semantic target id, topology snapshot hash, required Host types/roles, admission TTL.
 - Transient `host_instance_id` and transport locator are forbidden policy fields.
-- Produces `ConfiguredPolicyApprovalAdmissionPortV2.request_approval(changeset_ref: StableRef)->ApprovalAdmission`.
+- Produces `ConfiguredPolicyApprovalAdmissionPortV2.request_approval(changeset_ref: StableRef)->ApprovalAdmission` without changing the Gateway `ApprovalAdmission` contract.
+- Extend the existing `product_policy.admission` owner with nullable V2 policy-version/payload columns so historical V1 rows remain valid. Add:
+```python
+PostgresConfiguredPolicyAdmissionStore.issue_or_get_v2(
+    admission: ApprovalAdmission,
+    *,
+    policy_version: str,
+    policy_snapshot_payload: Mapping[str, object],
+) -> StoredConfiguredPolicyAdmissionV2
+
+PostgresConfiguredPolicyAdmissionStore.get_v2(
+    *,
+    changeset_hash: str,
+    approved_scope_hash: str,
+) -> StoredConfiguredPolicyAdmissionV2 | None
+```
+- `StoredConfiguredPolicyAdmissionV2` contains the existing admission plus the canonical V2 policy snapshot body. Its canonical hash MUST equal `admission.policy_snapshot_hash`. V2 replay validates that durable body against the exact ChangeSet/ApprovalScope/topology/required-host lineage and MUST NOT rely on the current mutable config file.
 
 - [ ] **Step 1: Write RED.**
 
@@ -462,6 +500,7 @@ def test_v1_policy_cannot_authorize_v2_cross_host_task(): ...
 def test_v2_policy_allows_exact_project_operation_target_topology_and_host_types(): ...
 def test_runtime_restart_identity_does_not_change_policy_snapshot_hash(): ...
 def test_policy_default_denies_missing_or_extra_required_host(): ...
+def test_v2_admission_replay_uses_durable_policy_snapshot_not_current_config(): ...
 ```
 
 - [ ] **Step 2: Run RED.**
@@ -470,11 +509,15 @@ def test_policy_default_denies_missing_or_extra_required_host(): ...
 uv run pytest tests/product_front_door/test_approval_policy.py tests/product_front_door/test_approval_policy_v2.py tests/product_front_door/test_approval_admission_postgres.py -q -vv
 ```
 
-- [ ] **Step 3: Implement V2 policy/admission without changing V1 parser or hash.**
+- [ ] **Step 3: Implement V2 policy/admission without changing V1 parser, V1 row codec or Gateway admission hash.**
 
-The V2 admission still binds final ChangeSet/ApprovalScope and durable policy snapshot; runtime/provider authority remains Step31/32 responsibility.
+The Product Policy owner persists the canonical V2 policy snapshot body beside the existing admission. Replayed V2 admission must prove the stored body hash equals `policy_snapshot_hash` and re-check its stable dimensions against final ChangeSet/ApprovalScope/topology/required-host lineage. Runtime/provider authority remains Step31/32 responsibility.
 
-- [ ] **Step 4: GREEN and explicit no-mutation policy-deny contract test.**
+- [ ] **Step 4: GREEN and explicit no-mutation policy-deny/replay tests.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_front_door/test_approval_policy.py tests/product_front_door/test_approval_policy_v2.py tests/product_front_door/test_approval_admission_postgres.py -q -vv
+```
 
 - [ ] **Step 5: Commit** `feat: authorize stable cross-host product policy`.
 
@@ -502,6 +545,10 @@ def test_binding_manifest_survives_postgres_artifact_restart(): ...
 ```
 
 - [ ] **Step 2: Run RED.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/test_provider_binding_collection_manifest.py tests/orchestrator/test_artifact_postgres.py -q -vv
+```
 
 - [ ] **Step 3: Implement content-addressed codec and multi-slice binding loop.**
 
@@ -546,6 +593,10 @@ def test_partial_or_corrupt_manifest_fails_before_any_owner_mutation(): ...
 
 - [ ] **Step 2: Run RED.**
 
+```bash
+uv run pytest tests/orchestrator/test_execution_grant_collection_manifest.py tests/orchestrator/test_execution_collection_resolution.py -q -vv
+```
+
 - [ ] **Step 3: Implement multi-slice `issue_execution_grant`.**
 
 For each required Slice resolve its original binding, issue/admit through Gateway using exact Step28/29/MaterializationPlan/topology lineage, then persist only Grant refs in the workflow manifest.
@@ -586,11 +637,19 @@ def test_missing_second_grant_causes_zero_host_mutations(): ...
 
 - [ ] **Step 2: Run RED.**
 
+```bash
+uv run pytest tests/product_runtime/test_cross_host_runtime_registry.py tests/product_runtime/test_cross_host_reference_composition.py tests/orchestrator/test_cross_host_forward_execution.py -q -vv
+```
+
 - [ ] **Step 3: Implement resolver path and reference composition seams.**
 
 V1 single-slice `begin_execution` stays valid. V2 does not leak manifest objects into `MaterializedExecutionSagaCoordinator.execute(...)`.
 
 - [ ] **Step 4: GREEN + all-required readiness failure proof.**
+
+```bash
+uv run pytest tests/product_runtime/test_cross_host_runtime_registry.py tests/product_runtime/test_cross_host_reference_composition.py tests/orchestrator/test_cross_host_forward_execution.py tests/execution_coordination/test_phase_i_readiness_barrier.py tests/execution_coordination/test_phase_i_materialized_readiness_failed.py -q -vv
+```
 
 - [ ] **Step 5: Commit** `feat: execute cross-host plan from exact owner collections`.
 
@@ -622,11 +681,19 @@ def test_committed_slice_is_never_redispatched_after_composition_rebuild(): ...
 
 - [ ] **Step 2: Run RED.**
 
+```bash
+uv run pytest tests/orchestrator/test_multi_slice_execution_recovery.py tests/orchestrator/test_task10_durable_recovery.py tests/execution_coordination/test_task8_execution_recovery_projection.py -q -vv
+```
+
 - [ ] **Step 3: Implement exact per-Slice projection.**
 
 Validate Saga membership, no duplicate/extra/missing Slice, plan/materialization lineage, and dispatch intent ownership before returning the tuple.
 
 - [ ] **Step 4: GREEN + predecessor single-slice recovery regression.**
+
+```bash
+uv run pytest tests/orchestrator/test_multi_slice_execution_recovery.py tests/orchestrator/test_task10_durable_recovery.py tests/orchestrator/test_workflow_resume_authoritative_truth.py tests/execution_coordination/test_task8_execution_recovery_projection.py tests/execution_coordination/test_unknown_outcome_recovery.py -q -vv
+```
 
 - [ ] **Step 5: Commit** `feat: project multi-slice execution recovery truth`.
 
@@ -661,6 +728,10 @@ def test_autocad_verification_uses_semantic_facts_not_execute_response_width(): 
 ```
 
 - [ ] **Step 2: Run RED.**
+
+```bash
+uv run pytest hosts/autocad/sidecar/tests/test_wall_thickness_product_execution.py tests/product_runtime/test_autocad_execution_composition.py tests/product_runtime/test_autocad_verification_evidence.py -q -vv
+```
 
 - [ ] **Step 3: Implement thin production adapters only.**
 
@@ -721,6 +792,10 @@ Persist ActualDelta before `mark_host_committed/record_host_commit`; persist bun
 
 - [ ] **Step 4: GREEN + historical Saga/V1 regression.**
 
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/execution_reconciliation/test_postgres_evidence_store.py tests/execution_reconciliation/test_postgres_saga_store_v2.py tests/execution_reconciliation/test_step33_v2_local_reconciliation.py tests/execution_coordination/test_evidence_body_ordering.py tests/execution_coordination/test_verification_evidence_unavailable.py -q -vv
+```
+
 - [ ] **Step 5: Commit** `feat: persist reconciliation evidence bodies`.
 
 ---
@@ -754,6 +829,10 @@ def test_missing_published_evidence_body_is_integrity_failure_not_redispatch(): 
 ```
 
 - [ ] **Step 2: Run RED.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_runtime/test_product_task_query_v2.py tests/product_runtime/test_product_task_query_v2_postgres.py tests/product_front_door/test_mcp_product_end_to_end.py -q -vv
+```
 
 - [ ] **Step 3: Implement version dispatch and evidence lineage walk.**
 
@@ -813,9 +892,17 @@ Assert AutoCAD then Revit ordering, one logical mutation each, independent exact
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest   tests/product_runtime/test_cross_host_product_e2e.py   tests/product_runtime/test_cross_host_product_stale.py   tests/product_runtime/test_cross_host_product_authorization.py   tests/product_runtime/test_cross_host_product_recovery.py   tests/product_runtime/test_cross_host_product_query.py -q -vv
 ```
 
-- [ ] **Step 5: Run predecessor regressions** for MCP Front Door, Revit product vertical, real-owner workflow, durable recovery, Step33 and Phase I materialized coordinator.
+- [ ] **Step 5: Run predecessor regressions.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_front_door/test_mcp_product_end_to_end.py tests/product_runtime/test_revit_wall_thickness_product_e2e.py tests/orchestrator/test_real_owner_workflow_end_to_end.py tests/orchestrator/test_task10_durable_recovery.py tests/execution_reconciliation/test_step33_v2_local_reconciliation.py tests/execution_coordination/test_phase_i_materialized_success.py tests/execution_coordination/test_phase_i_materialized_partial_commit.py tests/execution_coordination/test_phase_i_materialized_unknown_commit.py -q -vv
+```
 
 - [ ] **Step 6: Ruff** — capability-new files absolute clean; touched legacy directories no-new-diagnostics relative to the Task starting SHA.
+
+```bash
+uv run ruff check platform/product_runtime platform/product_front_door platform/orchestrator platform/execution_reconciliation platform/execution_coordination hosts/autocad/sidecar tests/product_runtime tests/product_front_door tests/orchestrator tests/execution_reconciliation tests/execution_coordination
+```
 
 - [ ] **Step 7: Commit** `test: prove cross-host product vertical offline`.
 
@@ -857,7 +944,20 @@ Record reset procedure, fixture SHA-256, AutoCAD/Revit plugin/build identities, 
 
 The workflow must collect the live test with live flags off, run the complete Task 15 PostgreSQL matrix, relevant sidecar/unit suites and repository Ruff delta semantics. Actual controlled live execution remains an explicit environment gate.
 
-- [ ] **Step 7: Commit** `test: add controlled cross-host product acceptance`.
+```bash
+uv run pytest tests/integration/test_cross_host_product_vertical_live.py --collect-only -q
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_runtime/test_cross_host_product_e2e.py tests/product_runtime/test_cross_host_product_stale.py tests/product_runtime/test_cross_host_product_authorization.py tests/product_runtime/test_cross_host_product_recovery.py tests/product_runtime/test_cross_host_product_query.py -q -vv
+```
+
+- [ ] **Step 7: Execute the controlled live gate from the runbook.**
+
+```bash
+DSP_CROSS_HOST_PRODUCT_LIVE=1 uv run pytest tests/integration/test_cross_host_product_vertical_live.py -q -vv
+```
+
+Expected: all four controlled cases pass on the same implementation SHA and emit the required secret-free evidence manifest.
+
+- [ ] **Step 8: Commit** `test: add controlled cross-host product acceptance`.
 
 ---
 
@@ -878,7 +978,16 @@ Record exact branch SHA after the final implementation/README commit and verify 
 
 - [ ] **Step 3: Run exact-head local gates on FINAL_SHA.**
 
-Run Task 1–16 focused tests, complete PostgreSQL matrix, repository importlib/local-parity pytest lanes, Revit Core, AutoCAD sidecar suites and Ruff rules applicable to changed paths.
+```bash
+uv run python -m pytest --import-mode=importlib -q
+uv run python -m pytest -q
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/product_runtime/test_cross_host_product_e2e.py tests/product_runtime/test_cross_host_product_stale.py tests/product_runtime/test_cross_host_product_authorization.py tests/product_runtime/test_cross_host_product_recovery.py tests/product_runtime/test_cross_host_product_query.py -q -vv
+dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj
+uv run pytest hosts/autocad/sidecar -q
+uv run ruff check platform hosts/autocad/sidecar hosts/revit/sidecar tests
+```
+
+Also run the Task 16 controlled live command from the runbook against the same FINAL_SHA.
 
 - [ ] **Step 4: Require exact-head GitHub Actions GREEN.**
 
@@ -913,7 +1022,7 @@ Only after merged-main GREEN update `docs/superpowers/README.md` so Cross-Host P
 | Stable comparison | metadata-only acquisition differences do not stale stable state |
 | Planning | independent Revit + AutoCAD snapshots in exact two-member SnapshotSet |
 | Revision | dual-member barrier plus native Host guards |
-| Policy | explicit V2 stable config; transient runtime identity excluded |
+| Policy | explicit V2 stable config; transient runtime identity excluded; replay uses durable policy snapshot body |
 | Binding manifest | exact required Slice coverage; original binding refs only |
 | Grant manifest | exact required Slice coverage; original Grant refs only |
 | Forward execution | complete collections resolved/validated before first mutation |

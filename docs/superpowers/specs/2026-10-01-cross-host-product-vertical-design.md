@@ -1526,6 +1526,6 @@ IMPLEMENTATION PLANNING AUTHORIZED
 PRODUCTION IMPLEMENTATION REQUIRES WRITTEN-PLAN REVIEW
 ```
 
-The next step is one final Written-Spec consistency review of this merged document.
+The next step is Implementation Plan drafting and Written-Plan Review. Production implementation remains blocked until that plan is explicitly approved and an execution method is selected.
 
 Only after explicit approval of this complete merged Spec may the project proceed to Implementation Plan authoring and Written-Plan Review.
