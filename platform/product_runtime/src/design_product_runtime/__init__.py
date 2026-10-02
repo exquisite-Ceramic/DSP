@@ -7,6 +7,8 @@ from .contracts import (
     ProductTaskQueryView,
     ProductTaskRequest,
     ProductTaskRequestError,
+    ProductTaskRequestV2,
+    product_task_request_v2_payload,
 )
 from .postgres_request_store import (
     PostgresProductTaskRequestStore,
@@ -38,6 +40,7 @@ __all__ = [
     "ProductTaskQueryView",
     "ProductTaskRequest",
     "ProductTaskRequestError",
+    "ProductTaskRequestV2",
     "ProductTaskRequestStore",
     "ProductTaskStartGate",
     "RevitSemanticBoundaryError",
@@ -49,4 +52,5 @@ __all__ = [
     "WallThicknessProductFlow",
     "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",
+    "product_task_request_v2_payload",
 ]

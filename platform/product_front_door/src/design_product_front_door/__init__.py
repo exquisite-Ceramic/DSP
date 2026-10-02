@@ -16,8 +16,12 @@ from .contracts import (
     ConfiguredRevitCandidate,
     ConfiguredRevitCandidateSource,
     SessionBinding,
+    SessionBindingMemberV2,
+    SessionBindingV2,
     configured_revit_candidate_hash_body,
     session_binding_hash_body,
+    session_binding_member_v2_hash_body,
+    session_binding_v2_hash_body,
 )
 from .mcp_client import ProductFrontDoorMcpClient
 from .mcp_server import build_mcp_server
@@ -55,6 +59,8 @@ __all__ = [
     "ProductFrontDoorMcpClient",
     "ReferenceClient",
     "SessionBinding",
+    "SessionBindingMemberV2",
+    "SessionBindingV2",
     "SessionBindingReadPort",
     "SqliteFrontDoorStateStore",
     "SqliteSessionBindingReader",
@@ -68,4 +74,6 @@ __all__ = [
     "run_reference_cli",
     "run_streamable_http",
     "session_binding_hash_body",
+    "session_binding_member_v2_hash_body",
+    "session_binding_v2_hash_body",
 ]

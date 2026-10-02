@@ -17,6 +17,9 @@ _REQUEST_INVALID = "PRODUCT_TASK_REQUEST_INVALID"
 _REQUEST_INTEGRITY_INVALID = "PRODUCT_TASK_REQUEST_INTEGRITY_INVALID"
 _REQUIRED_HOST_KIND = "REVIT"
 _REQUIRED_ACTION = "SET_SELECTED_WALL_THICKNESS"
+_V2_REQUEST_VERSION = "V2"
+_V2_INITIATING_HOST_KIND = "REVIT"
+_V2_REQUIRED_ACTION = "SET_BOUND_WALL_THICKNESS"
 _HEX_DIGITS = frozenset("0123456789abcdef")
 
 
@@ -265,6 +268,213 @@ def product_task_request_payload(request: ProductTaskRequest) -> dict[str, objec
         "project_id": request.project_id,
         "host_kind": request.host_kind,
         "session_ref": request.session_ref,
+        "requested_action": request.requested_action,
+        "intent_arguments": _plain_intent_arguments(request.intent_arguments),
+    }
+
+
+def _validate_v2_authority_hash(value: object, field: str) -> str:
+    """验证 V2 关联 authority hash；结构错误仍属于 request 输入错误而非 hash 完整性漂移。"""
+
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in _HEX_DIGITS for character in value)
+    ):
+        raise _invalid(f"{field} must be lowercase SHA-256")
+    return value
+
+
+def _v2_request_hash_body(
+    *,
+    version: str,
+    task_id: str,
+    project_id: str,
+    initiating_host_kind: str,
+    session_ref: str,
+    session_binding_hash: str,
+    requested_action: str,
+    intent_arguments: Mapping[str, object],
+) -> dict[str, Any]:
+    """返回 V2 冻结的完整 request authority body；task_id 继续参与业务 identity。"""
+
+    return {
+        "version": version,
+        "task_id": task_id,
+        "project_id": project_id,
+        "initiating_host_kind": initiating_host_kind,
+        "session_ref": session_ref,
+        "session_binding_hash": session_binding_hash,
+        "requested_action": requested_action,
+        "intent_arguments": _plain_intent_arguments(intent_arguments),
+    }
+
+
+def _compute_v2_request_hash(
+    *,
+    version: str,
+    task_id: str,
+    project_id: str,
+    initiating_host_kind: str,
+    session_ref: str,
+    session_binding_hash: str,
+    requested_action: str,
+    intent_arguments: Mapping[str, object],
+) -> str:
+    """独立计算 V2 hash，避免改变既有 V1 六字段 hash 算法。"""
+
+    body = _v2_request_hash_body(
+        version=version,
+        task_id=task_id,
+        project_id=project_id,
+        initiating_host_kind=initiating_host_kind,
+        session_ref=session_ref,
+        session_binding_hash=session_binding_hash,
+        requested_action=requested_action,
+        intent_arguments=intent_arguments,
+    )
+    encoded = json.dumps(
+        body,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class ProductTaskRequestV2:
+    """显式版本化的双 Host 产品请求；只冻结 intent 与 accepted binding locator。"""
+
+    version: str
+    task_id: str
+    project_id: str
+    initiating_host_kind: str
+    session_ref: str
+    session_binding_hash: str
+    requested_action: str
+    intent_arguments: Mapping[str, object]
+    request_hash: str
+
+    def __post_init__(self) -> None:
+        """统一校验 V2 vertical 约束，并重新计算完整 request hash。"""
+
+        version = _require_nonblank(self.version, "version")
+        task_id = _require_nonblank(self.task_id, "task_id")
+        project_id = _require_nonblank(self.project_id, "project_id")
+        initiating_host_kind = _require_nonblank(
+            self.initiating_host_kind,
+            "initiating_host_kind",
+        )
+        session_ref = _require_nonblank(self.session_ref, "session_ref")
+        session_binding_hash = _validate_v2_authority_hash(
+            self.session_binding_hash,
+            "session_binding_hash",
+        )
+        requested_action = _require_nonblank(self.requested_action, "requested_action")
+
+        if version != _V2_REQUEST_VERSION:
+            raise _invalid(f"version must be {_V2_REQUEST_VERSION}")
+        if initiating_host_kind != _V2_INITIATING_HOST_KIND:
+            raise _invalid(
+                f"initiating_host_kind must be {_V2_INITIATING_HOST_KIND}"
+            )
+        if requested_action != _V2_REQUIRED_ACTION:
+            raise _invalid(f"requested_action must be {_V2_REQUIRED_ACTION}")
+
+        normalized_intent = _normalize_intent_arguments(self.intent_arguments)
+        frozen_intent = _freeze_intent_arguments(normalized_intent)
+        supplied_hash = _validate_request_hash(self.request_hash)
+        expected_hash = _compute_v2_request_hash(
+            version=version,
+            task_id=task_id,
+            project_id=project_id,
+            initiating_host_kind=initiating_host_kind,
+            session_ref=session_ref,
+            session_binding_hash=session_binding_hash,
+            requested_action=requested_action,
+            intent_arguments=frozen_intent,
+        )
+        if supplied_hash != expected_hash:
+            raise _integrity_invalid(
+                "request_hash does not match canonical V2 request body"
+            )
+
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "intent_arguments", frozen_intent)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        task_id: str,
+        project_id: str,
+        initiating_host_kind: str,
+        session_ref: str,
+        session_binding_hash: str,
+        requested_action: str,
+        intent_arguments: Mapping[str, object],
+    ) -> ProductTaskRequestV2:
+        """从规范化 intent 与 exact binding hash 创建不可变 V2 request。"""
+
+        canonical_task_id = _require_nonblank(task_id, "task_id")
+        canonical_project_id = _require_nonblank(project_id, "project_id")
+        canonical_host_kind = _require_nonblank(
+            initiating_host_kind,
+            "initiating_host_kind",
+        )
+        canonical_session_ref = _require_nonblank(session_ref, "session_ref")
+        canonical_binding_hash = _validate_v2_authority_hash(
+            session_binding_hash,
+            "session_binding_hash",
+        )
+        canonical_action = _require_nonblank(requested_action, "requested_action")
+        if canonical_host_kind != _V2_INITIATING_HOST_KIND:
+            raise _invalid(
+                f"initiating_host_kind must be {_V2_INITIATING_HOST_KIND}"
+            )
+        if canonical_action != _V2_REQUIRED_ACTION:
+            raise _invalid(f"requested_action must be {_V2_REQUIRED_ACTION}")
+
+        normalized_intent = _normalize_intent_arguments(intent_arguments)
+        frozen_intent = _freeze_intent_arguments(normalized_intent)
+        request_hash = _compute_v2_request_hash(
+            version=_V2_REQUEST_VERSION,
+            task_id=canonical_task_id,
+            project_id=canonical_project_id,
+            initiating_host_kind=canonical_host_kind,
+            session_ref=canonical_session_ref,
+            session_binding_hash=canonical_binding_hash,
+            requested_action=canonical_action,
+            intent_arguments=frozen_intent,
+        )
+        return cls(
+            version=_V2_REQUEST_VERSION,
+            task_id=canonical_task_id,
+            project_id=canonical_project_id,
+            initiating_host_kind=canonical_host_kind,
+            session_ref=canonical_session_ref,
+            session_binding_hash=canonical_binding_hash,
+            requested_action=canonical_action,
+            intent_arguments=frozen_intent,
+            request_hash=request_hash,
+        )
+
+
+def product_task_request_v2_payload(
+    request: ProductTaskRequestV2,
+) -> dict[str, object]:
+    """导出 V2 持久化/wire body；task_id 仍由外层 owner row/DTO 独立定位。"""
+
+    if not isinstance(request, ProductTaskRequestV2):
+        raise TypeError("request must be ProductTaskRequestV2")
+    return {
+        "version": request.version,
+        "project_id": request.project_id,
+        "initiating_host_kind": request.initiating_host_kind,
+        "session_ref": request.session_ref,
+        "session_binding_hash": request.session_binding_hash,
         "requested_action": request.requested_action,
         "intent_arguments": _plain_intent_arguments(request.intent_arguments),
     }
