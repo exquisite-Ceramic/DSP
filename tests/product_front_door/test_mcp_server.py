@@ -17,9 +17,28 @@ _FROZEN_TOOL_NAMES = {
 }
 _FROZEN_TOOL_PROPERTIES = {
     "product.wall_thickness.submit": {
+        "version",
         "task_id",
         "project_id",
         "host_kind",
+        "initiating_host_kind",
+        "session_ref",
+        "session_binding_hash",
+        "requested_action",
+        "intent_arguments",
+        "request_hash",
+    },
+    "product.wall_thickness.get": {"task_id"},
+    "product.wall_thickness.resume_operation_proposal": {
+        "task_id",
+        "pause_id",
+        "resume_kind",
+    },
+}
+_FROZEN_TOOL_REQUIRED = {
+    "product.wall_thickness.submit": {
+        "task_id",
+        "project_id",
         "session_ref",
         "requested_action",
         "intent_arguments",
@@ -127,7 +146,7 @@ async def test_real_mcp_catalog_matches_frozen_product_surface_and_schema() -> N
     assert set(tools) == _FROZEN_TOOL_NAMES
     for name, tool in tools.items():
         assert set(tool.input_schema["properties"]) == _FROZEN_TOOL_PROPERTIES[name]
-        assert set(tool.input_schema.get("required", [])) == _FROZEN_TOOL_PROPERTIES[name]
+        assert set(tool.input_schema.get("required", [])) == _FROZEN_TOOL_REQUIRED[name]
         assert "session_id" not in tool.input_schema["properties"]
         assert "approval" not in tool.input_schema["properties"]
         assert "admission" not in tool.input_schema["properties"]
