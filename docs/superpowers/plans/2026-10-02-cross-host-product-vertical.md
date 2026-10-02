@@ -342,15 +342,18 @@ DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/
 
 ---
 
-### Task 5: Add the durable proposal-decision owner and atomic ACCEPT-versus-stale Gate A
+### Task 5: Add the durable proposal-decision owner, branch-specific human decision semantics, and serialized pause consumption
 
 **Files:**
 - Create: `platform/orchestrator/src/design_orchestrator/proposal_decision.py`
 - Create: `platform/orchestrator/src/design_orchestrator/proposal_decision_postgres.py`
 - Modify: `platform/product_front_door/src/design_product_front_door/service.py`
 - Modify: `platform/product_runtime/src/design_product_runtime/query.py`
+- Reuse unchanged: `platform/product_runtime/src/design_product_runtime/start_gate.py`
+- Reuse unchanged: `platform/product_runtime/src/design_product_runtime/postgres_start_gate.py`
 - Create: `tests/orchestrator/test_proposal_decision_postgres.py`
 - Create: `tests/product_front_door/test_cross_host_gate_a.py`
+- Modify: `tests/product_front_door/test_service_resume.py`
 
 **Interfaces:**
 - `HumanDecisionState = AWAITING | ACCEPTED | REJECTED`.
@@ -363,47 +366,111 @@ ProposalDecisionStore.invalidate_gate_a(task_id, pause_id, subject_ref, reason) 
 ProposalDecisionStore.invalidate_gate_b(task_id, pause_id, subject_ref, reason) -> ProposalDecisionRecord
 ProposalDecisionStore.get(task_id, pause_id, subject_ref) -> ProposalDecisionRecord | None
 ```
+- `ProductFrontDoorService` receives a task-scoped `decision_consume_gate` exposing the existing `serialize(task_id)` context-manager shape. Production wiring MUST reuse `PostgresProductTaskStartGate` (or the exact same existing PostgreSQL row-lock implementation) against the same `product_task.start_gate` task row. Do not add a lease, advisory-lock protocol, process mutex, second lock table or distributed-lock service.
+- Decision transition and decision consumption are distinct guarantees:
+  - the decision store CAS determines **which durable human/continuation transition wins**;
+  - the PostgreSQL task-row critical section determines **which worker may consume that durable decision into the LangGraph pause**.
+- The consume gate transaction never owns the decision row transaction. ACCEPT/REJECT/stale is committed independently before graph consumption, so a later `flow.resume()` failure or worker exit MUST NOT roll back recorded human history.
 
-- [ ] **Step 1: Write CAS race RED in both winner orders.**
+- [ ] **Step 1: Write CAS, REJECT-branch and graph-consumption RED tests.**
 
 ```python
 def test_gate_a_stale_wins_then_late_accept_cannot_advance(): ...
 def test_accept_wins_then_late_gate_a_invalidation_cannot_erase_accept(): ...
 def test_reject_is_human_history_and_is_not_stale(): ...
+def test_reject_records_while_required_hosts_are_offline(): ...
+def test_reject_records_after_observation_drift_without_gate_a_stale(): ...
 def test_concurrent_accept_consumes_at_most_once(): ...
+def test_two_workers_consume_durable_accept_once_at_graph_boundary(): ...
+def test_consumer_exit_before_graph_invoke_allows_waiter_to_consume(): ...
+def test_consumer_exit_after_checkpoint_advance_does_not_consume_again(): ...
 ```
+
+`test_concurrent_accept_consumes_at_most_once` and the two-worker test MUST assert the actual workflow/runtime resume or graph-consumption call count, not merely that `claim_accept()` CAS succeeded once.
 
 - [ ] **Step 2: Run PostgreSQL RED.**
-
-```bash
-DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/test_proposal_decision_postgres.py tests/product_front_door/test_cross_host_gate_a.py -q -vv
-```
-
-- [ ] **Step 3: Implement owner-local CAS semantics.**
-
-Use expected current record revision/state; loser re-reads and returns authoritative winner. Gate A stale leaves human state `AWAITING` and sets continuation `STALE_GATE_A`; ACCEPT winner records `ACCEPTED + CONTINUABLE`.
-
-- [ ] **Step 4: Wire V2 resume and close the decision→checkpoint crash window.**
-
-For an `AWAITING` decision: durable query/pause check → exact accepted input/subject → fresh two-Host READ → stable comparison → CAS ACCEPT/REJECT or Gate-A stale. After the CAS commits, the decision owner is authoritative.
-
-If ACCEPT or REJECT is already durable but the same LangGraph pause is still pending after a process crash, retry consumes that durable decision without rerunning Gate A. If the checkpoint already advanced, retry returns the current durable query without issuing a second resume. `STALE_GATE_A` never calls `flow.resume()`. Gate B remains responsible for drift that occurs after ACCEPT wins. Front Door never edits checkpoint directly.
-
-Add:
-```python
-def test_accept_committed_before_graph_resume_recovers_without_second_gate_a(): ...
-def test_reject_committed_before_graph_resume_recovers_idempotently(): ...
-def test_checkpoint_already_advanced_does_not_consume_decision_twice(): ...
-```
-
-- [ ] **Step 5: GREEN including delayed/concurrent/crash-window requests.**
 
 ```bash
 DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/test_proposal_decision_postgres.py tests/product_front_door/test_cross_host_gate_a.py tests/product_front_door/test_service_resume.py -q -vv
 ```
 
-- [ ] **Step 6: Commit** `feat: serialize human accept and proposal staleness`.
+- [ ] **Step 3: Implement owner-local CAS semantics with explicit ACCEPT and REJECT branches.**
 
+Use expected current record revision/state; any CAS loser re-reads and returns the authoritative winner instead of overwriting it.
+
+For an incoming **ACCEPT** while the decision is still `AWAITING`:
+
+```text
+validate exact task / pause / subject
+→ fresh Revit READ
+→ fresh AutoCAD READ
+→ stable Gate-A comparison
+→ claim_accept(...) OR invalidate_gate_a(...)
+```
+
+Gate-A stale leaves human state `AWAITING` and sets continuation `STALE_GATE_A`. Only an `ACCEPTED + CONTINUABLE` winner may later consume the accept into LangGraph.
+
+For an incoming **REJECT** while the decision is still `AWAITING`:
+
+```text
+validate exact task / pause / subject
+→ claim_reject(...)
+```
+
+REJECT MUST NOT perform Host freshness reads, Gate-A stable comparison, candidate freshness probing, readiness, admission or any mutation. Host unavailability or proposal drift therefore cannot replace an explicit REJECT with stale. If another legal transition has already won, re-read owner authority and preserve that winner; never overwrite it from the losing request.
+
+- [ ] **Step 4: Serialize durable-decision consumption and close every decision→checkpoint crash window.**
+
+Every path that might consume ACCEPT or REJECT MUST enter the same task-scoped PostgreSQL critical section before deciding whether to call `flow.resume()`:
+
+```text
+with decision_consume_gate.serialize(task_id):
+    re-read immutable request
+    re-read ProductTask query / current checkpoint
+    re-read ProposalDecisionRecord
+
+    if checkpoint already advanced past the exact pause:
+        return current durable query
+
+    validate exact pending task / pause / subject against the re-read checkpoint
+
+    if decision is durable ACCEPTED:
+        consume ACCEPT exactly once via flow.resume(...)
+    elif decision is durable REJECTED:
+        consume REJECT exactly once via flow.resume(...)
+    elif continuation is STALE_GATE_A:
+        return stale/non-continuable without flow.resume(...)
+    elif decision is still AWAITING:
+        apply the Step 3 ACCEPT or REJECT branch;
+        after its independent CAS commit, consume only the authoritative winner
+```
+
+The checkpoint lookup used for the consume/no-consume decision MUST occur **inside** the row lock. A worker that waited for the lock MUST discard any pre-lock checkpoint/decision observation and re-read both owners after acquiring it.
+
+Crash semantics are frozen as follows:
+
+- decision committed, worker exits **before** `flow.resume()`: the row lock is released; the next worker re-reads the durable decision plus still-pending checkpoint and consumes it;
+- `flow.resume()` advances the checkpoint, worker exits before returning the response: the next worker acquires the lock, re-reads the advanced checkpoint and MUST NOT invoke resume again;
+- `flow.resume()` raises before checkpoint advancement: the durable decision remains committed; a later worker may retry consumption under the same row lock;
+- the lock transaction MUST NOT wrap or roll back the already-committed decision CAS.
+
+Front Door never edits LangGraph checkpoint state directly.
+
+- [ ] **Step 5: GREEN including delayed, concurrent, REJECT-offline and crash-window requests.**
+
+```bash
+DSP_TEST_POSTGRES_DSN="$DSP_TEST_POSTGRES_DSN" uv run pytest tests/orchestrator/test_proposal_decision_postgres.py tests/product_front_door/test_cross_host_gate_a.py tests/product_front_door/test_service_resume.py -q -vv
+```
+
+Required GREEN assertions include:
+
+- two independent service/worker instances racing on one durable ACCEPT produce exactly one actual graph consumption;
+- waiter recovery covers both exit-before-consume and exit-after-checkpoint-advance windows;
+- REJECT succeeds with Hosts offline;
+- REJECT after observation drift records human rejection rather than `STALE_GATE_A`;
+- a losing ACCEPT/REJECT/stale transition never overwrites the durable owner winner.
+
+- [ ] **Step 6: Commit** `feat: serialize proposal decision consumption`.
 ---
 
 ### Task 6: Build independent dual-Host PlanningSnapshots and Gate B continuity
