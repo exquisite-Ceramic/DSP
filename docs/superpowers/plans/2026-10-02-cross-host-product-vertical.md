@@ -770,6 +770,7 @@ put_verification_result(value: SemanticVerificationResult) -> str
 get_verification_result(content_hash: str) -> SemanticVerificationResult | None
 ```
 - Store is content-addressed, codec-versioned and owned by execution reconciliation persistence.
+- Publication order is explicitly `evidence-body-first → Saga-reference-second`, or equivalent owner-local atomicity.
 - Same hash/body replay is idempotent; same hash/different body is corruption.
 
 - [ ] **Step 1: Write PostgreSQL RED including crash windows.**

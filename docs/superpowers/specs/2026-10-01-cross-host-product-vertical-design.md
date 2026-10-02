@@ -1526,6 +1526,4 @@ IMPLEMENTATION PLANNING AUTHORIZED
 PRODUCTION IMPLEMENTATION REQUIRES WRITTEN-PLAN REVIEW
 ```
 
-The next step is Implementation Plan drafting and Written-Plan Review. Production implementation remains blocked until that plan is explicitly approved and an execution method is selected.
-
 Written-Plan Review is now the active gate. Production implementation remains blocked until the Implementation Plan is explicitly approved and an execution method is selected.
