@@ -43,7 +43,6 @@ class FrozenSubmission:
 
 
 @dataclass(frozen=True, slots=True)
-@dataclass(frozen=True, slots=True)
 class FrozenSubmissionV2:
     """V2 原子 freeze 后可可靠重送的 exact request + exact dual-Host binding。"""
 
