@@ -53,6 +53,7 @@ jobs:
             tests/orchestrator/test_task10_durable_recovery.py \
             tests/orchestrator/test_task10_review_regressions.py \
             tests/product_runtime/test_product_task_request_postgres.py \
+            tests/product_runtime/test_cross_host_planning.py \
             tests/product_runtime/test_revit_semantics.py \
             tests/product_runtime/test_request_binding_interleaving.py \
             tests/product_runtime/test_revit_wall_thickness_product_e2e.py \
