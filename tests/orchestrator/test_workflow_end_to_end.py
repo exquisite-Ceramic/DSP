@@ -199,10 +199,17 @@ class _ScenarioOwners:
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult | AsyncOperationRef:
-        """首次进入时等待 reconstruction；ready 后返回三条 exact navigation refs。"""
+        """V1 fake 接受 task/subject lineage；ready 后仍返回既有 exact freshness tuple。"""
 
+        assert task_id
+        assert proposal_subject_ref is None or isinstance(
+            proposal_subject_ref,
+            StableRef,
+        )
         if not self.operation_ready:
             return AsyncOperationRef(
                 kind=AsyncOperationKind.RECONSTRUCTION_JOB,

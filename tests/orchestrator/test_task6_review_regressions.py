@@ -190,7 +190,7 @@ def _impact_case():
         content_hash=workflow_artifact_content_hash(bound),
     )
     semantic_reconstruction.operation_ready = True
-    freshness = adapter.ensure_operation_freshness(bound_ref)
+    freshness = adapter.ensure_operation_freshness("task-6", bound_ref, None)
     assert isinstance(freshness, OperationFreshnessResult)
     assert freshness.operation_ref == bound_ref
     impact_ref = adapter.analyze_impact(

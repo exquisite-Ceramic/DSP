@@ -206,10 +206,20 @@ class _FreshnessGraphServices:
         del operation_ref, context_snapshot_ref
         return self.bound_ref
 
-    def ensure_operation_freshness(self, operation_ref: StableRef):
-        """可先模拟一次异步 wait，随后返回批准的 exact freshness tuple。"""
+    def ensure_operation_freshness(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
+    ):
+        """接受新显式 lineage；V1 proposal subject 仍是原 operation-space ref。"""
 
+        assert task_id.startswith("task-freshness")
         assert operation_ref == self.bound_ref
+        assert proposal_subject_ref == StableRef(
+            "operation-space-42",
+            "2" * 64,
+        )
         self.freshness_calls += 1
         if self.async_first and self.freshness_calls == 1:
             return AsyncOperationRef(

@@ -518,10 +518,17 @@ class _InterleavingOwnerPorts:
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> AsyncOperationRef:
-        """在 binder 后立刻制造可持久化 wait，使测试只观察 Task 5 的 bound artifact。"""
+        """V1 fake 接受新 lineage seam，但仍只在 binder 后制造持久化 wait。"""
 
+        assert task_id in self._snapshots_by_task
+        assert proposal_subject_ref is None or isinstance(
+            proposal_subject_ref,
+            StableRef,
+        )
         return AsyncOperationRef(
             kind=AsyncOperationKind.RECONSTRUCTION_JOB,
             owner="product-step7-proof",

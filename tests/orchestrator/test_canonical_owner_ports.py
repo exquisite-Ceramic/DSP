@@ -1096,10 +1096,13 @@ class _Task6R3GraphServices:
         )
         assert operation_ref == self.bound_ref
         if self._freshness_owner is not None:
+            # 本 fixture 的 V1 graph subject 是 synthetic operation-space ref，未与下层
+            # canonical owner 共用 operation-resolution artifact store；V1 freshness 本来
+            # 也不消费该 subject，因此只在 wrapper 层验证它存在，再向下传 None。
             result = self._freshness_owner.ensure_operation_freshness(
                 task_id,
                 operation_ref,
-                proposal_subject_ref,
+                None,
             )
             assert isinstance(result, OperationFreshnessResult)
             return result

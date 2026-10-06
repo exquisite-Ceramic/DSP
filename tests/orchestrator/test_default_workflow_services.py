@@ -270,7 +270,9 @@ def test_operation_freshness_contract_exposes_exact_result_and_three_ref_impact_
     ).parameters
     assert list(freshness_parameters) == [
         "self",
+        "task_id",
         "operation_ref",
+        "proposal_subject_ref",
     ]
     assert list(inspect.signature(DefaultWorkflowServices.analyze_impact).parameters) == [
         "self",
@@ -304,8 +306,15 @@ def test_default_workflow_services_delegates_exact_freshness_tuple_and_impact_re
             super().__init__()
             self.impact_calls: list[tuple[StableRef, StableRef, StableRef]] = []
 
-        def ensure_operation_freshness(self, ref: StableRef):
+        def ensure_operation_freshness(
+            self,
+            task_id: str,
+            ref: StableRef,
+            proposal_subject_ref: StableRef | None,
+        ):
+            assert task_id == "task-42"
             assert ref == operation_ref
+            assert proposal_subject_ref == StableRef("proposal-42", "e" * 64)
             return result
 
         def analyze_impact(
@@ -331,6 +340,10 @@ def test_default_workflow_services_delegates_exact_freshness_tuple_and_impact_re
         external_owners=owners,
     )
 
-    assert service.ensure_operation_freshness(operation_ref) == result
+    assert service.ensure_operation_freshness(
+        "task-42",
+        operation_ref,
+        StableRef("proposal-42", "e" * 64),
+    ) == result
     assert service.analyze_impact(operation_ref, planning_ref, snapshot_set_ref) == impact_ref
     assert owners.impact_calls == [(operation_ref, planning_ref, snapshot_set_ref)]
