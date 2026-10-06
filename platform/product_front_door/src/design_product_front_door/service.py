@@ -238,7 +238,8 @@ class ProductFrontDoorService:
                 )
             if pending.pause_id != pause_id:
                 raise ValueError(
-                    "FRONT_DOOR_RESUME_PAUSE_MISMATCH: pause_id does not match current durable pause"
+                    "FRONT_DOOR_RESUME_PAUSE_MISMATCH: "
+                    "pause_id does not match current durable pause"
                 )
             if resume_kind not in pending.allowed_resume_kinds:
                 raise ValueError(

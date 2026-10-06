@@ -37,17 +37,26 @@ def _subject_parts(subject_ref: StableRef) -> tuple[str, str]:
     return subject_ref.ref_id, subject_ref.content_hash
 
 
-class PostgresProposalDecisionStore:
-    """按 task/pause create-once 持有 human decision 与 stale continuation。"""
+_BOOTSTRAP_RACE_ERRORS = (
+    psycopg.errors.DuplicateSchema,
+    psycopg.errors.DuplicateTable,
+    psycopg.errors.UniqueViolation,
+)
 
-    def __init__(self, dsn: str) -> None:
-        """bootstrap 独立 owner schema，并为每个 store 使用独立连接。"""
 
-        if not isinstance(dsn, str) or not dsn.strip():
-            raise ValueError("dsn must not be blank")
-        normalized = dsn.strip()
-        with psycopg.connect(normalized, autocommit=True) as admin:
+def _bootstrap_owner_schema(dsn: str) -> None:
+    """并发 worker 启动时幂等建立 owner DDL，不把 catalog race 提升为业务失败。"""
+
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        try:
             admin.execute(f"CREATE SCHEMA IF NOT EXISTS {_OWNER_SCHEMA}")
+        except _BOOTSTRAP_RACE_ERRORS:
+            # PostgreSQL 的 IF NOT EXISTS 仍可能在并发 catalog insert 时发生唯一键竞争。
+            # 该异常只说明另一个 bootstrap 已赢得相同 DDL identity，不属于 decision CAS。
+            pass
+
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        try:
             admin.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {_OWNER_SCHEMA}.{_TABLE} (
@@ -64,6 +73,27 @@ class PostgresProposalDecisionStore:
                 )
                 """
             )
+        except _BOOTSTRAP_RACE_ERRORS:
+            pass
+
+        row = admin.execute(
+            "SELECT to_regclass(%s)",
+            (f"{_OWNER_SCHEMA}.{_TABLE}",),
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise RuntimeError("proposal decision owner bootstrap did not create table")
+
+
+class PostgresProposalDecisionStore:
+    """按 task/pause create-once 持有 human decision 与 stale continuation。"""
+
+    def __init__(self, dsn: str) -> None:
+        """bootstrap 独立 owner schema，并为每个 store 使用独立连接。"""
+
+        if not isinstance(dsn, str) or not dsn.strip():
+            raise ValueError("dsn must not be blank")
+        normalized = dsn.strip()
+        _bootstrap_owner_schema(normalized)
         self._connection = psycopg.connect(
             normalized,
             autocommit=True,
