@@ -33,7 +33,7 @@ def _executing_saga() -> ExecutionSagaView:
 
 
 def test_workflow_services_expose_only_framework_neutral_boundary() -> None:
-    """Service protocol 不得直接交换 runtime 或 execution-store 的领域实现对象。"""
+    """Service protocol 可新增稳定引用 seam，但不得直接交换 runtime 或领域实现对象。"""
 
     source = inspect.getsource(WorkflowServices)
 
@@ -50,6 +50,8 @@ def test_workflow_services_expose_only_framework_neutral_boundary() -> None:
         "resolve_host_context",
         "ensure_context_freshness",
         "resolve_operations",
+        "prepare_operation_proposal_subject",
+        "ensure_interaction_subject_artifact",
         "ensure_operation_artifact",
         "bind_parameters",
         "ensure_operation_freshness",
