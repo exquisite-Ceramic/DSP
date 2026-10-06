@@ -1332,3 +1332,104 @@ def test_task6_cross_host_operation_freshness_signature_carries_task_and_subject
         "operation_ref",
         "proposal_subject_ref",
     )
+
+
+
+class _CrossHostFreshnessProbe:
+    """记录 canonical owner 是否把 exact task/operation/subject 原样委托给 V2 boundary。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, StableRef, StableRef]] = []
+
+    def ensure(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        proposal_subject_ref: StableRef,
+    ) -> OperationFreshnessResult:
+        """返回稳定 refs，使测试只观察 dispatch seam。"""
+
+        self.calls.append((task_id, operation_ref, proposal_subject_ref))
+        return OperationFreshnessResult(
+            operation_ref=operation_ref,
+            planning_snapshot_ref=StableRef("PS-CROSS", "6" * 64),
+            snapshot_set_ref=StableRef("PSS-CROSS", "7" * 64),
+        )
+
+
+def _cross_host_subject_for_owner_test():
+    """构造足以区分 V2 subject 与 V1 operation artifact 的真实 proposal artifact。"""
+
+    from design_orchestrator.interaction_artifacts import (
+        CrossHostOperationProposalSubjectV2,
+        CrossHostProposalObservationV2,
+    )
+
+    def observation(host_kind: str):
+        if host_kind == "AUTOCAD":
+            return CrossHostProposalObservationV2(
+                host_kind="AUTOCAD",
+                host_instance_id="acad-runtime",
+                document_id=r"C:\DSP\owner-cross.dwg",
+                native_target_id="acad-wall",
+                semantic_target_id="WALL-001",
+                host_revision=17,
+                normalized_thickness_mm=200.0,
+                observed_at="2026-10-06T12:00:00Z",
+                command_id="owner-acad",
+            )
+        return CrossHostProposalObservationV2(
+            host_kind="REVIT",
+            host_instance_id="revit-runtime",
+            document_id=r"C:\DSP\owner-cross.rvt",
+            native_target_id="revit-wall",
+            semantic_target_id="WALL-001",
+            host_revision=41,
+            normalized_thickness_mm=200.0,
+            observed_at="2026-10-06T12:00:01Z",
+            command_id="owner-revit",
+        )
+
+    return CrossHostOperationProposalSubjectV2(
+        request_hash="1" * 64,
+        session_binding_hash="2" * 64,
+        topology_snapshot_hash="3" * 64,
+        semantic_target_id="WALL-001",
+        semantic_environment_id="SEM-ENV-OWNER",
+        semantic_environment_hash="4" * 64,
+        canonical_operation="set_wall_thickness.v1",
+        canonical_arguments={
+            "thickness": {"value": 300.0, "unit": "mm"},
+            "targets": ["WALL-001"],
+        },
+        observations=(observation("AUTOCAD"), observation("REVIT")),
+    )
+
+
+def test_task6_canonical_owner_delegates_only_cross_host_proposal_freshness() -> None:
+    """真实 V2 proposal subject 必须经 cross-host boundary，并携带 exact task lineage。"""
+
+    store = _ArtifactStore()
+    subject = _cross_host_subject_for_owner_test()
+    subject_ref = store.put(
+        kind="cross_host_operation_proposal_subject_v2",
+        value=subject,
+        content_hash=workflow_artifact_content_hash(subject),
+    )
+    probe = _CrossHostFreshnessProbe()
+    adapter, *_ = _task6_adapter(
+        artifact_store=store,
+        overrides={"cross_host_operation_freshness": probe},
+    )
+    operation_ref = StableRef("bound-cross-host", "5" * 64)
+
+    result = adapter.ensure_operation_freshness(
+        "task-cross-host-owner",
+        operation_ref,
+        subject_ref,
+    )
+
+    assert result.operation_ref == operation_ref
+    assert probe.calls == [
+        ("task-cross-host-owner", operation_ref, subject_ref),
+    ]
