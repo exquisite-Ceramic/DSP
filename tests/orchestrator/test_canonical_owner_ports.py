@@ -1319,3 +1319,16 @@ def test_task6r3_rebuilt_adapter_consumes_only_saver_restored_exact_refs() -> No
     assert request.snapshot_set_ref.snapshot_set_id == restored_refs[
         "snapshot_set_ref"
     ].ref_id
+
+
+
+def test_task6_cross_host_operation_freshness_signature_carries_task_and_subject() -> None:
+    """Task 6 V2 freshness 必须显式携带 task 与 proposal subject，不得 reverse lookup。"""
+
+    signature = inspect.signature(ExternalOwnerPorts.ensure_operation_freshness)
+    assert tuple(signature.parameters) == (
+        "self",
+        "task_id",
+        "operation_ref",
+        "proposal_subject_ref",
+    )
