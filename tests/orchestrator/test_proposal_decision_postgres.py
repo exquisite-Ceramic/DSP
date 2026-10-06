@@ -11,6 +11,18 @@ import pytest
 from design_orchestrator.workflow_contracts import StableRef
 
 
+@pytest.fixture
+def product_task_postgres_dsn() -> str:
+    """只在显式 PostgreSQL lane 执行 proposal decision owner acceptance。"""
+
+    import os
+
+    dsn = os.getenv("DSP_TEST_POSTGRES_DSN", "").strip()
+    if not dsn:
+        pytest.skip("DSP_TEST_POSTGRES_DSN is required")
+    return dsn
+
+
 def _api():
     """延迟加载 Task 5 新 owner，使 RED 精确落在 capability 缺失。"""
 

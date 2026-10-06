@@ -92,4 +92,15 @@ class PostgresProductTaskStartGate:
         self._closed = True
 
 
-__all__ = ["PostgresProductTaskStartGate"]
+class PostgresProductTaskResumeConsumeGate(PostgresProductTaskStartGate):
+    """复用同一 ProductTask start_gate 行锁机制串行化 human decision 消费。
+
+    该类型只建立独立语义端口；存储仍是 product_task.start_gate，不创建第二张锁表、
+    lease、advisory lock、进程 mutex 或 distributed-lock authority。
+    """
+
+
+__all__ = [
+    "PostgresProductTaskResumeConsumeGate",
+    "PostgresProductTaskStartGate",
+]

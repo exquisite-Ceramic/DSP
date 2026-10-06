@@ -7,10 +7,12 @@ from typing import Protocol
 from design_execution_reconciliation import ExecutionSagaStoreV2
 from design_orchestrator import WorkflowCheckpointView
 
+from .accepted_input import AcceptedProductTaskInputV2
 from .contracts import (
     ProductTaskQueryState,
     ProductTaskQueryView,
     ProductTaskRequest,
+    ProductTaskRequestError,
 )
 from .wall_thickness_flow import ProductTaskRequestStore, project_wall_thickness_product_flow
 
@@ -69,6 +71,39 @@ class ProductTaskQueryService:
         self._require_exact_request(request, normalized_task_id)
         return request
 
+    def get_accepted_input_v2(
+        self,
+        task_id: str,
+    ) -> AcceptedProductTaskInputV2 | None:
+        """按 exact task 读取 V2 accepted input；V1/missing task 返回 None。"""
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ProductTaskQueryError(
+                "PRODUCT_TASK_QUERY_INVALID",
+                "task_id must be a non-blank string",
+            )
+        normalized_task_id = task_id.strip()
+        get_v2 = getattr(self._request_store, "get_v2", None)
+        if not callable(get_v2):
+            return None
+        try:
+            accepted = get_v2(normalized_task_id)
+        except ProductTaskRequestError as exc:
+            if exc.code == "PRODUCT_TASK_REQUEST_VERSION_MISMATCH":
+                return None
+            raise
+        if accepted is None:
+            return None
+        if (
+            not isinstance(accepted, AcceptedProductTaskInputV2)
+            or accepted.request.task_id != normalized_task_id
+        ):
+            raise ProductTaskQueryError(
+                "PRODUCT_TASK_LINEAGE_INVALID",
+                "request store returned V2 accepted input for a different task",
+            )
+        return accepted
+
     def get(self, task_id: str) -> ProductTaskQueryView | None:
         """执行 request→checkpoint→必要时 request 稳定化重读的冻结查询顺序。"""
 
@@ -78,6 +113,29 @@ class ProductTaskQueryService:
                 "task_id must be a non-blank string",
             )
         normalized_task_id = task_id.strip()
+
+        accepted_v2 = self.get_accepted_input_v2(normalized_task_id)
+        if accepted_v2 is not None:
+            checkpoint = self._checkpoint_reader.get_checkpoint(normalized_task_id)
+            if checkpoint is None:
+                return ProductTaskQueryView(
+                    task_id=accepted_v2.request.task_id,
+                    request_hash=accepted_v2.request.request_hash,
+                    state=ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW,
+                    flow=None,
+                )
+            if checkpoint.task_id != normalized_task_id:
+                raise ProductTaskQueryError(
+                    "PRODUCT_TASK_LINEAGE_INVALID",
+                    "workflow checkpoint task_id does not match authoritative V2 request",
+                )
+            flow = project_wall_thickness_product_flow(checkpoint, self._saga_store)
+            return ProductTaskQueryView(
+                task_id=accepted_v2.request.task_id,
+                request_hash=accepted_v2.request.request_hash,
+                state=ProductTaskQueryState.WORKFLOW,
+                flow=flow,
+            )
 
         request = self._request_store.get(normalized_task_id)
         checkpoint = self._checkpoint_reader.get_checkpoint(normalized_task_id)

@@ -104,6 +104,8 @@ jobs:
           # 保持 submit/get/resume 的 authority ordering、wire schema 与真实 client transport
           # 一起回归，避免 Task 9 acceptance 通过但薄边界契约发生漂移。
           uv run python -m pytest \
+            tests/orchestrator/test_proposal_decision_postgres.py \
+            tests/product_front_door/test_cross_host_gate_a.py \
             tests/product_front_door/test_service.py \
             tests/product_front_door/test_service_resume.py \
             tests/product_front_door/test_mcp_wire.py \

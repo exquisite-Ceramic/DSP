@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from design_changeset import canonical_hash
 from design_orchestrator import PendingInteractionKind, WorkflowResumeCommand
+from design_orchestrator.interaction_artifacts import (
+    CrossHostOperationProposalSubjectV2,
+    CrossHostProposalObservationV2,
+)
+from design_orchestrator.proposal_decision import (
+    HumanDecisionState,
+    ProposalContinuationState,
+    ProposalDecisionRecord,
+)
 from design_product_runtime import (
     ProductTaskQueryService,
     ProductTaskQueryState,
@@ -34,6 +45,11 @@ class ProductFrontDoorService:
         composition_pool: object,
         reviewed_configuration_validator: object | None = None,
         accepted_input_store: object | None = None,
+        proposal_decision_store: object | None = None,
+        decision_consume_gate: object | None = None,
+        interaction_subject_reader: object | None = None,
+        cross_host_observation_reader: object | None = None,
+        v2_flow_resolver: object | None = None,
     ) -> None:
         """保存已注入 seams；构造阶段不得解析 session、打开 Host 或创建 composition。"""
 
@@ -47,6 +63,11 @@ class ProductFrontDoorService:
         self._composition_pool = composition_pool
         self._reviewed_configuration_validator = reviewed_configuration_validator
         self._accepted_input_store = accepted_input_store
+        self._proposal_decision_store = proposal_decision_store
+        self._decision_consume_gate = decision_consume_gate
+        self._interaction_subject_reader = interaction_subject_reader
+        self._cross_host_observation_reader = cross_host_observation_reader
+        self._v2_flow_resolver = v2_flow_resolver
 
     def get(self, task_id: str) -> ProductTaskQueryView | None:
         """只委托 host-independent durable query；不得解析 session 或访问 Host。"""
@@ -101,6 +122,15 @@ class ProductFrontDoorService:
             raise ValueError("FRONT_DOOR_RESUME_INVALID: pause_id must be non-blank")
         if not isinstance(resume_kind, str) or not resume_kind.strip():
             raise ValueError("FRONT_DOOR_RESUME_INVALID: resume_kind must be non-blank")
+
+        if self._proposal_decision_store is not None:
+            accepted_v2 = self._get_accepted_input_v2(task_id)
+            if accepted_v2 is not None:
+                return self._resume_operation_proposal_v2(
+                    task_id=task_id.strip(),
+                    pause_id=pause_id.strip(),
+                    resume_kind=resume_kind.strip(),
+                )
 
         # request 与 checkpoint/query 必须先从 authoritative durable owners 读取；
         # 在 human-pause authority 未确认前，不得解析 session、访问 Host 或取得 composition。
@@ -161,6 +191,291 @@ class ProductFrontDoorService:
         self._require_query_identity(view, request, action="resume")
         return view
 
+
+
+    def _get_accepted_input_v2(self, task_id: str):
+        """通过 ProductTask query seam 读取 server-owned V2 accepted input。"""
+
+        reader = getattr(self._query_service, "get_accepted_input_v2", None)
+        if not callable(reader):
+            return None
+        return reader(task_id)
+
+    def _resume_operation_proposal_v2(
+        self,
+        *,
+        task_id: str,
+        pause_id: str,
+        resume_kind: str,
+    ) -> ProductTaskQueryView:
+        """在 task-row consume lock 内按 durable decision authority 恢复 V2 pause。"""
+
+        serialize = getattr(self._decision_consume_gate, "serialize", None)
+        if not callable(serialize):
+            raise TypeError("decision_consume_gate must provide serialize")
+
+        with serialize(task_id):
+            accepted = self._get_accepted_input_v2(task_id)
+            current = self._query_service.get(task_id)
+            if accepted is None or current is None:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_TASK_NOT_FOUND: exact V2 task is unavailable"
+                )
+            request = accepted.request
+            self._require_query_identity(current, request, action="resume")
+            if current.state != ProductTaskQueryState.WORKFLOW or current.flow is None:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_NOT_PENDING: V2 task is not in workflow state"
+                )
+
+            checkpoint = current.flow.checkpoint
+            pending = checkpoint.pending_interaction
+            if pending is None:
+                return current
+            if pending.kind != PendingInteractionKind.OPERATION_PROPOSAL:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_NOT_PENDING: current pause is not an Operation Proposal"
+                )
+            if pending.pause_id != pause_id:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_PAUSE_MISMATCH: pause_id does not match current durable pause"
+                )
+            if resume_kind not in pending.allowed_resume_kinds:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_KIND_INVALID: resume_kind is not allowed by current pause"
+                )
+
+            subject = self._read_v2_proposal_subject(pending.subject_ref)
+            binding = self._binding_from_accepted_input(accepted)
+            self._validate_v2_subject_lineage(
+                request=request,
+                binding=binding,
+                subject=subject,
+            )
+
+            decision = self._get_proposal_decision(
+                task_id,
+                pause_id,
+                pending.subject_ref,
+            )
+            if decision is None:
+                if resume_kind == "OPERATION_PROPOSAL_REJECTED":
+                    decision = self._claim_proposal_reject(
+                        task_id,
+                        pause_id,
+                        pending.subject_ref,
+                    )
+                elif resume_kind == "OPERATION_PROPOSAL_ACCEPTED":
+                    decision = self._claim_v2_accept_or_stale(
+                        task_id=task_id,
+                        pause_id=pause_id,
+                        subject_ref=pending.subject_ref,
+                        binding=binding,
+                        subject=subject,
+                    )
+                else:
+                    raise ValueError(
+                        "FRONT_DOOR_RESUME_KIND_INVALID: unsupported V2 human decision"
+                    )
+
+            if decision.continuation in {
+                ProposalContinuationState.STALE_GATE_A,
+                ProposalContinuationState.STALE_GATE_B,
+            }:
+                raise ValueError(
+                    "FRONT_DOOR_PROPOSAL_STALE: proposal is no longer continuable"
+                )
+
+            if decision.human_decision is HumanDecisionState.ACCEPTED:
+                owner_resume_kind = "OPERATION_PROPOSAL_ACCEPTED"
+            elif decision.human_decision is HumanDecisionState.REJECTED:
+                owner_resume_kind = "OPERATION_PROPOSAL_REJECTED"
+            else:
+                raise ValueError(
+                    "FRONT_DOOR_PROPOSAL_DECISION_INVALID: durable decision is not consumable"
+                )
+
+            flow = self._resolve_v2_flow(accepted)
+            resume = getattr(flow, "resume", None)
+            if not callable(resume):
+                raise TypeError("V2 flow must expose resume")
+            resume(
+                task_id,
+                WorkflowResumeCommand(
+                    resume_kind=owner_resume_kind,
+                    payload={},
+                    pause_id=pause_id,
+                ),
+            )
+            final_view = self._query_service.get(task_id)
+            self._require_query_identity(final_view, request, action="resume")
+            return final_view
+
+    def _read_v2_proposal_subject(
+        self,
+        subject_ref,
+    ) -> CrossHostOperationProposalSubjectV2:
+        """只按 pending exact StableRef 读取 durable proposal body。"""
+
+        get_subject = getattr(self._interaction_subject_reader, "get", None)
+        if not callable(get_subject):
+            raise TypeError("interaction_subject_reader must provide get")
+        subject = get_subject(subject_ref)
+        if not isinstance(subject, CrossHostOperationProposalSubjectV2):
+            raise ValueError(
+                "FRONT_DOOR_PROPOSAL_INTEGRITY_INVALID: invalid proposal subject"
+            )
+        return subject
+
+    @staticmethod
+    def _binding_from_accepted_input(accepted) -> SessionBindingV2:
+        """从 ProductTask owner 的 immutable binding body 重建 exact V2 binding。"""
+
+        from .contracts import SessionBindingMemberV2
+
+        payload = accepted.session_binding_payload
+        if not isinstance(payload, Mapping):
+            raise ValueError(
+                "FRONT_DOOR_BINDING_V2_INVALID: accepted binding payload is invalid"
+            )
+        raw_members = payload.get("members")
+        if not isinstance(raw_members, list):
+            raise ValueError(
+                "FRONT_DOOR_BINDING_V2_INVALID: accepted binding members are invalid"
+            )
+        members = []
+        for value in raw_members:
+            if not isinstance(value, Mapping):
+                raise ValueError(
+                    "FRONT_DOOR_BINDING_V2_INVALID: accepted binding member is invalid"
+                )
+            members.append(
+                SessionBindingMemberV2(
+                    host_kind=value.get("host_kind"),
+                    role=value.get("role"),
+                    configured_reference_id=value.get("configured_reference_id"),
+                    configured_reference_hash=value.get("configured_reference_hash"),
+                    transport_locator=value.get("transport_locator"),
+                    host_instance_id=value.get("host_instance_id"),
+                    document_id=value.get("document_id"),
+                    native_target_id=value.get("native_target_id"),
+                    host_binding_fingerprint=value.get("host_binding_fingerprint"),
+                )
+            )
+        return SessionBindingV2(
+            session_ref=payload.get("session_ref"),
+            project_id=payload.get("project_id"),
+            semantic_target_id=payload.get("semantic_target_id"),
+            semantic_environment_id=payload.get("semantic_environment_id"),
+            semantic_environment_hash=payload.get("semantic_environment_hash"),
+            topology_environment_id=payload.get("topology_environment_id"),
+            topology_revision=payload.get("topology_revision"),
+            topology_snapshot_hash=payload.get("topology_snapshot_hash"),
+            initiating_host_kind=payload.get("initiating_host_kind"),
+            members=tuple(members),
+            binding_hash=payload.get("binding_hash"),
+        )
+
+    @staticmethod
+    def _validate_v2_subject_lineage(
+        *,
+        request: ProductTaskRequestV2,
+        binding: SessionBindingV2,
+        subject: CrossHostOperationProposalSubjectV2,
+    ) -> None:
+        """验证 proposal 与 immutable request/binding/semantic topology 同源。"""
+
+        if (
+            subject.request_hash != request.request_hash
+            or subject.session_binding_hash != binding.binding_hash
+            or subject.topology_snapshot_hash != binding.topology_snapshot_hash
+            or subject.semantic_target_id != binding.semantic_target_id
+            or subject.semantic_environment_id != binding.semantic_environment_id
+            or subject.semantic_environment_hash != binding.semantic_environment_hash
+            or subject.canonical_operation != "set_wall_thickness.v1"
+        ):
+            raise ValueError(
+                "FRONT_DOOR_PROPOSAL_INTEGRITY_INVALID: proposal lineage mismatch"
+            )
+
+    def _claim_v2_accept_or_stale(
+        self,
+        *,
+        task_id: str,
+        pause_id: str,
+        subject_ref,
+        binding: SessionBindingV2,
+        subject: CrossHostOperationProposalSubjectV2,
+    ) -> ProposalDecisionRecord:
+        """fresh-read 两端 stable state 后竞争 ACCEPT 或 Gate-A stale。"""
+
+        read = getattr(self._cross_host_observation_reader, "read", None)
+        if not callable(read):
+            raise TypeError("cross_host_observation_reader must provide read")
+
+        accepted_by_host = {item.host_kind: item for item in subject.observations}
+        for member in binding.members:
+            fresh = read(
+                binding=binding,
+                member=member,
+                command_id=(
+                    f"front-door-gate-a:{task_id}:{pause_id}:{member.host_kind}"
+                ),
+            )
+            if not isinstance(fresh, CrossHostProposalObservationV2):
+                raise ValueError(
+                    "FRONT_DOOR_CONTEXT_INVALID: Gate A returned invalid observation"
+                )
+            accepted_observation = accepted_by_host.get(member.host_kind)
+            if accepted_observation is None:
+                raise ValueError(
+                    "FRONT_DOOR_PROPOSAL_INTEGRITY_INVALID: required observation missing"
+                )
+            if fresh.stable_state_body() != accepted_observation.stable_state_body():
+                invalidate = getattr(
+                    self._proposal_decision_store,
+                    "invalidate_gate_a",
+                    None,
+                )
+                if not callable(invalidate):
+                    raise TypeError(
+                        "proposal_decision_store must provide invalidate_gate_a"
+                    )
+                return invalidate(
+                    task_id,
+                    pause_id,
+                    subject_ref,
+                    f"{member.host_kind}_OBSERVATION_DRIFT",
+                )
+
+        claim_accept = getattr(self._proposal_decision_store, "claim_accept", None)
+        if not callable(claim_accept):
+            raise TypeError("proposal_decision_store must provide claim_accept")
+        return claim_accept(task_id, pause_id, subject_ref)
+
+    def _get_proposal_decision(self, task_id: str, pause_id: str, subject_ref):
+        """重读 exact proposal decision owner，不从 checkpoint 位置推断决定。"""
+
+        get_decision = getattr(self._proposal_decision_store, "get", None)
+        if not callable(get_decision):
+            raise TypeError("proposal_decision_store must provide get")
+        return get_decision(task_id, pause_id, subject_ref)
+
+    def _claim_proposal_reject(self, task_id: str, pause_id: str, subject_ref):
+        """记录明确 REJECT；调用链不得触碰任何 Host freshness seam。"""
+
+        claim_reject = getattr(self._proposal_decision_store, "claim_reject", None)
+        if not callable(claim_reject):
+            raise TypeError("proposal_decision_store must provide claim_reject")
+        return claim_reject(task_id, pause_id, subject_ref)
+
+    def _resolve_v2_flow(self, accepted):
+        """只解析已存在 V2 task 的 flow facade。"""
+
+        get_flow = getattr(self._v2_flow_resolver, "get_flow", None)
+        if not callable(get_flow):
+            raise TypeError("v2_flow_resolver must provide get_flow")
+        return get_flow(accepted)
 
 
     def _submit_v2(self, request: ProductTaskRequestV2) -> ProductTaskQueryView:
@@ -253,7 +568,7 @@ class ProductFrontDoorService:
     @staticmethod
     def _require_query_identity(
         view: ProductTaskQueryView | None,
-        request: ProductTaskRequest,
+        request: ProductTaskRequest | ProductTaskRequestV2,
         *,
         action: str,
     ) -> None:
