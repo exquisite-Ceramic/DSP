@@ -90,13 +90,6 @@ class ExternalOwnerPorts(Protocol):
         snapshot_ref: StableRef,
     ) -> OperationResolutionInputs: ...
 
-    def build_operation_proposal_subject(
-        self,
-        task_id: str,
-        operation_ref: StableRef,
-        context_snapshot_ref: StableRef,
-    ) -> CrossHostOperationProposalSubjectV2: ...
-
     def load_parameter_binding_inputs(
         self,
         task_id: str,

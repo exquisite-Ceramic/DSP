@@ -318,12 +318,13 @@ def _validate_v2_human_artifact_authority(
 
     try:
         ensure_subject = getattr(
-            services,
+            type(services),
             "ensure_interaction_subject_artifact",
             None,
         )
         if callable(ensure_subject):
             resolution = ensure_subject(
+                services,
                 pending.subject_ref,
                 context_snapshot_ref,
                 allow_legacy_rehydrate=False,

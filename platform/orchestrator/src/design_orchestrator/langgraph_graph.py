@@ -179,9 +179,14 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
 
         operation_ref = _require_stable_ref(state, "operation_ref")
         context_snapshot_ref = _require_stable_ref(state, "context_snapshot_ref")
-        prepare_subject = getattr(services, "prepare_operation_proposal_subject", None)
+        prepare_subject = getattr(
+            type(services),
+            "prepare_operation_proposal_subject",
+            None,
+        )
         if callable(prepare_subject):
             proposal_subject_ref = prepare_subject(
+                services,
                 cast(str, state["task_id"]),
                 operation_ref,
                 context_snapshot_ref,
@@ -214,10 +219,18 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         """暂停并只接受与 durable pause identity 精确相关的 ACCEPT/REJECT。"""
 
         _require_stable_ref(state, "operation_ref")
-        proposal_subject_ref = _require_stable_ref(state, "proposal_subject_ref")
         pending = decode_pending_interaction(state.get("pending_interaction"))
         if pending is None:
             raise ValueError("pending_interaction is required for operation proposal wait")
+        if state.get("proposal_subject_ref") is None:
+            # 兼容仓库中手工构造的旧 v2 checkpoint：pending subject 已是 durable identity。
+            # 新 workflow 一律由 prepare node 显式持久化 proposal_subject_ref。
+            proposal_subject_ref = pending.subject_ref
+        else:
+            proposal_subject_ref = _require_stable_ref(
+                state,
+                "proposal_subject_ref",
+            )
         if pending.kind is not PendingInteractionKind.OPERATION_PROPOSAL:
             raise ValueError("pending interaction kind is invalid for operation proposal wait")
         if pending.subject_ref != proposal_subject_ref:
