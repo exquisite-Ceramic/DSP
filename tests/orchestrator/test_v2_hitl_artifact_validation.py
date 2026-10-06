@@ -3,12 +3,12 @@
 这些测试冻结四个边界：
 
 1. v2 human command 在进入 LangGraph 前，必须以 ``allow_legacy_rehydrate=False`` 验证
-   当前 pending subject 对应的 durable Operation Resolution artifact；
+   当前 pending subject 对应的 durable interaction artifact；
 2. artifact unavailable 时必须稳定归一为 ``WORKFLOW_ARTIFACT_UNAVAILABLE``，保留原始 cause，
    并且 checkpoint 与 binder side effect 都保持不变；
 3. v2 只接受 ``source == durable`` 且 ``ref == pending.subject_ref`` 的精确 authority 命中；
 4. external-owner async wait 的 poll 与显式 legacy async command 都不能因为存在 LangGraph
-   interrupt 就误触 operation-artifact recovery。
+   interrupt 就误触 human-subject artifact recovery。
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ def test_v2_artifact_unavailable_fails_before_graph_and_preserves_checkpoint() -
     assert isinstance(captured.value.__cause__, WorkflowArtifactUnavailableError)
     assert isinstance(captured.value.__cause__.__cause__, LookupError)
     assert services.artifact_calls == [
-        (services.operation_ref, services.context_ref, False),
+        (services.proposal_subject_ref, services.context_ref, False),
     ]
     assert services.bind_count == 0
 
@@ -268,7 +268,7 @@ def test_v2_artifact_unavailable_fails_before_graph_and_preserves_checkpoint() -
     ],
 )
 def test_v2_artifact_authority_mismatch_fails_closed_before_graph_continuation(
-    artifact_resolution: OperationArtifactResolution,
+    artifact_resolution: InteractionSubjectArtifactResolution,
     case_name: str,
 ) -> None:
     """v2 human continuation 只接受 exact durable identity，不能 rehydrate 或替换 ref。"""
@@ -291,7 +291,7 @@ def test_v2_artifact_authority_mismatch_fails_closed_before_graph_continuation(
 
     assert captured.value.code == "WORKFLOW_ARTIFACT_UNAVAILABLE"
     assert services.artifact_calls == [
-        (services.operation_ref, services.context_ref, False),
+        (services.proposal_subject_ref, services.context_ref, False),
     ]
     assert services.bind_count == 0
     assert runtime.get_checkpoint(task_id) == before_checkpoint
