@@ -228,7 +228,9 @@ class WorkflowServices(Protocol):
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult | AsyncOperationRef: ...
 
     def analyze_impact(

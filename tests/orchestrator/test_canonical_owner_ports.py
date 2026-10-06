@@ -96,6 +96,7 @@ _OWNER_DEPENDENCY_NAMES = (
     "approval_admission",
     "materialization_routing",
     "provider_execution_snapshot",
+    "cross_host_operation_freshness",
 )
 
 _TASK6_PROJECTION = SemanticProjectionRef(
@@ -415,14 +416,14 @@ def _task6_real_impact_case(
         value=bound,
         content_hash=workflow_artifact_content_hash(bound),
     )
-    wait = adapter.ensure_operation_freshness(bound_ref)
+    wait = adapter.ensure_operation_freshness("task-6", bound_ref, None)
     assert wait == AsyncOperationRef(
         kind=AsyncOperationKind.RECONSTRUCTION_JOB,
         owner="semantic-runtime",
         operation_id="reconstruction-task6",
     )
     semantic_reconstruction.operation_ready = True
-    freshness = adapter.ensure_operation_freshness(bound_ref)
+    freshness = adapter.ensure_operation_freshness("task-6", bound_ref, None)
     assert isinstance(freshness, OperationFreshnessResult)
     assert freshness.operation_ref == bound_ref
     impact_ref = adapter.analyze_impact(
@@ -487,7 +488,7 @@ def _task6_lineage_case():
 def _require_freshness_result(adapter, bound_ref: StableRef) -> OperationFreshnessResult:
     """Task 6R.2 测试要求 real freshness 成功后显式返回 exact lineage envelope。"""
 
-    result = adapter.ensure_operation_freshness(bound_ref)
+    result = adapter.ensure_operation_freshness("task-6", bound_ref, None)
     assert isinstance(result, OperationFreshnessResult)
     return result
 
@@ -1082,13 +1083,24 @@ class _Task6R3GraphServices:
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult:
         """可调用 adapter A 的真实 freshness，或返回已构造的 owner-valid mismatch tuple。"""
 
+        assert task_id
+        assert proposal_subject_ref is None or isinstance(
+            proposal_subject_ref,
+            StableRef,
+        )
         assert operation_ref == self.bound_ref
         if self._freshness_owner is not None:
-            result = self._freshness_owner.ensure_operation_freshness(operation_ref)
+            result = self._freshness_owner.ensure_operation_freshness(
+                task_id,
+                operation_ref,
+                proposal_subject_ref,
+            )
             assert isinstance(result, OperationFreshnessResult)
             return result
         assert self._freshness_result is not None

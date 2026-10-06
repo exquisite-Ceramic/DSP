@@ -106,7 +106,9 @@ class ExternalOwnerPorts(Protocol):
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult | AsyncOperationRef: ...
 
     def analyze_impact(
@@ -436,11 +438,17 @@ class DefaultWorkflowServices:
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult | AsyncOperationRef:
-        """把 operation freshness 判断交还给 freshness authoritative owner。"""
+        """显式转发 task/operation/proposal lineage 给 freshness authoritative owner。"""
 
-        return self._external_owners.ensure_operation_freshness(operation_ref)
+        return self._external_owners.ensure_operation_freshness(
+            task_id,
+            operation_ref,
+            proposal_subject_ref,
+        )
 
     def analyze_impact(
         self,

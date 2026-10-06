@@ -295,7 +295,12 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
 
     def ensure_operation_freshness(state: WorkflowGraphState) -> dict[str, object]:
         result = services.ensure_operation_freshness(
-            _require_stable_ref(state, "operation_ref")
+            cast(str, state["task_id"]),
+            _require_stable_ref(state, "operation_ref"),
+            _decode_stable_ref(
+                state.get("proposal_subject_ref"),
+                "proposal_subject_ref",
+            ),
         )
         if isinstance(result, AsyncOperationRef):
             return {

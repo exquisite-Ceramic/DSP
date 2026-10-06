@@ -138,6 +138,7 @@ class CanonicalWorkflowOwnerPorts:
         "_changeset_store",
         "_convergence_verifier",
         "_coordination_clock",
+        "_cross_host_operation_freshness",
         "_dispatch_intent_store",
         "_execution_coordinator",
         "_execution_plan_store",
@@ -201,6 +202,7 @@ class CanonicalWorkflowOwnerPorts:
         approval_admission: ApprovalAdmissionPort,
         materialization_routing: object,
         provider_execution_snapshot: object,
+        cross_host_operation_freshness: object | None = None,
     ) -> None:
         # 兼容 Task 4 shape tests：constructor 不执行 service discovery 或 eagerly validate fakes。
         self._snapshot_registry = snapshot_registry
@@ -231,6 +233,7 @@ class CanonicalWorkflowOwnerPorts:
         self._execution_coordinator = execution_coordinator
         self._reconciliation_service = reconciliation_service
         self._convergence_verifier = convergence_verifier
+        self._cross_host_operation_freshness = cross_host_operation_freshness
         self._semantic_reconstruction = semantic_reconstruction
         self._preview_port = preview_port
         self._approval_admission = approval_admission
@@ -441,11 +444,37 @@ class CanonicalWorkflowOwnerPorts:
 
     def ensure_operation_freshness(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        proposal_subject_ref: StableRef | None,
     ) -> OperationFreshnessResult | AsyncOperationRef:
-        """用真实 Operation Freshness contract 生成并显式返回 exact owner refs。"""
+        """V2 cross-Host subject 委托双 Host boundary；V1 保持既有单文档 freshness。"""
 
+        from design_orchestrator.interaction_artifacts import (
+            CrossHostOperationProposalSubjectV2,
+        )
         from semantic_runtime import SnapshotSet
+
+        if proposal_subject_ref is not None:
+            proposal_subject = self._workflow_artifact_store.get(
+                proposal_subject_ref
+            )
+            if isinstance(
+                proposal_subject,
+                CrossHostOperationProposalSubjectV2,
+            ):
+                ensure = getattr(
+                    self._cross_host_operation_freshness,
+                    "ensure",
+                    None,
+                )
+                if not callable(ensure):
+                    raise self._not_wired("cross_host_operation_freshness")
+                return ensure(
+                    task_id,
+                    operation_ref,
+                    proposal_subject_ref,
+                )
 
         bound = self._bound_operation(operation_ref)
         contract, _ = self._operation_freshness_contract(bound)
