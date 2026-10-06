@@ -298,3 +298,58 @@ def test_bound_codec_rejects_missing_extra_and_invalid_binding_enum() -> None:
             codec_version=codec_version,
             payload=invalid_enum,
         )
+
+
+def test_cross_host_proposal_subject_uses_explicit_workflow_artifact_codec() -> None:
+    """Cross-host subject 必须进入显式 kind/version codec，而不是 generic dataclass fallback。"""
+
+    from design_orchestrator.interaction_artifacts import (
+        CrossHostOperationProposalSubjectV2,
+        CrossHostProposalObservationV2,
+    )
+
+    _, codec_version, _, decode, encode, _, content_hash = _codec_api()
+    subject = CrossHostOperationProposalSubjectV2(
+        request_hash="1" * 64,
+        session_binding_hash="2" * 64,
+        topology_snapshot_hash="3" * 64,
+        semantic_target_id="WALL-001",
+        semantic_environment_id="SEM-ENV-1",
+        semantic_environment_hash="4" * 64,
+        canonical_operation="set_wall_thickness.v1",
+        canonical_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+        observations=(
+            CrossHostProposalObservationV2(
+                host_kind="REVIT",
+                host_instance_id="revit-runtime",
+                document_id="revit-doc",
+                native_target_id="revit-wall",
+                semantic_target_id="WALL-001",
+                host_revision=41,
+                normalized_thickness_mm=200.0,
+                observed_at="2026-10-02T04:00:00Z",
+                command_id="read-revit",
+            ),
+            CrossHostProposalObservationV2(
+                host_kind="AUTOCAD",
+                host_instance_id="autocad-runtime",
+                document_id="autocad-doc",
+                native_target_id="autocad-wall",
+                semantic_target_id="WALL-001",
+                host_revision=17,
+                normalized_thickness_mm=200.0,
+                observed_at="2026-10-02T04:00:01Z",
+                command_id="read-autocad",
+            ),
+        ),
+    )
+
+    payload = encode(kind="cross_host_operation_proposal_subject_v2", value=subject)
+    restored = decode(
+        kind="cross_host_operation_proposal_subject_v2",
+        codec_version=codec_version,
+        payload=payload,
+    )
+
+    assert restored == subject
+    assert content_hash(restored) == content_hash(subject)

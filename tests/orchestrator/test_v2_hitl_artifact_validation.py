@@ -25,7 +25,7 @@ from design_orchestrator.workflow_contracts import (
     WorkflowStartRequest,
 )
 from design_orchestrator.workflow_services import (
-    OperationArtifactResolution,
+    InteractionSubjectArtifactResolution,
     WorkflowStateError,
 )
 
@@ -46,12 +46,13 @@ class _V2ArtifactServices:
     def __init__(self) -> None:
         self.context_ref = StableRef("context-v2", "a" * 64)
         self.operation_ref = StableRef("operation-v2", "b" * 64)
+        self.proposal_subject_ref = StableRef("proposal-subject-v2", "9" * 64)
         self.calls: list[str] = []
         self.artifact_calls: list[tuple[StableRef, StableRef, bool]] = []
         self.bind_count = 0
         self.artifact_failure: Exception | None = None
-        self.artifact_resolution = OperationArtifactResolution(
-            ref=self.operation_ref,
+        self.artifact_resolution = InteractionSubjectArtifactResolution(
+            ref=self.proposal_subject_ref,
             source="durable",
         )
 
@@ -70,22 +71,41 @@ class _V2ArtifactServices:
 
         return self.operation_ref
 
-    def ensure_operation_artifact(
+    def prepare_operation_proposal_subject(
         self,
+        task_id: str,
         operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
+        """为 V2 workflow 返回与 operation_ref 分离的 durable proposal subject。"""
+
+        assert task_id
+        assert operation_ref == self.operation_ref
+        assert context_snapshot_ref == self.context_ref
+        return self.proposal_subject_ref
+
+    def ensure_interaction_subject_artifact(
+        self,
+        subject_ref: StableRef,
         context_snapshot_ref: StableRef,
         *,
         allow_legacy_rehydrate: bool,
-    ) -> OperationArtifactResolution:
-        """记录 durable preflight；按场景返回命中结果或模拟底层 artifact 不可用。"""
+    ) -> InteractionSubjectArtifactResolution:
+        """记录 generic durable preflight；V2 proposal subject 禁止 legacy rehydrate。"""
 
-        self.calls.append("ensure_operation_artifact")
+        self.calls.append("ensure_interaction_subject_artifact")
         self.artifact_calls.append(
-            (operation_ref, context_snapshot_ref, allow_legacy_rehydrate)
+            (subject_ref, context_snapshot_ref, allow_legacy_rehydrate)
         )
         if self.artifact_failure is not None:
             raise self.artifact_failure
         return self.artifact_resolution
+
+    def ensure_operation_artifact(self, *args, **kwargs):
+        """新 V2 checkpoint 不得再走 operation-only artifact preflight。"""
+
+        del args, kwargs
+        raise AssertionError("v2 human preflight must use generic interaction subject")
 
     def bind_parameters(
         self,
@@ -162,6 +182,8 @@ def test_v2_human_resume_validates_durable_artifact_before_graph_continuation() 
     runtime = _runtime(services)
     paused = runtime.start(_request(task_id))
     assert paused.pending_interaction is not None
+    assert paused.pending_interaction.subject_ref == services.proposal_subject_ref
+    assert paused.operation_ref == services.operation_ref
     services.calls.clear()
 
     checkpoint = runtime.resume(
@@ -170,9 +192,9 @@ def test_v2_human_resume_validates_durable_artifact_before_graph_continuation() 
     )
 
     assert services.artifact_calls == [
-        (services.operation_ref, services.context_ref, False),
+        (services.proposal_subject_ref, services.context_ref, False),
     ]
-    assert services.calls[:2] == ["ensure_operation_artifact", "bind_parameters"]
+    assert services.calls[:2] == ["ensure_interaction_subject_artifact", "bind_parameters"]
     assert services.bind_count == 1
     assert checkpoint.pending_interaction is None
     assert checkpoint.operation_ref == services.operation_ref
@@ -230,15 +252,15 @@ def test_v2_artifact_unavailable_fails_before_graph_and_preserves_checkpoint() -
     ("artifact_resolution", "case_name"),
     [
         (
-            OperationArtifactResolution(
-                ref=StableRef("operation-v2", "b" * 64),
+            InteractionSubjectArtifactResolution(
+                ref=StableRef("proposal-subject-v2", "9" * 64),
                 source="rehydrated",
             ),
             "rehydrated-source",
         ),
         (
-            OperationArtifactResolution(
-                ref=StableRef("different-operation", "d" * 64),
+            InteractionSubjectArtifactResolution(
+                ref=StableRef("different-subject", "d" * 64),
                 source="durable",
             ),
             "different-ref",
@@ -307,6 +329,6 @@ def test_async_wait_never_revalidates_operation_artifact(
     checkpoint = runtime.resume(task_id, resume_command)
 
     assert services.artifact_calls == []
-    assert "ensure_operation_artifact" not in services.calls
+    assert "ensure_interaction_subject_artifact" not in services.calls
     assert checkpoint.pending_interaction is None
     assert checkpoint.async_operation_ref is not None

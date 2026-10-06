@@ -93,6 +93,21 @@ class _ProposalPauseServices:
 
         return StableRef("operation-1", "b" * 64)
 
+    def prepare_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
+        """V1 characterization 继续使用 operation_ref 作为 human subject。"""
+
+        assert task_id == "task-proposal-pause"
+        assert context_snapshot_ref == StableRef(
+            "snapshot-task-proposal-pause",
+            "a" * 64,
+        )
+        return operation_ref
+
     def bind_parameters(
         self,
         task_id: str,
@@ -168,6 +183,17 @@ class _FreshnessGraphServices:
         """返回 proposal pause 绑定的 operation-space 引用。"""
 
         return StableRef("operation-space-42", "2" * 64)
+
+    def prepare_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
+        """既有 freshness graph 继续以 operation-space ref 作为 V1 proposal subject。"""
+
+        del task_id, context_snapshot_ref
+        return operation_ref
 
     def bind_parameters(
         self,
@@ -423,6 +449,7 @@ def test_prepare_node_persists_correlated_operation_proposal_pause() -> None:
         "ref_id": "operation-1",
         "content_hash": "b" * 64,
     }
+    assert snapshot.values["proposal_subject_ref"] == pending["subject_ref"]
     assert pending["allowed_resume_kinds"] == [
         "OPERATION_PROPOSAL_ACCEPTED",
         "OPERATION_PROPOSAL_REJECTED",

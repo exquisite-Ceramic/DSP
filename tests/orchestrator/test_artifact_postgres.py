@@ -289,3 +289,66 @@ def test_get_requires_ref_content_hash_and_close_is_idempotent() -> None:
     finally:
         store.close()
         store.close()
+
+
+def test_cross_host_proposal_subject_reopens_after_process_restart() -> None:
+    """V2 human subject 必须由 workflow artifact PostgreSQL owner 跨进程恢复。"""
+
+    from design_orchestrator.interaction_artifacts import (
+        CrossHostOperationProposalSubjectV2,
+        CrossHostProposalObservationV2,
+    )
+
+    _reset_owner_schema()
+    subject = CrossHostOperationProposalSubjectV2(
+        request_hash="1" * 64,
+        session_binding_hash="2" * 64,
+        topology_snapshot_hash="3" * 64,
+        semantic_target_id="WALL-001",
+        semantic_environment_id="SEM-ENV-1",
+        semantic_environment_hash="4" * 64,
+        canonical_operation="set_wall_thickness.v1",
+        canonical_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+        observations=(
+            CrossHostProposalObservationV2(
+                host_kind="REVIT",
+                host_instance_id="revit-runtime",
+                document_id="revit-doc",
+                native_target_id="revit-wall",
+                semantic_target_id="WALL-001",
+                host_revision=41,
+                normalized_thickness_mm=200.0,
+                observed_at="2026-10-02T04:00:00Z",
+                command_id="read-revit",
+            ),
+            CrossHostProposalObservationV2(
+                host_kind="AUTOCAD",
+                host_instance_id="autocad-runtime",
+                document_id="autocad-doc",
+                native_target_id="autocad-wall",
+                semantic_target_id="WALL-001",
+                host_revision=17,
+                normalized_thickness_mm=200.0,
+                observed_at="2026-10-02T04:00:01Z",
+                command_id="read-autocad",
+            ),
+        ),
+    )
+    subject_hash = workflow_artifact_content_hash(subject)
+
+    store_a = create_postgres_artifact_store(_dsn())
+    ref = store_a.put(
+        kind="cross_host_operation_proposal_subject_v2",
+        value=subject,
+        content_hash=subject_hash,
+    )
+    store_a.close()
+
+    store_b = create_postgres_artifact_store(_dsn())
+    try:
+        restored = store_b.get(ref)
+    finally:
+        store_b.close()
+
+    assert restored == subject
+    assert workflow_artifact_content_hash(restored) == subject_hash

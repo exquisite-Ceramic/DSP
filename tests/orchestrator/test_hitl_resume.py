@@ -265,3 +265,12 @@ def test_synthetic_legacy_pause_includes_explicit_null_content_hash() -> None:
     assert pending.pause_id == (
         "legacy-op-proposal:" + hashlib.sha256(encoded).hexdigest()
     )
+
+
+def test_v1_pending_subject_can_remain_operation_ref() -> None:
+    """Task 4 泛化 subject 后，既有 V1 human pause 仍可精确指向 operation_ref。"""
+
+    checkpoint = _human_checkpoint()
+
+    assert checkpoint.pending_interaction is not None
+    assert checkpoint.pending_interaction.subject_ref == checkpoint.operation_ref
