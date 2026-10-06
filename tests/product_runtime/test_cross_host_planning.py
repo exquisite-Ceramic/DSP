@@ -37,8 +37,8 @@ from semantic_runtime import (
     SemanticAspect,
     SemanticEnvironmentRef,
     SemanticProjectionRef,
-    SnapshotSet,
     SnapshotRegistryError,
+    SnapshotSet,
     build_context_contract,
 )
 
