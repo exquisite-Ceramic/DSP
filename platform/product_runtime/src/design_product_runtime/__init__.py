@@ -1,5 +1,6 @@
 """产品运行时公共契约与 durable owners。"""
 
+from .accepted_input import AcceptedProductTaskInputV2
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -29,6 +30,7 @@ from .start_gate import ProductTaskStartGate
 from .wall_thickness_flow import ProductTaskRequestStore, WallThicknessProductFlow
 
 __all__ = [
+    "AcceptedProductTaskInputV2",
     "PostgresProductTaskRequestStore",
     "PostgresProductTaskStartGate",
     "ProductFlowStatus",
