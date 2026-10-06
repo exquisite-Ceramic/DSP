@@ -13,6 +13,10 @@ from design_orchestrator.canonical_operations import (
     CanonicalExistenceEffect,
     SlotBindingClass,
 )
+from design_orchestrator.interaction_artifacts import (
+    CrossHostOperationProposalSubjectV2,
+    CrossHostProposalObservationV2,
+)
 from design_orchestrator.operation_resolver import ResolutionResult, ResolvedOperation
 from design_orchestrator.parameter_binder import (
     BoundOperationProposal,
@@ -615,6 +619,189 @@ def _decode_bound(payload: Mapping[str, object]) -> BoundOperationProposal:
     )
 
 
+
+_CROSS_HOST_OBSERVATION_KEYS = frozenset(
+    {
+        "host_kind",
+        "host_instance_id",
+        "document_id",
+        "native_target_id",
+        "semantic_target_id",
+        "host_revision",
+        "normalized_thickness_mm",
+        "observed_at",
+        "command_id",
+    }
+)
+_CROSS_HOST_SUBJECT_KEYS = frozenset(
+    {
+        "request_hash",
+        "session_binding_hash",
+        "topology_snapshot_hash",
+        "semantic_target_id",
+        "semantic_environment_id",
+        "semantic_environment_hash",
+        "canonical_operation",
+        "canonical_arguments",
+        "observations",
+    }
+)
+
+
+def _encode_cross_host_observation(
+    value: CrossHostProposalObservationV2,
+) -> dict[str, object]:
+    """把 human-visible Host observation 编码为完整审计 body。"""
+
+    return {
+        "host_kind": value.host_kind,
+        "host_instance_id": value.host_instance_id,
+        "document_id": value.document_id,
+        "native_target_id": value.native_target_id,
+        "semantic_target_id": value.semantic_target_id,
+        "host_revision": value.host_revision,
+        "normalized_thickness_mm": value.normalized_thickness_mm,
+        "observed_at": value.observed_at,
+        "command_id": value.command_id,
+    }
+
+
+def _decode_cross_host_observation(
+    value: object,
+    *,
+    context: str,
+) -> CrossHostProposalObservationV2:
+    """严格重建一条 proposal observation，不接受未知字段。"""
+
+    payload = _expect_mapping(value, context=context)
+    _expect_exact_keys(payload, _CROSS_HOST_OBSERVATION_KEYS, context=context)
+    revision = payload["host_revision"]
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise WorkflowArtifactCodecError(f"{context}.host_revision must be an integer")
+    return CrossHostProposalObservationV2(
+        host_kind=_required_text(payload["host_kind"], context=f"{context}.host_kind"),
+        host_instance_id=_required_text(
+            payload["host_instance_id"],
+            context=f"{context}.host_instance_id",
+        ),
+        document_id=_required_text(
+            payload["document_id"],
+            context=f"{context}.document_id",
+        ),
+        native_target_id=_required_text(
+            payload["native_target_id"],
+            context=f"{context}.native_target_id",
+        ),
+        semantic_target_id=_required_text(
+            payload["semantic_target_id"],
+            context=f"{context}.semantic_target_id",
+        ),
+        host_revision=revision,
+        normalized_thickness_mm=_expect_number(
+            payload["normalized_thickness_mm"],
+            context=f"{context}.normalized_thickness_mm",
+        ),
+        observed_at=_required_text(
+            payload["observed_at"],
+            context=f"{context}.observed_at",
+        ),
+        command_id=_required_text(
+            payload["command_id"],
+            context=f"{context}.command_id",
+        ),
+    )
+
+
+def _encode_cross_host_proposal_subject(
+    value: CrossHostOperationProposalSubjectV2,
+) -> dict[str, object]:
+    """编码用户真实接受对象；required-set 等后续 authority 不得混入。"""
+
+    return {
+        "request_hash": value.request_hash,
+        "session_binding_hash": value.session_binding_hash,
+        "topology_snapshot_hash": value.topology_snapshot_hash,
+        "semantic_target_id": value.semantic_target_id,
+        "semantic_environment_id": value.semantic_environment_id,
+        "semantic_environment_hash": value.semantic_environment_hash,
+        "canonical_operation": value.canonical_operation,
+        "canonical_arguments": value.canonical_arguments_body(),
+        "observations": [
+            _encode_cross_host_observation(item) for item in value.observations
+        ],
+    }
+
+
+def _decode_cross_host_proposal_subject(
+    payload: Mapping[str, object],
+) -> CrossHostOperationProposalSubjectV2:
+    """严格恢复 immutable cross-Host human proposal subject。"""
+
+    _expect_exact_keys(
+        payload,
+        _CROSS_HOST_SUBJECT_KEYS,
+        context="cross_host_operation_proposal_subject_v2",
+    )
+    observations = _expect_sequence(
+        payload["observations"],
+        context="cross_host_operation_proposal_subject_v2.observations",
+    )
+    arguments = _expect_mapping(
+        payload["canonical_arguments"],
+        context="cross_host_operation_proposal_subject_v2.canonical_arguments",
+    )
+    return CrossHostOperationProposalSubjectV2(
+        request_hash=_required_text(
+            payload["request_hash"],
+            context="cross_host_operation_proposal_subject_v2.request_hash",
+        ),
+        session_binding_hash=_required_text(
+            payload["session_binding_hash"],
+            context="cross_host_operation_proposal_subject_v2.session_binding_hash",
+        ),
+        topology_snapshot_hash=_required_text(
+            payload["topology_snapshot_hash"],
+            context="cross_host_operation_proposal_subject_v2.topology_snapshot_hash",
+        ),
+        semantic_target_id=_required_text(
+            payload["semantic_target_id"],
+            context="cross_host_operation_proposal_subject_v2.semantic_target_id",
+        ),
+        semantic_environment_id=_required_text(
+            payload["semantic_environment_id"],
+            context="cross_host_operation_proposal_subject_v2.semantic_environment_id",
+        ),
+        semantic_environment_hash=_required_text(
+            payload["semantic_environment_hash"],
+            context="cross_host_operation_proposal_subject_v2.semantic_environment_hash",
+        ),
+        canonical_operation=_required_text(
+            payload["canonical_operation"],
+            context="cross_host_operation_proposal_subject_v2.canonical_operation",
+        ),
+        canonical_arguments={
+            str(key): _json_value(
+                item,
+                context=(
+                    "cross_host_operation_proposal_subject_v2."
+                    f"canonical_arguments.{key}"
+                ),
+            )
+            for key, item in arguments.items()
+        },
+        observations=tuple(
+            _decode_cross_host_observation(
+                item,
+                context=(
+                    "cross_host_operation_proposal_subject_v2."
+                    f"observations[{index}]"
+                ),
+            )
+            for index, item in enumerate(observations)
+        ),
+    )
+
+
 def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
     """把支持的 workflow-local artifact 编码为显式 versioned JSON payload。"""
 
@@ -631,6 +818,13 @@ def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
                     "bound_operation_proposal requires BoundOperationProposal"
                 )
             return _encode_bound(value)
+        if kind == "cross_host_operation_proposal_subject_v2":
+            if not isinstance(value, CrossHostOperationProposalSubjectV2):
+                raise WorkflowArtifactCodecError(
+                    "cross_host_operation_proposal_subject_v2 requires "
+                    "CrossHostOperationProposalSubjectV2"
+                )
+            return _encode_cross_host_proposal_subject(value)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -661,6 +855,8 @@ def decode_workflow_artifact(
             return _decode_resolution(mapping)
         if kind == "bound_operation_proposal":
             return _decode_bound(mapping)
+        if kind == "cross_host_operation_proposal_subject_v2":
+            return _decode_cross_host_proposal_subject(mapping)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -675,6 +871,8 @@ def _artifact_kind(value: object) -> str:
         return "operation_resolution"
     if isinstance(value, BoundOperationProposal):
         return "bound_operation_proposal"
+    if isinstance(value, CrossHostOperationProposalSubjectV2):
+        return "cross_host_operation_proposal_subject_v2"
     raise WorkflowArtifactCodecError(
         f"unsupported workflow artifact value type: {type(value).__name__}"
     )

@@ -47,6 +47,7 @@ class WorkflowGraphState(TypedDict, total=False):
     initial_host_ref: dict[str, object] | None
     context_snapshot_ref: dict[str, object] | None
     operation_ref: dict[str, object] | None
+    proposal_subject_ref: dict[str, object] | None
     interaction_ref: dict[str, object] | None
     changeset_ref: dict[str, object] | None
     approval_ref: dict[str, object] | None
@@ -209,6 +210,11 @@ def checkpoint_view_to_graph_state(view: WorkflowCheckpointView) -> dict[str, ob
         "phase": view.phase.value,
         "context_snapshot_ref": _encode_stable_ref(view.context_snapshot_ref),
         "operation_ref": _encode_stable_ref(view.operation_ref),
+        "proposal_subject_ref": _encode_stable_ref(
+            None
+            if view.pending_interaction is None
+            else view.pending_interaction.subject_ref
+        ),
         "interaction_ref": _encode_async_ref(view.interaction_ref),
         "changeset_ref": _encode_stable_ref(view.changeset_ref),
         "approval_ref": _encode_stable_ref(view.approval_ref),

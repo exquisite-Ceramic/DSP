@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from design_orchestrator.interaction_artifacts import CrossHostOperationProposalSubjectV2
 from design_orchestrator.operation_resolver import (
     CapabilityProfile,
     OperationResolver,
@@ -36,6 +37,7 @@ from design_orchestrator.workflow_contracts import (
 )
 from design_orchestrator.workflow_services import (
     ExecutionOwnerView,
+    InteractionSubjectArtifactResolution,
     OperationArtifactResolution,
 )
 
@@ -87,6 +89,13 @@ class ExternalOwnerPorts(Protocol):
         self,
         snapshot_ref: StableRef,
     ) -> OperationResolutionInputs: ...
+
+    def build_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> CrossHostOperationProposalSubjectV2: ...
 
     def load_parameter_binding_inputs(
         self,
@@ -213,6 +222,95 @@ class DefaultWorkflowServices:
             kind="operation_resolution",
             value=resolution,
             content_hash=workflow_artifact_content_hash(resolution),
+        )
+
+
+    def prepare_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef:
+        """为 V1 保留 operation ref；V2 builder 则发布独立 immutable human subject。"""
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id must be a non-blank string")
+        if not isinstance(operation_ref, StableRef):
+            raise TypeError("operation_ref must be a StableRef")
+        if not isinstance(context_snapshot_ref, StableRef):
+            raise TypeError("context_snapshot_ref must be a StableRef")
+
+        builder = getattr(
+            self._external_owners,
+            "build_operation_proposal_subject",
+            None,
+        )
+        if not callable(builder):
+            return operation_ref
+
+        subject = builder(task_id.strip(), operation_ref, context_snapshot_ref)
+        if not isinstance(subject, CrossHostOperationProposalSubjectV2):
+            raise TypeError(
+                "build_operation_proposal_subject must return "
+                "CrossHostOperationProposalSubjectV2"
+            )
+        content_hash = workflow_artifact_content_hash(subject)
+        ref = self._artifact_store.put(
+            kind="cross_host_operation_proposal_subject_v2",
+            value=subject,
+            content_hash=content_hash,
+        )
+        if not isinstance(ref, StableRef) or ref.content_hash != content_hash:
+            raise WorkflowArtifactUnavailableError(
+                "workflow artifact store returned an invalid proposal subject reference"
+            )
+        return ref
+
+    def ensure_interaction_subject_artifact(
+        self,
+        subject_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> InteractionSubjectArtifactResolution:
+        """验证 generic human subject；只有 legacy V1 operation subject 允许重建。"""
+
+        if not isinstance(subject_ref, StableRef):
+            raise TypeError("subject_ref must be a StableRef")
+        if not isinstance(context_snapshot_ref, StableRef):
+            raise TypeError("context_snapshot_ref must be a StableRef")
+        if not isinstance(allow_legacy_rehydrate, bool):
+            raise TypeError("allow_legacy_rehydrate must be a boolean")
+
+        unavailable: WorkflowArtifactUnavailableError
+        try:
+            persisted = self._artifact_store.get(subject_ref)
+        except WorkflowArtifactUnavailableError as exc:
+            unavailable = exc
+        else:
+            if isinstance(
+                persisted,
+                (ResolutionResult, CrossHostOperationProposalSubjectV2),
+            ):
+                return InteractionSubjectArtifactResolution(
+                    ref=subject_ref,
+                    source="durable",
+                )
+            unavailable = WorkflowArtifactUnavailableError(
+                "interaction subject artifact has an unsupported durable value type"
+            )
+
+        if not allow_legacy_rehydrate:
+            raise unavailable
+
+        resolution = self.ensure_operation_artifact(
+            subject_ref,
+            context_snapshot_ref,
+            allow_legacy_rehydrate=True,
+        )
+        return InteractionSubjectArtifactResolution(
+            ref=resolution.ref,
+            source=resolution.source,
         )
 
     def ensure_operation_artifact(

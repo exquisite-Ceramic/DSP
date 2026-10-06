@@ -178,16 +178,33 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
         """在 interrupt 之前生成并持久化唯一 proposal pause identity。"""
 
         operation_ref = _require_stable_ref(state, "operation_ref")
+        context_snapshot_ref = _require_stable_ref(state, "context_snapshot_ref")
+        prepare_subject = getattr(services, "prepare_operation_proposal_subject", None)
+        if callable(prepare_subject):
+            proposal_subject_ref = prepare_subject(
+                cast(str, state["task_id"]),
+                operation_ref,
+                context_snapshot_ref,
+            )
+        else:
+            # 仅为旧的窄测试 adapter 保留 V1 等价行为；production WorkflowServices
+            # 必须实现显式 generic subject port。
+            proposal_subject_ref = operation_ref
+        if not isinstance(proposal_subject_ref, StableRef):
+            raise TypeError(
+                "prepare_operation_proposal_subject must return a StableRef"
+            )
         pending = PendingInteractionView(
             pause_id=str(uuid4()),
             kind=PendingInteractionKind.OPERATION_PROPOSAL,
-            subject_ref=operation_ref,
+            subject_ref=proposal_subject_ref,
             allowed_resume_kinds=(
                 "OPERATION_PROPOSAL_ACCEPTED",
                 "OPERATION_PROPOSAL_REJECTED",
             ),
         )
         return {
+            "proposal_subject_ref": _encode_stable_ref(proposal_subject_ref),
             "pending_interaction": encode_pending_interaction(pending),
             "async_operation_ref": None,
             "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,
@@ -196,14 +213,17 @@ def build_workflow_graph(services: WorkflowServices) -> StateGraph:
     def await_operation_proposal(state: WorkflowGraphState) -> dict[str, object]:
         """暂停并只接受与 durable pause identity 精确相关的 ACCEPT/REJECT。"""
 
-        operation_ref = _require_stable_ref(state, "operation_ref")
+        _require_stable_ref(state, "operation_ref")
+        proposal_subject_ref = _require_stable_ref(state, "proposal_subject_ref")
         pending = decode_pending_interaction(state.get("pending_interaction"))
         if pending is None:
             raise ValueError("pending_interaction is required for operation proposal wait")
         if pending.kind is not PendingInteractionKind.OPERATION_PROPOSAL:
             raise ValueError("pending interaction kind is invalid for operation proposal wait")
-        if pending.subject_ref != operation_ref:
-            raise ValueError("pending interaction subject does not match operation_ref")
+        if pending.subject_ref != proposal_subject_ref:
+            raise ValueError(
+                "pending interaction subject does not match proposal_subject_ref"
+            )
 
         resumed = interrupt(
             {

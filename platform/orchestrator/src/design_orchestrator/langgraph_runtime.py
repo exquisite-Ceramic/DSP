@@ -35,7 +35,7 @@ from design_orchestrator.workflow_contracts import (
 )
 from design_orchestrator.workflow_port import WorkflowOrchestratorPort
 from design_orchestrator.workflow_services import (
-    OperationArtifactResolution,
+    InteractionSubjectArtifactResolution,
     WorkflowServices,
     WorkflowStateError,
 )
@@ -301,11 +301,11 @@ def _require_v2_human_interrupt(
 def _validate_v2_human_artifact_authority(
     services: WorkflowServices,
     checkpoint: WorkflowCheckpointView,
-) -> OperationArtifactResolution:
+) -> InteractionSubjectArtifactResolution:
     """在消费 v2 human command 前验证 pending subject 的 exact durable authority。
 
-    v2 checkpoint 已经承诺 durable continuation identity，因此这里禁止 legacy rehydrate；
-    artifact 缺失、来源不是 durable 或返回 ref 漂移都必须在 graph invocation 前 fail closed。
+    V2 proposal subject 可以与 operation_ref 不同；因此 preflight 必须走 generic interaction
+    artifact seam。只有旧的 operation-ref subject adapter 在缺少该新 seam 时允许兼容回退。
     """
 
     pending = checkpoint.pending_interaction
@@ -317,15 +317,37 @@ def _validate_v2_human_artifact_authority(
         )
 
     try:
-        resolution = services.ensure_operation_artifact(
-            pending.subject_ref,
-            context_snapshot_ref,
-            allow_legacy_rehydrate=False,
+        ensure_subject = getattr(
+            services,
+            "ensure_interaction_subject_artifact",
+            None,
         )
+        if callable(ensure_subject):
+            resolution = ensure_subject(
+                pending.subject_ref,
+                context_snapshot_ref,
+                allow_legacy_rehydrate=False,
+            )
+        elif checkpoint.operation_ref == pending.subject_ref:
+            # 兼容历史自定义 WorkflowServices 测试/adapter；真实 DefaultWorkflowServices
+            # 已实现 generic seam。独立 V2 subject 绝不允许回退到 operation-only validator。
+            legacy_resolution = services.ensure_operation_artifact(
+                pending.subject_ref,
+                context_snapshot_ref,
+                allow_legacy_rehydrate=False,
+            )
+            resolution = InteractionSubjectArtifactResolution(
+                ref=legacy_resolution.ref,
+                source=legacy_resolution.source,
+            )
+        else:
+            raise WorkflowArtifactUnavailableError(
+                "generic interaction subject validator is unavailable"
+            )
     except WorkflowArtifactUnavailableError as exc:
         raise WorkflowStateError(
             "WORKFLOW_ARTIFACT_UNAVAILABLE",
-            "operation artifact required for human resume is unavailable",
+            "interaction subject artifact required for human resume is unavailable",
         ) from exc
 
     if resolution.source != "durable" or resolution.ref != pending.subject_ref:
@@ -459,6 +481,7 @@ class LangGraphWorkflowRuntime(WorkflowOrchestratorPort):
                         {
                             "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
                             "operation_ref": _encode_stable_ref(resolution.ref),
+                            "proposal_subject_ref": _encode_stable_ref(resolution.ref),
                             "pending_interaction": encode_pending_interaction(migrated_pending),
                             "async_operation_ref": None,
                             "phase": WorkflowPhase.AWAIT_OPERATION_PROPOSAL.value,

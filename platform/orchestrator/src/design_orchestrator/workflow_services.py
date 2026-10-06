@@ -89,6 +89,24 @@ class OperationArtifactResolution:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionSubjectArtifactResolution:
+    """Human interaction subject artifact 的 framework-neutral 可用性结果。"""
+
+    ref: StableRef
+    source: str
+
+    def __post_init__(self) -> None:
+        """只允许 exact StableRef 与 durable/rehydrated 两种来源。"""
+
+        if not isinstance(self.ref, StableRef):
+            raise ValueError("ref must be a StableRef")
+        normalized_source = _required_text(self.source, "source")
+        if normalized_source not in {"durable", "rehydrated"}:
+            raise ValueError("source must be 'durable' or 'rehydrated'")
+        object.__setattr__(self, "source", normalized_source)
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionSagaView:
     """Execution Saga owner 暴露给 workflow 的只读执行投影。"""
 
@@ -177,6 +195,21 @@ class WorkflowServices(Protocol):
     ) -> StableRef | AsyncOperationRef: ...
 
     def resolve_operations(self, snapshot_ref: StableRef) -> StableRef: ...
+
+    def prepare_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> StableRef: ...
+
+    def ensure_interaction_subject_artifact(
+        self,
+        subject_ref: StableRef,
+        context_snapshot_ref: StableRef,
+        *,
+        allow_legacy_rehydrate: bool,
+    ) -> InteractionSubjectArtifactResolution: ...
 
     def ensure_operation_artifact(
         self,
@@ -286,6 +319,7 @@ __all__ = [
     "ExecutionSagaView",
     "HostDispatchRecoveryState",
     "HostDispatchRecoveryView",
+    "InteractionSubjectArtifactResolution",
     "OperationArtifactResolution",
     "OwnerStateView",
     "WorkflowServices",
