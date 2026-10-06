@@ -186,3 +186,123 @@ def test_cross_host_subject_requires_exact_revit_and_autocad_observations(
 
     with pytest.raises(ValueError, match="CROSS_HOST_PROPOSAL_SUBJECT_INVALID"):
         _subject(observations=observations)
+
+
+class _ArtifactStore:
+    """Task 4 service tests 使用的最小 workflow-local artifact store。"""
+
+    def __init__(self) -> None:
+        self.values: dict[str, object] = {}
+        self.kinds: dict[str, str] = {}
+
+    def put(self, *, kind: str, value: object, content_hash: str):
+        """按 supplied hash 返回稳定 ref，并保留 exact kind/value 供断言。"""
+
+        from design_orchestrator.workflow_contracts import StableRef
+
+        ref = StableRef(f"artifact-{len(self.values) + 1}", content_hash)
+        self.values[ref.ref_id] = value
+        self.kinds[ref.ref_id] = kind
+        return ref
+
+    def get(self, ref):
+        """未知 ref 按 production artifact store 语义报告 unavailable。"""
+
+        from design_orchestrator.workflow_artifacts import WorkflowArtifactUnavailableError
+
+        try:
+            return self.values[ref.ref_id]
+        except KeyError as exc:
+            raise WorkflowArtifactUnavailableError("test artifact missing") from exc
+
+
+class _V1Owners:
+    """V1 owners 不提供 cross-host proposal builder。"""
+
+
+class _V2Owners:
+    """V2 owners 显式提供 immutable proposal subject builder。"""
+
+    def __init__(self, subject) -> None:
+        self.subject = subject
+        self.calls: list[tuple[object, object, object]] = []
+
+    def build_operation_proposal_subject(
+        self,
+        task_id,
+        operation_ref,
+        context_snapshot_ref,
+    ):
+        """记录 exact workflow lineage 并返回 subject body。"""
+
+        self.calls.append((task_id, operation_ref, context_snapshot_ref))
+        return self.subject
+
+
+def _default_service(owners):
+    """构造真实 DefaultWorkflowServices；本测试只触碰 Task 4 subject seam。"""
+
+    from design_orchestrator.canonical_operations import MOVE_V1, MVP_CANONICAL_OPERATIONS
+    from design_orchestrator.default_workflow_services import DefaultWorkflowServices
+    from design_orchestrator.operation_resolver import OperationResolver
+    from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
+
+    store = _ArtifactStore()
+    service = DefaultWorkflowServices(
+        operation_resolver=OperationResolver((MOVE_V1,)),
+        parameter_binder=ParameterBinder(
+            MVP_CANONICAL_OPERATIONS,
+            MVP_BINDING_RECIPES,
+        ),
+        artifact_store=store,
+        external_owners=owners,
+    )
+    return service, store
+
+
+def test_default_workflow_services_keeps_v1_operation_ref_as_subject_without_builder() -> None:
+    """V1 composition 没有 cross-host builder 时不得制造新的 proposal artifact。"""
+
+    from design_orchestrator.workflow_contracts import StableRef
+
+    service, store = _default_service(_V1Owners())
+    operation_ref = StableRef("operation-v1", "a" * 64)
+    context_ref = StableRef("context-v1", "b" * 64)
+
+    subject_ref = service.prepare_operation_proposal_subject(
+        "task-v1",
+        operation_ref,
+        context_ref,
+    )
+
+    assert subject_ref == operation_ref
+    assert store.values == {}
+
+
+def test_default_workflow_services_persists_and_validates_v2_proposal_subject() -> None:
+    """V2 builder 产出的 subject 必须 content-addressed 持久化并由 generic seam 验证。"""
+
+    from design_orchestrator.workflow_contracts import StableRef
+
+    subject = _subject()
+    owners = _V2Owners(subject)
+    service, store = _default_service(owners)
+    operation_ref = StableRef("operation-v2", "a" * 64)
+    context_ref = StableRef("context-v2", "b" * 64)
+
+    subject_ref = service.prepare_operation_proposal_subject(
+        "task-v2",
+        operation_ref,
+        context_ref,
+    )
+    resolution = service.ensure_interaction_subject_artifact(
+        subject_ref,
+        context_ref,
+        allow_legacy_rehydrate=False,
+    )
+
+    assert owners.calls == [("task-v2", operation_ref, context_ref)]
+    assert store.kinds[subject_ref.ref_id] == "cross_host_operation_proposal_subject_v2"
+    assert store.get(subject_ref) == subject
+    assert resolution.ref == subject_ref
+    assert resolution.source == "durable"
