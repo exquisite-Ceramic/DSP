@@ -401,3 +401,174 @@ def test_submit_validates_authority_then_reuses_exact_objects_for_composition() 
     assert pool.calls == [(binding, candidate)]
     assert flow.submit_calls == [request]
     assert query.calls == [request.task_id]
+
+
+class _V2SessionReader:
+    """只按 exact session_ref 返回一个 V2 binding。"""
+
+    def __init__(self, binding) -> None:
+        self.binding = binding
+        self.calls: list[str] = []
+
+    def resolve_session_v2(self, session_ref: str):
+        """记录 exact lookup；未知 session 返回 None。"""
+
+        self.calls.append(session_ref)
+        if self.binding is None or session_ref != self.binding.session_ref:
+            return None
+        return self.binding
+
+
+class _ReviewedV2Validator:
+    """模拟 reviewed-config owner；只允许 service 显式请求一次验证。"""
+
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def validate(self, binding) -> None:
+        """记录被验证的 exact binding；实际配置 owner 在后续 composition 中注入。"""
+
+        self.calls.append(binding)
+
+
+class _AcceptedInputStore:
+    """记录 V2 server takeover，并返回传入 authority 以便断言顺序。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, str, dict[str, object]]] = []
+
+    def create_v2(
+        self,
+        request,
+        *,
+        session_binding_hash: str,
+        session_binding_payload: dict[str, object],
+    ):
+        """记录 atomic accepted-input owner 调用。"""
+
+        self.calls.append((request, session_binding_hash, session_binding_payload))
+        return object()
+
+
+def _v2_binding():
+    """构造 service Task 3 所需 exact 双 Host binding。"""
+
+    import design_product_front_door as front_door
+
+    return front_door.SessionBindingV2.create(
+        session_ref="session-v2-service",
+        project_id="project-front-door-v2",
+        semantic_target_id="WALL-V2",
+        semantic_environment_id="SEM-ENV-V2",
+        semantic_environment_hash="a" * 64,
+        topology_environment_id="TOPOLOGY-V2",
+        topology_revision=3,
+        topology_snapshot_hash="b" * 64,
+        initiating_host_kind="REVIT",
+        members=(
+            front_door.SessionBindingMemberV2(
+                host_kind="AUTOCAD",
+                role="BOUND_REQUIRED",
+                configured_reference_id="primary-autocad",
+                configured_reference_hash="c" * 64,
+                transport_locator="autocad-pipe",
+                host_instance_id="autocad-runtime",
+                document_id=r"C:\Models\FrontDoor.dwg",
+                native_target_id="autocad-wall-v2",
+                host_binding_fingerprint="d" * 64,
+            ),
+            front_door.SessionBindingMemberV2(
+                host_kind="REVIT",
+                role="INITIATOR",
+                configured_reference_id="primary-revit",
+                configured_reference_hash="e" * 64,
+                transport_locator="revit-pipe",
+                host_instance_id="revit-runtime",
+                document_id=r"C:\Models\FrontDoor.rvt",
+                native_target_id="revit-wall-v2",
+                host_binding_fingerprint="f" * 64,
+            ),
+        ),
+    )
+
+
+def test_v2_submit_takes_over_binding_before_any_workflow_or_host_action() -> None:
+    """V2 submit 必须先完成 exact local binding/config 校验与 server owner takeover。"""
+
+    import design_product_front_door as front_door
+    from design_product_runtime import ProductTaskRequestV2
+
+    binding = _v2_binding()
+    request = ProductTaskRequestV2.create(
+        task_id="task-v2-service",
+        project_id=binding.project_id,
+        initiating_host_kind="REVIT",
+        session_ref=binding.session_ref,
+        session_binding_hash=binding.binding_hash,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+    reader = _V2SessionReader(binding)
+    reviewed = _ReviewedV2Validator()
+    accepted = _AcceptedInputStore()
+    exploding = _ExplodingDependency()
+    service = ProductFrontDoorService(
+        session_binding_reader=reader,
+        candidate_source=exploding,
+        context_probe=exploding,
+        transport_factory=exploding,
+        query_service=_QueryService(result=None, calls=[]),
+        composition_pool=exploding,
+        reviewed_configuration_validator=reviewed,
+        accepted_input_store=accepted,
+    )
+
+    view = service.submit(request)
+
+    assert reader.calls == [binding.session_ref]
+    assert reviewed.calls == [binding]
+    assert len(accepted.calls) == 1
+    stored_request, stored_hash, stored_payload = accepted.calls[0]
+    assert stored_request == request
+    assert stored_hash == binding.binding_hash
+    assert stored_payload["binding_hash"] == binding.binding_hash
+    assert view.task_id == request.task_id
+    assert view.request_hash == request.request_hash
+    assert view.state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW
+    assert view.flow is None
+
+
+def test_v2_submit_rejects_binding_hash_mismatch_before_review_or_takeover() -> None:
+    """MCP request 的 session_binding_hash 不匹配 local exact binding 时必须 fail closed。"""
+
+    from design_product_runtime import ProductTaskRequestV2
+
+    binding = _v2_binding()
+    request = ProductTaskRequestV2.create(
+        task_id="task-v2-service-mismatch",
+        project_id=binding.project_id,
+        initiating_host_kind="REVIT",
+        session_ref=binding.session_ref,
+        session_binding_hash="1" * 64,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 300.0, "unit": "mm"}},
+    )
+    reviewed = _ReviewedV2Validator()
+    accepted = _AcceptedInputStore()
+    exploding = _ExplodingDependency()
+    service = ProductFrontDoorService(
+        session_binding_reader=_V2SessionReader(binding),
+        candidate_source=exploding,
+        context_probe=exploding,
+        transport_factory=exploding,
+        query_service=_QueryService(result=None, calls=[]),
+        composition_pool=exploding,
+        reviewed_configuration_validator=reviewed,
+        accepted_input_store=accepted,
+    )
+
+    with pytest.raises(ValueError, match="FRONT_DOOR_REQUEST_BINDING_MISMATCH"):
+        service.submit(request)
+
+    assert reviewed.calls == []
+    assert accepted.calls == []
