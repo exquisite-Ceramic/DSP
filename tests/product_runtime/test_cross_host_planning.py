@@ -38,6 +38,7 @@ from semantic_runtime import (
     SemanticEnvironmentRef,
     SemanticProjectionRef,
     SnapshotSet,
+    SnapshotRegistryError,
     build_context_contract,
 )
 
@@ -408,5 +409,6 @@ def test_post_accept_revit_or_autocad_drift_marks_stale_gate_b_and_preserves_acc
     assert decisions.record.revision == 2
     assert decisions.invalidations
     # Gate B 失败不得发布一个看似 authoritative 的双 Host SnapshotSet。
-    with pytest.raises(Exception):
+    with pytest.raises(SnapshotRegistryError) as missing:
         registry.get_snapshot_set("PSS-not-published")
+    assert missing.value.code == "SNAPSHOT_SET_REFERENCE_NOT_FOUND"
