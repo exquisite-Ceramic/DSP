@@ -385,7 +385,9 @@ def _accepted_input_for_case(changeset, boundary):
         project_id=changeset.project_id,
         semantic_target_id=semantic_target,
         semantic_environment_id=changeset.semantic_environment_ref.environment_id,
-        semantic_environment_hash=changeset.semantic_environment_ref.content_hash,
+        # SessionBindingV2 要求规范 64-hex environment hash；本测试只验证
+        # policy/topology/Host-role authority，不把 build_case 的 legacy ref 编码当作 V2 hash。
+        semantic_environment_hash="f" * 64,
         topology_environment_id="TOPOLOGY-V2",
         topology_revision=7,
         topology_snapshot_hash=boundary.topology_snapshot_hash,
