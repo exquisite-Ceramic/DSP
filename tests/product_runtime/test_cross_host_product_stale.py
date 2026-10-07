@@ -312,3 +312,122 @@ def test_gate_a_drift_uses_durable_v2_checkpoint_and_never_consumes_old_accept()
         artifacts.close()
         decisions.close()
         requests.close()
+
+
+
+def test_gate_b_decision_adapter_preserves_postgres_accept_history() -> None:
+    """subject-based continuation seam 必须只投影现有 owner，不复制 pause/state。"""
+
+    from design_product_runtime.cross_host_reference_composition import (
+        ProposalDecisionContinuationAdapter,
+    )
+
+    dsn = _dsn()
+    _reset(dsn)
+    decisions = PostgresProposalDecisionStore(dsn)
+    subject_ref = StableRef("subject-task15-gate-b", "e" * 64)
+    try:
+        accepted = decisions.claim_accept(
+            "task-task15-gate-b",
+            "pause-task15-gate-b",
+            subject_ref,
+        )
+        adapter = ProposalDecisionContinuationAdapter(decisions)
+
+        assert adapter.get_by_subject(
+            "task-task15-gate-b",
+            subject_ref,
+        ) == accepted
+
+        stale = adapter.invalidate_gate_b_by_subject(
+            "task-task15-gate-b",
+            subject_ref,
+            "REVIT_PLANNING_CONTINUITY_DRIFT",
+        )
+        assert stale.human_decision is HumanDecisionState.ACCEPTED
+        assert stale.continuation is ProposalContinuationState.STALE_GATE_B
+        assert stale.revision == accepted.revision + 1
+        assert decisions.get(
+            "task-task15-gate-b",
+            "pause-task15-gate-b",
+            subject_ref,
+        ) == stale
+    finally:
+        decisions.close()
+
+
+class _PlanningPort:
+    """focused composition double；只证明 exact runtime/document 路由，不模拟语义 owner。"""
+
+    def __init__(self, runtime_ref, revision: str) -> None:
+        self.runtime_ref = runtime_ref
+        self.revision = revision
+        self.reconstruction_calls = []
+
+    def current_revision(self, document_ref: str) -> str:
+        """只接受自身 exact document。"""
+
+        assert document_ref == self.runtime_ref.document_ref
+        return self.revision
+
+    def reconstruct_member(self, **kwargs):
+        """记录 exact member route；focused test 不进入 semantic reconstruction。"""
+
+        self.reconstruction_calls.append(kwargs)
+        return ("member", self.runtime_ref.host_type)
+
+
+def test_cross_host_planning_composition_uses_exact_runtime_and_document_routes() -> None:
+    """planning composition 不得按 host type latest/fuzzy fallback。"""
+
+    from design_execution_planning import HostRuntimeRef
+    from design_product_runtime.cross_host_reference_composition import (
+        build_cross_host_planning_composition,
+    )
+
+    autocad_runtime = HostRuntimeRef("autocad", "AUTOCAD-GATE-B", r"C:\DSP\a.dwg")
+    revit_runtime = HostRuntimeRef("revit", "REVIT-GATE-B", r"C:\DSP\r.rvt")
+    autocad = _PlanningPort(autocad_runtime, "17")
+    revit = _PlanningPort(revit_runtime, "41")
+    composition = build_cross_host_planning_composition(
+        (
+            (autocad_runtime, autocad),
+            (revit_runtime, revit),
+        )
+    )
+
+    assert composition.revision_observation.current_revision(
+        autocad_runtime.document_ref
+    ) == "17"
+    assert composition.revision_observation.current_revision(
+        revit_runtime.document_ref
+    ) == "41"
+
+    observation = CrossHostProposalObservationV2(
+        host_kind="REVIT",
+        host_instance_id=revit_runtime.host_instance_id,
+        document_id=revit_runtime.document_ref,
+        native_target_id="REVIT-WALL-GATE-B",
+        semantic_target_id="WALL-001",
+        host_revision=41,
+        normalized_thickness_mm=200.0,
+        observed_at="2026-10-07T07:10:00Z",
+        command_id="proposal-revit-gate-b",
+    )
+    result = composition.member_reconstruction.reconstruct_member(
+        task_id="task-gate-b",
+        host_kind="REVIT",
+        contract=object(),
+        accepted_observation=observation,
+        expected_host_revision="41",
+        semantic_environment_ref=object(),
+    )
+    assert result == ("member", "revit")
+    assert len(revit.reconstruction_calls) == 1
+    assert autocad.reconstruction_calls == []
+
+    with pytest.raises(
+        ValueError,
+        match="PRODUCT_RUNTIME_HOST_RUNTIME_NOT_CONFIGURED",
+    ):
+        composition.revision_observation.current_revision(r"C:\DSP\other.rvt")
