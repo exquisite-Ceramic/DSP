@@ -140,7 +140,7 @@ def test_autocad_verification_uses_semantic_facts_not_execute_response_width() -
 
     case = _case(revision=11, width_mm=300.0)
     bundle = _bundle(case)
-    ctx, _, execution_slice, authority, _, actual_delta, _, dispatcher = case
+    ctx, _, execution_slice, authority, binding_set, actual_delta, _, dispatcher = case
 
     assert dispatcher.calls == [
         (binding_set.bindings[0].native_targets[0].native_id,)
