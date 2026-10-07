@@ -91,6 +91,7 @@ jobs:
         run: |
           pytest -q tests/integration/test_design_capability_profile.py
           pytest -q tests/integration/test_step34_autocad_wall_thickness_command.py
+          pytest -q hosts/autocad/sidecar/tests/test_wall_thickness_product_execution.py
       - name: Run Step34 reconciliation proof
         run: |
           pytest -q tests/integration/test_step34_autocad_wall_thickness_reconciliation.py
@@ -103,7 +104,10 @@ jobs:
             hosts/autocad/sidecar/src/autocad_sidecar/adapter/design_fact_adapter.py \
             hosts/autocad/sidecar/src/autocad_sidecar/adapter/model_adapter.py \
             hosts/autocad/sidecar/src/autocad_sidecar/execution/command_dispatcher.py \
+            hosts/autocad/sidecar/src/autocad_sidecar/execution/wall_thickness.py \
+            hosts/autocad/sidecar/src/autocad_sidecar/execution/wall_thickness_read.py \
             hosts/autocad/sidecar/src/autocad_sidecar/mcp_server.py \
+            hosts/autocad/sidecar/tests/test_wall_thickness_product_execution.py \
             platform/orchestrator/src/design_orchestrator/canonical_operations.py \
             platform/orchestrator/src/design_orchestrator/parameter_binder.py \
             providers/semantics/enterprise_mapping/src/enterprise_mapping_provider/projection.py \

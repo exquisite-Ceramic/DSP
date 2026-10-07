@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from importlib import import_module
 
-import pytest
 from design_execution_coordination import (
     HostCommitted,
     HostDispatchContext,
@@ -213,7 +212,10 @@ def test_autocad_lost_response_is_outcome_unknown_not_safe_retry() -> None:
 
 
 def test_provider_snapshot_freezes_exact_planning_revision_into_binding_hash() -> None:
-    """AutoCAD provider snapshot boundary 必须把自己的 planning revision 写入 hash-bound metadata。"""
+    """
+    AutoCAD provider snapshot boundary 必须把自己的 planning revision
+    写入 hash-bound metadata。
+    """
 
     _, boundary_type = _api()
     _, execution_slice, _, _, _ = _lineage(expected_revision=11)
