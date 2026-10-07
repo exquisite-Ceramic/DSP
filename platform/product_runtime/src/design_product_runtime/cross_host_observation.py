@@ -5,14 +5,20 @@ from __future__ import annotations
 import asyncio
 import math
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from design_fact_contracts import FactKind, NormalizedDesignFactBatch
 from design_orchestrator.interaction_artifacts import CrossHostProposalObservationV2
 
-from .cross_host_planning import CrossHostPlanningMemberEvidence
-from .contracts import ProductTaskRequestError
-from design_product_front_door import SessionBindingMemberV2, SessionBindingV2
 from semantic_runtime import ReconstructionResult
+
+from .cross_host_planning import CrossHostPlanningMemberEvidence
+
+if TYPE_CHECKING:
+    from design_product_front_door.contracts import (
+        SessionBindingMemberV2,
+        SessionBindingV2,
+    )
 
 
 def _fail(code: str, detail: str) -> None:
@@ -52,13 +58,23 @@ def _require_exact_member(
     binding: SessionBindingV2,
     member: SessionBindingMemberV2,
 ) -> None:
-    """只接受 accepted binding 中 exact member；禁止 runtime/document/target 漂移。"""
+    """只接受 accepted binding 中 exact member；运行时保持 Product Runtime→Front Door 单向解耦。"""
 
-    if not isinstance(binding, SessionBindingV2):
-        raise TypeError("binding must be SessionBindingV2")
-    if not isinstance(member, SessionBindingMemberV2):
-        raise TypeError("member must be SessionBindingMemberV2")
-    if member not in binding.members:
+    members = getattr(binding, "members", None)
+    semantic_target_id = getattr(binding, "semantic_target_id", None)
+    if not isinstance(members, tuple) or not isinstance(semantic_target_id, str):
+        raise TypeError("binding must expose frozen V2 members and semantic_target_id")
+
+    required_member_fields = (
+        "host_kind",
+        "transport_locator",
+        "host_instance_id",
+        "document_id",
+        "native_target_id",
+    )
+    if any(not hasattr(member, field_name) for field_name in required_member_fields):
+        raise TypeError("member must expose the frozen V2 Host member identity")
+    if member not in members:
         _fail(
             "CROSS_HOST_OBSERVATION_BINDING_MISMATCH",
             "member is not the exact frozen binding member",
