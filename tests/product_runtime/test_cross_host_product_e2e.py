@@ -30,6 +30,11 @@ class _V2AcceptedReader:
 class _ContextReader:
     """外部 Host transport double；只返回当前 Revit selection evidence。"""
 
+    def __init__(self, native_target_id: str) -> None:
+        """冻结本测试从 accepted binding 取得的 exact Revit native target。"""
+
+        self._native_target_id = native_target_id
+
     def read(
         self,
         *,
@@ -49,7 +54,7 @@ class _ContextReader:
             revision=41,
             selected_elements=(
                 RevitSelectedElement(
-                    unique_id="revit-wall-1",
+                    unique_id=self._native_target_id,
                     native_kind="Wall",
                 ),
             ),
@@ -78,7 +83,7 @@ def test_v2_accepted_input_enters_real_revit_semantic_boundary_without_v1_rewrit
     )
     boundary = RevitWallThicknessSemanticBoundary(
         request_store=accepted_reader,
-        context_reader=_ContextReader(),
+        context_reader=_ContextReader(revit["native_target_id"]),
         identity_registry=identities,
         session_ref=request.session_ref,
         document_id=revit["document_id"],
