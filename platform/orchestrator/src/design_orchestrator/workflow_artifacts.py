@@ -13,6 +13,10 @@ from design_orchestrator.canonical_operations import (
     CanonicalExistenceEffect,
     SlotBindingClass,
 )
+from design_orchestrator.execution_collection_artifacts import (
+    ProviderBindingCollectionManifest,
+    ProviderBindingCollectionMember,
+)
 from design_orchestrator.interaction_artifacts import (
     CrossHostOperationProposalSubjectV2,
     CrossHostProposalObservationV2,
@@ -802,6 +806,135 @@ def _decode_cross_host_proposal_subject(
     )
 
 
+
+_PROVIDER_BINDING_COLLECTION_REF_KEYS = frozenset({"ref_id", "content_hash"})
+_PROVIDER_BINDING_COLLECTION_MEMBER_KEYS = frozenset(
+    {
+        "execution_slice_id",
+        "execution_slice_hash",
+        "materialization_id",
+        "owner_ref",
+    }
+)
+_PROVIDER_BINDING_COLLECTION_KEYS = frozenset(
+    {
+        "execution_plan_id",
+        "execution_plan_hash",
+        "materialization_plan_hash",
+        "required_slice_refs",
+        "members",
+    }
+)
+
+
+def _encode_hashed_ref(value: StableRef) -> dict[str, str]:
+    """编码 manifest 中必须 content-addressed 的 StableRef。"""
+
+    if value.content_hash is None:
+        raise WorkflowArtifactCodecError("manifest StableRef requires content_hash")
+    return {"ref_id": value.ref_id, "content_hash": value.content_hash}
+
+
+def _decode_hashed_ref(value: object, *, context: str) -> StableRef:
+    """严格恢复 manifest hashed StableRef。"""
+
+    payload = _expect_mapping(value, context=context)
+    _expect_exact_keys(payload, _PROVIDER_BINDING_COLLECTION_REF_KEYS, context=context)
+    return StableRef(
+        _required_text(payload["ref_id"], context=f"{context}.ref_id"),
+        _required_text(payload["content_hash"], context=f"{context}.content_hash"),
+    )
+
+
+def _encode_provider_binding_collection_manifest(
+    value: ProviderBindingCollectionManifest,
+) -> dict[str, object]:
+    """把 collection manifest 编码为只含原 owner refs 的持久化 body。"""
+
+    return {
+        "execution_plan_id": value.execution_plan_id,
+        "execution_plan_hash": value.execution_plan_hash,
+        "materialization_plan_hash": value.materialization_plan_hash,
+        "required_slice_refs": [
+            _encode_hashed_ref(item) for item in value.required_slice_refs
+        ],
+        "members": [
+            {
+                "execution_slice_id": item.execution_slice_id,
+                "execution_slice_hash": item.execution_slice_hash,
+                "materialization_id": item.materialization_id,
+                "owner_ref": _encode_hashed_ref(item.owner_ref),
+            }
+            for item in value.members
+        ],
+    }
+
+
+def _decode_provider_binding_collection_manifest(
+    payload: Mapping[str, object],
+) -> ProviderBindingCollectionManifest:
+    """严格恢复 collection manifest；未知字段和不完整 ref 都 fail closed。"""
+
+    context = "provider_binding_collection_manifest"
+    _expect_exact_keys(payload, _PROVIDER_BINDING_COLLECTION_KEYS, context=context)
+    raw_refs = _expect_sequence(
+        payload["required_slice_refs"],
+        context=f"{context}.required_slice_refs",
+    )
+    raw_members = _expect_sequence(payload["members"], context=f"{context}.members")
+    members: list[ProviderBindingCollectionMember] = []
+    for index, raw_member in enumerate(raw_members):
+        member_context = f"{context}.members[{index}]"
+        member_payload = _expect_mapping(raw_member, context=member_context)
+        _expect_exact_keys(
+            member_payload,
+            _PROVIDER_BINDING_COLLECTION_MEMBER_KEYS,
+            context=member_context,
+        )
+        members.append(
+            ProviderBindingCollectionMember(
+                execution_slice_id=_required_text(
+                    member_payload["execution_slice_id"],
+                    context=f"{member_context}.execution_slice_id",
+                ),
+                execution_slice_hash=_required_text(
+                    member_payload["execution_slice_hash"],
+                    context=f"{member_context}.execution_slice_hash",
+                ),
+                materialization_id=_required_text(
+                    member_payload["materialization_id"],
+                    context=f"{member_context}.materialization_id",
+                ),
+                owner_ref=_decode_hashed_ref(
+                    member_payload["owner_ref"],
+                    context=f"{member_context}.owner_ref",
+                ),
+            )
+        )
+    return ProviderBindingCollectionManifest(
+        execution_plan_id=_required_text(
+            payload["execution_plan_id"],
+            context=f"{context}.execution_plan_id",
+        ),
+        execution_plan_hash=_required_text(
+            payload["execution_plan_hash"],
+            context=f"{context}.execution_plan_hash",
+        ),
+        materialization_plan_hash=_required_text(
+            payload["materialization_plan_hash"],
+            context=f"{context}.materialization_plan_hash",
+        ),
+        required_slice_refs=tuple(
+            _decode_hashed_ref(
+                item,
+                context=f"{context}.required_slice_refs[{index}]",
+            )
+            for index, item in enumerate(raw_refs)
+        ),
+        members=tuple(members),
+    )
+
+
 def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
     """把支持的 workflow-local artifact 编码为显式 versioned JSON payload。"""
 
@@ -825,6 +958,13 @@ def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
                     "CrossHostOperationProposalSubjectV2"
                 )
             return _encode_cross_host_proposal_subject(value)
+        if kind == "provider_binding_collection_manifest":
+            if not isinstance(value, ProviderBindingCollectionManifest):
+                raise WorkflowArtifactCodecError(
+                    "provider_binding_collection_manifest requires "
+                    "ProviderBindingCollectionManifest"
+                )
+            return _encode_provider_binding_collection_manifest(value)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -857,6 +997,8 @@ def decode_workflow_artifact(
             return _decode_bound(mapping)
         if kind == "cross_host_operation_proposal_subject_v2":
             return _decode_cross_host_proposal_subject(mapping)
+        if kind == "provider_binding_collection_manifest":
+            return _decode_provider_binding_collection_manifest(mapping)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -873,6 +1015,8 @@ def _artifact_kind(value: object) -> str:
         return "bound_operation_proposal"
     if isinstance(value, CrossHostOperationProposalSubjectV2):
         return "cross_host_operation_proposal_subject_v2"
+    if isinstance(value, ProviderBindingCollectionManifest):
+        return "provider_binding_collection_manifest"
     raise WorkflowArtifactCodecError(
         f"unsupported workflow artifact value type: {type(value).__name__}"
     )

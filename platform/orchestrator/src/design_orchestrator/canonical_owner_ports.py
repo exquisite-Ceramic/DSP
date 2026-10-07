@@ -1040,24 +1040,70 @@ class CanonicalWorkflowOwnerPorts:
             kind="ExecutionPlanV2",
         )
 
-        # 当前 workflow contract 只携带一个 provider_binding_ref，因此本阶段只能对一个
-        # exact ExecutionSliceV2 发布一个 BindingSetV2；不得静默挑选多 slice 中的任意一个。
-        if len(execution_plan.execution_slices) != 1:
-            raise ValueError("provider binding requires exactly one ExecutionSliceV2")
-        execution_slice = execution_plan.execution_slices[0]
+        slices = tuple(execution_plan.execution_slices)
+        if len(slices) not in {1, 2}:
+            raise ValueError(
+                "provider binding requires one V1 Slice or exactly two V2 Slices"
+            )
 
         snapshot_provider = self._provider_execution_snapshot
         if not callable(snapshot_provider):
             raise self._not_wired("bind_providers")
-        snapshot = snapshot_provider(execution_slice)
-        if not isinstance(snapshot, ProviderExecutionSnapshotV2):
-            raise TypeError(
-                "provider_execution_snapshot must return ProviderExecutionSnapshotV2"
+
+        binding_refs: list[StableRef] = []
+        for execution_slice in slices:
+            snapshot = snapshot_provider(execution_slice)
+            if not isinstance(snapshot, ProviderExecutionSnapshotV2):
+                raise TypeError(
+                    "provider_execution_snapshot must return "
+                    "ProviderExecutionSnapshotV2"
+                )
+            binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
+            self._provider_binding_store.put(binding_set)
+            binding_refs.append(
+                StableRef(binding_set.binding_set_id, binding_set.binding_set_hash)
             )
 
-        binding_set = resolve_provider_bindings_v2(execution_slice, snapshot)
-        self._provider_binding_store.put(binding_set)
-        return StableRef(binding_set.binding_set_id, binding_set.binding_set_hash)
+        if len(slices) == 1:
+            return binding_refs[0]
+
+        # 多 Slice 时 workflow 只保存 Orchestrator 自己拥有的引用 manifest；
+        # ProviderBindingSetV2 的真实性与有效性仍由原 Step31 owner 负责。
+        from design_orchestrator.execution_collection_artifacts import (
+            ProviderBindingCollectionManifest,
+            ProviderBindingCollectionMember,
+        )
+
+        manifest = ProviderBindingCollectionManifest.create(
+            execution_plan,
+            tuple(
+                ProviderBindingCollectionMember(
+                    execution_slice_id=execution_slice.execution_slice_id,
+                    execution_slice_hash=execution_slice.execution_slice_hash,
+                    materialization_id=execution_slice.materialization_id,
+                    owner_ref=owner_ref,
+                )
+                for execution_slice, owner_ref in zip(
+                    slices,
+                    binding_refs,
+                    strict=True,
+                )
+            ),
+        )
+        manifest_hash = workflow_artifact_content_hash(manifest)
+        manifest_ref = self._workflow_artifact_store.put(
+            kind="provider_binding_collection_manifest",
+            value=manifest,
+            content_hash=manifest_hash,
+        )
+        if (
+            not isinstance(manifest_ref, StableRef)
+            or manifest_ref.content_hash != manifest_hash
+        ):
+            raise ValueError(
+                "provider binding collection artifact store returned invalid reference"
+            )
+        return manifest_ref
 
     def issue_execution_grant(
         self,

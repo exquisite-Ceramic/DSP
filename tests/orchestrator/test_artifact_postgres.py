@@ -8,7 +8,6 @@ from importlib import import_module
 from typing import Any
 from uuid import UUID
 
-import pytest
 from design_orchestrator.canonical_operations import MOVE_V1
 from design_orchestrator.operation_resolver import (
     OperationResolver,
@@ -22,6 +21,7 @@ from design_orchestrator.workflow_artifacts import (
     workflow_artifact_content_hash,
 )
 from design_orchestrator.workflow_contracts import StableRef
+import pytest
 
 # 该文件只属于真实 PostgreSQL 验证 lane。旧的非 PostgreSQL workflow 不安装 psycopg，
 # 因此必须在加载 PostgreSQL adapter 前做模块级 skip，避免可选依赖污染无关测试收集。
