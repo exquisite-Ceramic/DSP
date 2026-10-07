@@ -25,7 +25,12 @@ from semantic_runtime import (
     SemanticProjectionRef,
 )
 
-from .contracts import ProductTaskRequest
+from .accepted_input import AcceptedProductTaskInputV2
+from .contracts import (
+    ProductTaskRequest,
+    ProductTaskRequestError,
+    ProductTaskRequestV2,
+)
 
 
 class ProductTaskRequestReadPort(Protocol):
@@ -92,7 +97,7 @@ class RevitSemanticBoundaryError(ValueError):
 class _CapturedContext:
     """一次 exact re-read 的瞬时结果；只在当前调用栈内使用，不作为持久 authority。"""
 
-    request: ProductTaskRequest
+    request: ProductTaskRequest | ProductTaskRequestV2
     observation: RevitContextObservation
     binding: HostBinding
     digest: str
@@ -150,7 +155,7 @@ def _canonical_hash(payload: object) -> str:
 
 def _context_hash(
     *,
-    request: ProductTaskRequest,
+    request: ProductTaskRequest | ProductTaskRequestV2,
     observation: RevitContextObservation,
     semantic_id: str,
     native_id: str,
@@ -294,6 +299,54 @@ class RevitWallThicknessSemanticBoundary:
         self._semantic_service = semantic_service
         self._semantic_environment = semantic_environment
 
+    def _read_exact_request(
+        self,
+        task_id: str,
+    ) -> ProductTaskRequest | ProductTaskRequestV2:
+        """优先读取 server-owned V2 accepted input；V1 只在明确版本分流时回退。
+
+        V2 request body/hash 不转换成 V1，也不从 binding 或当前 Host 状态重算。这样
+        context identity 始终绑定 ProductTask owner 已接受的 exact immutable request。
+        """
+
+        get_v2 = getattr(self._request_store, "get_v2", None)
+        if callable(get_v2):
+            try:
+                accepted = get_v2(task_id)
+            except ProductTaskRequestError as exc:
+                if exc.code != "PRODUCT_TASK_REQUEST_VERSION_MISMATCH":
+                    raise
+            else:
+                if accepted is not None:
+                    if (
+                        not isinstance(accepted, AcceptedProductTaskInputV2)
+                        or accepted.request.task_id != task_id
+                    ):
+                        raise RevitSemanticBoundaryError(
+                            "REVIT_PRODUCT_REQUEST_MISMATCH",
+                            "V2 request store did not return the exact accepted input",
+                        )
+                    return accepted.request
+
+        get_v1 = getattr(self._request_store, "get", None)
+        if not callable(get_v1):
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_UNAVAILABLE",
+                "request store exposes neither exact V2 nor V1 lookup",
+            )
+        request = get_v1(task_id)
+        if request is None:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_UNAVAILABLE",
+                "exact ProductTask request is unavailable",
+            )
+        if not isinstance(request, ProductTaskRequest) or request.task_id != task_id:
+            raise RevitSemanticBoundaryError(
+                "REVIT_PRODUCT_REQUEST_MISMATCH",
+                "V1 request store did not return the exact ProductTask request",
+            )
+        return request
+
     def _capture(self, task_id: str) -> _CapturedContext:
         (
             "从 durable request + fresh Host READ + existing identity binding "
@@ -301,17 +354,7 @@ class RevitWallThicknessSemanticBoundary:
         )
 
         normalized_task_id = _required_text(task_id, "task_id")
-        request = self._request_store.get(normalized_task_id)
-        if request is None:
-            raise RevitSemanticBoundaryError(
-                "REVIT_PRODUCT_REQUEST_UNAVAILABLE",
-                "exact ProductTask request is unavailable",
-            )
-        if not isinstance(request, ProductTaskRequest) or request.task_id != normalized_task_id:
-            raise RevitSemanticBoundaryError(
-                "REVIT_PRODUCT_REQUEST_MISMATCH",
-                "request store did not return the exact ProductTask request",
-            )
+        request = self._read_exact_request(normalized_task_id)
         if request.session_ref != self._session_ref:
             raise RevitSemanticBoundaryError(
                 "REVIT_PRODUCT_SESSION_MISMATCH",
