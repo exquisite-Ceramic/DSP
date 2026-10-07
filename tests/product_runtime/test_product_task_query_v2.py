@@ -355,7 +355,7 @@ def test_stale_gate_a_and_gate_b_project_stale_not_cancelled(
 
 
 def test_partial_commit_and_unresolved_dispatch_project_exact_owner_truth() -> None:
-    """任一 required dispatch unresolved 时优先 RECOVERY_REQUIRED，不隐藏已知 commit。"""
+    """known commit + required dispatch unresolved 时优先 RECOVERY_REQUIRED。"""
 
     _, _, status_type, _ = _v2_types()
     fixture, accepted, checkpoint = _successful_case()

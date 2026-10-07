@@ -19,6 +19,7 @@ from design_product_runtime import (
     ProductTaskQueryService,
     ProductTaskQueryState,
     ProductTaskQueryView,
+    ProductTaskQueryViewV2,
     ProductTaskRequest,
     ProductTaskRequestV2,
 )
@@ -69,7 +70,10 @@ class ProductFrontDoorService:
         self._cross_host_observation_reader = cross_host_observation_reader
         self._v2_flow_resolver = v2_flow_resolver
 
-    def get(self, task_id: str) -> ProductTaskQueryView | None:
+    def get(
+        self,
+        task_id: str,
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2 | None:
         """只委托 host-independent durable query；不得解析 session 或访问 Host。"""
 
         return self._query_service.get(task_id)
@@ -77,7 +81,7 @@ class ProductFrontDoorService:
     def submit(
         self,
         request: ProductTaskRequest | ProductTaskRequestV2,
-    ) -> ProductTaskQueryView:
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """按 request version 分流；V2 先完成 server accepted-input takeover。"""
 
         if isinstance(request, ProductTaskRequestV2):
@@ -113,7 +117,7 @@ class ProductFrontDoorService:
         task_id: str,
         pause_id: str,
         resume_kind: str,
-    ) -> ProductTaskQueryView:
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """只恢复当前 exact Operation Proposal pause，并在触发 runtime 前重验 Host authority。"""
 
         if not isinstance(task_id, str) or not task_id.strip():
@@ -568,7 +572,7 @@ class ProductFrontDoorService:
 
     @staticmethod
     def _require_query_identity(
-        view: ProductTaskQueryView | None,
+        view: ProductTaskQueryView | ProductTaskQueryViewV2 | None,
         request: ProductTaskRequest | ProductTaskRequestV2,
         *,
         action: str,

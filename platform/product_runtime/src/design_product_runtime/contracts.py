@@ -557,3 +557,208 @@ class ProductTaskQueryView:
         object.__setattr__(self, "task_id", task_id)
         object.__setattr__(self, "request_hash", request_hash)
         object.__setattr__(self, "state", state)
+
+
+class ProductTaskV2Status(str, Enum):
+    """V2 ProductTask aggregate status；stale 与 human reject 保持语义分离。"""
+
+    WAITING = "WAITING"
+    STALE = "STALE"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    CANCELLED = "CANCELLED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    PARTIALLY_COMMITTED = "PARTIALLY_COMMITTED"
+    DIVERGED = "DIVERGED"
+
+
+class ProductProposalStateV2(str, Enum):
+    """V2 proposal decision/continuation 的只读产品投影。"""
+
+    AWAITING = "AWAITING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    STALE_GATE_A = "STALE_GATE_A"
+    STALE_GATE_B = "STALE_GATE_B"
+
+
+def _optional_nonblank(value: object | None, field: str) -> str | None:
+    """规范化 V2 query 可选文本字段。"""
+
+    if value is None:
+        return None
+    return _require_nonblank(value, field)
+
+
+def _optional_query_hash(value: object | None, field: str) -> str | None:
+    """校验 V2 query 中可选 canonical hash。"""
+
+    if value is None:
+        return None
+    return _validate_v2_authority_hash(value, field)
+
+
+def _optional_revision(value: object | None, field: str) -> int | None:
+    """校验 V2 query 中可选 Host revision。"""
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer or None")
+    return value
+
+
+def _optional_positive_number(value: object | None, field: str) -> float | None:
+    """校验产品层可展示的正有限实测值。"""
+
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0.0
+    ):
+        raise ValueError(f"{field} must be a finite positive number or None")
+    return float(value)
+
+
+@dataclass(frozen=True, slots=True)
+class ProductMaterializationQueryViewV2:
+    """一个 REQUIRED materialization 的 durable owner-derived query projection。"""
+
+    host_kind: str | None
+    host_instance_id: str | None
+    document_id: str | None
+    native_target_id: str | None
+    semantic_target_id: str | None
+    materialization_id: str | None
+    execution_slice_hash: str
+    status: str
+    expected_revision: int | None = None
+    committed_revision: int | None = None
+    observed_revision: int | None = None
+    verified_thickness_mm: float | None = None
+    actual_delta_hash: str | None = None
+    verification_hash: str | None = None
+    evidence_bundle_hash: str | None = None
+    convergence_result_hash: str | None = None
+    recovery_disposition: str | None = None
+    evidence_unavailable_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        """冻结展示字段，同时保持“未知/尚无证据”与空字符串严格分离。"""
+
+        for field_name in (
+            "host_kind",
+            "host_instance_id",
+            "document_id",
+            "native_target_id",
+            "semantic_target_id",
+            "materialization_id",
+            "recovery_disposition",
+            "evidence_unavailable_reason",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _optional_nonblank(getattr(self, field_name), field_name),
+            )
+        object.__setattr__(
+            self,
+            "execution_slice_hash",
+            _validate_v2_authority_hash(
+                self.execution_slice_hash,
+                "execution_slice_hash",
+            ),
+        )
+        object.__setattr__(self, "status", _require_nonblank(self.status, "status"))
+        for field_name in (
+            "expected_revision",
+            "committed_revision",
+            "observed_revision",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _optional_revision(getattr(self, field_name), field_name),
+            )
+        object.__setattr__(
+            self,
+            "verified_thickness_mm",
+            _optional_positive_number(
+                self.verified_thickness_mm,
+                "verified_thickness_mm",
+            ),
+        )
+        for field_name in (
+            "actual_delta_hash",
+            "verification_hash",
+            "evidence_bundle_hash",
+            "convergence_result_hash",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _optional_query_hash(getattr(self, field_name), field_name),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ProductTaskQueryViewV2:
+    """显式版本化的双 Host ProductTask durable query surface。"""
+
+    version: str
+    task_id: str
+    request_hash: str
+    state: ProductTaskQueryState | str
+    status: ProductTaskV2Status | str
+    proposal_state: ProductProposalStateV2 | str | None
+    saga_id: str | None
+    convergence_result_hash: str | None
+    materializations: tuple[ProductMaterializationQueryViewV2, ...]
+
+    def __post_init__(self) -> None:
+        """验证 V2 view 自身一致性，不把它升级为新的 durable truth。"""
+
+        if self.version != _V2_REQUEST_VERSION:
+            raise ValueError(f"version must be {_V2_REQUEST_VERSION}")
+        task_id = _require_nonblank(self.task_id, "task_id")
+        request_hash = _validate_request_hash(self.request_hash)
+        state = ProductTaskQueryState(self.state)
+        status = ProductTaskV2Status(self.status)
+        proposal_state = (
+            None
+            if self.proposal_state is None
+            else ProductProposalStateV2(self.proposal_state)
+        )
+        saga_id = _optional_nonblank(self.saga_id, "saga_id")
+        convergence_hash = _optional_query_hash(
+            self.convergence_result_hash,
+            "convergence_result_hash",
+        )
+        materializations = tuple(self.materializations)
+        if any(
+            not isinstance(item, ProductMaterializationQueryViewV2)
+            for item in materializations
+        ):
+            raise TypeError(
+                "materializations must contain ProductMaterializationQueryViewV2"
+            )
+        slice_hashes = tuple(item.execution_slice_hash for item in materializations)
+        if len(set(slice_hashes)) != len(slice_hashes):
+            raise ValueError("materializations must not duplicate execution Slice")
+        if state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW and (
+            saga_id is not None or materializations
+        ):
+            raise ValueError(
+                "ACCEPTED_PRE_WORKFLOW V2 view cannot expose Saga/materializations"
+            )
+        object.__setattr__(self, "task_id", task_id)
+        object.__setattr__(self, "request_hash", request_hash)
+        object.__setattr__(self, "state", state)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "proposal_state", proposal_state)
+        object.__setattr__(self, "saga_id", saga_id)
+        object.__setattr__(self, "convergence_result_hash", convergence_hash)
+        object.__setattr__(self, "materializations", materializations)

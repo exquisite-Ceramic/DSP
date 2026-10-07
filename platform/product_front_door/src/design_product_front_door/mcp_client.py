@@ -18,10 +18,14 @@ from design_orchestrator import (
 from design_product_runtime import (
     ProductFlowStatus,
     ProductFlowView,
+    ProductMaterializationQueryViewV2,
+    ProductProposalStateV2,
     ProductTaskQueryState,
     ProductTaskQueryView,
+    ProductTaskQueryViewV2,
     ProductTaskRequest,
     ProductTaskRequestV2,
+    ProductTaskV2Status,
 )
 from mcp.client import Client
 from mcp.types import TextContent
@@ -137,12 +141,72 @@ def _decode_checkpoint(value: object) -> WorkflowCheckpointView:
     )
 
 
-def _decode_query_view(value: object) -> ProductTaskQueryView | None:
+
+def _decode_materialization_v2(
+    value: object,
+) -> ProductMaterializationQueryViewV2:
+    """恢复一个 V2 materialization projection，不推导缺失 evidence。"""
+
+    body = _require_mapping(value, "materialization")
+    return ProductMaterializationQueryViewV2(
+        host_kind=body.get("host_kind"),
+        host_instance_id=body.get("host_instance_id"),
+        document_id=body.get("document_id"),
+        native_target_id=body.get("native_target_id"),
+        semantic_target_id=body.get("semantic_target_id"),
+        materialization_id=body.get("materialization_id"),
+        execution_slice_hash=body.get("execution_slice_hash"),
+        status=body.get("status"),
+        expected_revision=body.get("expected_revision"),
+        committed_revision=body.get("committed_revision"),
+        observed_revision=body.get("observed_revision"),
+        verified_thickness_mm=body.get("verified_thickness_mm"),
+        actual_delta_hash=body.get("actual_delta_hash"),
+        verification_hash=body.get("verification_hash"),
+        evidence_bundle_hash=body.get("evidence_bundle_hash"),
+        convergence_result_hash=body.get("convergence_result_hash"),
+        recovery_disposition=body.get("recovery_disposition"),
+        evidence_unavailable_reason=body.get("evidence_unavailable_reason"),
+    )
+
+
+def _decode_query_view_v2(
+    body: Mapping[str, object],
+) -> ProductTaskQueryViewV2:
+    """按显式 version=V2 恢复新 query surface；V1 decoder 保持原样。"""
+
+    raw_materializations = body.get("materializations")
+    if not isinstance(raw_materializations, list):
+        raise TypeError("ProductTaskQueryViewV2.materializations must be an array")
+    proposal = body.get("proposal_state")
+    return ProductTaskQueryViewV2(
+        version=body.get("version"),
+        task_id=body.get("task_id"),
+        request_hash=body.get("request_hash"),
+        state=ProductTaskQueryState(body.get("state")),
+        status=ProductTaskV2Status(body.get("status")),
+        proposal_state=(
+            None if proposal is None else ProductProposalStateV2(proposal)
+        ),
+        saga_id=body.get("saga_id"),
+        convergence_result_hash=body.get("convergence_result_hash"),
+        materializations=tuple(
+            _decode_materialization_v2(item)
+            for item in raw_materializations
+        ),
+    )
+
+
+def _decode_query_view(
+    value: object,
+) -> ProductTaskQueryView | ProductTaskQueryViewV2 | None:
     """恢复 ProductTaskQueryView；null 精确表示 exact task not found。"""
 
     if value is None:
         return None
     body = _require_mapping(value, "ProductTaskQueryView")
+    if body.get("version") == "V2":
+        return _decode_query_view_v2(body)
     state = ProductTaskQueryState(body.get("state"))
     raw_flow = body.get("flow")
     flow = None
@@ -228,7 +292,7 @@ class ProductFrontDoorMcpClient:
     async def submit(
         self,
         request: ProductTaskRequest | ProductTaskRequestV2,
-    ) -> ProductTaskQueryView:
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """发送完整 frozen request；V2 只携带 binding hash，不复制本机 binding body。"""
 
         if isinstance(request, ProductTaskRequestV2):
@@ -260,7 +324,10 @@ class ProductFrontDoorMcpClient:
             raise ValueError("Product Front Door submit returned null task view")
         return view
 
-    async def get(self, task_id: str) -> ProductTaskQueryView | None:
+    async def get(
+        self,
+        task_id: str,
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2 | None:
         """只按 exact task_id 查询；不提供 listing、latest 或 session fallback。"""
 
         if not isinstance(task_id, str) or not task_id.strip():
@@ -275,7 +342,7 @@ class ProductFrontDoorMcpClient:
         task_id: str,
         pause_id: str,
         resume_kind: str,
-    ) -> ProductTaskQueryView:
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """发送 exact operation-proposal human resume；不接受 arbitrary approval payload。"""
 
         if not isinstance(task_id, str) or not task_id.strip():

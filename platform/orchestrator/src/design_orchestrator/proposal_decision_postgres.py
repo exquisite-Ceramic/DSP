@@ -234,6 +234,29 @@ class PostgresProposalDecisionStore:
         self._require_subject(current, subject_id, subject_hash)
         return current
 
+    def get_for_task(self, task_id: str) -> ProposalDecisionRecord | None:
+        """按 exact task 读取唯一 proposal history；不做 latest/reverse lookup。"""
+
+        task = _required_text(task_id, "task_id")
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM decision
+            WHERE task_id = %s
+            ORDER BY pause_id
+            LIMIT 2
+            """,
+            (task,),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise ValueError(
+                "PROPOSAL_DECISION_TASK_CONFLICT: "
+                "one V2 ProductTask must not own multiple proposal decisions"
+            )
+        return self._decode(rows[0])
+
     def _claim_initial(
         self,
         task_id: str,

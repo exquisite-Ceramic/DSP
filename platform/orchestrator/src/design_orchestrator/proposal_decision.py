@@ -121,6 +121,11 @@ class ProposalDecisionStore(Protocol):
         subject_ref: StableRef,
     ) -> ProposalDecisionRecord | None: ...
 
+    def get_for_task(self, task_id: str) -> ProposalDecisionRecord | None:
+        """读取本阶段单 proposal/task 的 durable history；多行必须 fail closed。"""
+
+        ...
+
 
 __all__ = [
     "HumanDecisionState",
