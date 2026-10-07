@@ -6,7 +6,6 @@ import os
 
 import psycopg
 import pytest
-from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
 from design_execution_reconciliation.postgres import (
     apply_execution_saga_migrations,
     connect_postgres,
@@ -14,6 +13,7 @@ from design_execution_reconciliation.postgres import (
 from design_execution_reconciliation.postgres_evidence import (
     PostgresReconciliationEvidenceStore,
 )
+from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
 from design_product_runtime import (
     ProductTaskQueryService,
     create_postgres_product_task_request_store,

@@ -41,6 +41,7 @@ def test_execution_saga_migrations_are_owner_scoped_and_idempotent() -> None:
         ).fetchall()
         tables = {(row[0], row[1]) for row in rows}
 
+        assert ("execution_saga", "reconciliation_evidence") in tables
         assert ("execution_saga", "schema_migrations") in tables
         assert ("execution_saga", "saga_v2") in tables
         assert not any(
@@ -58,6 +59,7 @@ def test_execution_saga_migrations_are_owner_scoped_and_idempotent() -> None:
         assert versions == [
             ("0001_execution_saga_v2.sql",),
             ("0002_delivery_recovery.sql",),
+            ("0003_reconciliation_evidence.sql",),
         ]
     finally:
         conn.close()
