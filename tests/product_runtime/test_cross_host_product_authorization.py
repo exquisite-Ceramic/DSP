@@ -23,10 +23,34 @@ from design_product_runtime import (
     create_postgres_product_task_request_store,
 )
 
-from tests.materialization_planning._support import build_case
+from tests.materialization_planning._support import build_case, slot
 
 _PROJECT_ID = "project-cross-host-task15"
 _SESSION_REF = "session-cross-host-task15"
+_AUTOCAD_DOCUMENT = r"C:\\DSP\\fixtures\\task15-cross-host.dwg"
+_REVIT_DOCUMENT = r"C:\\DSP\\fixtures\\task15-cross-host.rvt"
+
+
+def _case():
+    """用 Front Door 可接受的绝对 saved-document paths 构造唯一产品 lineage。"""
+
+    return build_case(
+        project_id=_PROJECT_ID,
+        topology_slots=(
+            slot(
+                "MS-AUTOCAD",
+                "WALL-001",
+                "autocad",
+                _AUTOCAD_DOCUMENT,
+            ),
+            slot(
+                "MS-REVIT",
+                "WALL-001",
+                "revit",
+                _REVIT_DOCUMENT,
+            ),
+        ),
+    )
 
 
 def _dsn() -> str:
@@ -166,7 +190,7 @@ def _policy(case, *, topology_hash: str | None = None):
 def _owners(dsn: str, *, policy):
     """组合真实 ProductTask/policy durable owners 与 production ChangeSet/Scope stores。"""
 
-    case = build_case(project_id=_PROJECT_ID)
+    case = _case()
     binding = _binding(case)
     request = ProductTaskRequestV2.create(
         task_id=case.changeset.task_id,
@@ -237,7 +261,6 @@ def test_v1_policy_cannot_authorize_v2_accepted_input() -> None:
 
     dsn = _dsn()
     _reset(dsn)
-    case = build_case(project_id=_PROJECT_ID)
     v1 = ConfiguredProductApprovalPolicy.from_mapping(
         {
             "version": "DSP_PRODUCT_APPROVAL_POLICY_V1",
@@ -248,7 +271,7 @@ def test_v1_policy_cannot_authorize_v2_accepted_input() -> None:
             "admission_ttl_seconds": 900,
         }
     )
-    _, _, requests, admissions, _, port = _owners(dsn, policy=v1)
+    case, _, requests, admissions, _, port = _owners(dsn, policy=v1)
     try:
         with pytest.raises(
             ValueError,
