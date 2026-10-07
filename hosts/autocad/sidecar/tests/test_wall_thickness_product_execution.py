@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from importlib import import_module
 
 import pytest
 from design_fact_contracts import FactKind
-from host_contracts import ErrorShape, HostCommandResult
+from host_contracts import HostCommandResult
 from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 
 
