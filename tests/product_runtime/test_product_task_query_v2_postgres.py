@@ -24,9 +24,9 @@ from tests.execution_coordination._materialized_support import (
     materialized_fixture,
 )
 from tests.product_runtime.test_product_task_query_v2 import (
+    _accepted,
     _DecisionReader,
     _DispatchReader,
-    _accepted,
 )
 
 
@@ -58,7 +58,11 @@ def test_v2_query_survives_request_and_evidence_store_restart_with_hosts_absent(
     requests = create_postgres_product_task_request_store(dsn)
     evidence = PostgresReconciliationEvidenceStore(dsn)
     try:
-        requests.create_v2(accepted)
+        requests.create_v2(
+            accepted.request,
+            session_binding_hash=accepted.session_binding_hash,
+            session_binding_payload=accepted.session_binding_payload,
+        )
         stored = fixture.reconciliation.service.get_saga(result.saga_id)
         assert stored is not None
         for state in stored.slice_states:
