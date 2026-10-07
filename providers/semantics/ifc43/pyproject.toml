@@ -5,7 +5,7 @@ description = "buildingSMART IFC4.3.2.0 reference Semantic Provider for DSP."
 requires-python = ">=3.11"
 dependencies = [
     "semantic-service>=0.1.0",
-    "ifcopenshell==0.8.5",
+    "ifcopenshell==0.9.0",
 ]
 
 # M1 将 Provider 对语义服务的第一方依赖显式绑定到 workspace member。
