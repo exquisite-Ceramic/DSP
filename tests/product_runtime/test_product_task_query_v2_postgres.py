@@ -7,10 +7,6 @@ import os
 import psycopg
 import pytest
 from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
-from design_product_runtime import (
-    ProductTaskQueryService,
-    create_postgres_product_task_request_store,
-)
 from design_execution_reconciliation.postgres import (
     apply_execution_saga_migrations,
     connect_postgres,
@@ -18,16 +14,19 @@ from design_execution_reconciliation.postgres import (
 from design_execution_reconciliation.postgres_evidence import (
     PostgresReconciliationEvidenceStore,
 )
-
-from tests.product_runtime.test_product_task_query_v2 import (
-    _DecisionReader,
-    _DispatchReader,
-    _RequestStore,
-    _accepted,
+from design_product_runtime import (
+    ProductTaskQueryService,
+    create_postgres_product_task_request_store,
 )
+
 from tests.execution_coordination._materialized_support import (
     execute,
     materialized_fixture,
+)
+from tests.product_runtime.test_product_task_query_v2 import (
+    _DecisionReader,
+    _DispatchReader,
+    _accepted,
 )
 
 
