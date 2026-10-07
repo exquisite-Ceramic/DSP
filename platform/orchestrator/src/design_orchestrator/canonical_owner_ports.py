@@ -1264,62 +1264,109 @@ class CanonicalWorkflowOwnerPorts:
             execution_plan.execution_plan_hash,
             kind="ExecutionPlanV2",
         )
-        if len(execution_plan.execution_slices) != 1:
-            raise ValueError("canonical execution requires exactly one ExecutionSliceV2")
-        execution_slice = execution_plan.execution_slices[0]
+        slices = tuple(execution_plan.execution_slices)
+        if len(slices) == 1:
+            execution_slice = slices[0]
+            if grant_ref.content_hash is None:
+                raise ValueError("ExecutionGrantV2 StableRef requires content_hash")
+            grant_getter = getattr(
+                self._gateway_authorization_store,
+                "get_grant_v2",
+                None,
+            )
+            if grant_getter is None:
+                raise self._not_wired("begin_execution")
+            grant = grant_getter(grant_ref.content_hash)
+            if grant is None:
+                raise ValueError("Gateway execution grant full hash is unresolved")
+            if (
+                grant.grant_id != grant_ref.ref_id
+                or grant.grant_hash != grant_ref.content_hash
+            ):
+                raise ValueError(
+                    "Gateway execution grant StableRef does not match owner truth"
+                )
+            grants = (grant,)
+        elif len(slices) == 2:
+            from design_orchestrator.execution_collection_resolution import (
+                resolve_execution_grant_collection,
+            )
 
-        if grant_ref.content_hash is None:
-            raise ValueError("ExecutionGrantV2 StableRef requires content_hash")
-        grant_getter = getattr(self._gateway_authorization_store, "get_grant_v2", None)
-        if grant_getter is None:
-            raise self._not_wired("begin_execution")
-        grant = grant_getter(grant_ref.content_hash)
-        if grant is None:
-            raise ValueError("Gateway execution grant full hash is unresolved")
-        if grant.grant_id != grant_ref.ref_id or grant.grant_hash != grant_ref.content_hash:
-            raise ValueError("Gateway execution grant StableRef does not match owner truth")
-        if (
-            grant.changeset_hash != execution_plan.changeset_hash
-            or grant.approved_scope_hash != execution_plan.approval_scope_ref.scope_hash
-            or grant.materialization_plan_hash != execution_plan.materialization_plan_hash
-            or grant.materialization_id != execution_slice.materialization_id
-            or grant.execution_slice_id != execution_slice.execution_slice_id
-            or grant.execution_slice_hash != execution_slice.execution_slice_hash
-            or grant.host_instance_id != execution_slice.host_runtime_ref.host_instance_id
-        ):
-            raise ValueError("Gateway execution grant does not match exact ExecutionPlanV2 lineage")
+            grants = resolve_execution_grant_collection(
+                grant_ref,
+                execution_plan,
+                self._workflow_artifact_store,
+                self._gateway_authorization_store,
+            )
+        else:
+            raise ValueError(
+                "canonical execution requires one V1 Slice or exactly two V2 Slices"
+            )
 
-        authority = self._gateway_authorization.admit_execution_grant(
-            grant.grant_hash,
-            self._coordination_timestamp(),
-        )
-        if (
-            authority.grant_hash != grant.grant_hash
-            or authority.changeset_hash != grant.changeset_hash
-            or authority.approved_scope_hash != grant.approved_scope_hash
-            or authority.materialization_plan_hash != grant.materialization_plan_hash
-            or authority.materialization_id != grant.materialization_id
-            or authority.execution_slice_hash != grant.execution_slice_hash
-            or authority.binding_set_hash != grant.binding_set_hash
-            or authority.host_instance_id != grant.host_instance_id
-        ):
-            raise ValueError("Gateway admitted authority does not match exact grant lineage")
-
+        # 先解析并校验完整 BindingSet 集合。任何缺失都必须发生在 Gateway
+        # applicability/admission 与 coordinator/Host mutation 之前。
         binding_getter = getattr(self._provider_binding_store, "get_by_hash", None)
         if binding_getter is None:
             raise self._not_wired("begin_execution")
-        binding_set = binding_getter(authority.binding_set_hash)
-        if binding_set is None:
-            raise ValueError("Provider binding full hash is unresolved")
-        if (
-            binding_set.binding_set_hash != authority.binding_set_hash
-            or binding_set.materialization_id != execution_slice.materialization_id
-            or binding_set.materialization_plan_hash
-            != execution_slice.materialization_plan_hash
-            or binding_set.execution_slice_id != execution_slice.execution_slice_id
-            or binding_set.execution_slice_hash != execution_slice.execution_slice_hash
-        ):
-            raise ValueError("Provider binding does not match exact admitted Slice lineage")
+        binding_sets = []
+        for execution_slice, grant in zip(slices, grants, strict=True):
+            if (
+                grant.changeset_hash != execution_plan.changeset_hash
+                or grant.approved_scope_hash
+                != execution_plan.approval_scope_ref.scope_hash
+                or grant.materialization_plan_hash
+                != execution_plan.materialization_plan_hash
+                or grant.materialization_id != execution_slice.materialization_id
+                or grant.execution_slice_id != execution_slice.execution_slice_id
+                or grant.execution_slice_hash != execution_slice.execution_slice_hash
+                or grant.host_instance_id
+                != execution_slice.host_runtime_ref.host_instance_id
+            ):
+                raise ValueError(
+                    "Gateway execution grant does not match exact ExecutionPlanV2 lineage"
+                )
+            binding_set = binding_getter(grant.binding_set_hash)
+            if binding_set is None:
+                raise ValueError("Provider binding full hash is unresolved")
+            if (
+                binding_set.binding_set_hash != grant.binding_set_hash
+                or binding_set.materialization_id
+                != execution_slice.materialization_id
+                or binding_set.materialization_plan_hash
+                != execution_slice.materialization_plan_hash
+                or binding_set.execution_slice_id
+                != execution_slice.execution_slice_id
+                or binding_set.execution_slice_hash
+                != execution_slice.execution_slice_hash
+            ):
+                raise ValueError(
+                    "Provider binding does not match exact admitted Slice lineage"
+                )
+            binding_sets.append(binding_set)
+
+        # Grant/Binding owner objects 完整以后，再逐项通过 Gateway 取得当前可执行 authority。
+        admitted_at = self._coordination_timestamp()
+        authorities = []
+        for grant, binding_set in zip(grants, binding_sets, strict=True):
+            authority = self._gateway_authorization.admit_execution_grant(
+                grant.grant_hash,
+                admitted_at,
+            )
+            if (
+                authority.grant_hash != grant.grant_hash
+                or authority.changeset_hash != grant.changeset_hash
+                or authority.approved_scope_hash != grant.approved_scope_hash
+                or authority.materialization_plan_hash
+                != grant.materialization_plan_hash
+                or authority.materialization_id != grant.materialization_id
+                or authority.execution_slice_hash != grant.execution_slice_hash
+                or authority.binding_set_hash != binding_set.binding_set_hash
+                or authority.host_instance_id != grant.host_instance_id
+            ):
+                raise ValueError(
+                    "Gateway admitted authority does not match exact grant lineage"
+                )
+            authorities.append(authority)
 
         changeset = self._changeset_store.get(execution_plan.changeset_id)
         if changeset.changeset_hash != execution_plan.changeset_hash:
@@ -1367,8 +1414,8 @@ class CanonicalWorkflowOwnerPorts:
             boundary,
             materialization_plan,
             execution_plan,
-            (binding_set,),
-            (authority,),
+            tuple(binding_sets),
+            tuple(authorities),
             convergence_profile,
         )
         status = getattr(result.status, "value", result.status)

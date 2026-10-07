@@ -1,6 +1,11 @@
 """产品运行时公共契约与 durable owners。"""
 
 from .accepted_input import AcceptedProductTaskInputV2
+from .cross_host_reference_composition import (
+    CrossHostRuntimePortBinding,
+    CrossHostRuntimeRegistries,
+    build_cross_host_runtime_registries,
+)
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -29,11 +34,15 @@ from .revit_reference_composition import (
     build_revit_wall_thickness_reference_composition,
 )
 from .revit_semantics import RevitSemanticBoundaryError
+from .runtime_registry import ExactHostRuntimeRegistry
 from .start_gate import ProductTaskResumeConsumeGate, ProductTaskStartGate
 from .wall_thickness_flow import ProductTaskRequestStore, WallThicknessProductFlow
 
 __all__ = [
     "AcceptedProductTaskInputV2",
+    "CrossHostRuntimePortBinding",
+    "CrossHostRuntimeRegistries",
+    "ExactHostRuntimeRegistry",
     "PostgresProductTaskRequestStore",
     "PostgresProductTaskResumeConsumeGate",
     "PostgresProductTaskStartGate",
@@ -57,6 +66,7 @@ __all__ = [
     "RevitWallThicknessSemanticBoundary",
     "RevitWallThicknessVerificationEvidencePort",
     "WallThicknessProductFlow",
+    "build_cross_host_runtime_registries",
     "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",
     "product_task_request_v2_payload",
