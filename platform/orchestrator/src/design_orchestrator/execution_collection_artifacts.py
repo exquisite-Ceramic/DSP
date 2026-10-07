@@ -39,10 +39,10 @@ def _digest(value: object, field_name: str) -> str:
 
 
 def _owner_ref(value: object) -> StableRef:
-    """要求 manifest 成员保存原 owner 的完整 content-addressed StableRef。"""
+    """成员本身只冻结原 owner ref；完整 content hash 在 manifest 边界统一校验。"""
 
-    if not isinstance(value, StableRef) or value.content_hash is None:
-        raise _invalid("owner_ref must be a StableRef with content_hash")
+    if not isinstance(value, StableRef):
+        raise _invalid("owner_ref must be a StableRef")
     return value
 
 
@@ -123,6 +123,8 @@ class ProviderBindingCollectionManifest:
             for item in members
         ):
             raise _invalid("members must contain ProviderBindingCollectionMember values")
+        if any(item.owner_ref.content_hash is None for item in members):
+            raise _invalid("member owner_ref values must include content_hash")
 
         ref_pairs = tuple((item.ref_id, item.content_hash) for item in refs)
         member_pairs = tuple(
