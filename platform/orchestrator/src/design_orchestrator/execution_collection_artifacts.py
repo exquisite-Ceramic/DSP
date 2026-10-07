@@ -193,7 +193,186 @@ class ProviderBindingCollectionManifest:
         )
 
 
+def _grant_invalid(message: str) -> ValueError:
+    """返回稳定 ExecutionGrant manifest 校验错误。"""
+
+    return ValueError(f"EXECUTION_GRANT_COLLECTION_INVALID: {message}")
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionGrantCollectionMember:
+    """一个 ExecutionSlice 到原 Gateway ExecutionGrantV2 ref 的不可变映射。"""
+
+    execution_slice_id: str
+    execution_slice_hash: str
+    materialization_id: str
+    owner_ref: StableRef
+
+    def __post_init__(self) -> None:
+        """冻结 Slice/materialization identity；完整 ref 在 manifest 边界校验。"""
+
+        try:
+            execution_slice_id = _text(
+                self.execution_slice_id,
+                "execution_slice_id",
+            )
+            execution_slice_hash = _digest(
+                self.execution_slice_hash,
+                "execution_slice_hash",
+            )
+            materialization_id = _text(
+                self.materialization_id,
+                "materialization_id",
+            )
+            owner_ref = _owner_ref(self.owner_ref)
+        except ValueError as exc:
+            raise _grant_invalid(str(exc)) from exc
+
+        object.__setattr__(self, "execution_slice_id", execution_slice_id)
+        object.__setattr__(self, "execution_slice_hash", execution_slice_hash)
+        object.__setattr__(self, "materialization_id", materialization_id)
+        object.__setattr__(self, "owner_ref", owner_ref)
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionGrantCollectionManifest:
+    """双 Slice Gateway grant refs 的 workflow-local immutable manifest。
+
+    Manifest 只记录原 Gateway owner 的引用，不复制 admission、readiness 或执行状态。
+    """
+
+    execution_plan_id: str
+    execution_plan_hash: str
+    materialization_plan_hash: str
+    required_slice_refs: tuple[StableRef, ...]
+    members: tuple[ExecutionGrantCollectionMember, ...]
+
+    def __post_init__(self) -> None:
+        """验证自身结构与 ordered REQUIRED Slice identity。"""
+
+        try:
+            execution_plan_id = _text(self.execution_plan_id, "execution_plan_id")
+            execution_plan_hash = _digest(
+                self.execution_plan_hash,
+                "execution_plan_hash",
+            )
+            materialization_plan_hash = _digest(
+                self.materialization_plan_hash,
+                "materialization_plan_hash",
+            )
+        except ValueError as exc:
+            raise _grant_invalid(str(exc)) from exc
+
+        refs = tuple(self.required_slice_refs)
+        members = tuple(self.members)
+        if len(refs) != 2 or len(members) != 2:
+            raise _grant_invalid(
+                "manifest requires exactly two REQUIRED Slice members"
+            )
+        if any(
+            not isinstance(item, StableRef) or item.content_hash is None
+            for item in refs
+        ):
+            raise _grant_invalid(
+                "required_slice_refs must contain hashed StableRef values"
+            )
+        if any(
+            not isinstance(item, ExecutionGrantCollectionMember)
+            for item in members
+        ):
+            raise _grant_invalid(
+                "members must contain ExecutionGrantCollectionMember values"
+            )
+        if any(item.owner_ref.content_hash is None for item in members):
+            raise _grant_invalid(
+                "member owner_ref values must include content_hash"
+            )
+
+        ref_pairs = tuple((item.ref_id, item.content_hash) for item in refs)
+        member_pairs = tuple(
+            (item.execution_slice_id, item.execution_slice_hash)
+            for item in members
+        )
+        if ref_pairs != member_pairs:
+            raise _grant_invalid(
+                "member Slice identities must equal required_slice_refs in order"
+            )
+        if len({item.execution_slice_id for item in members}) != len(members):
+            raise _grant_invalid("member execution_slice_id values must be unique")
+        if len({item.materialization_id for item in members}) != len(members):
+            raise _grant_invalid("member materialization_id values must be unique")
+
+        object.__setattr__(self, "execution_plan_id", execution_plan_id)
+        object.__setattr__(self, "execution_plan_hash", execution_plan_hash)
+        object.__setattr__(
+            self,
+            "materialization_plan_hash",
+            materialization_plan_hash,
+        )
+        object.__setattr__(self, "required_slice_refs", refs)
+        object.__setattr__(self, "members", members)
+
+    @classmethod
+    def create(
+        cls,
+        plan: "ExecutionPlanV2",
+        members: Iterable[ExecutionGrantCollectionMember],
+    ) -> "ExecutionGrantCollectionManifest":
+        """从 authoritative ExecutionPlanV2 建立 exact Grant ref manifest。"""
+
+        from design_execution_planning import ExecutionPlanV2
+
+        if not isinstance(plan, ExecutionPlanV2):
+            raise TypeError("plan must be ExecutionPlanV2")
+        slices = tuple(plan.execution_slices)
+        supplied = tuple(members)
+        if len(slices) != 2 or len(supplied) != 2:
+            raise _grant_invalid(
+                "two-slice V2 plan requires exactly two grant members"
+            )
+        if plan.execution_plan_id != f"XPV2-{plan.execution_plan_hash[:12]}":
+            raise _grant_invalid("execution plan id/hash relation is invalid")
+
+        for execution_slice, member in zip(slices, supplied, strict=True):
+            if not isinstance(member, ExecutionGrantCollectionMember):
+                raise _grant_invalid("members contain an invalid value")
+            if (
+                execution_slice.materialization_plan_hash
+                != plan.materialization_plan_hash
+            ):
+                raise _grant_invalid(
+                    "Slice materialization plan lineage differs from plan"
+                )
+            if execution_slice.changeset_hash != plan.changeset_hash:
+                raise _grant_invalid("Slice ChangeSet lineage differs from plan")
+            if (
+                member.execution_slice_id != execution_slice.execution_slice_id
+                or member.execution_slice_hash
+                != execution_slice.execution_slice_hash
+                or member.materialization_id != execution_slice.materialization_id
+            ):
+                raise _grant_invalid(
+                    "grant manifest member does not match required Slice lineage"
+                )
+
+        return cls(
+            execution_plan_id=plan.execution_plan_id,
+            execution_plan_hash=plan.execution_plan_hash,
+            materialization_plan_hash=plan.materialization_plan_hash,
+            required_slice_refs=tuple(
+                StableRef(
+                    execution_slice.execution_slice_id,
+                    execution_slice.execution_slice_hash,
+                )
+                for execution_slice in slices
+            ),
+            members=supplied,
+        )
+
+
 __all__ = [
+    "ExecutionGrantCollectionManifest",
+    "ExecutionGrantCollectionMember",
     "ProviderBindingCollectionManifest",
     "ProviderBindingCollectionMember",
 ]

@@ -14,6 +14,8 @@ from design_orchestrator.canonical_operations import (
     SlotBindingClass,
 )
 from design_orchestrator.execution_collection_artifacts import (
+    ExecutionGrantCollectionManifest,
+    ExecutionGrantCollectionMember,
     ProviderBindingCollectionManifest,
     ProviderBindingCollectionMember,
 )
@@ -936,6 +938,96 @@ def _decode_provider_binding_collection_manifest(
     )
 
 
+
+
+def _encode_execution_grant_collection_manifest(
+    value: ExecutionGrantCollectionManifest,
+) -> dict[str, object]:
+    """把 Grant collection 编码为只含原 Gateway owner refs 的持久化 body。"""
+
+    return {
+        "execution_plan_id": value.execution_plan_id,
+        "execution_plan_hash": value.execution_plan_hash,
+        "materialization_plan_hash": value.materialization_plan_hash,
+        "required_slice_refs": [
+            _encode_hashed_ref(item) for item in value.required_slice_refs
+        ],
+        "members": [
+            {
+                "execution_slice_id": item.execution_slice_id,
+                "execution_slice_hash": item.execution_slice_hash,
+                "materialization_id": item.materialization_id,
+                "owner_ref": _encode_hashed_ref(item.owner_ref),
+            }
+            for item in value.members
+        ],
+    }
+
+
+def _decode_execution_grant_collection_manifest(
+    payload: Mapping[str, object],
+) -> ExecutionGrantCollectionManifest:
+    """严格恢复 Grant collection manifest。"""
+
+    context = "execution_grant_collection_manifest"
+    _expect_exact_keys(payload, _PROVIDER_BINDING_COLLECTION_KEYS, context=context)
+    raw_refs = _expect_sequence(
+        payload["required_slice_refs"],
+        context=f"{context}.required_slice_refs",
+    )
+    raw_members = _expect_sequence(payload["members"], context=f"{context}.members")
+    members: list[ExecutionGrantCollectionMember] = []
+    for index, raw_member in enumerate(raw_members):
+        member_context = f"{context}.members[{index}]"
+        member_payload = _expect_mapping(raw_member, context=member_context)
+        _expect_exact_keys(
+            member_payload,
+            _PROVIDER_BINDING_COLLECTION_MEMBER_KEYS,
+            context=member_context,
+        )
+        members.append(
+            ExecutionGrantCollectionMember(
+                execution_slice_id=_required_text(
+                    member_payload["execution_slice_id"],
+                    context=f"{member_context}.execution_slice_id",
+                ),
+                execution_slice_hash=_required_text(
+                    member_payload["execution_slice_hash"],
+                    context=f"{member_context}.execution_slice_hash",
+                ),
+                materialization_id=_required_text(
+                    member_payload["materialization_id"],
+                    context=f"{member_context}.materialization_id",
+                ),
+                owner_ref=_decode_hashed_ref(
+                    member_payload["owner_ref"],
+                    context=f"{member_context}.owner_ref",
+                ),
+            )
+        )
+    return ExecutionGrantCollectionManifest(
+        execution_plan_id=_required_text(
+            payload["execution_plan_id"],
+            context=f"{context}.execution_plan_id",
+        ),
+        execution_plan_hash=_required_text(
+            payload["execution_plan_hash"],
+            context=f"{context}.execution_plan_hash",
+        ),
+        materialization_plan_hash=_required_text(
+            payload["materialization_plan_hash"],
+            context=f"{context}.materialization_plan_hash",
+        ),
+        required_slice_refs=tuple(
+            _decode_hashed_ref(
+                item,
+                context=f"{context}.required_slice_refs[{index}]",
+            )
+            for index, item in enumerate(raw_refs)
+        ),
+        members=tuple(members),
+    )
+
 def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
     """把支持的 workflow-local artifact 编码为显式 versioned JSON payload。"""
 
@@ -966,6 +1058,13 @@ def encode_workflow_artifact(*, kind: str, value: object) -> dict[str, object]:
                     "ProviderBindingCollectionManifest"
                 )
             return _encode_provider_binding_collection_manifest(value)
+        if kind == "execution_grant_collection_manifest":
+            if not isinstance(value, ExecutionGrantCollectionManifest):
+                raise WorkflowArtifactCodecError(
+                    "execution_grant_collection_manifest requires "
+                    "ExecutionGrantCollectionManifest"
+                )
+            return _encode_execution_grant_collection_manifest(value)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -1000,6 +1099,8 @@ def decode_workflow_artifact(
             return _decode_cross_host_proposal_subject(mapping)
         if kind == "provider_binding_collection_manifest":
             return _decode_provider_binding_collection_manifest(mapping)
+        if kind == "execution_grant_collection_manifest":
+            return _decode_execution_grant_collection_manifest(mapping)
         raise WorkflowArtifactCodecError(
             f"unsupported workflow artifact kind: {kind!r}"
         )
@@ -1018,6 +1119,8 @@ def _artifact_kind(value: object) -> str:
         return "cross_host_operation_proposal_subject_v2"
     if isinstance(value, ProviderBindingCollectionManifest):
         return "provider_binding_collection_manifest"
+    if isinstance(value, ExecutionGrantCollectionManifest):
+        return "execution_grant_collection_manifest"
     raise WorkflowArtifactCodecError(
         f"unsupported workflow artifact value type: {type(value).__name__}"
     )

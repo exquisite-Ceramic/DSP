@@ -1125,32 +1125,33 @@ class CanonicalWorkflowOwnerPorts:
             kind="ExecutionPlanV2",
         )
 
-        binding_getter = getattr(self._provider_binding_store, "get", None)
-        if binding_getter is None:
-            raise self._not_wired("issue_execution_grant")
-        binding_set = binding_getter(provider_binding_ref.ref_id)
-        self._ref_hash_matches(
-            provider_binding_ref,
-            binding_set.binding_set_hash,
-            kind="ProviderBindingSetV2",
-        )
+        slices = tuple(execution_plan.execution_slices)
+        if len(slices) == 1:
+            binding_getter = getattr(self._provider_binding_store, "get", None)
+            if binding_getter is None:
+                raise self._not_wired("issue_execution_grant")
+            binding_set = binding_getter(provider_binding_ref.ref_id)
+            self._ref_hash_matches(
+                provider_binding_ref,
+                binding_set.binding_set_hash,
+                kind="ProviderBindingSetV2",
+            )
+            binding_sets = (binding_set,)
+        elif len(slices) == 2:
+            from design_orchestrator.execution_collection_resolution import (
+                resolve_provider_binding_collection,
+            )
 
-        matching_slices = tuple(
-            execution_slice
-            for execution_slice in execution_plan.execution_slices
-            if (
-                execution_slice.execution_slice_id == binding_set.execution_slice_id
-                and execution_slice.execution_slice_hash == binding_set.execution_slice_hash
-                and execution_slice.materialization_id == binding_set.materialization_id
-                and execution_slice.materialization_plan_hash
-                == binding_set.materialization_plan_hash
+            binding_sets = resolve_provider_binding_collection(
+                provider_binding_ref,
+                execution_plan,
+                self._workflow_artifact_store,
+                self._provider_binding_store,
             )
-        )
-        if len(matching_slices) != 1:
+        else:
             raise ValueError(
-                "ProviderBindingSetV2 does not resolve to exactly one ExecutionSliceV2"
+                "execution grant requires one V1 Slice or exactly two V2 Slices"
             )
-        execution_slice = matching_slices[0]
 
         materialization_plan = self._materialization_plan_store.get(
             execution_plan.materialization_plan_hash
@@ -1175,25 +1176,72 @@ class CanonicalWorkflowOwnerPorts:
         )
 
         issued_at = self._coordination_timestamp()
-        grant = self._gateway_authorization.issue_execution_grant(
-            ExecutionGrantRequestV2(
-                approval_id=approval.approval_id,
-                execution_plan=execution_plan,
-                execution_slice=execution_slice,
-                provider_binding_set=binding_set,
-                materialization_plan=materialization_plan,
-                topology_snapshot=topology,
-                approval_scope_boundary=boundary,
-                issued_at=issued_at,
+        grant_refs: list[StableRef] = []
+        for execution_slice, binding_set in zip(
+            slices,
+            binding_sets,
+            strict=True,
+        ):
+            grant = self._gateway_authorization.issue_execution_grant(
+                ExecutionGrantRequestV2(
+                    approval_id=approval.approval_id,
+                    execution_plan=execution_plan,
+                    execution_slice=execution_slice,
+                    provider_binding_set=binding_set,
+                    materialization_plan=materialization_plan,
+                    topology_snapshot=topology,
+                    approval_scope_boundary=boundary,
+                    issued_at=issued_at,
+                )
             )
+            authority = self._gateway_authorization.admit_execution_grant(
+                grant.grant_hash,
+                issued_at,
+            )
+            if authority.grant_hash != grant.grant_hash:
+                raise ValueError(
+                    "Gateway admitted authority does not reference issued grant"
+                )
+            grant_refs.append(StableRef(grant.grant_id, grant.grant_hash))
+
+        if len(slices) == 1:
+            return grant_refs[0]
+
+        from design_orchestrator.execution_collection_artifacts import (
+            ExecutionGrantCollectionManifest,
+            ExecutionGrantCollectionMember,
         )
-        authority = self._gateway_authorization.admit_execution_grant(
-            grant.grant_hash,
-            issued_at,
+
+        manifest = ExecutionGrantCollectionManifest.create(
+            execution_plan,
+            tuple(
+                ExecutionGrantCollectionMember(
+                    execution_slice_id=execution_slice.execution_slice_id,
+                    execution_slice_hash=execution_slice.execution_slice_hash,
+                    materialization_id=execution_slice.materialization_id,
+                    owner_ref=owner_ref,
+                )
+                for execution_slice, owner_ref in zip(
+                    slices,
+                    grant_refs,
+                    strict=True,
+                )
+            ),
         )
-        if authority.grant_hash != grant.grant_hash:
-            raise ValueError("Gateway admitted authority does not reference issued grant")
-        return StableRef(grant.grant_id, grant.grant_hash)
+        manifest_hash = workflow_artifact_content_hash(manifest)
+        manifest_ref = self._workflow_artifact_store.put(
+            kind="execution_grant_collection_manifest",
+            value=manifest,
+            content_hash=manifest_hash,
+        )
+        if (
+            not isinstance(manifest_ref, StableRef)
+            or manifest_ref.content_hash != manifest_hash
+        ):
+            raise ValueError(
+                "execution grant collection artifact store returned invalid reference"
+            )
+        return manifest_ref
 
     def begin_execution(
         self,
