@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 
 import psycopg
+from design_changeset import canonical_hash
 from design_gateway_authorization import (
     ApprovalAdmission,
     compute_admission_fingerprint,
@@ -16,6 +20,47 @@ _OWNER_SCHEMA = "product_policy"
 _TABLE = "admission"
 _CONFLICT = "FRONT_DOOR_APPROVAL_ADMISSION_CONFLICT"
 _INTEGRITY_INVALID = "FRONT_DOOR_APPROVAL_ADMISSION_INTEGRITY_INVALID"
+
+
+@dataclass(frozen=True, slots=True)
+class StoredConfiguredPolicyAdmissionV2:
+    """V2 durable issuance：既有 Gateway Admission + 签发时 canonical policy body。"""
+
+    admission: ApprovalAdmission
+    policy_version: str
+    policy_snapshot_payload: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        """冻结 JSON payload，并再次证明 body hash 等于 Admission policy hash。"""
+
+        if not isinstance(self.admission, ApprovalAdmission):
+            raise TypeError("admission must be ApprovalAdmission")
+        if not isinstance(self.policy_version, str) or not self.policy_version.strip():
+            raise ValueError("policy_version must be non-blank")
+        if not isinstance(self.policy_snapshot_payload, Mapping):
+            raise TypeError("policy_snapshot_payload must be a mapping")
+        try:
+            body_json = json.dumps(
+                dict(self.policy_snapshot_payload),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            body = json.loads(body_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("policy_snapshot_payload must be canonical JSON") from exc
+        if canonical_hash(body) != self.admission.policy_snapshot_hash:
+            raise ValueError(
+                f"{_INTEGRITY_INVALID}: policy snapshot body hash mismatch"
+            )
+        object.__setattr__(self, "policy_version", self.policy_version.strip())
+        object.__setattr__(
+            self,
+            "policy_snapshot_payload",
+            MappingProxyType(body),
+        )
+
 
 
 class PostgresConfiguredPolicyAdmissionStore:
@@ -47,6 +92,18 @@ class PostgresConfiguredPolicyAdmissionStore:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY (changeset_hash, approved_scope_hash)
                 )
+                """
+            )
+            admin.execute(
+                f"""
+                ALTER TABLE {_OWNER_SCHEMA}.{_TABLE}
+                ADD COLUMN IF NOT EXISTS policy_version TEXT
+                """
+            )
+            admin.execute(
+                f"""
+                ALTER TABLE {_OWNER_SCHEMA}.{_TABLE}
+                ADD COLUMN IF NOT EXISTS policy_snapshot_payload JSONB
                 """
             )
 
@@ -92,6 +149,140 @@ class PostgresConfiguredPolicyAdmissionStore:
         if row is None:
             return None
         return self._admission_from_row(row)
+
+
+    def get_v2(
+        self,
+        *,
+        changeset_hash: str,
+        approved_scope_hash: str,
+    ) -> StoredConfiguredPolicyAdmissionV2 | None:
+        """读取 exact V2 issuance；历史 V1 row 返回 None 而不是伪造 policy body。"""
+
+        row = self._connection.execute(
+            """
+            SELECT
+                admission_id,
+                changeset_hash,
+                approved_scope_hash,
+                semantic_environment_id,
+                semantic_environment_hash,
+                approver,
+                policy_snapshot_hash,
+                policy_allowed_operations,
+                approved_at,
+                expires_at,
+                admission_fingerprint,
+                policy_version,
+                policy_snapshot_payload
+            FROM admission
+            WHERE changeset_hash = %s AND approved_scope_hash = %s
+            """,
+            (changeset_hash, approved_scope_hash),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["policy_version"] is None and row["policy_snapshot_payload"] is None:
+            return None
+        if row["policy_version"] is None or row["policy_snapshot_payload"] is None:
+            raise ValueError(
+                f"{_INTEGRITY_INVALID}: partial V2 policy snapshot columns"
+            )
+        admission = self._admission_from_row(row)
+        return StoredConfiguredPolicyAdmissionV2(
+            admission=admission,
+            policy_version=row["policy_version"],
+            policy_snapshot_payload=row["policy_snapshot_payload"],
+        )
+
+    def issue_or_get_v2(
+        self,
+        admission: ApprovalAdmission,
+        *,
+        policy_version: str,
+        policy_snapshot_payload: Mapping[str, object],
+    ) -> StoredConfiguredPolicyAdmissionV2:
+        """原子发布 V2 Admission + policy body；同 authority replay 返回 durable winner。"""
+
+        if not isinstance(admission, ApprovalAdmission):
+            raise TypeError("admission must be ApprovalAdmission")
+        self._validate_fingerprint(admission)
+        candidate = StoredConfiguredPolicyAdmissionV2(
+            admission=admission,
+            policy_version=policy_version,
+            policy_snapshot_payload=policy_snapshot_payload,
+        )
+        environment_id, environment_hash = self._environment_parts(
+            admission.semantic_environment_ref
+        )
+        inserted = self._connection.execute(
+            """
+            INSERT INTO admission (
+                changeset_hash,
+                approved_scope_hash,
+                admission_id,
+                semantic_environment_id,
+                semantic_environment_hash,
+                approver,
+                policy_snapshot_hash,
+                policy_allowed_operations,
+                approved_at,
+                expires_at,
+                admission_fingerprint,
+                policy_version,
+                policy_snapshot_payload
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s::jsonb
+            )
+            ON CONFLICT (changeset_hash, approved_scope_hash) DO NOTHING
+            RETURNING admission_id
+            """,
+            (
+                admission.changeset_hash,
+                admission.approved_scope_hash,
+                admission.admission_id,
+                environment_id,
+                environment_hash,
+                admission.approver,
+                admission.policy_snapshot_hash,
+                list(admission.policy_allowed_operations),
+                admission.approved_at,
+                admission.expires_at,
+                admission.admission_fingerprint,
+                candidate.policy_version,
+                json.dumps(
+                    dict(candidate.policy_snapshot_payload),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ),
+            ),
+        ).fetchone()
+        if inserted is not None:
+            return candidate
+
+        existing = self.get_v2(
+            changeset_hash=admission.changeset_hash,
+            approved_scope_hash=admission.approved_scope_hash,
+        )
+        if existing is None:
+            raise ValueError(
+                f"{_CONFLICT}: lineage already owns non-V2 policy authority"
+            )
+        if (
+            existing.admission.admission_fingerprint
+            == admission.admission_fingerprint
+            and existing.policy_version == candidate.policy_version
+            and dict(existing.policy_snapshot_payload)
+            == dict(candidate.policy_snapshot_payload)
+        ):
+            return existing
+        raise ValueError(
+            f"{_CONFLICT}: final ChangeSet/scope lineage already owns different V2 policy authority"
+        )
 
     def issue_or_get(self, admission: ApprovalAdmission) -> ApprovalAdmission:
         """首次发布 admission；同 fingerprint replay 返回 durable winner，冲突时 fail closed。"""
@@ -218,4 +409,7 @@ class PostgresConfiguredPolicyAdmissionStore:
         return admission
 
 
-__all__ = ["PostgresConfiguredPolicyAdmissionStore"]
+__all__ = [
+    "PostgresConfiguredPolicyAdmissionStore",
+    "StoredConfiguredPolicyAdmissionV2",
+]

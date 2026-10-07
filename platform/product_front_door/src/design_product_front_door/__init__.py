@@ -11,6 +11,10 @@ from .approval_policy import (
     ConfiguredPolicyApprovalAdmissionPort,
     ConfiguredProductApprovalPolicy,
 )
+from .approval_policy_v2 import (
+    ConfiguredPolicyApprovalAdmissionPortV2,
+    ConfiguredProductApprovalPolicyV2,
+)
 from .candidate_config import ConfiguredRevitCandidateCatalog
 from .cross_host_config import (
     ConfiguredCrossHostMemberTarget,
@@ -32,7 +36,10 @@ from .contracts import (
 from .mcp_client import ProductFrontDoorMcpClient
 from .mcp_server import build_mcp_server
 from .mcp_transport import run_streamable_http
-from .postgres_admission_store import PostgresConfiguredPolicyAdmissionStore
+from .postgres_admission_store import (
+    PostgresConfiguredPolicyAdmissionStore,
+    StoredConfiguredPolicyAdmissionV2,
+)
 from .reference_client import (
     HumanDecisionPort,
     ReferenceClient,
@@ -59,7 +66,9 @@ __all__ = [
     "ConfiguredCrossHostWallThicknessTarget",
     "ConfiguredCrossHostWallThicknessTargetSource",
     "ConfiguredPolicyApprovalAdmissionPort",
+    "ConfiguredPolicyApprovalAdmissionPortV2",
     "ConfiguredProductApprovalPolicy",
+    "ConfiguredProductApprovalPolicyV2",
     "ConfiguredRevitCandidate",
     "ConfiguredRevitCandidateCatalog",
     "ConfiguredRevitCandidateSource",
@@ -79,6 +88,7 @@ __all__ = [
     "SubmissionController",
     "SubmissionRecord",
     "SubmissionRecordV2",
+    "StoredConfiguredPolicyAdmissionV2",
     "SubmissionState",
     "SubprocessAgentInterpreter",
     "build_mcp_server",
