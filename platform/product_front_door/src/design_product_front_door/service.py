@@ -211,7 +211,7 @@ class ProductFrontDoorService:
         task_id: str,
         pause_id: str,
         resume_kind: str,
-    ) -> ProductTaskQueryView:
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """在 task-row consume lock 内按 durable decision authority 恢复 V2 pause。"""
 
         serialize = getattr(self._decision_consume_gate, "serialize", None)
@@ -227,12 +227,28 @@ class ProductFrontDoorService:
                 )
             request = accepted.request
             self._require_query_identity(current, request, action="resume")
-            if current.state != ProductTaskQueryState.WORKFLOW or current.flow is None:
+            if current.state != ProductTaskQueryState.WORKFLOW:
                 raise ValueError(
                     "FRONT_DOOR_RESUME_NOT_PENDING: V2 task is not in workflow state"
                 )
 
-            checkpoint = current.flow.checkpoint
+            checkpoint_reader = getattr(
+                self._query_service,
+                "get_workflow_checkpoint",
+                None,
+            )
+            if callable(checkpoint_reader):
+                checkpoint = checkpoint_reader(task_id)
+            else:
+                # 兼容 Task 5 既有 V1-shaped query doubles；production
+                # ProductTaskQueryService 始终走上面的 durable checkpoint seam。
+                flow = getattr(current, "flow", None)
+                checkpoint = getattr(flow, "checkpoint", None)
+            if checkpoint is None:
+                raise ValueError(
+                    "FRONT_DOOR_RESUME_NOT_PENDING: "
+                    "V2 task has no durable workflow checkpoint"
+                )
             pending = checkpoint.pending_interaction
             if pending is None:
                 return current

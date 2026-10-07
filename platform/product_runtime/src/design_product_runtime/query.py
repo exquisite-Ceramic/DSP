@@ -126,6 +126,23 @@ class ProductTaskQueryService:
             )
         return accepted
 
+    def get_workflow_checkpoint(
+        self,
+        task_id: str,
+    ) -> WorkflowCheckpointView | None:
+        """按 exact task 读取 durable workflow navigation，供内部 resume authority 使用。
+
+        该 seam 只转交 Orchestrator checkpoint read owner；不会把 checkpoint 字段复制进
+        ProductTaskQueryViewV2，也不会创建、恢复或推进 workflow。
+        """
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ProductTaskQueryError(
+                "PRODUCT_TASK_QUERY_INVALID",
+                "task_id must be a non-blank string",
+            )
+        return self._checkpoint_reader.get_checkpoint(task_id.strip())
+
     def get(
         self,
         task_id: str,
