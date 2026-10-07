@@ -386,6 +386,7 @@ def build_cross_host_task15_lineage(*, semantic_environment=None):
         MaterializationPlanningRequest,
     )
     from design_provider_binding import (
+        compute_candidate_fingerprint,
         compute_provider_snapshot_hash_v2,
         resolve_provider_bindings_v2,
     )
@@ -501,6 +502,31 @@ def build_cross_host_task15_lineage(*, semantic_environment=None):
             ),
             native_kind="LWPOLYLINE" if is_autocad else "Wall",
         )
+        if not is_autocad:
+            legacy_candidate = base.provider_candidates[0]
+            candidate_draft = dc_replace(
+                legacy_candidate,
+                provider_tool="revit.set_wall_thickness",
+                candidate_fingerprint="0" * 64,
+            )
+            candidate = dc_replace(
+                candidate_draft,
+                candidate_fingerprint=compute_candidate_fingerprint(candidate_draft),
+            )
+            legacy_material = next(iter(base.candidate_binding_materials.values()))
+            base = dc_replace(
+                base,
+                provider_candidates=(candidate,),
+                candidate_binding_materials={
+                    candidate.candidate_fingerprint: legacy_material,
+                },
+                snapshot_hash="0" * 64,
+            )
+            base = dc_replace(
+                base,
+                snapshot_hash=compute_provider_snapshot_hash_v2(base),
+            )
+
         expected_revision = 10 + index
         materials = {
             fingerprint: dc_replace(
