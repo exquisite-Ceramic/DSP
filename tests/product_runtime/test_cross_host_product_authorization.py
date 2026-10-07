@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import psycopg
@@ -216,7 +217,12 @@ def _owners(dsn: str, *, policy):
     changesets = InMemoryChangeSetStore()
     changesets.put(case.changeset)
     scopes = InMemoryApprovalScopeStore()
-    scopes.put_boundary(case.boundary_v2)
+    scopes.put_boundary(
+        replace(
+            case.boundary_v2,
+            scope_id=f"SCOPE-{case.changeset.changeset_id}",
+        )
+    )
     admissions = PostgresConfiguredPolicyAdmissionStore(dsn)
     source = _PolicySource(policy(case) if callable(policy) else policy)
     port = ConfiguredPolicyApprovalAdmissionPortV2(
