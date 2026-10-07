@@ -6,6 +6,11 @@ from .autocad_execution import (
     AutoCadWallThicknessExecutionPort,
     AutoCadWallThicknessProviderExecutionSnapshotBoundary,
 )
+from .cross_host_flow import CrossHostProductFlow
+from .cross_host_observation import (
+    CrossHostPlanningRuntimePort,
+    CrossHostWallThicknessObservationReader,
+)
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -58,9 +63,12 @@ __all__ = [
     "AutoCadWallThicknessProviderExecutionSnapshotBoundary",
     "AutoCadWallThicknessVerificationEvidencePort",
     "CrossHostPlanningComposition",
+    "CrossHostPlanningRuntimePort",
+    "CrossHostProductFlow",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "CrossHostVerificationEvidenceRouter",
+    "CrossHostWallThicknessObservationReader",
     "ExactHostRuntimeRegistry",
     "PostgresProductTaskRequestStore",
     "PostgresProductTaskResumeConsumeGate",

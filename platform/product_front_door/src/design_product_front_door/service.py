@@ -499,7 +499,10 @@ class ProductFrontDoorService:
         return get_flow(accepted)
 
 
-    def _submit_v2(self, request: ProductTaskRequestV2) -> ProductTaskQueryView:
+    def _submit_v2(
+        self,
+        request: ProductTaskRequestV2,
+    ) -> ProductTaskQueryView | ProductTaskQueryViewV2:
         """验证 exact local V2 binding/reviewed config 后原子接管 immutable input。
 
         Task 3 只把 V2 task 推进到 durable accepted/start-eligible；cross-Host workflow
@@ -540,20 +543,22 @@ class ProductFrontDoorService:
         create_v2 = getattr(self._accepted_input_store, "create_v2", None)
         if not callable(create_v2):
             raise TypeError("accepted_input_store must provide create_v2 for V2 submit")
-        create_v2(
+        accepted = create_v2(
             request,
             session_binding_hash=binding.binding_hash,
             session_binding_payload=self._session_binding_v2_payload(binding),
         )
 
-        # 该 view 只投影已持久化 accepted-input owner；它不是 Task 14 的最终 V2 wire
-        # contract，也不会伪造尚未创建的 workflow checkpoint。
-        return ProductTaskQueryView(
-            task_id=request.task_id,
-            request_hash=request.request_hash,
-            state=ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW,
-            flow=None,
-        )
+        # server takeover 已提交后，composition 只能从 accepted input 解析 exact V2 flow。
+        flow = self._resolve_v2_flow(accepted)
+        start_accepted = getattr(flow, "start_accepted", None)
+        if not callable(start_accepted):
+            raise TypeError("V2 flow must expose start_accepted")
+        start_accepted(accepted)
+
+        view = self._query_service.get(request.task_id)
+        self._require_query_identity(view, request, action="submit")
+        return view
 
     @staticmethod
     def _session_binding_v2_payload(binding: SessionBindingV2) -> dict[str, object]:
