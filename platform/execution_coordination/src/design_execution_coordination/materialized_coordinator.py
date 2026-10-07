@@ -600,7 +600,18 @@ class MaterializedExecutionSagaCoordinator:
                 _error("HOST_RESULT_INVALID", "Host execution returned an invalid result")
 
             actual_delta = host_result.actual_delta
-            # Host commit truth 必须先进入 durable intent observation，随后 Saga 才能记录 commit。
+            # Task 13：完整 body 必须先进入 execution-reconciliation owner，随后
+            # dispatch/Saga 才能发布 actual_delta_hash。崩溃最多留下未引用 immutable body。
+            persisted_actual_delta_hash = self._reconciliation.persist_actual_delta(
+                actual_delta
+            )
+            if persisted_actual_delta_hash != actual_delta.actual_delta_hash:
+                _error(
+                    "RECONCILIATION_EVIDENCE_INTEGRITY_INVALID",
+                    "persisted ActualDelta hash differs from Host commit evidence",
+                )
+
+            # Host commit truth 随后进入 durable intent observation，Saga 最后记录 commit。
             self._dispatch_intents.mark_host_committed(
                 intent.dispatch_intent_id,
                 expected_revision=intent.intent_revision,
@@ -657,6 +668,17 @@ class MaterializedExecutionSagaCoordinator:
                     active_slice_hash=execution_slice.execution_slice_hash,
                     failure_ref=exc.code,
                 )
+            persisted_bundle_hash = (
+                self._reconciliation.persist_verification_bundle(
+                    verification_bundle
+                )
+            )
+            if persisted_bundle_hash != verification_bundle.evidence_bundle_hash:
+                _error(
+                    "RECONCILIATION_EVIDENCE_INTEGRITY_INVALID",
+                    "persisted verification bundle hash differs from produced bundle",
+                )
+
             verification = self._reconciliation.verify_semantics(
                 canonical_changeset=canonical_changeset,
                 approval_scope_boundary=approval_scope_boundary,
@@ -671,6 +693,15 @@ class MaterializedExecutionSagaCoordinator:
                 verification_evidence_bundle=verification_bundle,
                 verified_at=self._clock.now(),
             )
+            persisted_verification_hash = (
+                self._reconciliation.persist_verification_result(verification)
+            )
+            if persisted_verification_hash != verification.verification_hash:
+                _error(
+                    "RECONCILIATION_EVIDENCE_INTEGRITY_INVALID",
+                    "persisted verification result hash differs from evaluator result",
+                )
+
             stored = self._reconciliation.record_verification_result(
                 definition.saga_id,
                 verification,

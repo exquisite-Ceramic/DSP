@@ -22,6 +22,14 @@ class EvidenceTrackingReconciliation(TrackingReconciliation):
         self.actual_deltas = {}
         self.bundles = {}
         self.verifications = {}
+        self.last_saga_id = None
+
+    def create_saga(self, *args, **kwargs):
+        """记录真实 Saga id，测试不读取 backend 私有存储布局。"""
+
+        stored = super().create_saga(*args, **kwargs)
+        self.last_saga_id = stored.definition.saga_id
+        return stored
 
     def persist_actual_delta(self, value):
         """模拟 owner body-first durable write。"""
@@ -138,9 +146,8 @@ def test_crash_after_body_before_saga_ref_leaves_safe_unreferenced_body() -> Non
         execute(fixture)
 
     assert len(reconciliation.actual_deltas) == 1
-    stored = reconciliation.service.get_saga(
-        next(iter(fixture.reconciliation.service._controller._store._values))
-    )
+    assert reconciliation.last_saga_id is not None
+    stored = reconciliation.service.get_saga(reconciliation.last_saga_id)
     assert stored is not None
     committed_states = [
         state for state in stored.slice_states if state.actual_delta_hash is not None

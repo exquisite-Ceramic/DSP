@@ -40,6 +40,13 @@ from .dispatch_intent_store import (
     HostDispatchIntentStore,
     InMemoryHostDispatchIntentStore,
 )
+from .evidence_store import (
+    InMemoryReconciliationEvidenceStore,
+    ReconciliationEvidenceStore,
+    decode_reconciliation_evidence,
+    encode_reconciliation_evidence,
+    evidence_kind_and_hash,
+)
 from .failure_store import InMemoryExecutionSagaStore
 from .hashing import (
     compute_actual_change_hash,
@@ -107,10 +114,12 @@ __all__ = [
     "HostDispatchIntentStore",
     "HostDispatchStatus",
     "InMemoryExecutionSagaStore",
+    "InMemoryReconciliationEvidenceStore",
     "InMemoryExecutionSagaStoreV2",
     "InMemoryHostDispatchIntentStore",
     "OwnerEvent",
     "ReconciliationError",
+    "ReconciliationEvidenceStore",
     "SagaConvergenceOutcome",
     "ScopeComparator",
     "ScopeComparisonRequest",
@@ -147,6 +156,9 @@ __all__ = [
     "compute_validation_task_result_hash",
     "compute_verification_evidence_bundle_hash",
     "create_execution_saga_store_v2",
+    "decode_reconciliation_evidence",
+    "encode_reconciliation_evidence",
+    "evidence_kind_and_hash",
     "validate_actual_delta_integrity",
     "validate_compensation_proposal_integrity",
     "validate_verification_evidence_bundle_integrity",

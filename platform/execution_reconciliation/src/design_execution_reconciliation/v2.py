@@ -26,6 +26,7 @@ from .contracts import (
     SemanticVerificationResult,
     VerificationEvidenceBundle,
 )
+from .evidence_store import InMemoryReconciliationEvidenceStore
 from .hashing import validate_actual_delta_integrity
 from .saga_v2 import ExecutionSagaControllerV2
 from .scope_comparator import _evaluate_scope_effects
@@ -188,8 +189,83 @@ def _evaluate_semantics(context: _VerificationContextV2) -> SemanticVerification
 class ExecutionReconciliationServiceV2:
     """把 Saga V2 CAS facade 与 provider-neutral 本地 evaluator 组合在一起。"""
 
-    def __init__(self, *, store) -> None:
+    def __init__(self, *, store, evidence_store=None) -> None:
         self._controller = ExecutionSagaControllerV2(store)
+        self._evidence_store = (
+            evidence_store
+            if evidence_store is not None
+            else InMemoryReconciliationEvidenceStore()
+        )
+        for method in (
+            "put_actual_delta",
+            "get_actual_delta",
+            "put_verification_bundle",
+            "get_verification_bundle",
+            "put_verification_result",
+            "get_verification_result",
+        ):
+            if not callable(getattr(self._evidence_store, method, None)):
+                raise TypeError(f"evidence_store must provide {method}")
+
+    def persist_actual_delta(self, value: ActualDelta) -> str:
+        """先持久化完整 ActualDelta body，再允许其他 owner 发布其 hash。"""
+
+        content_hash = self._evidence_store.put_actual_delta(value)
+        if content_hash != value.actual_delta_hash:
+            raise ReconciliationError(
+                "RECONCILIATION_EVIDENCE_CORRUPT",
+                "ActualDelta store returned a different content hash",
+            )
+        return content_hash
+
+    def get_actual_delta(self, content_hash: str) -> ActualDelta | None:
+        """按 Saga/dispatch hash 解析完整 ActualDelta body。"""
+
+        return self._evidence_store.get_actual_delta(content_hash)
+
+    def persist_verification_bundle(
+        self,
+        value: VerificationEvidenceBundle,
+    ) -> str:
+        """持久化完整 verification bundle body。"""
+
+        content_hash = self._evidence_store.put_verification_bundle(value)
+        if content_hash != value.evidence_bundle_hash:
+            raise ReconciliationError(
+                "RECONCILIATION_EVIDENCE_CORRUPT",
+                "verification bundle store returned a different content hash",
+            )
+        return content_hash
+
+    def get_verification_bundle(
+        self,
+        content_hash: str,
+    ) -> VerificationEvidenceBundle | None:
+        """按 hash 解析完整 verification bundle。"""
+
+        return self._evidence_store.get_verification_bundle(content_hash)
+
+    def persist_verification_result(
+        self,
+        value: SemanticVerificationResult,
+    ) -> str:
+        """持久化完整 semantic verification result body。"""
+
+        content_hash = self._evidence_store.put_verification_result(value)
+        if content_hash != value.verification_hash:
+            raise ReconciliationError(
+                "RECONCILIATION_EVIDENCE_CORRUPT",
+                "verification result store returned a different content hash",
+            )
+        return content_hash
+
+    def get_verification_result(
+        self,
+        content_hash: str,
+    ) -> SemanticVerificationResult | None:
+        """按 Saga hash 解析完整 semantic verification result。"""
+
+        return self._evidence_store.get_verification_result(content_hash)
 
     def create_saga(
         self,
