@@ -21,10 +21,13 @@ from .contracts import (
     product_task_request_v2_payload,
 )
 from .cross_host_reference_composition import (
+    CrossHostPlanningComposition,
     CrossHostRuntimePortBinding,
     CrossHostRuntimeRegistries,
     CrossHostVerificationEvidenceRouter,
+    ProposalDecisionContinuationAdapter,
     build_autocad_wall_thickness_runtime_binding,
+    build_cross_host_planning_composition,
     build_cross_host_runtime_registries,
 )
 from .postgres_request_store import (
@@ -54,6 +57,7 @@ __all__ = [
     "AutoCadWallThicknessExecutionPort",
     "AutoCadWallThicknessProviderExecutionSnapshotBoundary",
     "AutoCadWallThicknessVerificationEvidencePort",
+    "CrossHostPlanningComposition",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "CrossHostVerificationEvidenceRouter",
@@ -78,6 +82,7 @@ __all__ = [
     "ProductTaskResumeConsumeGate",
     "ProductTaskStartGate",
     "ProductTaskV2Status",
+    "ProposalDecisionContinuationAdapter",
     "RevitSemanticBoundaryError",
     "RevitWallThicknessCompositionConfig",
     "RevitWallThicknessProviderExecutionSnapshotBoundary",
@@ -86,6 +91,7 @@ __all__ = [
     "RevitWallThicknessVerificationEvidencePort",
     "WallThicknessProductFlow",
     "build_autocad_wall_thickness_runtime_binding",
+    "build_cross_host_planning_composition",
     "build_cross_host_runtime_registries",
     "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",

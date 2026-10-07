@@ -116,6 +116,174 @@ class CrossHostVerificationEvidenceRouter:
         return port.build_evidence(**kwargs)
 
 
+class ProposalDecisionContinuationAdapter:
+    """把 Task 5 durable decision owner 适配为 Gate B 的 subject-based continuation port。
+
+    适配器不保存 pause/state 副本，也不做 latest/reverse lookup；它只读取一个 ProductTask
+    已冻结的唯一 proposal decision，再校验 exact subject 后调用原 owner transition。
+    """
+
+    def __init__(self, decision_store: object) -> None:
+        """要求原 owner 提供 exact-task 读取与 Gate-B 原子转移。"""
+
+        if not callable(getattr(decision_store, "get_for_task", None)):
+            raise TypeError("decision_store must provide get_for_task")
+        if not callable(getattr(decision_store, "invalidate_gate_b", None)):
+            raise TypeError("decision_store must provide invalidate_gate_b")
+        self._decision_store = decision_store
+
+    @staticmethod
+    def _require_subject(record, subject_ref) -> None:
+        """确保 exact task 下唯一 durable decision 仍绑定调用方指定 subject。"""
+
+        from design_orchestrator.workflow_contracts import StableRef
+
+        if not isinstance(subject_ref, StableRef):
+            raise TypeError("subject_ref must be StableRef")
+        if record.subject_ref != subject_ref:
+            raise ValueError(
+                "PROPOSAL_DECISION_SUBJECT_MISMATCH: "
+                "task decision does not match the requested proposal subject"
+            )
+
+    def get_by_subject(self, task_id: str, subject_ref):
+        """读取 exact task 的唯一 decision，并要求 subject identity 完全一致。"""
+
+        record = self._decision_store.get_for_task(task_id)
+        if record is None:
+            return None
+        self._require_subject(record, subject_ref)
+        return record
+
+    def invalidate_gate_b_by_subject(
+        self,
+        task_id: str,
+        subject_ref,
+        reason: str,
+    ):
+        """保留已接受历史，只把同一 durable decision 推进到 STALE_GATE_B。"""
+
+        record = self._decision_store.get_for_task(task_id)
+        if record is None:
+            raise ValueError(
+                "PROPOSAL_DECISION_NOT_FOUND: Gate B requires durable ACCEPT"
+            )
+        self._require_subject(record, subject_ref)
+        return self._decision_store.invalidate_gate_b(
+            task_id,
+            record.pause_id,
+            subject_ref,
+            reason,
+        )
+
+
+class _ExactDocumentRevisionObservation:
+    """按冻结的 document identity 路由 Host current-revision observation。"""
+
+    def __init__(self, entries: Iterable[tuple[HostRuntimeRef, object]]) -> None:
+        """每个 document 只能绑定一个 exact runtime revision port。"""
+
+        values: dict[str, object] = {}
+        for runtime_ref, port in tuple(entries):
+            if not callable(getattr(port, "current_revision", None)):
+                raise TypeError("planning port must provide current_revision")
+            document_ref = runtime_ref.document_ref
+            if document_ref in values:
+                raise ValueError(
+                    "PRODUCT_RUNTIME_HOST_RUNTIME_CONFLICT: "
+                    "duplicate planning document route"
+                )
+            values[document_ref] = port
+        if not values:
+            raise ValueError(
+                "PRODUCT_RUNTIME_HOST_RUNTIME_NOT_CONFIGURED: "
+                "planning revision routes must not be empty"
+            )
+        self._values = values
+
+    def current_revision(self, document_ref: str) -> str:
+        """只按 exact document identity 解析，不做 host-type/latest fallback。"""
+
+        try:
+            port = self._values[document_ref]
+        except KeyError as exc:
+            raise ValueError(
+                "PRODUCT_RUNTIME_HOST_RUNTIME_NOT_CONFIGURED: "
+                "exact planning document is not configured"
+            ) from exc
+        return port.current_revision(document_ref)
+
+
+class _ExactPlanningMemberReconstruction:
+    """按 accepted observation 的 exact runtime identity 路由 reconstruction。"""
+
+    def __init__(self, entries: Iterable[tuple[HostRuntimeRef, object]]) -> None:
+        """冻结 runtime→planning port，并验证 reconstruction method。"""
+
+        normalized = []
+        for runtime_ref, port in tuple(entries):
+            if not callable(getattr(port, "reconstruct_member", None)):
+                raise TypeError("planning port must provide reconstruct_member")
+            normalized.append((runtime_ref, port))
+        self._registry = ExactHostRuntimeRegistry(normalized)
+
+    def reconstruct_member(self, **kwargs):
+        """从 accepted observation 构造 exact HostRuntimeRef 后委托原 port。"""
+
+        observation = kwargs.get("accepted_observation")
+        host_kind = getattr(observation, "host_kind", None)
+        host_instance_id = getattr(observation, "host_instance_id", None)
+        document_id = getattr(observation, "document_id", None)
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (host_kind, host_instance_id, document_id)
+        ):
+            raise TypeError(
+                "accepted_observation must expose exact host/runtime/document identity"
+            )
+        runtime_ref = HostRuntimeRef(
+            host_type=host_kind.strip().lower(),
+            host_instance_id=host_instance_id.strip(),
+            document_ref=document_id.strip(),
+        )
+        port = self._registry.resolve(runtime_ref)
+        return port.reconstruct_member(**kwargs)
+
+
+@dataclass(frozen=True, slots=True)
+class CrossHostPlanningComposition:
+    """Gate B planning boundary 所需的两个 exact routing seams。"""
+
+    revision_observation: object
+    member_reconstruction: object
+
+
+def build_cross_host_planning_composition(
+    entries: Iterable[tuple[HostRuntimeRef, object]],
+) -> CrossHostPlanningComposition:
+    """构造 exact dual-Host planning routes；构建阶段不触发 Host I/O。"""
+
+    values = tuple(entries)
+    if len(values) != 2:
+        raise ValueError(
+            "CROSS_HOST_PLANNING_RUNTIME_SET_INVALID: exactly two runtimes are required"
+        )
+    host_types = {
+        runtime_ref.host_type
+        for runtime_ref, _port in values
+        if isinstance(runtime_ref, HostRuntimeRef)
+    }
+    if host_types != _REQUIRED_HOST_TYPES:
+        raise ValueError(
+            "CROSS_HOST_PLANNING_RUNTIME_SET_INVALID: "
+            "required Host set is AutoCAD + Revit"
+        )
+    return CrossHostPlanningComposition(
+        revision_observation=_ExactDocumentRevisionObservation(values),
+        member_reconstruction=_ExactPlanningMemberReconstruction(values),
+    )
+
+
 def build_cross_host_runtime_registries(
     bindings: Iterable[CrossHostRuntimePortBinding],
 ) -> CrossHostRuntimeRegistries:
@@ -147,9 +315,12 @@ def build_cross_host_runtime_registries(
 
 
 __all__ = [
+    "CrossHostPlanningComposition",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "CrossHostVerificationEvidenceRouter",
+    "ProposalDecisionContinuationAdapter",
     "build_autocad_wall_thickness_runtime_binding",
+    "build_cross_host_planning_composition",
     "build_cross_host_runtime_registries",
 ]
