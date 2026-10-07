@@ -88,6 +88,8 @@ jobs:
           # composition 会复用的 shared flow/shared gate 并发入口。
           uv run python -m pytest \
             tests/product_runtime/test_product_task_query_postgres.py \
+            tests/product_runtime/test_product_task_query_v2.py \
+            tests/product_runtime/test_product_task_query_v2_postgres.py \
             tests/product_runtime/test_product_task_start_gate_postgres.py \
             tests/product_runtime/test_product_task_shared_start_gate_postgres.py -q
       - name: Verify real Product Runtime owner chain and fail-closed recovery

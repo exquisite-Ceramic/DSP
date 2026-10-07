@@ -1053,3 +1053,78 @@ async def test_real_mcp_server_restart_keeps_get_but_resume_fails_closed(
         "WORKFLOW_SERVICE_FAILURE:"
     )
     assert "set_wall_thickness" not in _telemetry_operations(telemetry_path)
+
+
+_V2_QUERY_VIEW_SERVER = r'''
+import sys
+
+from design_product_front_door import run_streamable_http
+from design_product_runtime import (
+    ProductMaterializationQueryViewV2,
+    ProductProposalStateV2,
+    ProductTaskQueryState,
+    ProductTaskQueryViewV2,
+    ProductTaskV2Status,
+)
+
+
+class _Service:
+    def get(self, task_id):
+        assert task_id == "task-v2-wire"
+        materialization = ProductMaterializationQueryViewV2(
+            host_kind="AUTOCAD",
+            host_instance_id="AUTOCAD-WIRE",
+            document_id="/DSP/wire.dwg",
+            native_target_id="HANDLE-1",
+            semantic_target_id="WALL-001",
+            materialization_id="MAT-A",
+            execution_slice_hash="a" * 64,
+            status="SUCCEEDED",
+            expected_revision=10,
+            committed_revision=11,
+            observed_revision=11,
+            verified_thickness_mm=300.0,
+            actual_delta_hash="b" * 64,
+            verification_hash="c" * 64,
+            evidence_bundle_hash="d" * 64,
+            convergence_result_hash="e" * 64,
+            recovery_disposition=None,
+            evidence_unavailable_reason=None,
+        )
+        return ProductTaskQueryViewV2(
+            version="V2",
+            task_id=task_id,
+            request_hash="f" * 64,
+            state=ProductTaskQueryState.WORKFLOW,
+            status=ProductTaskV2Status.SUCCEEDED,
+            proposal_state=ProductProposalStateV2.ACCEPTED,
+            saga_id="SAGA-WIRE",
+            convergence_result_hash="e" * 64,
+            materializations=(materialization,),
+        )
+
+    def submit(self, request):
+        raise AssertionError("wire GET acceptance must not submit")
+
+    def resume_operation_proposal(self, **kwargs):
+        raise AssertionError("wire GET acceptance must not resume")
+
+
+run_streamable_http(_Service(), host="127.0.0.1", port=int(sys.argv[1]))
+'''
+
+
+@pytest.mark.asyncio
+async def test_v2_mcp_get_decodes_explicit_version_without_changing_v1_shape() -> None:
+    """真实 MCP client 依 version 解码 V2；GET 不需要 Host 或 client-side binding config。"""
+
+    _load_product_runtime_acceptance_helpers()
+    with _real_mcp_server(_V2_QUERY_VIEW_SERVER) as endpoint:
+        client = front_door.ProductFrontDoorMcpClient(endpoint)
+        view = await client.get("task-v2-wire")
+
+    assert view is not None
+    assert view.version == "V2"
+    assert view.status.value == "SUCCEEDED"
+    assert view.materializations[0].verified_thickness_mm == 300.0
+    assert view.materializations[0].host_kind == "AUTOCAD"
