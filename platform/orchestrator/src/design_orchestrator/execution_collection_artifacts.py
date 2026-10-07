@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from design_execution_planning import ExecutionPlanV2
+if TYPE_CHECKING:
+    from design_execution_planning import ExecutionPlanV2
 
 from .workflow_contracts import StableRef
 
@@ -140,10 +141,12 @@ class ProviderBindingCollectionManifest:
     @classmethod
     def create(
         cls,
-        plan: ExecutionPlanV2,
+        plan: "ExecutionPlanV2",
         members: Iterable[ProviderBindingCollectionMember],
     ) -> "ProviderBindingCollectionManifest":
         """从 authoritative ExecutionPlanV2 验证 exact coverage 后建立 manifest。"""
+
+        from design_execution_planning import ExecutionPlanV2
 
         if not isinstance(plan, ExecutionPlanV2):
             raise TypeError("plan must be ExecutionPlanV2")
