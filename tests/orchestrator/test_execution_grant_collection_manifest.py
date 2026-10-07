@@ -249,7 +249,6 @@ def test_issue_execution_grant_for_two_slices_persists_only_grant_refs_manifest(
     topology_registry = MaterializationTopologyRegistry()
     topology_registry.register(case.topology)
     scope_store = InMemoryApprovalScopeStore()
-    scope_store.put_definition(case.scope_v2)
     scope_store.put_boundary(case.boundary_v2)
 
     approval = _Approval("APP-TASK9", "a" * 64)
