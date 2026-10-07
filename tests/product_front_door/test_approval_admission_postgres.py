@@ -15,7 +15,11 @@ from design_approval_scope import (
     bind_changeset_v2,
     bind_topology_snapshot_v2,
 )
-from design_changeset import InMemoryChangeSetStore, validate_changeset_integrity_v2
+from design_changeset import (
+    InMemoryChangeSetStore,
+    canonical_hash,
+    validate_changeset_integrity_v2,
+)
 from design_gateway_authorization import ApprovalAdmission, compute_admission_fingerprint
 from design_orchestrator.workflow_contracts import StableRef
 
