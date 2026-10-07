@@ -345,3 +345,199 @@ def revit_wall_thickness_product_case(product_task_postgres_dsn: str):
 
     for case in reversed(cases):
         _close_case(case)
+
+
+
+_TASK15_PROJECT_ID = "project-cross-host-task15"
+_TASK15_AUTOCAD_DOCUMENT = r"C:\DSP\fixtures\task15-cross-host.dwg"
+_TASK15_REVIT_DOCUMENT = r"C:\DSP\fixtures\task15-cross-host.rvt"
+_TASK15_SEMANTIC_ENVIRONMENT_ID = "SEM-ENV-TASK15"
+_TASK15_SEMANTIC_ENVIRONMENT_HASH = "1" * 64
+
+
+def build_cross_host_task15_lineage():
+    """构造 Task 15 共用的真实 Step28→32 双 Host 产品 lineage。
+
+    这里只组合 production domain contracts/services；Host transport、时钟与故障注入仍由
+    各测试显式提供。两个 provider binding 都把自己的 planning revision 写入 hash。
+    """
+
+    from dataclasses import replace as dc_replace
+
+    from design_execution_planning import (
+        ExecutionPlanningRequestV2,
+        HostRuntimeRef,
+        MaterializationRoutingEvidence,
+        MaterializationRuntimeRoute,
+        compute_materialization_routing_hash,
+        plan_materialized_execution,
+    )
+    from design_gateway_authorization import (
+        ApprovalConsumptionRequestV2,
+        ExecutionGrantRequestV2,
+        GatewayAuthorizationServiceV2,
+        InMemoryGatewayAuthorizationStoreV2,
+    )
+    from design_impact import SemanticEnvironmentBinding
+    from design_materialization_planning import (
+        MaterializationPlanner,
+        MaterializationPlanningRequest,
+    )
+    from design_provider_binding import (
+        compute_provider_snapshot_hash_v2,
+        resolve_provider_bindings_v2,
+    )
+
+    from tests.execution_coordination._support import admission
+    from tests.materialization_planning._support import build_case, slot
+    from tests.provider_binding._support import snapshot
+
+    case = build_case(
+        project_id=_TASK15_PROJECT_ID,
+        semantic_environment=SemanticEnvironmentBinding(
+            _TASK15_SEMANTIC_ENVIRONMENT_ID,
+            _TASK15_SEMANTIC_ENVIRONMENT_HASH,
+        ),
+        topology_slots=(
+            slot(
+                "MS-AUTOCAD-TASK15",
+                "WALL-001",
+                "autocad",
+                _TASK15_AUTOCAD_DOCUMENT,
+            ),
+            slot(
+                "MS-REVIT-TASK15",
+                "WALL-001",
+                "revit",
+                _TASK15_REVIT_DOCUMENT,
+            ),
+        ),
+    )
+    materialization_plan = MaterializationPlanner().plan(
+        MaterializationPlanningRequest(
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            topology_snapshot=case.topology,
+            convergence_profile=case.profile,
+        )
+    )
+    slots = {
+        item.materialization_slot_id: item
+        for item in case.topology.slots
+    }
+    routes = tuple(
+        MaterializationRuntimeRoute(
+            materialization_id=intent.materialization_id,
+            host_runtime_ref=HostRuntimeRef(
+                host_type=intent.required_host_type,
+                host_instance_id=(
+                    "AUTOCAD-TASK15"
+                    if intent.required_host_type == "autocad"
+                    else "REVIT-TASK15"
+                ),
+                document_ref=slots[intent.materialization_slot_id].document_ref,
+            ),
+        )
+        for intent in materialization_plan.intents
+    )
+    routing = MaterializationRoutingEvidence(
+        routing_snapshot_id="MRS-CROSS-HOST-TASK15",
+        routes=routes,
+        routing_snapshot_hash=compute_materialization_routing_hash(routes),
+    )
+    execution_plan = plan_materialized_execution(
+        ExecutionPlanningRequestV2(
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            materialization_plan=materialization_plan,
+            topology_snapshot=case.topology,
+            runtime_routing_evidence=routing,
+        )
+    )
+
+    gateway_store = InMemoryGatewayAuthorizationStoreV2()
+    gateway = GatewayAuthorizationServiceV2(gateway_store)
+    approval = gateway.consume_approval(
+        ApprovalConsumptionRequestV2(
+            admission=admission(case),
+            canonical_changeset=case.changeset,
+            approval_scope_boundary=case.boundary_v2,
+            consumed_at="2026-10-07T06:50:00Z",
+        )
+    )
+
+    binding_sets = []
+    authorities = []
+    provider_snapshots = []
+    for index, execution_slice in enumerate(
+        execution_plan.execution_slices,
+        start=1,
+    ):
+        is_autocad = execution_slice.host_runtime_ref.host_type == "autocad"
+        base = snapshot(
+            execution_slice,
+            native_id=(
+                "ACAD-HANDLE-TASK15"
+                if is_autocad
+                else "REVIT-UNIQUE-TASK15"
+            ),
+            native_kind="LWPOLYLINE" if is_autocad else "Wall",
+        )
+        expected_revision = 10 + index
+        materials = {
+            fingerprint: dc_replace(
+                material,
+                native_binding_metadata={
+                    **dict(material.native_binding_metadata),
+                    "expected_revision": expected_revision,
+                },
+            )
+            for fingerprint, material in base.candidate_binding_materials.items()
+        }
+        draft = dc_replace(
+            base,
+            candidate_binding_materials=materials,
+            snapshot_hash="0" * 64,
+        )
+        provider_snapshot = dc_replace(
+            draft,
+            snapshot_hash=compute_provider_snapshot_hash_v2(draft),
+        )
+        binding_set = resolve_provider_bindings_v2(
+            execution_slice,
+            provider_snapshot,
+        )
+        grant = gateway.issue_execution_grant(
+            ExecutionGrantRequestV2(
+                approval_id=approval.approval_id,
+                execution_plan=execution_plan,
+                execution_slice=execution_slice,
+                provider_binding_set=binding_set,
+                materialization_plan=materialization_plan,
+                topology_snapshot=case.topology,
+                approval_scope_boundary=case.boundary_v2,
+                issued_at="2026-10-07T06:51:00Z",
+            )
+        )
+        authority = gateway.admit_execution_grant(
+            grant.grant_hash,
+            "2026-10-07T06:51:30Z",
+        )
+        provider_snapshots.append(provider_snapshot)
+        binding_sets.append(binding_set)
+        authorities.append(authority)
+
+    return SimpleNamespace(
+        project_id=_TASK15_PROJECT_ID,
+        semantic_environment_id=_TASK15_SEMANTIC_ENVIRONMENT_ID,
+        semantic_environment_hash=_TASK15_SEMANTIC_ENVIRONMENT_HASH,
+        autocad_document=_TASK15_AUTOCAD_DOCUMENT,
+        revit_document=_TASK15_REVIT_DOCUMENT,
+        case=case,
+        materialization_plan=materialization_plan,
+        execution_plan=execution_plan,
+        provider_snapshots=tuple(provider_snapshots),
+        binding_sets=tuple(binding_sets),
+        authorities=tuple(authorities),
+        gateway_store=gateway_store,
+    )
