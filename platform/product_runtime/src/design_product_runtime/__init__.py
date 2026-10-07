@@ -1,11 +1,6 @@
 """产品运行时公共契约与 durable owners。"""
 
 from .accepted_input import AcceptedProductTaskInputV2
-from .cross_host_reference_composition import (
-    CrossHostRuntimePortBinding,
-    CrossHostRuntimeRegistries,
-    build_cross_host_runtime_registries,
-)
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -15,6 +10,11 @@ from .contracts import (
     ProductTaskRequestError,
     ProductTaskRequestV2,
     product_task_request_v2_payload,
+)
+from .cross_host_reference_composition import (
+    CrossHostRuntimePortBinding,
+    CrossHostRuntimeRegistries,
+    build_cross_host_runtime_registries,
 )
 from .postgres_request_store import (
     PostgresProductTaskRequestStore,
