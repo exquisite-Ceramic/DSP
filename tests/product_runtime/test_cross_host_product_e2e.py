@@ -66,7 +66,8 @@ def test_v2_accepted_input_enters_real_revit_semantic_boundary_without_v1_rewrit
         item for item in binding["members"] if item["host_kind"] == "REVIT"
     )
     identities = IdentityRegistry()
-    identities.register(
+    identities.ensure_identity(binding["semantic_target_id"])
+    identities.bind_host(
         HostBinding(
             semantic_id=binding["semantic_target_id"],
             host_type="revit",
