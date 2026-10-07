@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from design_execution_planning import HostRuntimeRef
 
+from .autocad_execution import AutoCadWallThicknessExecutionPort
 from .runtime_registry import ExactHostRuntimeRegistry
 
 _REQUIRED_HOST_TYPES = frozenset({"autocad", "revit"})
@@ -37,6 +38,33 @@ class CrossHostRuntimeRegistries:
 
     readiness: ExactHostRuntimeRegistry
     execution: ExactHostRuntimeRegistry
+
+
+def build_autocad_wall_thickness_runtime_binding(
+    runtime_ref: HostRuntimeRef,
+    dispatcher,
+    *,
+    clock=None,
+) -> CrossHostRuntimePortBinding:
+    """把现有 AutoCAD public dispatcher 组合成 exact readiness/execution runtime binding。"""
+
+    if not isinstance(runtime_ref, HostRuntimeRef):
+        raise TypeError("runtime_ref must be HostRuntimeRef")
+    if runtime_ref.host_type != "autocad":
+        raise ValueError("AutoCAD runtime binding requires host_type='autocad'")
+
+    from autocad_sidecar.execution.readiness import AutoCadWallThicknessReadinessPort
+    from autocad_sidecar.execution.wall_thickness import AutoCadWallThicknessMutationPort
+
+    mutation = AutoCadWallThicknessMutationPort(dispatcher)
+    return CrossHostRuntimePortBinding(
+        runtime_ref=runtime_ref,
+        readiness_port=AutoCadWallThicknessReadinessPort(dispatcher),
+        execution_port=AutoCadWallThicknessExecutionPort(
+            mutation,
+            clock=clock,
+        ),
+    )
 
 
 def build_cross_host_runtime_registries(
@@ -72,5 +100,6 @@ def build_cross_host_runtime_registries(
 __all__ = [
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
+    "build_autocad_wall_thickness_runtime_binding",
     "build_cross_host_runtime_registries",
 ]

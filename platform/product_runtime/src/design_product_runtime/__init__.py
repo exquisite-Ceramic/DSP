@@ -1,6 +1,11 @@
 """产品运行时公共契约与 durable owners。"""
 
 from .accepted_input import AcceptedProductTaskInputV2
+from .autocad_evidence import AutoCadWallThicknessVerificationEvidencePort
+from .autocad_execution import (
+    AutoCadWallThicknessExecutionPort,
+    AutoCadWallThicknessProviderExecutionSnapshotBoundary,
+)
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -14,6 +19,7 @@ from .contracts import (
 from .cross_host_reference_composition import (
     CrossHostRuntimePortBinding,
     CrossHostRuntimeRegistries,
+    build_autocad_wall_thickness_runtime_binding,
     build_cross_host_runtime_registries,
 )
 from .postgres_request_store import (
@@ -40,6 +46,9 @@ from .wall_thickness_flow import ProductTaskRequestStore, WallThicknessProductFl
 
 __all__ = [
     "AcceptedProductTaskInputV2",
+    "AutoCadWallThicknessExecutionPort",
+    "AutoCadWallThicknessProviderExecutionSnapshotBoundary",
+    "AutoCadWallThicknessVerificationEvidencePort",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "ExactHostRuntimeRegistry",
@@ -66,6 +75,7 @@ __all__ = [
     "RevitWallThicknessSemanticBoundary",
     "RevitWallThicknessVerificationEvidencePort",
     "WallThicknessProductFlow",
+    "build_autocad_wall_thickness_runtime_binding",
     "build_cross_host_runtime_registries",
     "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",

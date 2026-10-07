@@ -9,8 +9,12 @@ from autocad_sidecar.adapter.host_adapter import HostAdapter
 from autocad_sidecar.adapter.model_adapter import ModelAdapter
 from autocad_sidecar.adapter.view_adapter import ViewAdapter
 from autocad_sidecar.execution.command_dispatcher import CommandDispatcher
+from autocad_sidecar.execution.wall_thickness import AutoCadWallThicknessMutationPort
+from autocad_sidecar.execution.wall_thickness_read import AutoCadWallThicknessFactReadPort
 
 __all__ = [
+    "AutoCadWallThicknessFactReadPort",
+    "AutoCadWallThicknessMutationPort",
     "CommandDispatcher",
     "ContextAdapter",
     "HostAdapter",
