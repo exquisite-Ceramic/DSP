@@ -23,6 +23,7 @@ from .contracts import (
 from .cross_host_reference_composition import (
     CrossHostRuntimePortBinding,
     CrossHostRuntimeRegistries,
+    CrossHostVerificationEvidenceRouter,
     build_autocad_wall_thickness_runtime_binding,
     build_cross_host_runtime_registries,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "AutoCadWallThicknessVerificationEvidencePort",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
+    "CrossHostVerificationEvidenceRouter",
     "ExactHostRuntimeRegistry",
     "PostgresProductTaskRequestStore",
     "PostgresProductTaskResumeConsumeGate",
