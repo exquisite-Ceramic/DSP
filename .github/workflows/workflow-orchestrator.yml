@@ -53,6 +53,8 @@ jobs:
             tests/orchestrator/test_task9_real_owner_acceptance.py \
             tests/orchestrator/test_task10_durable_recovery.py \
             tests/orchestrator/test_task10_review_regressions.py \
+            tests/execution_reconciliation/test_postgres_evidence_store.py \
+            tests/execution_coordination/test_evidence_body_ordering.py \
             tests/product_runtime/test_product_task_request_postgres.py \
             tests/product_runtime/test_cross_host_planning.py \
             tests/product_runtime/test_revit_semantics.py \
