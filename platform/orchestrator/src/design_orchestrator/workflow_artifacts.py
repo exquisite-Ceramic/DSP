@@ -29,6 +29,7 @@ from design_orchestrator.parameter_binder import (
     PlanningRequirements,
     SlotBindingEvidence,
 )
+from design_orchestrator.workflow_contracts import StableRef
 
 WORKFLOW_ARTIFACT_CODEC_VERSION = 1
 
