@@ -355,7 +355,7 @@ _TASK15_SEMANTIC_ENVIRONMENT_ID = "SEM-ENV-TASK15"
 _TASK15_SEMANTIC_ENVIRONMENT_HASH = "1" * 64
 
 
-def build_cross_host_task15_lineage():
+def build_cross_host_task15_lineage(*, semantic_environment=None):
     """构造 Task 15 共用的真实 Step28→32 双 Host 产品 lineage。
 
     这里只组合 production domain contracts/services；Host transport、时钟与故障注入仍由
@@ -393,12 +393,13 @@ def build_cross_host_task15_lineage():
     from tests.materialization_planning._support import build_case, slot
     from tests.provider_binding._support import snapshot
 
+    environment_binding = semantic_environment or SemanticEnvironmentBinding(
+        _TASK15_SEMANTIC_ENVIRONMENT_ID,
+        _TASK15_SEMANTIC_ENVIRONMENT_HASH,
+    )
     case = build_case(
         project_id=_TASK15_PROJECT_ID,
-        semantic_environment=SemanticEnvironmentBinding(
-            _TASK15_SEMANTIC_ENVIRONMENT_ID,
-            _TASK15_SEMANTIC_ENVIRONMENT_HASH,
-        ),
+        semantic_environment=environment_binding,
         topology_slots=(
             slot(
                 "MS-AUTOCAD-TASK15",
@@ -547,8 +548,8 @@ def build_cross_host_task15_lineage():
 
     return SimpleNamespace(
         project_id=_TASK15_PROJECT_ID,
-        semantic_environment_id=_TASK15_SEMANTIC_ENVIRONMENT_ID,
-        semantic_environment_hash=_TASK15_SEMANTIC_ENVIRONMENT_HASH,
+        semantic_environment_id=case.changeset.semantic_environment_ref.environment_id,
+        semantic_environment_hash=case.changeset.semantic_environment_ref.content_hash,
         autocad_document=_TASK15_AUTOCAD_DOCUMENT,
         revit_document=_TASK15_REVIT_DOCUMENT,
         case=case,
