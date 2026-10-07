@@ -364,7 +364,7 @@ def test_partial_commit_and_unresolved_dispatch_project_exact_owner_truth() -> N
     second = stored.slice_states[1]
     partial = replace(
         stored,
-        status=ExecutionSagaStatusV2.PARTIALLY_COMMITTED,
+        status=ExecutionSagaStatusV2.EXECUTING,
         slice_states=(
             stored.slice_states[0],
             replace(
