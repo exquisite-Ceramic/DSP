@@ -1446,33 +1446,65 @@ class CanonicalWorkflowOwnerPorts:
         if stored is None:
             raise ValueError("execution Saga is unresolved")
         ordered_slice_hashes = tuple(stored.definition.ordered_slice_hashes)
-        if len(ordered_slice_hashes) != 1:
-            raise ValueError("canonical execution owner view requires exactly one Saga Slice")
-        slice_hash = ordered_slice_hashes[0]
+        if not ordered_slice_hashes:
+            raise ValueError("execution Saga must contain at least one immutable Slice")
+        if len(set(ordered_slice_hashes)) != len(ordered_slice_hashes):
+            raise ValueError("execution Saga contains duplicate immutable Slice identity")
+        if tuple(
+            state.execution_slice_hash for state in stored.slice_states
+        ) != ordered_slice_hashes:
+            raise ValueError(
+                "execution Saga state coverage does not match immutable Slice order"
+            )
+        if any(
+            state.materialization_plan_hash
+            != stored.definition.materialization_plan_hash
+            for state in stored.slice_states
+        ):
+            raise ValueError(
+                "execution Saga Slice materialization lineage is inconsistent"
+            )
 
-        dispatch_getter = getattr(self._dispatch_intent_store, "get_for_saga_slice", None)
+        dispatch_getter = getattr(
+            self._dispatch_intent_store,
+            "get_for_saga_slice",
+            None,
+        )
         if dispatch_getter is None:
             raise self._not_wired("get_execution_owner_state")
-        dispatch_intent = dispatch_getter(saga_id, slice_hash)
         projection = self._execution_recovery_projection
         if not callable(projection):
             raise self._not_wired("get_execution_owner_state")
-        projected = projection(stored, slice_hash, dispatch_intent)
-        disposition = getattr(projected, "disposition", None)
 
-        active_recovery = None
-        if disposition is not None and dispatch_intent is not None:
-            # owner projection 已经判定 Saga/dispatch 组合是否合法；无 intent 的
-            # ADMISSION_RESERVED/ADMITTED 是合法 pre-dispatch crash window。
-            # adapter 不伪造 dispatch identity；保留 Saga 状态让 workflow classifier
-            # 进入 RECOVER_OR_WAIT。只有真实 Host dispatch identity 才发布 recovery view。
-            active_recovery = HostDispatchRecoveryView(
-                dispatch_intent_id=str(dispatch_intent.dispatch_intent_id),
-                execution_slice_hash=slice_hash,
-                state=HostDispatchRecoveryState(
-                    getattr(disposition, "value", disposition)
-                ),
+        unresolved: list[HostDispatchRecoveryView] = []
+        for slice_hash in ordered_slice_hashes:
+            dispatch_intent = dispatch_getter(saga_id, slice_hash)
+            projected = projection(stored, slice_hash, dispatch_intent)
+            disposition = getattr(projected, "disposition", None)
+            if disposition is None:
+                continue
+            if dispatch_intent is None:
+                # ADMISSION_RESERVED/ADMITTED without dispatch is a legal
+                # pre-dispatch crash window. It has no dispatch identity to expose;
+                # the nonterminal Saga status still routes workflow to recovery/wait.
+                continue
+            unresolved.append(
+                HostDispatchRecoveryView(
+                    dispatch_intent_id=str(dispatch_intent.dispatch_intent_id),
+                    execution_slice_hash=slice_hash,
+                    state=HostDispatchRecoveryState(
+                        getattr(disposition, "value", disposition)
+                    ),
+                )
             )
+
+        recoveries = tuple(unresolved)
+        active_recovery = recoveries[0] if len(recoveries) == 1 else None
+        active_slice_hash = (
+            active_recovery.execution_slice_hash
+            if active_recovery is not None
+            else None
+        )
 
         saga_status = getattr(stored.status, "value", stored.status)
         return ExecutionOwnerView(
@@ -1480,9 +1512,10 @@ class CanonicalWorkflowOwnerPorts:
                 saga_id=stored.definition.saga_id,
                 saga_revision=stored.saga_revision,
                 status=str(saga_status),
-                active_slice_hash=(slice_hash if active_recovery is not None else None),
+                active_slice_hash=active_slice_hash,
             ),
             active_dispatch_recovery=active_recovery,
+            unresolved_dispatch_recoveries=recoveries,
         )
 
     def verify_reconcile(self, saga_id: str) -> ExecutionOwnerView:

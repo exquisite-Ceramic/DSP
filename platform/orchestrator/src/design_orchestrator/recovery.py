@@ -34,7 +34,7 @@ def decide_apply_resume(
     """在 apply 前根据 authoritative execution truth 决定恢复路径。
 
     checkpoint 只提供稳定的 ``saga_id`` 与导航上下文；一旦已经存在 durable Saga identity，
-    调用方必须把该 Saga 的最新 owner view 传入。Host dispatch recovery 的优先级高于 Saga
+    调用方必须把该 Saga 的最新 owner view 传入。全部 Host dispatch recovery 的优先级高于 Saga
     状态，因此 ``OUTCOME_UNKNOWN``、``RECOVERY_REQUIRED`` 和 ``SAFE_TO_RETRY`` 都不会被
     Workflow Orchestrator 解释成“可以创建一个新 Host command”。
     """
@@ -66,21 +66,26 @@ def decide_apply_resume(
         )
 
     revision = execution.saga.saga_revision
-    recovery = execution.active_dispatch_recovery
-    if recovery is not None:
-        if recovery.state in {
+    recoveries = execution.unresolved_dispatch_recoveries
+    for recovery in recoveries:
+        if recovery.state not in {
             HostDispatchRecoveryState.OUTCOME_UNKNOWN,
             HostDispatchRecoveryState.RECOVERY_REQUIRED,
             HostDispatchRecoveryState.SAFE_TO_RETRY,
         }:
-            return ResumeDecision(
-                route="RECOVER_OR_WAIT",
-                refreshed_saga_revision=revision,
-                reason=f"active dispatch recovery: {recovery.state.value}",
+            raise WorkflowStateError(
+                "WORKFLOW_EXECUTION_RECOVERY_STATE_UNKNOWN",
+                str(recovery.state),
             )
-        raise WorkflowStateError(
-            "WORKFLOW_EXECUTION_RECOVERY_STATE_UNKNOWN",
-            str(recovery.state),
+    if recoveries:
+        summary = ", ".join(
+            f"{item.dispatch_intent_id}:{item.state.value}"
+            for item in recoveries
+        )
+        return ResumeDecision(
+            route="RECOVER_OR_WAIT",
+            refreshed_saga_revision=revision,
+            reason=f"unresolved dispatch recoveries: {summary}",
         )
 
     status = execution.saga.status

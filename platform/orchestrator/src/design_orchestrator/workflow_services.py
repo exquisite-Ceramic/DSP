@@ -171,17 +171,68 @@ class ExecutionOwnerView:
 
     saga: ExecutionSagaView
     active_dispatch_recovery: HostDispatchRecoveryView | None = None
+    unresolved_dispatch_recoveries: tuple[HostDispatchRecoveryView, ...] = ()
 
     def __post_init__(self) -> None:
+        """规范化 legacy single recovery 与新的完整 unresolved recovery tuple。"""
+
         if not isinstance(self.saga, ExecutionSagaView):
             raise ValueError("saga must be an ExecutionSagaView")
-        if self.active_dispatch_recovery is not None and not isinstance(
-            self.active_dispatch_recovery,
-            HostDispatchRecoveryView,
-        ):
+
+        active = self.active_dispatch_recovery
+        if active is not None and not isinstance(active, HostDispatchRecoveryView):
             raise ValueError(
                 "active_dispatch_recovery must be a HostDispatchRecoveryView or None"
             )
+
+        recoveries = tuple(self.unresolved_dispatch_recoveries)
+        if any(
+            not isinstance(item, HostDispatchRecoveryView)
+            for item in recoveries
+        ):
+            raise ValueError(
+                "unresolved_dispatch_recoveries must contain "
+                "HostDispatchRecoveryView values"
+            )
+        slice_hashes = tuple(item.execution_slice_hash for item in recoveries)
+        dispatch_ids = tuple(item.dispatch_intent_id for item in recoveries)
+        if len(set(slice_hashes)) != len(slice_hashes):
+            raise ValueError(
+                "unresolved_dispatch_recoveries must not duplicate Slice identity"
+            )
+        if len(set(dispatch_ids)) != len(dispatch_ids):
+            raise ValueError(
+                "unresolved_dispatch_recoveries must not duplicate dispatch identity"
+            )
+
+        if active is not None and not recoveries:
+            recoveries = (active,)
+        elif active is None and len(recoveries) == 1:
+            active = recoveries[0]
+        elif active is not None and recoveries:
+            if len(recoveries) != 1 or recoveries[0] != active:
+                raise ValueError(
+                    "legacy active_dispatch_recovery conflicts with canonical tuple"
+                )
+        if len(recoveries) > 1 and active is not None:
+            raise ValueError(
+                "multi-slice recovery requires active_dispatch_recovery to be None"
+            )
+
+        if active is not None and self.saga.active_slice_hash not in {
+            None,
+            active.execution_slice_hash,
+        }:
+            raise ValueError(
+                "saga active_slice_hash conflicts with active dispatch recovery"
+            )
+
+        object.__setattr__(self, "active_dispatch_recovery", active)
+        object.__setattr__(
+            self,
+            "unresolved_dispatch_recoveries",
+            recoveries,
+        )
 
 
 class WorkflowServices(Protocol):
@@ -285,7 +336,7 @@ class WorkflowServices(Protocol):
 def classify_execution_resume(view: ExecutionOwnerView) -> str:
     """根据最新 execution-owner truth 决定 workflow 的恢复类别。
 
-    顺序是 ADR-010 的安全不变量：必须先解释 active Host dispatch recovery，再解释 Saga。
+    顺序是 ADR-010 的安全不变量：必须先解释全部 unresolved Host dispatch recovery，再解释 Saga。
     即使 Saga 看起来仍允许 dispatch，只要存在未收口的 Host-effect recovery，workflow 就只能
     进入恢复/等待路径，不能创建新的 Host command identity。
     """
@@ -293,18 +344,19 @@ def classify_execution_resume(view: ExecutionOwnerView) -> str:
     if not isinstance(view, ExecutionOwnerView):
         raise ValueError("view must be an ExecutionOwnerView")
 
-    recovery = view.active_dispatch_recovery
-    if recovery is not None:
-        if recovery.state in {
+    recoveries = view.unresolved_dispatch_recoveries
+    for recovery in recoveries:
+        if recovery.state not in {
             HostDispatchRecoveryState.OUTCOME_UNKNOWN,
             HostDispatchRecoveryState.RECOVERY_REQUIRED,
             HostDispatchRecoveryState.SAFE_TO_RETRY,
         }:
-            return "RECOVER_OR_WAIT"
-        raise WorkflowStateError(
-            "WORKFLOW_EXECUTION_RECOVERY_STATE_UNKNOWN",
-            str(recovery.state),
-        )
+            raise WorkflowStateError(
+                "WORKFLOW_EXECUTION_RECOVERY_STATE_UNKNOWN",
+                str(recovery.state),
+            )
+    if recoveries:
+        return "RECOVER_OR_WAIT"
 
     saga = view.saga
     if saga.status in {"SUCCEEDED", "DIVERGED", "PARTIALLY_COMMITTED", "FAILED"}:
