@@ -161,8 +161,10 @@ def test_autocad_commit_builds_actual_delta_only_for_exact_changed_target_effect
         _MutationPort(_ok_result(extra_target=True)),
         clock=lambda: "2026-10-07T03:00:00Z",
     )
-    with pytest.raises(ValueError, match="AUTOCAD_EXECUTION_EFFECT_MISMATCH"):
-        bad.execute(execution_slice, authority, binding_set, dispatch)
+    bad_outcome = bad.execute(execution_slice, authority, binding_set, dispatch)
+    assert isinstance(bad_outcome, HostFailed)
+    assert bad_outcome.phase is HostFailurePhase.COMMIT_STATE_UNKNOWN
+    assert bad_outcome.failure_ref == "AUTOCAD_COMMIT_EVIDENCE_MISMATCH"
 
 
 def test_autocad_revision_conflict_is_before_commit_and_has_no_actual_delta() -> None:
@@ -235,11 +237,17 @@ def test_provider_snapshot_freezes_exact_planning_revision_into_binding_hash() -
                 "semantic_environment_ref": ref.semantic_environment,
             })()
         def get_snapshot(self, snapshot_id):
+            member_ids = tuple(self.changeset.snapshot_set_ref.member_snapshot_ids)
+            document_ref = (
+                execution_slice.host_runtime_ref.document_ref
+                if snapshot_id == member_ids[0]
+                else "DOC-NON-AUTOCAD"
+            )
             return type("P", (), {
                 "snapshot_id": snapshot_id,
-                "hash": "AUTOCAD-PLANNING-HASH",
+                "hash": f"HASH-{snapshot_id}",
                 "kind": import_module("semantic_runtime").SnapshotKind.PLANNING,
-                "document_ref": execution_slice.host_runtime_ref.document_ref,
+                "document_ref": document_ref,
                 "base_host_revision": "11",
                 "semantic_environment_ref": self.changeset.semantic_environment_ref,
             })()
