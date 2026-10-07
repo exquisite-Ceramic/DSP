@@ -40,10 +40,11 @@ def _postgres_api():
 
 
 def _clean_evidence_rows() -> None:
-    """若 migration 已存在则清空 Task 13 evidence 表；RED 阶段允许表尚不存在。"""
+    """若 migration 已存在则清空 Task 13 evidence 表；无 DSN 的 lane 必须先 skip。"""
 
+    dsn = _dsn()
     apply_migrations, connect_postgres, _ = _postgres_api()
-    conn = connect_postgres(_dsn())
+    conn = connect_postgres(dsn)
     try:
         apply_migrations(conn)
         with conn.transaction():
