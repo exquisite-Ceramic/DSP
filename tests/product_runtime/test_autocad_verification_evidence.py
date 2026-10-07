@@ -34,16 +34,24 @@ def _api():
 class _Dispatcher:
     """独立 READ fake；mutation response 不在此对象上存在。"""
 
-    def __init__(self, *, revision: int = 11, width_mm: float = 300.0) -> None:
+    def __init__(
+        self,
+        *,
+        host_instance_id: str,
+        document_id: str,
+        native_id: str,
+        revision: int = 11,
+        width_mm: float = 300.0,
+    ) -> None:
         self.calls = []
         self.batch = DesignFactAdapter().normalize_snapshot(
             {
-                "hostInstanceId": "AUTOCAD-01",
-                "documentId": "DOC-CANONICAL",
+                "hostInstanceId": host_instance_id,
+                "documentId": document_id,
                 "revision": revision,
                 "entities": [
                     {
-                        "nativeId": "ACAD-HANDLE-001",
+                        "nativeId": native_id,
                         "nativeKind": "LWPOLYLINE",
                         "layer": "A-WALL",
                         "properties": {
@@ -81,7 +89,14 @@ def _case(*, revision: int = 11, width_mm: float = 300.0):
     authority = ctx.authorities[index]
     binding_set = ctx.binding_sets[index]
     actual_delta = signed_delta(ctx, index)
-    dispatcher = _Dispatcher(revision=revision, width_mm=width_mm)
+    native_target = binding_set.bindings[0].native_targets[0]
+    dispatcher = _Dispatcher(
+        host_instance_id=execution_slice.host_runtime_ref.host_instance_id,
+        document_id=execution_slice.host_runtime_ref.document_ref,
+        native_id=native_target.native_id,
+        revision=revision,
+        width_mm=width_mm,
+    )
     read_port = read_type(dispatcher)
     evidence = evidence_type(
         fact_reader=read_port,
@@ -127,7 +142,9 @@ def test_autocad_verification_uses_semantic_facts_not_execute_response_width() -
     bundle = _bundle(case)
     ctx, _, execution_slice, authority, _, actual_delta, _, dispatcher = case
 
-    assert dispatcher.calls == [("ACAD-HANDLE-001",)]
+    assert dispatcher.calls == [
+        (binding_set.bindings[0].native_targets[0].native_id,)
+    ]
     assert bundle.base_host_revision == str(actual_delta.revision_after)
     assert bundle.subject_evidence[0].properties["dsp:WallThickness"] == {
         "value": 300.0,
