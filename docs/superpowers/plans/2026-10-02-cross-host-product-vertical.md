@@ -987,6 +987,110 @@ uv run ruff check platform/product_runtime platform/product_front_door platform/
 
 ---
 
+### Task 15.5 Amendment: Close the V2 start-eligible → workflow bootstrap gap before live acceptance
+
+**Finding / authority:** At exact Task 15 GREEN HEAD `9beff382d8a097ceb70f4ba54380671274eb723a`, implementation audit found that the approved Spec §4.4 path ends at `workflow becomes start-eligible`, but the current production Front Door does not actually start a V2 workflow. `ProductFrontDoorService._submit_v2()` atomically accepts the V2 request/binding and returns `ACCEPTED_PRE_WORKFLOW`; there is no production V2 flow starter/resolver. `DefaultWorkflowServices.prepare_operation_proposal_subject()` already has a V2 builder seam, but `CanonicalWorkflowOwnerPorts` does not provide the production builder. Therefore Task 16's required `MCP submit → durable proposal → explicit human ACCEPT` path is currently unreachable without fabricating a checkpoint in tests.
+
+This is an **implementation-plan amendment only**. It does not reopen the approved Design Spec, add a business authority owner, change any V1/V2 hash body, change policy/Gateway/Saga semantics, or weaken fail-closed behavior.
+
+**Files:**
+- Create: `platform/product_runtime/src/design_product_runtime/cross_host_flow.py`
+- Create: `platform/product_runtime/src/design_product_runtime/cross_host_observation.py`
+- Create: `platform/product_runtime/src/design_product_runtime/cross_host_product_reference_composition.py`
+- Modify: `platform/product_runtime/src/design_product_runtime/cross_host_reference_composition.py`
+- Modify: `platform/product_runtime/src/design_product_runtime/__init__.py`
+- Modify: `platform/product_front_door/src/design_product_front_door/service.py`
+- Modify: `platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py`
+- Create: `tests/product_runtime/test_cross_host_product_start.py`
+- Create: `tests/product_runtime/test_cross_host_observation.py`
+- Modify: `tests/product_front_door/test_mcp_product_end_to_end.py`
+- Modify: `tests/product_runtime/test_cross_host_product_e2e.py`
+- Modify: `tests/product_runtime/test_cross_host_product_stale.py`
+
+**Interfaces / frozen ownership:**
+
+1. **V2 start flow consumes already-accepted input; it never creates a second request truth.**
+
+   Add `CrossHostProductFlow.start_accepted(accepted: AcceptedProductTaskInputV2) -> WorkflowCheckpointView` and `CrossHostProductFlow.resume(task_id: str, command: WorkflowResumeCommand) -> WorkflowCheckpointView`.
+
+   `start_accepted()` MUST reuse the existing `ProductTaskStartGate` exact task-row lock. Inside that critical section it re-reads the exact workflow checkpoint and calls `LangGraphWorkflowRuntime.start()` only if no checkpoint exists. Checkpoint `request_data` carries only immutable accepted-input locator/hash/version fields; request and binding bodies remain owned by `product_task.request`. It MUST NOT call `create_v2()` again.
+
+2. **Front Door V2 submit starts only after durable acceptance succeeds.**
+
+   Exact order:
+
+   `local SessionBindingV2 read → request/binding hash validation → reviewed-config validation → ProductTask create_v2 COMMIT → resolve exact V2 flow from server-owned accepted input → start_accepted under existing start gate → durable ProductTask query re-read`.
+
+   An identical V2 submit replay MUST observe the existing checkpoint and MUST NOT call `runtime.start()` twice. A version/body/binding conflict remains rejected by the ProductTask owner before workflow start.
+
+3. **The V2 flow resolver is composition only, never an authority source.**
+
+   It resolves only from `AcceptedProductTaskInputV2.session_binding_payload` plus reviewed runtime configuration. After server acceptance it MUST NOT depend on client SQLite, latest-session lookup, reverse lookup, or a second copy of request/binding truth.
+
+4. **Proposal and Gate-A observations share one production exact Host READ adapter.**
+
+   Add `CrossHostWallThicknessObservationReader.read(*, binding: SessionBindingV2, member: SessionBindingMemberV2, command_id: str) -> CrossHostProposalObservationV2`.
+
+   AutoCAD and Revit branches reuse existing production READ/normalization seams, prove exact runtime/document/native-target identity, expose current Host revision plus normalized wall thickness in millimetres, and never mutate the Host. Reacquisition metadata may differ; Gate A/B stable comparison remains defined by `CrossHostProposalObservationV2.stable_state_body()`.
+
+5. **Production canonical owners build the V2 human subject instead of falling back to the V1 operation ref.**
+
+   Add `CanonicalWorkflowOwnerPorts.build_operation_proposal_subject(task_id, operation_ref, context_snapshot_ref)` only when an explicit cross-Host proposal builder is injected. The builder reads the exact server-owned accepted input, validates the supported `set_wall_thickness.v1` operation lineage, fresh-reads exactly AutoCAD + Revit, and returns the already-frozen `CrossHostOperationProposalSubjectV2` body.
+
+   The subject binds request hash, session-binding hash, topology hash, semantic target/environment, canonical operation/normalized 300 mm arguments + target, and the two exact Host observations. It MUST NOT contain `required_set_hash`, provider identity, grant identity, or mutable policy state.
+
+6. **Gate-B member reconstruction reuses production Host READ + SemanticService seams.**
+
+   The reference composition provides exact-runtime planning ports for AutoCAD and Revit. Each `reconstruct_member()` independently reads its own document/native target at the supplied expected revision and returns `CrossHostPlanningMemberEvidence`. Revit may delegate semantic reconstruction to `RevitWallThicknessSemanticBoundary.reconstruct()`; AutoCAD uses the existing normalized design-fact reader under the same pinned `SemanticEnvironment`. No member may clone the other Host's `ReconstructionResult`.
+
+7. **The reference composition owns no new domain truth.**
+
+   It only wires the existing ProductTask PostgreSQL request/start gate, LangGraph PostgreSQL checkpoint, PostgreSQL workflow artifact store, PostgreSQL proposal-decision owner, Semantic Runtime/Impact/ChangeSet/Scope, V2 policy admission, Step30/31/32, PostgreSQL Saga/dispatch/evidence owners, AutoCAD/Revit readiness/execution/evidence adapters, and `CrossHostConvergenceVerifier`.
+
+   Other intermediate in-memory stores remain allowed only where the approved Spec already permits safe reconstruction. Restart/offline-query authority remains in the durable owners frozen by §8.1/§8.7.
+
+- [ ] **Step A1: Write RED for V2 start and real proposal construction.**
+
+  Required tests:
+  - `test_v2_submit_accepts_then_starts_exact_task_once`
+  - `test_v2_submit_replay_does_not_start_checkpoint_twice`
+  - `test_v2_proposal_subject_uses_exact_accepted_binding_and_two_fresh_reads`
+  - `test_v2_proposal_pause_has_zero_host_mutation`
+
+- [ ] **Step A2: Write RED for production observation/planning adapters.**
+
+  Required tests:
+  - `test_autocad_and_revit_proposal_reads_return_exact_stable_state`
+  - `test_metadata_only_reacquisition_remains_stable_equal`
+  - `test_planning_members_reconstruct_independently_under_same_environment`
+  - `test_unknown_runtime_document_or_native_target_fails_closed`
+
+- [ ] **Step A3: Implement only the starter/subject/observation/planning composition seams.**
+
+  Do not add a second start-lock algorithm, decision owner, result owner, provider registry, authorization store, Host mutation API, or new workflow state machine.
+
+- [ ] **Step A4: Prove real MCP V2 submit reaches an actual durable proposal pause.**
+
+  Required tests:
+  - `test_real_mcp_v2_submit_reaches_durable_cross_host_proposal_pause`
+  - `test_real_mcp_v2_accept_consumes_same_pause_and_runs_existing_workflow`
+
+  The first test asserts zero Host mutation before ACCEPT. The second consumes the exact `task_id + pause_id + subject_ref` produced by the real workflow. No test may pre-seed or rewrite a fake pending checkpoint.
+
+- [ ] **Step A5: Run the amended focused gate plus the complete Task 15 matrix and MCP regressions.**
+
+  Run with `DSP_TEST_POSTGRES_DSN` against PostgreSQL 17:
+
+  `uv run pytest tests/product_runtime/test_cross_host_product_start.py tests/product_runtime/test_cross_host_observation.py tests/product_runtime/test_cross_host_product_e2e.py tests/product_runtime/test_cross_host_product_stale.py tests/product_runtime/test_cross_host_product_authorization.py tests/product_runtime/test_cross_host_product_recovery.py tests/product_runtime/test_cross_host_product_query.py tests/product_front_door/test_mcp_product_end_to_end.py -q -vv`
+
+  Then require the same Repository Regression, Workflow Orchestrator PostgreSQL, Durable Persistence, Product Front Door, and Revit Product Vertical exact-head gates that closed Task 15.
+
+- [ ] **Step A6: Commit** `feat: bootstrap start-eligible cross-host workflow`.
+
+Only after A1–A6 are GREEN may Task 16 claim that its live MCP/human path is reachable.
+
+---
+
 ### Task 16: Add all four mandatory controlled live cases, runbook and dedicated CI collection gate
 
 **Files:**
