@@ -7,7 +7,6 @@ from dataclasses import replace
 import design_product_runtime as product_runtime
 import pytest
 from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
-from design_orchestrator.interaction_artifacts import CrossHostProposalObservationV2
 from semantic_runtime import (
     ReconstructionResult,
     SemanticEnvironmentRef,

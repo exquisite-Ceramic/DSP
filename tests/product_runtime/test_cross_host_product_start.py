@@ -15,10 +15,7 @@ from design_product_runtime import (
 )
 from design_product_runtime.accepted_input import AcceptedProductTaskInputV2
 
-from tests.product_front_door.test_cross_host_gate_a import (
-    _binding,
-    _binding_payload,
-)
+from tests.product_front_door.test_cross_host_gate_a import _binding
 
 
 class _AcceptedStore:

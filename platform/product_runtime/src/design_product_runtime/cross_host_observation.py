@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from design_fact_contracts import FactKind, NormalizedDesignFactBatch
 from design_orchestrator.interaction_artifacts import CrossHostProposalObservationV2
-
 from semantic_runtime import ReconstructionResult
 
 from .cross_host_planning import CrossHostPlanningMemberEvidence

@@ -6,11 +6,6 @@ from .autocad_execution import (
     AutoCadWallThicknessExecutionPort,
     AutoCadWallThicknessProviderExecutionSnapshotBoundary,
 )
-from .cross_host_flow import CrossHostProductFlow
-from .cross_host_observation import (
-    CrossHostPlanningRuntimePort,
-    CrossHostWallThicknessObservationReader,
-)
 from .contracts import (
     ProductFlowStatus,
     ProductFlowView,
@@ -24,6 +19,11 @@ from .contracts import (
     ProductTaskRequestV2,
     ProductTaskV2Status,
     product_task_request_v2_payload,
+)
+from .cross_host_flow import CrossHostProductFlow
+from .cross_host_observation import (
+    CrossHostPlanningRuntimePort,
+    CrossHostWallThicknessObservationReader,
 )
 from .cross_host_reference_composition import (
     CrossHostPlanningComposition,
