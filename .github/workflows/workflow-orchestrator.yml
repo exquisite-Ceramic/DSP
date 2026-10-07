@@ -44,6 +44,7 @@ jobs:
           # composition 与 binding integrity / interleaving recovery contract。Task 9 从
           # WallThicknessProductFlow 产品入口持续加入 mandatory offline acceptance 场景。
           uv run python -m pytest \
+            tests/orchestrator/test_provider_binding_collection_manifest.py \
             tests/orchestrator/test_artifact_postgres.py \
             tests/orchestrator/test_postgres_checkpoint.py \
             tests/orchestrator/test_workflow_resume_authoritative_truth.py \

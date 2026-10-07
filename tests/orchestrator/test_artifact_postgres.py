@@ -352,3 +352,59 @@ def test_cross_host_proposal_subject_reopens_after_process_restart() -> None:
 
     assert restored == subject
     assert workflow_artifact_content_hash(restored) == subject_hash
+
+
+
+def test_provider_binding_manifest_corrupt_payload_fails_closed() -> None:
+    """Task 8 manifest 的 durable payload 被篡改后必须在 codec/hash 边界拒绝。"""
+
+    module = import_module("design_orchestrator.execution_collection_artifacts")
+    from design_execution_planning import plan_materialized_execution
+    from tests.execution_planning._support import build_phase_i_execution_inputs
+
+    _reset_owner_schema()
+    _, _, _, request = build_phase_i_execution_inputs()
+    plan = plan_materialized_execution(request)
+    members = tuple(
+        module.ProviderBindingCollectionMember(
+            execution_slice_id=item.execution_slice_id,
+            execution_slice_hash=item.execution_slice_hash,
+            materialization_id=item.materialization_id,
+            owner_ref=StableRef(
+                f"PBSV2-TAMPER-{index}",
+                f"{index + 5:x}" * 64,
+            ),
+        )
+        for index, item in enumerate(plan.execution_slices)
+    )
+    manifest = module.ProviderBindingCollectionManifest.create(plan, members)
+    store = create_postgres_artifact_store(_dsn())
+    try:
+        ref = store.put(
+            kind="provider_binding_collection_manifest",
+            value=manifest,
+            content_hash=workflow_artifact_content_hash(manifest),
+        )
+    finally:
+        store.close()
+
+    _tamper(
+        """
+        UPDATE workflow_artifact
+        SET payload = jsonb_set(
+            payload,
+            '{execution_plan_hash}',
+            to_jsonb(%s::text)
+        )
+        WHERE artifact_id = %s
+        """,
+        "f" * 64,
+        ref.ref_id,
+    )
+
+    reopened = create_postgres_artifact_store(_dsn())
+    try:
+        with pytest.raises(WorkflowArtifactUnavailableError):
+            reopened.get(ref)
+    finally:
+        reopened.close()
