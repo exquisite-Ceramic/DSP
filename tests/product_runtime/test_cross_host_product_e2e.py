@@ -5,6 +5,7 @@ from __future__ import annotations
 from design_product_runtime.revit_semantics import RevitWallThicknessSemanticBoundary
 from semantic_runtime import HostBinding, IdentityRegistry
 
+from tests.execution_coordination._materialized_support import materialized_fixture
 from tests.product_runtime.test_product_task_query_v2 import _accepted
 
 
@@ -12,7 +13,7 @@ class _V2AcceptedReader:
     """只暴露 server-owned V2 accepted input；禁止测试回退到 V1 request。"""
 
     def __init__(self) -> None:
-        self.accepted = _accepted()
+        self.accepted = _accepted(materialized_fixture().ctx)
 
     def get_v2(self, task_id: str):
         """按 exact task 返回 V2 accepted input。"""
