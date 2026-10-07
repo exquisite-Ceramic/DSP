@@ -9,6 +9,7 @@ import psycopg
 import pytest
 from design_approval_scope import InMemoryApprovalScopeStore
 from design_changeset import InMemoryChangeSetStore
+from design_impact import SemanticEnvironmentBinding
 from design_orchestrator.workflow_contracts import StableRef
 from design_product_front_door import (
     ConfiguredPolicyApprovalAdmissionPortV2,
@@ -36,6 +37,10 @@ def _case():
 
     return build_case(
         project_id=_PROJECT_ID,
+        semantic_environment=SemanticEnvironmentBinding(
+            "SEM-ENV-TASK15",
+            "1" * 64,
+        ),
         topology_slots=(
             slot(
                 "MS-AUTOCAD",
