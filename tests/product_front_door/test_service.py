@@ -16,7 +16,9 @@ from design_product_front_door.service import ProductFrontDoorService
 from design_product_runtime import (
     ProductTaskQueryState,
     ProductTaskQueryView,
+    ProductTaskQueryViewV2,
     ProductTaskRequest,
+    ProductTaskV2Status,
 )
 from revit_sidecar import RevitContextObservation, RevitSelectedElement
 
@@ -446,8 +448,14 @@ class _AcceptedInputStore:
     ):
         """记录 atomic accepted-input owner 调用。"""
 
+        from design_product_runtime.accepted_input import AcceptedProductTaskInputV2
+
         self.calls.append((request, session_binding_hash, session_binding_payload))
-        return object()
+        return AcceptedProductTaskInputV2(
+            request,
+            session_binding_hash,
+            session_binding_payload,
+        )
 
 
 def _v2_binding():
@@ -492,8 +500,35 @@ def _v2_binding():
     )
 
 
-def test_v2_submit_takes_over_binding_before_any_workflow_or_host_action() -> None:
-    """V2 submit 必须先完成 exact local binding/config 校验与 server owner takeover。"""
+class _V2StartFlow:
+    """记录 accepted-input takeover 后的 workflow start，不触碰 Host。"""
+
+    def __init__(self) -> None:
+        self.calls = []
+
+    def start_accepted(self, accepted) -> object:
+        """记录 server-owned accepted input。"""
+
+        self.calls.append(accepted)
+        return object()
+
+
+class _V2FlowResolver:
+    """只把 server-owned accepted input 映射到已配置 V2 flow。"""
+
+    def __init__(self, flow: _V2StartFlow) -> None:
+        self.flow = flow
+        self.calls = []
+
+    def get_flow(self, accepted):
+        """记录 resolver 输入并返回唯一 flow。"""
+
+        self.calls.append(accepted)
+        return self.flow
+
+
+def test_v2_submit_takes_over_binding_before_start_and_never_touches_host() -> None:
+    """V2 submit 必须先 server takeover，再启动 workflow；全程不得触碰 Host/V1 seams。"""
 
     import design_product_front_door as front_door
     from design_product_runtime import ProductTaskRequestV2
@@ -511,16 +546,33 @@ def test_v2_submit_takes_over_binding_before_any_workflow_or_host_action() -> No
     reader = _V2SessionReader(binding)
     reviewed = _ReviewedV2Validator()
     accepted = _AcceptedInputStore()
+    flow = _V2StartFlow()
+    resolver = _V2FlowResolver(flow)
+    query = _QueryService(
+        result=ProductTaskQueryViewV2(
+            version="V2",
+            task_id=request.task_id,
+            request_hash=request.request_hash,
+            state=ProductTaskQueryState.WORKFLOW,
+            status=ProductTaskV2Status.WAITING,
+            proposal_state=None,
+            saga_id=None,
+            convergence_result_hash=None,
+            materializations=(),
+        ),
+        calls=[],
+    )
     exploding = _ExplodingDependency()
     service = ProductFrontDoorService(
         session_binding_reader=reader,
         candidate_source=exploding,
         context_probe=exploding,
         transport_factory=exploding,
-        query_service=_QueryService(result=None, calls=[]),
+        query_service=query,
         composition_pool=exploding,
         reviewed_configuration_validator=reviewed,
         accepted_input_store=accepted,
+        v2_flow_resolver=resolver,
     )
 
     view = service.submit(request)
@@ -532,10 +584,15 @@ def test_v2_submit_takes_over_binding_before_any_workflow_or_host_action() -> No
     assert stored_request == request
     assert stored_hash == binding.binding_hash
     assert stored_payload["binding_hash"] == binding.binding_hash
+    assert len(resolver.calls) == 1
+    assert len(flow.calls) == 1
+    assert resolver.calls[0] == flow.calls[0]
+    assert flow.calls[0].request == request
+    assert query.calls == [request.task_id]
     assert view.task_id == request.task_id
     assert view.request_hash == request.request_hash
-    assert view.state is ProductTaskQueryState.ACCEPTED_PRE_WORKFLOW
-    assert view.flow is None
+    assert view.state is ProductTaskQueryState.WORKFLOW
+    assert view.status is ProductTaskV2Status.WAITING
 
 
 def test_v2_submit_rejects_binding_hash_mismatch_before_review_or_takeover() -> None:
