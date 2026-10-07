@@ -373,10 +373,12 @@ def build_cross_host_task15_lineage():
         plan_materialized_execution,
     )
     from design_gateway_authorization import (
+        ApprovalAdmission,
         ApprovalConsumptionRequestV2,
         ExecutionGrantRequestV2,
         GatewayAuthorizationServiceV2,
         InMemoryGatewayAuthorizationStoreV2,
+        compute_admission_fingerprint,
     )
     from design_impact import SemanticEnvironmentBinding
     from design_materialization_planning import (
@@ -388,7 +390,6 @@ def build_cross_host_task15_lineage():
         resolve_provider_bindings_v2,
     )
 
-    from tests.execution_coordination._support import admission
     from tests.materialization_planning._support import build_case, slot
     from tests.provider_binding._support import snapshot
 
@@ -457,9 +458,25 @@ def build_cross_host_task15_lineage():
 
     gateway_store = InMemoryGatewayAuthorizationStoreV2()
     gateway = GatewayAuthorizationServiceV2(gateway_store)
+    admission_draft = ApprovalAdmission(
+        admission_id="ADM-CROSS-HOST-TASK15",
+        changeset_hash=case.changeset.changeset_hash,
+        approved_scope_hash=case.boundary_v2.scope_hash,
+        semantic_environment_ref=case.changeset.semantic_environment_ref,
+        approver="local:task15-fixture",
+        policy_snapshot_hash="a" * 64,
+        policy_allowed_operations=("set_wall_thickness.v1",),
+        approved_at="2026-10-07T06:00:00Z",
+        expires_at="2026-10-07T08:00:00Z",
+        admission_fingerprint="0" * 64,
+    )
+    task15_admission = dc_replace(
+        admission_draft,
+        admission_fingerprint=compute_admission_fingerprint(admission_draft),
+    )
     approval = gateway.consume_approval(
         ApprovalConsumptionRequestV2(
-            admission=admission(case),
+            admission=task15_admission,
             canonical_changeset=case.changeset,
             approval_scope_boundary=case.boundary_v2,
             consumed_at="2026-10-07T06:50:00Z",
