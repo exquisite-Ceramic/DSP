@@ -106,6 +106,8 @@ jobs:
           uv run python -m pytest \
             tests/orchestrator/test_proposal_decision_postgres.py \
             tests/product_front_door/test_cross_host_gate_a.py \
+            tests/product_front_door/test_approval_policy_v2.py \
+            tests/product_front_door/test_approval_admission_postgres.py \
             tests/product_front_door/test_service.py \
             tests/product_front_door/test_service_resume.py \
             tests/product_front_door/test_mcp_wire.py \
