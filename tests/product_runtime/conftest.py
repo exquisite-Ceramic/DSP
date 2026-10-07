@@ -514,6 +514,7 @@ def build_cross_host_task15_lineage():
         draft = dc_replace(
             base,
             candidate_binding_materials=materials,
+            valid_until="2026-10-07T08:00:00Z",
             snapshot_hash="0" * 64,
         )
         provider_snapshot = dc_replace(
