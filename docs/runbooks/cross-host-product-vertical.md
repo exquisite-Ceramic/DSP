@@ -73,6 +73,32 @@ uv run python -m tests.integration.cross_host_product_live_support --preflight
 
 preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。当前 Task 16A 的 `run_controlled_case` 仍显式以 `LIVE_CASE_DRIVER_NOT_CONNECTED` 拒绝业务执行；在 model invocation、真实 MCP V2 freeze/submit、exact-pause human ACCEPT 和 post-readiness partial-commit injection 完成并审查前，不得放宽此停止门槛。
 
+## 3B. Task 16A V2 durable proposal 与显式人工 resume（当前仅完成离线验证）
+
+新增的 `tests/integration/cross_host_product_v2_proposal_authority.py` 仅把 production
+`SubmissionController.prepare_cross_host_submission()`、真实 `ProductFrontDoorMcpClient.submit/get`
+与原有 PostgreSQL checkpoint / workflow artifact owner 组合起来，读取并核对 exact pause。
+它不从 V2 MCP GET 推断不存在于公开 QueryViewV2 的 pause，也不会调用 resume。
+
+`tests/integration/cross_host_product_v2_manual_resume.py` 接受单独取得的
+`ExplicitHumanDecisionV2`；人工决定必须精确绑定 task ID、request hash、
+SessionBinding hash、pause ID、subject content hash，并只能是
+`OPERATION_PROPOSAL_ACCEPTED` 或 `OPERATION_PROPOSAL_REJECTED`。
+在转发生产 MCP resume 前必须重新获取同一 exact task 的 GET、checkpoint 与
+subject artifact，重验两端 observation 的当前已审查身份和 200 mm 基线。
+任何 stale、身份漂移或 subject/hash mismatch 都必须停止，不得查询 latest task、替换 pause、
+隐式改成 ACCEPT 或做普通 EXECUTE 重送。
+
+该模块只是一个 **被动的人工决定执行适配接口**：不会提供用户确认 UI，
+不会自动生成批准证据，也没有接入 `run_controlled_case`。
+**只有用户正式审核两份 fixture、现场完成全部 preflight、真实人工逐项确认 proposal
+且记录批准操作者/时刻/决定引用后，才能让现场 driver 调用此接口。**
+`ACCEPTED` 的调用可能导致生产 Host mutation，绝不能用此模块测试当前未批准的图纸。
+resume 之后只能使用同一 task 的 durable GET 识别 owner outcome；
+transport 异常或 post-resume mismatch 不得盲目再次执行。
+
+本阶段 offline contract/CI GREEN 不构成真实模型 invocation、Host 调用、人工签署或四场景 PASS 证据。
+
 ## 4. Case 1：真实 policy deny
 
 从 fresh 200 mm baseline 经真实模型、MCP 与 human ACCEPT，然后配置的 V2 policy 明确 DENIED。验证：
