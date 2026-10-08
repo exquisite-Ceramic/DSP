@@ -269,11 +269,20 @@ def test_v2_reference_flow_resolver_uses_exact_accepted_body_only() -> None:
     )
     builds = []
 
+    class _Flow:
+        """只表示既有 workflow facade，不拥有 ProductTask 状态。"""
+
+        def start_accepted(self, accepted_input):
+            return accepted_input.request.task_id
+
+        def resume(self, task_id, command):
+            return task_id, command
+
     def _build(value):
         """检查 factory 只接收 server-owned input，不能外部查 latest session。"""
 
         assert value == accepted
-        flow = object()
+        flow = _Flow()
         builds.append(flow)
         return flow
 
