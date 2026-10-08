@@ -138,12 +138,12 @@ from .revit_evidence import RevitWallThicknessVerificationEvidencePort
 from .revit_execution import RevitWallThicknessProviderExecutionSnapshotBoundary
 from .revit_operation_resolution import RevitWallThicknessSemanticBoundary
 from .revit_reference_composition import (
+    _close_many,
     _ReferencePreviewPort,
     _ReferenceWallCapabilityProfile,
+    _semantic_environment,
     _UtcCoordinationClock,
     _UtcExecutionClock,
-    _close_many,
-    _semantic_environment,
 )
 
 
