@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import subprocess
 from collections.abc import Mapping
@@ -105,7 +106,83 @@ def _run_real_case(scenario: str) -> Mapping[str, object]:
     ):
         if not result.get(field_name):
             pytest.fail(f"live evidence is missing required lineage: {field_name}")
+    _validate_evidence_manifest(result)
     return result
+
+
+def _validate_evidence_manifest(
+    result: Mapping[str, object],
+    *,
+    evidence_root: Path | None = None,
+) -> None:
+    """验证 live manifest 位于受控目录且与本次执行 lineage 精确一致。
+
+    此操作只验证已落盘 JSON，不从文件名或 Hash 自行推断 Host 成功事实。
+    """
+
+    root = evidence_root
+    if root is None:
+        configured = os.environ.get(
+            "DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR", ""
+        ).strip()
+        if not configured:
+            raise ValueError(
+                "LIVE_EVIDENCE_MANIFEST_DIR_MISSING: "
+                "controlled evidence directory is not configured"
+            )
+        root = Path(configured)
+        if not root.is_absolute():
+            root = ROOT / root
+    root = root.resolve()
+
+    declared = result.get("evidence_manifest_path")
+    if not isinstance(declared, str) or not declared.strip():
+        raise ValueError(
+            "LIVE_EVIDENCE_MANIFEST_MISSING: manifest path is absent"
+        )
+    path = Path(declared.strip())
+    if not path.is_absolute():
+        path = ROOT / path
+    path = path.resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(
+            "LIVE_EVIDENCE_MANIFEST_PATH_INVALID: "
+            "manifest is outside the controlled evidence directory"
+        )
+    if not path.is_file():
+        raise ValueError(
+            "LIVE_EVIDENCE_MANIFEST_MISSING: manifest JSON is not persisted"
+        )
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "LIVE_EVIDENCE_MANIFEST_INVALID: unable to decode JSON"
+        ) from exc
+    if not isinstance(body, Mapping):
+        raise ValueError(
+            "LIVE_EVIDENCE_MANIFEST_INVALID: expected a JSON object"
+        )
+
+    # 对每个已存在的本次结果身份做精确交叉校验，拒绝重用其他执行的 manifest。
+    for key in (
+        "implementation_head",
+        "scenario",
+        "task_id",
+        "saga_id",
+        "request_hash",
+        "session_binding_hash",
+        "topology_snapshot_hash",
+        "proposal_subject_hash",
+        "pause_id",
+        "human_decision_ref",
+        "hosts",
+    ):
+        if key in result and body.get(key) != result[key]:
+            raise ValueError(
+                "LIVE_EVIDENCE_MANIFEST_LINEAGE_INVALID: "
+                f"manifest differs from current result for {key}"
+            )
 
 
 def _host_results(result: Mapping[str, object]) -> Mapping[str, object]:

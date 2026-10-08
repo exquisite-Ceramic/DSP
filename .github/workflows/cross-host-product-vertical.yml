@@ -95,6 +95,7 @@ jobs:
       - dsp-cross-host-product
     env:
       DSP_CROSS_HOST_PRODUCT_LIVE: "1"
+      DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR: artifacts/cross-host-product-live
       DSP_REVIT_LIVE: "0"
       DSP_PHASE_I_LIVE: "0"
       DSP_TEST_POSTGRES_DSN: ${{ secrets.DSP_TEST_POSTGRES_DSN }}
@@ -146,3 +147,11 @@ jobs:
             default { throw "Unsupported controlled live scenario" }
           }
           uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py -k $pattern -q -vv -s
+      - name: Archive controlled live evidence manifest
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-host-product-${{ inputs.scenario }}-${{ github.sha }}
+          path: artifacts/cross-host-product-live
+          if-no-files-found: error
+          retention-days: 30

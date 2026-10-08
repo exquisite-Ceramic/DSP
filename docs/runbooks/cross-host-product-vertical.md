@@ -127,4 +127,14 @@ deny、unavailable、partial_commit 也必须分别执行并保留独立 fresh �
 
 所有报告不得包含 token、数据库密码或未脱敏的凭据。记录 exact implementation HEAD，随后把所有场景的证据和对应 CI run IDs 交给独立 review。
 
+真实 runner 将每个场景的 JSON evidence manifest 写入
+`DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR=artifacts/cross-host-product-live`；
+`evidence_manifest_path` 必须指向此目录内真实存在的 JSON 文件。
+测试会校验 manifest 与当前执行的 implementation HEAD、scenario、request/binding/topology、
+proposal/pause、task/Saga 和 Host observations 的 exact lineage 一致。
+路径越界、文件缺失、JSON 损坏或 lineage 不一致全部 FAIL。
+专用 workflow 在成功及失败时使用 `actions/upload-artifact@v4` 归档场景证据；
+artifact 名称包含 scenario 和 implementation SHA，文件缺失时归档也 FAIL。
+归档不代表真实受控 live 已通过，skip 不可计作 PASS。
+
 **本 runbook 的提交只说明仓库侧 live acceptance contract 已登记。只有同一实现 SHA 上真实四个场景全部 PASS，Task 16 才能标记 CLOSED；否则必须保持 LIVE-PENDING，不能提前进入 Task 17 merge/lifecycle。**
