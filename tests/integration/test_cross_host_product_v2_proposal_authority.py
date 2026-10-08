@@ -275,3 +275,227 @@ async def test_v2_proposal_refuses_wrong_authority_before_any_human_resume(
             client_submission_ref=frozen.client_submission_ref,
             utterance=frozen.utterance,
         )
+
+
+class _ResumeMcp(_Mcp):
+    """用真实 V2 Query DTO 模拟一次显式恢复，防止测试碰真实 Host。"""
+
+    def __init__(self, before, after):
+        """保留 resume 前后的 owner 投影及所有发送操作。"""
+
+        super().__init__(before)
+        self.after = after
+        self.resumed = False
+
+    async def get(self, task_id):
+        """resume 前返回 pending，resume 后返回同一 task 最新 durable query。"""
+
+        self.calls.append(("get", task_id))
+        return self.after if self.resumed else self.view
+
+    async def resume_operation_proposal(self, **kwargs):
+        """只模拟 transport 返回值，不生成任何实际 Host mutation。"""
+
+        self.calls.append(("resume", kwargs))
+        self.resumed = True
+        return self.after
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("decision_kind", "status", "proposal_state"),
+    [
+        (
+            "OPERATION_PROPOSAL_ACCEPTED",
+            ProductTaskV2Status.WAITING,
+            ProductProposalStateV2.ACCEPTED,
+        ),
+        (
+            "OPERATION_PROPOSAL_REJECTED",
+            ProductTaskV2Status.CANCELLED,
+            ProductProposalStateV2.REJECTED,
+        ),
+    ],
+)
+async def test_v2_manual_resume_requires_exact_explicit_review_and_rechecks_owner(
+    decision_kind, status, proposal_state
+):
+    """仅显式决定且二次 authoritative READ 全一致才可调用一次 MCP resume。"""
+
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
+    )
+    from tests.integration.cross_host_product_v2_manual_resume import (
+        ExplicitHumanDecisionV2,
+        resume_reviewed_v2_proposal,
+    )
+
+    frozen, view, checkpoint, subject = _case()
+    after = replace(view, status=status, proposal_state=proposal_state)
+    mcp = _ResumeMcp(view, after)
+    checkpoints = _CheckpointReader(checkpoint)
+    artifacts = _ArtifactReader(subject)
+    reviewed = ReviewedV2Proposal(
+        frozen=frozen,
+        view=view,
+        pause_id=checkpoint.pending_interaction.pause_id,
+        subject=subject,
+    )
+    directive = ExplicitHumanDecisionV2(
+        task_id=frozen.request.task_id,
+        request_hash=frozen.request.request_hash,
+        session_binding_hash=frozen.session_binding.binding_hash,
+        pause_id=reviewed.pause_id,
+        subject_content_hash=checkpoint.pending_interaction.subject_ref.content_hash,
+        resume_kind=decision_kind,
+    )
+
+    result = await resume_reviewed_v2_proposal(
+        reviewed=reviewed,
+        human_decision=directive,
+        mcp_client=mcp,
+        checkpoint_reader=checkpoints,
+        artifact_reader=artifacts,
+    )
+
+    assert result is after
+    assert checkpoints.lookups == [frozen.request.task_id]
+    assert artifacts.lookups == [checkpoint.pending_interaction.subject_ref]
+    assert mcp.calls == [
+        ("get", frozen.request.task_id),
+        (
+            "resume",
+            {
+                "task_id": frozen.request.task_id,
+                "pause_id": reviewed.pause_id,
+                "resume_kind": decision_kind,
+            },
+        ),
+        ("get", frozen.request.task_id),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("damage", "code"),
+    [
+        ("decision_wrong_task", "LIVE_HUMAN_DECISION_LINEAGE_INVALID"),
+        ("decision_wrong_request", "LIVE_HUMAN_DECISION_LINEAGE_INVALID"),
+        ("decision_wrong_binding", "LIVE_HUMAN_DECISION_LINEAGE_INVALID"),
+        ("decision_wrong_pause", "LIVE_HUMAN_DECISION_LINEAGE_INVALID"),
+        ("decision_wrong_subject", "LIVE_HUMAN_DECISION_LINEAGE_INVALID"),
+        ("changed_pause", "LIVE_HUMAN_DECISION_STALE"),
+        ("changed_subject", "LIVE_HUMAN_DECISION_STALE"),
+        ("changed_query", "LIVE_HUMAN_DECISION_STALE"),
+        ("changed_artifact", "LIVE_V2_SUBJECT_INTEGRITY_INVALID"),
+        ("unexpected_decision_kind", "LIVE_HUMAN_DECISION_INVALID"),
+    ],
+)
+async def test_v2_manual_resume_fails_closed_without_any_mutation_on_stale_review(
+    damage, code
+):
+    """明确人工决定仍不足以越过 stale authority，失败不得调用 resume。"""
+
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
+    )
+    from tests.integration.cross_host_product_v2_manual_resume import (
+        ExplicitHumanDecisionV2,
+        resume_reviewed_v2_proposal,
+    )
+
+    frozen, view, checkpoint, subject = _case()
+    pending = checkpoint.pending_interaction
+    directive_fields = {
+        "task_id": frozen.request.task_id,
+        "request_hash": frozen.request.request_hash,
+        "session_binding_hash": frozen.session_binding.binding_hash,
+        "pause_id": pending.pause_id,
+        "subject_content_hash": pending.subject_ref.content_hash,
+        "resume_kind": "OPERATION_PROPOSAL_ACCEPTED",
+    }
+    if damage.startswith("decision_wrong_"):
+        field_name = {
+            "decision_wrong_task": "task_id",
+            "decision_wrong_request": "request_hash",
+            "decision_wrong_binding": "session_binding_hash",
+            "decision_wrong_pause": "pause_id",
+            "decision_wrong_subject": "subject_content_hash",
+        }[damage]
+        directive_fields[field_name] = "f" * 64 if "hash" in field_name or field_name == "subject_content_hash" else "other-id"
+    if damage == "unexpected_decision_kind":
+        directive_fields["resume_kind"] = "AUTO_APPROVE"
+    if damage == "changed_pause":
+        checkpoint = replace(
+            checkpoint,
+            pending_interaction=replace(pending, pause_id="another-pause"),
+        )
+    if damage == "changed_subject":
+        checkpoint = replace(
+            checkpoint,
+            pending_interaction=replace(
+                pending,
+                subject_ref=StableRef("another-subject", pending.subject_ref.content_hash),
+            ),
+        )
+    if damage == "changed_query":
+        view_current = replace(view, status=ProductTaskV2Status.STALE)
+    else:
+        view_current = view
+    if damage == "changed_artifact":
+        subject_current = replace(
+            subject,
+            observations=(
+                replace(subject.observations[0], normalized_thickness_mm=201.0),
+                subject.observations[1],
+            ),
+        )
+    else:
+        subject_current = subject
+
+    mcp = _ResumeMcp(view_current, view_current)
+    reviewed = ReviewedV2Proposal(
+        frozen=frozen,
+        view=view,
+        pause_id=pending.pause_id,
+        subject=subject,
+    )
+    with pytest.raises(ValueError, match=code):
+        await resume_reviewed_v2_proposal(
+            reviewed=reviewed,
+            human_decision=ExplicitHumanDecisionV2(**directive_fields),
+            mcp_client=mcp,
+            checkpoint_reader=_CheckpointReader(checkpoint),
+            artifact_reader=_ArtifactReader(subject_current),
+        )
+    assert all(method != "resume" for method, _ in mcp.calls)
+
+
+@pytest.mark.asyncio
+async def test_v2_manual_resume_missing_human_decision_fails_before_mcp_get():
+    """人工决定缺失时即使已审核 proposal 也绝不能自动推进。"""
+
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
+    )
+    from tests.integration.cross_host_product_v2_manual_resume import (
+        resume_reviewed_v2_proposal,
+    )
+
+    frozen, view, checkpoint, subject = _case()
+    mcp = _ResumeMcp(view, view)
+    reviewed = ReviewedV2Proposal(
+        frozen=frozen,
+        view=view,
+        pause_id=checkpoint.pending_interaction.pause_id,
+        subject=subject,
+    )
+    with pytest.raises(ValueError, match="LIVE_HUMAN_DECISION_REQUIRED"):
+        await resume_reviewed_v2_proposal(
+            reviewed=reviewed,
+            human_decision=None,
+            mcp_client=mcp,
+            checkpoint_reader=_CheckpointReader(checkpoint),
+            artifact_reader=_ArtifactReader(subject),
+        )
+    assert mcp.calls == []
