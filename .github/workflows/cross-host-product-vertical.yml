@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/cross-host-product-vertical.yml"
       - "tests/integration/test_cross_host_product_vertical_live.py"
+      - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/cross_host_product_live_support.py"
       - "docs/runbooks/cross-host-product-vertical.md"
       - "platform/product_runtime/**"
@@ -15,6 +16,7 @@ on:
     paths:
       - ".github/workflows/cross-host-product-vertical.yml"
       - "tests/integration/test_cross_host_product_vertical_live.py"
+      - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/cross_host_product_live_support.py"
       - "docs/runbooks/cross-host-product-vertical.md"
       - "platform/product_runtime/**"
@@ -73,7 +75,7 @@ jobs:
       - name: Collect and offline-verify live contract
         run: |
           uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py --collect-only -q
-          uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py -q -vv
+          uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py tests/integration/test_cross_host_product_live_preflight.py -q -vv
       - name: Task 15 full PostgreSQL matrix
         env:
           DSP_TEST_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/dsp_test
@@ -85,7 +87,7 @@ jobs:
           dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj -f net8.0
       - name: Absolute Ruff clean on new live and product paths
         run: |
-          uv run ruff check --select E,F,I tests/integration/test_cross_host_product_vertical_live.py platform/product_runtime tests/product_runtime
+          uv run ruff check --select E,F,I tests/integration/test_cross_host_product_vertical_live.py tests/integration/test_cross_host_product_live_preflight.py tests/integration/cross_host_product_live_support.py platform/product_runtime tests/product_runtime
 
   cross-host-product-real:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -111,6 +113,11 @@ jobs:
       DSP_REVIT_LIVE_FIXTURE_SHA256: ${{ vars.DSP_REVIT_LIVE_FIXTURE_SHA256 }}
       DSP_REVIT_LIVE_WALL_UNIQUE_ID: ${{ vars.DSP_REVIT_LIVE_WALL_UNIQUE_ID }}
       DSP_REVIT_LIVE_HOST_INSTANCE_ID: ${{ vars.DSP_REVIT_LIVE_HOST_INSTANCE_ID }}
+      DSP_AGENT_INTERPRETER_COMMAND_JSON: ${{ vars.DSP_AGENT_INTERPRETER_COMMAND_JSON }}
+      DSP_AGENT_MODEL_NAME: ${{ vars.DSP_AGENT_MODEL_NAME }}
+      DSP_CROSS_HOST_PRODUCT_MCP_URL: ${{ vars.DSP_CROSS_HOST_PRODUCT_MCP_URL }}
+      DSP_AUTOCAD_BUILD_IDENTITY: ${{ vars.DSP_AUTOCAD_BUILD_IDENTITY }}
+      DSP_REVIT_BUILD_IDENTITY: ${{ vars.DSP_REVIT_BUILD_IDENTITY }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -135,6 +142,10 @@ jobs:
             $hash = (Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash
             if ($hash -ne $pair[1]) { throw "Fixture hash mismatch" }
           }
+      - name: Read-only production MCP PostgreSQL dual-Host preflight
+        shell: pwsh
+        run: |
+          uv run python -m tests.integration.cross_host_product_live_support --preflight
       - name: Run one explicitly selected real model MCP Host case
         shell: pwsh
         run: |
