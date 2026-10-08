@@ -1,7 +1,8 @@
-"""Cross-Host Product Vertical 的 production/reference composition seams。
+"""Cross-Host Product Vertical 的 production/reference composition。
 
-当前模块先提供 proposal subject builder；后续 reference flow resolver 继续在同一模块组合，
-但任何业务 authority 仍由 ProductTask、Workflow Artifact 与 Host READ owners 持有。
+本模块组合 V2 proposal、exact accepted-input flow resolver 与完整 reference runtime；
+所有业务 authority 仍由 ProductTask、Workflow Artifact、Gateway/Saga 与 Host READ owners 持有。
+composition 只持有可重建 handles，不创建 request、decision、execution 或 evidence 的第二份 truth。
 """
 
 from __future__ import annotations
