@@ -176,10 +176,10 @@ def _context_contract():
     )
 
 
-def _configured_boundary():
+def _configured_boundary(request_store=None):
     semantic_service, environment = _semantic_service()
     common = {
-        "request_store": _RequestStore(_request()),
+        "request_store": request_store or _RequestStore(_request()),
         "context_reader": _ContextReader(),
         "identity_registry": _identity_registry(),
         "session_ref": "revit-session-1",
@@ -264,3 +264,48 @@ def test_operation_resolution_rejects_context_snapshot_hash_mismatch() -> None:
 
     with pytest.raises(ValueError, match="hash|snapshot|lineage"):
         _load_inputs(boundary, StableRef(snapshot.snapshot_id, "0" * 64))
+
+
+
+def test_v2_parameter_binding_consumes_only_durable_accepted_request() -> None:
+    """V2 参数绑定只能读取 ProductTask accepted input；不能回退 V1 get。"""
+
+    from design_product_runtime import AcceptedProductTaskInputV2, ProductTaskRequestV2
+
+    request = ProductTaskRequestV2.create(
+        task_id="task-A",
+        project_id="project-1",
+        initiating_host_kind="REVIT",
+        session_ref="revit-session-1",
+        session_binding_hash="f" * 64,
+        requested_action="SET_BOUND_WALL_THICKNESS",
+        intent_arguments={"thickness": {"value": 325.0, "unit": "mm"}},
+    )
+    accepted = AcceptedProductTaskInputV2(
+        request=request,
+        session_binding_hash=request.session_binding_hash,
+        session_binding_payload={"binding_hash": request.session_binding_hash},
+    )
+
+    class _AcceptedOnlyRequestStore:
+        """不允许在 V2 workflow 中使用 V1 request decoder。"""
+
+        def get_v2(self, task_id: str):
+            return accepted if task_id == request.task_id else None
+
+        def get(self, task_id: str):
+            raise AssertionError(f"V2 parameter binding used V1 request lookup: {task_id}")
+
+    boundary, snapshot, _ = _configured_boundary(_AcceptedOnlyRequestStore())
+    inputs = boundary.load_parameter_binding_inputs(
+        request.task_id,
+        StableRef("operation-space:v2", "0" * 64),
+        StableRef(snapshot.snapshot_id, snapshot.hash),
+    )
+
+    assert inputs.proposal.canonical_operation == "set_wall_thickness.v1"
+    assert inputs.proposal.arguments["thickness"] == {
+        "value": 325.0,
+        "unit": "mm",
+    }
+    assert inputs.context.context_snapshot_id == snapshot.snapshot_id
