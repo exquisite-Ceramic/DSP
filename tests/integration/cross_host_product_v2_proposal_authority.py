@@ -16,6 +16,7 @@ from design_orchestrator.interaction_artifacts import (
 from design_orchestrator.workflow_artifacts import workflow_artifact_content_hash
 from design_orchestrator.workflow_contracts import (
     PendingInteractionKind,
+    StableRef,
     WorkflowCheckpointView,
     WorkflowPhase,
 )
@@ -42,6 +43,7 @@ class ReviewedV2Proposal:
     frozen: FrozenSubmissionV2
     view: ProductTaskQueryViewV2
     pause_id: str
+    subject_ref: StableRef
     subject: CrossHostOperationProposalSubjectV2
 
 
@@ -199,6 +201,7 @@ async def prepare_and_read_v2_proposal(
         frozen=frozen,
         view=queried_view,
         pause_id=pending.pause_id,
+        subject_ref=pending.subject_ref,
         subject=subject,
     )
 
