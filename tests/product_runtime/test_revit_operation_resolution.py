@@ -304,7 +304,7 @@ def test_v2_parameter_binding_consumes_only_durable_accepted_request() -> None:
     )
 
     assert inputs.proposal.canonical_operation == "set_wall_thickness.v1"
-    assert inputs.proposal.arguments["thickness"] == {
+    assert inputs.proposal.intent_arguments["thickness"] == {
         "value": 325.0,
         "unit": "mm",
     }
