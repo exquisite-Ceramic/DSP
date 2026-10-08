@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import design_product_runtime as product_runtime
+import pytest
 from design_orchestrator import WorkflowCheckpointView, WorkflowPhase
 from design_product_front_door.service import ProductFrontDoorService
 from design_product_runtime import (
@@ -252,3 +253,50 @@ def test_v2_submit_replay_does_not_start_checkpoint_twice() -> None:
     assert len(runtime.start_requests) == 1
     assert gate.task_ids == [request.task_id, request.task_id]
     assert len(resolver.accepted) == 2
+
+
+def test_v2_reference_flow_resolver_uses_exact_accepted_body_only() -> None:
+    """V2 flow composition 只按 authoritative accepted input 缓存，拒绝 same-task 漂移。"""
+
+    from design_product_runtime import CrossHostProductFlowResolver
+
+    binding = _binding()
+    request = _request()
+    accepted = AcceptedProductTaskInputV2(
+        request,
+        binding.binding_hash,
+        ProductFrontDoorService._session_binding_v2_payload(binding),
+    )
+    builds = []
+
+    def _build(value):
+        """检查 factory 只接收 server-owned input，不能外部查 latest session。"""
+
+        assert value == accepted
+        flow = object()
+        builds.append(flow)
+        return flow
+
+    resolver = CrossHostProductFlowResolver(_build)
+    assert builds == []
+    first = resolver.get_flow(accepted)
+    assert resolver.get_flow(accepted) is first
+    assert len(builds) == 1
+
+    changed = ProductTaskRequestV2.create(
+        task_id=request.task_id,
+        project_id=request.project_id,
+        initiating_host_kind=request.initiating_host_kind,
+        session_ref=request.session_ref,
+        session_binding_hash=request.session_binding_hash,
+        requested_action=request.requested_action,
+        intent_arguments={"thickness": {"value": 301.0, "unit": "mm"}},
+    )
+    conflicting = AcceptedProductTaskInputV2(
+        changed,
+        binding.binding_hash,
+        ProductFrontDoorService._session_binding_v2_payload(binding),
+    )
+    with pytest.raises(ValueError, match="CROSS_HOST_PRODUCT_FLOW_INPUT_CONFLICT"):
+        resolver.get_flow(conflicting)
+    assert len(builds) == 1
