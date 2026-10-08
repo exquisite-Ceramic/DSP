@@ -12,6 +12,8 @@ import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import TemporaryFile
+from typing import TextIO
 
 import design_product_front_door as front_door
 import psycopg
@@ -40,13 +42,19 @@ def _reserve_loopback_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_for_server(port: int, process: subprocess.Popen[str]) -> None:
+def _wait_for_server(
+    port: int, process: subprocess.Popen[str], stderr_log: TextIO | None = None
+) -> None:
     """等待真实 HTTP listener；子进程提前退出时把 stderr 带回 acceptance。"""
 
     deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            stderr = process.stderr.read() if process.stderr is not None else ""
+            if stderr_log is not None:
+                stderr_log.seek(0)
+                stderr = stderr_log.read()
+            else:
+                stderr = process.stderr.read() if process.stderr is not None else ""
             raise AssertionError(f"Task 9 MCP server 提前退出：{stderr}")
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.2):
@@ -65,25 +73,31 @@ def _real_mcp_server(script: str, *arguments: str):
     env = os.environ.copy()
     # pytest 的 workspace pythonpath 不会自动传播给 ``python -c`` 子进程，因此显式透传。
     env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path)
-    process = subprocess.Popen(
-        [sys.executable, "-c", script, str(port), *arguments],
-        cwd=repo_root,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    try:
-        _wait_for_server(port, process)
-        yield f"http://127.0.0.1:{port}/mcp"
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+    # Windows 的匿名 pipe 缓冲较小；错误 traceback 会填满无人消费的 PIPE，
+    # 进而阻塞真实 MCP error response。日志写入临时文件，仍保留启动失败诊断。
+    with (
+        TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as stdout_log,
+        TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as stderr_log,
+    ):
+        process = subprocess.Popen(
+            [sys.executable, "-c", script, str(port), *arguments],
+            cwd=repo_root,
+            env=env,
+            text=True,
+            stdout=stdout_log,
+            stderr=stderr_log,
+        )
+        try:
+            _wait_for_server(port, process, stderr_log)
+            yield f"http://127.0.0.1:{port}/mcp"
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 def _request(
