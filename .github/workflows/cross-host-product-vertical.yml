@@ -8,6 +8,7 @@ on:
       - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/test_cross_host_product_v2_proposal_authority.py"
       - "tests/integration/cross_host_product_v2_proposal_authority.py"
+      - "tests/integration/cross_host_product_v2_manual_resume.py"
       - "tests/integration/cross_host_product_live_support.py"
       - "docs/runbooks/cross-host-product-vertical.md"
       - "platform/product_runtime/**"
@@ -21,6 +22,7 @@ on:
       - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/test_cross_host_product_v2_proposal_authority.py"
       - "tests/integration/cross_host_product_v2_proposal_authority.py"
+      - "tests/integration/cross_host_product_v2_manual_resume.py"
       - "tests/integration/cross_host_product_live_support.py"
       - "docs/runbooks/cross-host-product-vertical.md"
       - "platform/product_runtime/**"
@@ -91,7 +93,7 @@ jobs:
           dotnet test hosts/revit/plugin/Revit.AgentHost.Core.Tests/Revit.AgentHost.Core.Tests.csproj -f net8.0
       - name: Absolute Ruff clean on new live and product paths
         run: |
-          uv run ruff check --select E,F,I tests/integration/test_cross_host_product_vertical_live.py tests/integration/test_cross_host_product_live_preflight.py tests/integration/cross_host_product_live_support.py tests/integration/cross_host_product_v2_proposal_authority.py tests/integration/test_cross_host_product_v2_proposal_authority.py platform/product_runtime tests/product_runtime
+          uv run ruff check --select E,F,I tests/integration/test_cross_host_product_vertical_live.py tests/integration/test_cross_host_product_live_preflight.py tests/integration/cross_host_product_live_support.py tests/integration/cross_host_product_v2_proposal_authority.py tests/integration/cross_host_product_v2_manual_resume.py tests/integration/test_cross_host_product_v2_proposal_authority.py platform/product_runtime tests/product_runtime
 
   cross-host-product-real:
     if: ${{ github.event_name == 'workflow_dispatch' }}
