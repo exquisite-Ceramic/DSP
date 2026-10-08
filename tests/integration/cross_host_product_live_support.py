@@ -310,7 +310,10 @@ def main() -> None:
     import sys
 
     if sys.argv[1:] != ["--preflight"]:
-        raise SystemExit("usage: python -m tests.integration.cross_host_product_live_support --preflight")
+        raise SystemExit(
+            "usage: python -m tests.integration.cross_host_product_live_support "
+            "--preflight"
+        )
     config = CrossHostProductLiveConfig.from_environment()
     report = asyncio.run(run_read_only_preflight(config))
     print(json.dumps(report, sort_keys=True, ensure_ascii=False))
