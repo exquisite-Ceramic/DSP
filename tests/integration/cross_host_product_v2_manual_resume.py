@@ -106,7 +106,7 @@ async def resume_reviewed_v2_proposal(
     current = await get(request.task_id)
     try:
         _require_v2_query(current, reviewed.frozen)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError):
         _deny("LIVE_HUMAN_DECISION_STALE", "durable MCP query is no longer pending")
     if current != reviewed.view:
         _deny("LIVE_HUMAN_DECISION_STALE", "reviewed product state changed")
