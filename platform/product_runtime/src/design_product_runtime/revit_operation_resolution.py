@@ -398,17 +398,10 @@ class RevitWallThicknessSemanticBoundary(_BaseRevitWallThicknessSemanticBoundary
                 "wall-thickness parameter binding requires exactly one semantic root",
             )
 
-        request = self._request_store.get(normalized_task_id)
-        if request is None:
-            raise RevitSemanticBoundaryError(
-                "REVIT_PRODUCT_REQUEST_UNAVAILABLE",
-                "exact ProductTask request is unavailable for parameter binding",
-            )
-        if not isinstance(request, ProductTaskRequest) or request.task_id != normalized_task_id:
-            raise RevitSemanticBoundaryError(
-                "REVIT_PRODUCT_REQUEST_MISMATCH",
-                "request store did not return the exact ProductTask request",
-            )
+        # 与 context capture 共用 exact ProductTask owner decoder。
+        # V2 读取 server-owned accepted request，V1 仍保持原版本分流；
+        # 不允许为了 binder 将 V2 请求转换为 V1 或读取客户端 SQLite。
+        request = self._read_exact_request(normalized_task_id)
         if request.session_ref != self._session_ref:
             raise RevitSemanticBoundaryError(
                 "REVIT_PRODUCT_SESSION_MISMATCH",
