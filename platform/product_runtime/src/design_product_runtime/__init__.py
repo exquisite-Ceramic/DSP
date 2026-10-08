@@ -29,6 +29,8 @@ from .cross_host_product_reference_composition import (
     CrossHostCanonicalWorkflowOwnerPorts,
     CrossHostOperationProposalBuilder,
     CrossHostProductFlowResolver,
+    CrossHostProductReferenceRuntime,
+    build_cross_host_product_reference_runtime,
 )
 from .cross_host_reference_composition import (
     CrossHostPlanningComposition,
@@ -73,6 +75,7 @@ __all__ = [
     "CrossHostPlanningRuntimePort",
     "CrossHostProductFlow",
     "CrossHostProductFlowResolver",
+    "CrossHostProductReferenceRuntime",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "CrossHostVerificationEvidenceRouter",
@@ -108,6 +111,7 @@ __all__ = [
     "WallThicknessProductFlow",
     "build_autocad_wall_thickness_runtime_binding",
     "build_cross_host_planning_composition",
+    "build_cross_host_product_reference_runtime",
     "build_cross_host_runtime_registries",
     "build_revit_wall_thickness_reference_composition",
     "create_postgres_product_task_request_store",
