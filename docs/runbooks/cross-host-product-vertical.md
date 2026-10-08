@@ -50,6 +50,29 @@ DSP_REVIT_LIVE_HOST_INSTANCE_ID
 
 实际模型调用、MCP server、explicit human decision 的受控配置由现场测试支持模块 tests/integration/cross_host_product_live_support.py 提供。支持模块必须复用 production MCP/ProductTask/AutoCAD/Revit adapters，不能返回静态 fabricated success；尚未接通时 live 测试必须 FAIL，不能把 skip 算成 PASS。机密凭据只配置在受控环境，禁止写入 evidence manifest。
 
+## 3A. Task 16A read-only production preflight（不是 controlled-live PASS）
+
+受控 Windows runner 必须额外配置（均为现场显式值，不得使用示例/测试代用品）：
+
+~~~text
+DSP_AGENT_INTERPRETER_COMMAND_JSON   # JSON argv 列表，非 shell 命令
+DSP_AGENT_MODEL_NAME                # 真实模型的经审查标识
+DSP_CROSS_HOST_PRODUCT_MCP_URL     # 已启动的生产 ProductTask V2 loopback MCP
+DSP_AUTOCAD_BUILD_IDENTITY         # 实际加载的 AutoCAD 插件/Host build
+DSP_REVIT_BUILD_IDENTITY           # 实际加载的 Revit DLL/Host build
+~~~
+
+在开始任何业务 submit / human resume / mutation 前，先执行：
+
+~~~powershell
+$env:DSP_CROSS_HOST_PRODUCT_LIVE="1"
+uv run python -m tests.integration.cross_host_product_live_support --preflight
+~~~
+
+此 preflight 仅执行：两个 fixture 的 SHA-256 再检查、PostgreSQL `SELECT 1`、真实 MCP 三个固定工具的 negotiation/list_tools、AutoCAD exact LWPOLYLINE 200 mm normalized-fact READ、Revit exact selected Wall 200 mm snapshot READ。它不会执行模型解释、ProductTask submit、human ACCEPT、Gateway grant、EXECUTE、外部 201 mm 编辑或任何伪造的 scenario evidence。
+
+preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。当前 Task 16A 的 `run_controlled_case` 仍显式以 `LIVE_CASE_DRIVER_NOT_CONNECTED` 拒绝业务执行；在 model invocation、真实 MCP V2 freeze/submit、exact-pause human ACCEPT 和 post-readiness partial-commit injection 完成并审查前，不得放宽此停止门槛。
+
 ## 4. Case 1：真实 policy deny
 
 从 fresh 200 mm baseline 经真实模型、MCP 与 human ACCEPT，然后配置的 V2 policy 明确 DENIED。验证：
