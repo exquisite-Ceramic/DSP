@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
 from design_orchestrator.interaction_artifacts import (
     CrossHostOperationProposalSubjectV2,
     CrossHostProposalObservationV2,
