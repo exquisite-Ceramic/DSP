@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -155,3 +156,181 @@ def test_live_config_repr_does_not_leak_dsn_or_model_argv(
     assert "live-secret" not in rendered
     assert "model-secret" not in rendered
     assert "model_command" not in rendered
+
+
+def _preflight_boundaries(monkeypatch, config, failure=None):
+    """仅替换外部 I/O，保留生产 factory、dispatcher、fact normalizer 和 Revit READ。"""
+
+    import mcp
+    import psycopg
+    from autocad_sidecar.ipc import transport as autocad_transport
+    from revit_sidecar import named_pipe
+
+    from tests.integration import cross_host_product_live_support as support
+
+    events = []
+
+    class Database:
+        """数据库边界只接受预检允许的 SELECT 1。"""
+
+        def __enter__(self):
+            events.append("postgres.open")
+            if failure == "postgres":
+                raise OSError("database unavailable")
+            return self
+
+        def execute(self, sql):
+            assert sql == "SELECT 1"
+            events.append("postgres.read")
+            return SimpleNamespace(fetchone=lambda: (1,))
+
+        def __exit__(self, *args):
+            events.append("postgres.close")
+
+    class CatalogClient:
+        """MCP 边界不提供 submit/resume/tool-call，错误调用会直接失败。"""
+
+        def __init__(self, endpoint):
+            assert endpoint == config.mcp_url
+
+        async def __aenter__(self):
+            events.append("mcp.open")
+            return self
+
+        async def __aexit__(self, *args):
+            events.append("mcp.close")
+
+        async def list_tools(self):
+            events.append("mcp.catalog")
+            names = [
+                "product.wall_thickness.submit",
+                "product.wall_thickness.get",
+                "product.wall_thickness.resume_operation_proposal",
+            ]
+            if failure == "catalog":
+                names.pop()
+            return SimpleNamespace(tools=[SimpleNamespace(name=n) for n in names])
+
+    class AutoPipe:
+        """在真实 HostAdapter 下记录 wire command 及连接释放，禁止 mutation。"""
+
+        def __init__(self, pipe_name):
+            assert pipe_name == config.autocad_endpoint
+
+        async def open(self):
+            events.append("autocad.open")
+            if failure == "autocad_open":
+                raise OSError("pipe unavailable")
+
+        async def close(self):
+            events.append("autocad.close")
+
+        async def exchange(self, data, **kwargs):
+            envelope = json.loads(data)
+            command = envelope["payload"]
+            assert command["mode"] == "READ"
+            assert command["operation"] == "design.extract_native_snapshot"
+            assert command["arguments"] == {"handles": [config.autocad_native_id]}
+            events.append("autocad.read")
+            if failure == "autocad_read":
+                raise OSError("pipe read failed")
+            payload = {
+                "hostInstanceId": "wrong" if failure == "identity" else "AUTO-1",
+                "documentId": config.autocad_document_ref,
+                "revision": 7,
+                "entities": [{
+                    "nativeId": config.autocad_native_id,
+                    "nativeKind": "LWPOLYLINE",
+                    "layer": "WALL",
+                    "properties": {"constantWidth": {
+                        "value": 201 if failure == "baseline" else 200,
+                        "unit": "mm",
+                    }},
+                }],
+            }
+            return json.dumps({
+                "request_id": envelope["request_id"],
+                "status": "OK",
+                "result": {"command_id": command["command_id"],
+                           "status": "OK", "payload": payload},
+            }).encode()
+
+    class RevitPipe:
+        """真实 READ ports 解析此边界的响应；不替换身份及 revision 校验。"""
+
+        def __init__(self, *, pipe_name):
+            assert pipe_name == config.revit_pipe
+
+        def request(self, command):
+            assert command.mode == "READ"
+            assert command.document_id == config.revit_document_ref
+            events.append("revit." + command.operation)
+            payload = {"document_id": config.revit_document_ref,
+                       "host_instance_id": "REVIT-1"}
+            if command.operation == "context.current_selection":
+                payload.update(document_title="fixture", selected_elements=[
+                    {"unique_id": "REVIT-WALL-1", "native_kind": "Wall"}
+                ])
+            else:
+                assert command.operation == "read_wall_thickness_snapshot"
+                assert command.target_native_refs[0].native_id == "REVIT-WALL-1"
+                payload.update(
+                    wall_unique_id="REVIT-WALL-1", wall_type_unique_id="TYPE-1",
+                    native_kind="Wall", builtin_category="OST_Walls",
+                    wall_thickness_mm=200.0, location_signature="line",
+                    relationship_signature="isolated", revision_before=9,
+                    revision_after=10 if failure == "revision" else 9,
+                )
+            return {"status": "OK", "payload": payload, "revision_after": 9}
+
+    monkeypatch.setattr(support, "_require_windows_live", lambda: None)
+    monkeypatch.setattr(psycopg, "connect", lambda *a, **kw: Database())
+    monkeypatch.setattr(mcp, "Client", CatalogClient)
+    monkeypatch.setattr(autocad_transport, "PipeTransport", AutoPipe)
+    monkeypatch.setattr(named_pipe, "NamedPipeTransport", RevitPipe)
+    return events
+
+
+@pytest.mark.asyncio
+async def test_preflight_reads_production_adapters_and_releases_pipe(monkeypatch, tmp_path):
+    """遗漏 close 或误发 mutation 时失败；两个 Host revision 无须相等。"""
+
+    from tests.integration.cross_host_product_live_support import run_read_only_preflight
+
+    _configured(monkeypatch, tmp_path)
+    config = CrossHostProductLiveConfig.from_environment()
+    events = _preflight_boundaries(monkeypatch, config)
+    report = await run_read_only_preflight(config)
+    assert report["result"] == "READ_ONLY_READY"
+    assert report["autocad_revision"] == 7
+    assert report["revit_revision"] == 9
+    assert report["autocad_baseline_mm"] == report["revit_baseline_mm"] == 200
+    assert events == [
+        "postgres.open", "postgres.read", "postgres.close",
+        "mcp.open", "mcp.catalog", "mcp.close",
+        "autocad.open", "autocad.read", "autocad.close",
+        "revit.context.current_selection", "revit.read_wall_thickness_snapshot",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [
+    "postgres", "catalog", "autocad_open", "autocad_read",
+    "identity", "baseline", "revision",
+])
+async def test_preflight_failure_stops_and_releases_pipe(monkeypatch, tmp_path, failure):
+    """任一边界失败不得继续后续 Host I/O，已创建的 AutoCAD 资源必须释放。"""
+
+    from tests.integration.cross_host_product_live_support import run_read_only_preflight
+
+    _configured(monkeypatch, tmp_path)
+    config = CrossHostProductLiveConfig.from_environment()
+    events = _preflight_boundaries(monkeypatch, config, failure)
+    with pytest.raises((OSError, ValueError)):
+        await run_read_only_preflight(config)
+    if failure in {"postgres", "catalog"}:
+        assert not any(e.startswith(("autocad.", "revit.")) for e in events)
+    else:
+        assert events.count("autocad.close") == 1
+        if failure != "revision":
+            assert not any(e.startswith("revit.") for e in events)

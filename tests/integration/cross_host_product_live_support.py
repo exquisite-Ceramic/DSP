@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import subprocess
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -157,7 +158,11 @@ class CrossHostProductLiveConfig:
         verify_fixture_sha256(self.revit_fixture_path, self.revit_fixture_sha256)
 
 
-def build_production_host_factories(config: CrossHostProductLiveConfig):
+def build_production_host_factories(
+    config: CrossHostProductLiveConfig,
+    *,
+    resources: AsyncExitStack | None = None,
+):
     """只为已审查 locator 装配真实 sidecar；构造不连接 Host 且绝无 fake fallback。"""
 
     from autocad_sidecar.adapter.host_adapter import HostAdapter
@@ -170,9 +175,12 @@ def build_production_host_factories(config: CrossHostProductLiveConfig):
 
         if locator != config.autocad_endpoint:
             raise ValueError("LIVE_HOST_LOCATOR_MISMATCH: AUTOCAD")
-        return CommandDispatcher(
-            HostAdapter(transport=PipeTransport(config.autocad_endpoint))
-        )
+        host = HostAdapter(transport=PipeTransport(config.autocad_endpoint))
+        # 预检持有短生命周期连接；在首次 open 前登记清理，覆盖连接/读取失败。
+        # 未传 resources 的既有长生命周期 factory 继续由其调用方管理资源。
+        if resources is not None:
+            resources.push_async_callback(host.close)
+        return CommandDispatcher(host)
 
     def revit_factory(locator: str):
         """Revit 只用 production NamedPipeTransport，不创建模拟 response。"""
@@ -226,9 +234,13 @@ async def run_read_only_preflight(
         catalog = await client.list_tools()
     _validate_mcp_tool_catalog(tuple(tool.name for tool in catalog.tools))
 
-    auto_factory, revit_factory = build_production_host_factories(config)
-    dispatcher = auto_factory(config.autocad_endpoint)
-    batch = await dispatcher.extract_design_facts([config.autocad_native_id])
+    async with AsyncExitStack() as resources:
+        auto_factory, revit_factory = build_production_host_factories(
+            config, resources=resources
+        )
+        dispatcher = auto_factory(config.autocad_endpoint)
+        batch = await dispatcher.extract_design_facts([config.autocad_native_id])
+    # AutoCAD pipe 只允许一个客户端；进入 Revit 检查前已显式释放其连接。
     if not isinstance(batch, NormalizedDesignFactBatch):
         raise ValueError("LIVE_AUTOCAD_READ_INVALID: normalized facts unavailable")
     auto_facts = tuple(
