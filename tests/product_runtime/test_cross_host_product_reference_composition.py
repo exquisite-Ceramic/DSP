@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from design_orchestrator.canonical_operations import SET_WALL_THICKNESS_V1
-from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
 from design_orchestrator.operation_resolver import (
     ClassificationGuarantee,
     OperationResolver,
@@ -142,8 +141,8 @@ class _Noop:
     """Canonical owner constructor 的未使用依赖。"""
 
 
-def test_canonical_owner_delegates_v2_proposal_subject_only_when_builder_is_injected() -> None:
-    """Canonical owner 不生成第二份 subject truth，只委托显式 cross-host builder。"""
+def test_cross_host_owner_extension_delegates_proposal_without_changing_core_shape() -> None:
+    """V2 composition extension 只委托 proposal builder，不扩张核心 Orchestrator owner contract。"""
 
     class _Builder:
         def __init__(self) -> None:
@@ -155,7 +154,9 @@ def test_canonical_owner_delegates_v2_proposal_subject_only_when_builder_is_inje
 
     builder = _Builder()
     noop = _Noop()
-    owner = CanonicalWorkflowOwnerPorts(
+    from design_product_runtime import CrossHostCanonicalWorkflowOwnerPorts
+
+    owner = CrossHostCanonicalWorkflowOwnerPorts(
         snapshot_registry=noop,
         freshness_resolver=noop,
         workflow_artifact_store=noop,
