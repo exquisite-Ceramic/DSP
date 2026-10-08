@@ -1128,3 +1128,759 @@ async def test_v2_mcp_get_decodes_explicit_version_without_changing_v1_shape() -
     assert view.status.value == "SUCCEEDED"
     assert view.materializations[0].verified_thickness_mm == 300.0
     assert view.materializations[0].host_kind == "AUTOCAD"
+
+
+_CROSS_HOST_PRODUCT_SERVER = r'''
+import json
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
+from design_execution_reconciliation.postgres import (
+    apply_execution_saga_migrations,
+    connect_postgres,
+)
+from design_materialization_topology import (
+    MaterializationRequirement,
+    MaterializationSlot,
+    MaterializationTopologySnapshot,
+    compute_topology_snapshot_hash,
+)
+from design_product_front_door import (
+    ConfiguredPolicyApprovalAdmissionPortV2,
+    ConfiguredProductApprovalPolicyV2,
+    PostgresConfiguredPolicyAdmissionStore,
+    SqliteSessionBindingReader,
+    run_streamable_http,
+)
+from design_product_front_door.service import ProductFrontDoorService
+from design_product_runtime import build_cross_host_product_reference_runtime
+from host_contracts import HostCommandResult
+
+
+port = int(sys.argv[1])
+dsn = sys.argv[2]
+sqlite_path = sys.argv[3]
+config_path = Path(sys.argv[4])
+telemetry_path = Path(sys.argv[5])
+error_path = Path(sys.argv[6])
+config = json.loads(config_path.read_text(encoding="utf-8"))
+
+
+def _record(operation, *, host, revision, thickness, execute_count):
+    with telemetry_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "operation": operation,
+                    "host": host,
+                    "revision": revision,
+                    "thickness_mm": thickness,
+                    "execute_count": execute_count,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+
+class _AutoCadDispatcher:
+    def __init__(self):
+        self.revision = config["autocad_revision"]
+        self.width_mm = 200.0
+        self.execute_count = 0
+
+    async def extract_design_facts(self, handles):
+        assert tuple(handles) == (config["autocad_native_id"],)
+        _record(
+            "autocad.read",
+            host="AUTOCAD",
+            revision=self.revision,
+            thickness=self.width_mm,
+            execute_count=self.execute_count,
+        )
+        return DesignFactAdapter().normalize_snapshot(
+            {
+                "hostInstanceId": config["autocad_host_instance_id"],
+                "documentId": config["autocad_document"],
+                "revision": self.revision,
+                "entities": [
+                    {
+                        "nativeId": config["autocad_native_id"],
+                        "nativeKind": "LWPOLYLINE",
+                        "layer": "A-WALL",
+                        "properties": {
+                            "constantWidth": {
+                                "value": self.width_mm,
+                                "unit": "mm",
+                            }
+                        },
+                    }
+                ],
+            }
+        )
+
+    async def set_wall_thickness(
+        self,
+        handles,
+        thickness_mm,
+        *,
+        idempotency_key,
+        revision,
+    ):
+        assert tuple(handles) == (config["autocad_native_id"],)
+        assert idempotency_key
+        assert revision == self.revision
+        before = self.width_mm
+        self.execute_count += 1
+        self.width_mm = float(thickness_mm)
+        self.revision += 1
+        _record(
+            "autocad.execute",
+            host="AUTOCAD",
+            revision=self.revision,
+            thickness=self.width_mm,
+            execute_count=self.execute_count,
+        )
+        return HostCommandResult(
+            command_id=f"AUTOCAD-COMMIT-{self.execute_count}",
+            status="OK",
+            payload={
+                "updated": 1,
+                "beforeWidths": {config["autocad_native_id"]: before},
+                "widths": {config["autocad_native_id"]: self.width_mm},
+                "unit": "mm",
+            },
+            revision_after=self.revision,
+        )
+
+
+class _RevitTransport:
+    def __init__(self):
+        self.revision = config["revit_revision"]
+        self.width_mm = 200.0
+        self.execute_count = 0
+
+    def request(self, command):
+        assert command.document_id == config["revit_document"]
+        target = (
+            command.target_native_refs[0].native_id
+            if command.target_native_refs
+            else config["revit_native_id"]
+        )
+        assert target == config["revit_native_id"]
+        if command.operation == "context.current_selection":
+            _record(
+                "revit.context",
+                host="REVIT",
+                revision=self.revision,
+                thickness=self.width_mm,
+                execute_count=self.execute_count,
+            )
+            return {
+                "status": "OK",
+                "revision_after": self.revision,
+                "payload": {
+                    "document_id": config["revit_document"],
+                    "document_title": "CrossHostTask155.rvt",
+                    "host_instance_id": config["revit_host_instance_id"],
+                    "selected_elements": [
+                        {
+                            "unique_id": config["revit_native_id"],
+                            "native_kind": "Wall",
+                        }
+                    ],
+                },
+            }
+        if command.operation == "read_wall_thickness_snapshot":
+            _record(
+                "revit.read",
+                host="REVIT",
+                revision=self.revision,
+                thickness=self.width_mm,
+                execute_count=self.execute_count,
+            )
+            return {
+                "status": "OK",
+                "revision_after": self.revision,
+                "payload": {
+                    "document_id": config["revit_document"],
+                    "host_instance_id": config["revit_host_instance_id"],
+                    "wall_unique_id": config["revit_native_id"],
+                    "wall_type_unique_id": "REVIT-WALL-TYPE-TASK155",
+                    "native_kind": "Wall",
+                    "builtin_category": "OST_Walls",
+                    "wall_thickness_mm": self.width_mm,
+                    "location_signature": "TASK155-LOCATION",
+                    "relationship_signature": "TASK155-RELATIONSHIP",
+                    "revision_before": self.revision,
+                    "revision_after": self.revision,
+                },
+            }
+        if command.operation == "check_wall_thickness_readiness":
+            _record(
+                "revit.readiness",
+                host="REVIT",
+                revision=self.revision,
+                thickness=self.width_mm,
+                execute_count=self.execute_count,
+            )
+            return {
+                "status": "OK",
+                "revision_after": self.revision,
+                "payload": {
+                    "document_id": config["revit_document"],
+                    "wall_unique_id": config["revit_native_id"],
+                    "current_width": {"value": self.width_mm, "unit": "mm"},
+                    "isolation_ready": True,
+                    "plan_ready": True,
+                },
+            }
+        if command.operation == "set_wall_thickness":
+            expected = command.preconditions[0]["revision"]
+            assert expected == self.revision
+            before_revision = self.revision
+            self.execute_count += 1
+            self.width_mm = float(command.arguments["thickness"]["value"])
+            self.revision += 1
+            _record(
+                "revit.execute",
+                host="REVIT",
+                revision=self.revision,
+                thickness=self.width_mm,
+                execute_count=self.execute_count,
+            )
+            return {
+                "command_id": command.command_id,
+                "status": "OK",
+                "revision_after": self.revision,
+                "payload": {
+                    "wall_unique_id": config["revit_native_id"],
+                    "wall_type_unique_id": "REVIT-WALL-TYPE-TASK155",
+                    "editable_layer_index": 1,
+                    "width_before_internal": 200.0 / 304.8,
+                    "width_after_internal": self.width_mm / 304.8,
+                    "width_after_mm": self.width_mm,
+                    "requested_width_mm": self.width_mm,
+                    "transaction_attempt_count": 1,
+                },
+                "verification": {
+                    "identity_invariant_proven": True,
+                    "location_invariant_proven": True,
+                    "relationship_invariant_proven": True,
+                    "document_change_observed": True,
+                    "revision_before": before_revision,
+                    "revision_after": self.revision,
+                    "location_signature_before": "TASK155-LOCATION",
+                    "location_signature_after": "TASK155-LOCATION",
+                    "relationship_signature_before": "TASK155-RELATIONSHIP",
+                    "relationship_signature_after": "TASK155-RELATIONSHIP",
+                    "normalized_wider_effects": [],
+                },
+                "replayed": False,
+            }
+        raise AssertionError(f"unexpected Revit operation: {command.operation}")
+
+
+class _PolicySource:
+    def __init__(self, policy):
+        self._policy = policy
+
+    def load(self):
+        return self._policy
+
+
+class _PolicyClock:
+    def now(self):
+        return datetime.now(UTC)
+
+
+class _AdmissionFactory:
+    def __init__(self):
+        self._stores = []
+        self._sequence = 0
+
+    def build(self, *, changeset_store, approval_scope_store, accepted_input_reader):
+        store = PostgresConfiguredPolicyAdmissionStore(dsn)
+        self._stores.append(store)
+        policy = ConfiguredProductApprovalPolicyV2.from_mapping(
+            {
+                "version": "DSP_PRODUCT_APPROVAL_POLICY_V2",
+                "policy_id": "task155-real-mcp",
+                "principal": "local:task155-real-mcp",
+                "project_ids": [config["project_id"]],
+                "allowed_canonical_operations": ["set_wall_thickness.v1"],
+                "reviewed_configuration_hash": config["reviewed_configuration_hash"],
+                "semantic_target_ids": [config["semantic_target_id"]],
+                "allowed_topology_snapshot_hashes": [config["topology_snapshot_hash"]],
+                "required_host_roles": {
+                    "AUTOCAD": "BOUND_REQUIRED",
+                    "REVIT": "INITIATOR",
+                },
+                "admission_ttl_seconds": 3600,
+            }
+        )
+        self._sequence += 1
+        return ConfiguredPolicyApprovalAdmissionPortV2(
+            changeset_store=changeset_store,
+            approval_scope_store=approval_scope_store,
+            admission_store=store,
+            accepted_input_reader=accepted_input_reader,
+            policy_source=_PolicySource(policy),
+            clock=_PolicyClock(),
+            id_factory=lambda: f"ADM-TASK155-{self._sequence}",
+        )
+
+    def close(self):
+        for store in reversed(self._stores):
+            store.close()
+
+
+class _ReviewedValidator:
+    def validate(self, binding):
+        assert binding.project_id == config["project_id"]
+        assert binding.semantic_target_id == config["semantic_target_id"]
+        assert binding.semantic_environment_id == config["semantic_environment_id"]
+        assert binding.semantic_environment_hash == config["semantic_environment_hash"]
+        assert binding.topology_environment_id == config["topology_environment_id"]
+        assert binding.topology_revision == config["topology_revision"]
+        assert binding.topology_snapshot_hash == config["topology_snapshot_hash"]
+        expected = {
+            "AUTOCAD": (
+                config["autocad_document"],
+                config["autocad_native_id"],
+                config["autocad_host_instance_id"],
+            ),
+            "REVIT": (
+                config["revit_document"],
+                config["revit_native_id"],
+                config["revit_host_instance_id"],
+            ),
+        }
+        for member in binding.members:
+            assert (
+                member.document_id,
+                member.native_target_id,
+                member.host_instance_id,
+            ) == expected[member.host_kind]
+
+
+class _Forbidden:
+    def __getattr__(self, name):
+        raise AssertionError(f"V2 path touched forbidden V1 seam: {name}")
+
+    def __call__(self, *args, **kwargs):
+        raise AssertionError(f"V2 path touched forbidden V1 callable: {args=} {kwargs=}")
+
+
+class _RecordingService:
+    def __init__(self, delegate):
+        self._delegate = delegate
+
+    def _record(self, callback, *args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except Exception as exc:
+            error_path.write_text(str(exc), encoding="utf-8")
+            raise
+
+    def submit(self, request):
+        return self._record(self._delegate.submit, request)
+
+    def get(self, task_id):
+        return self._record(self._delegate.get, task_id)
+
+    def resume_operation_proposal(self, *, task_id, pause_id, resume_kind):
+        return self._record(
+            self._delegate.resume_operation_proposal,
+            task_id=task_id,
+            pause_id=pause_id,
+            resume_kind=resume_kind,
+        )
+
+
+draft_topology = MaterializationTopologySnapshot(
+    topology_environment_id=config["topology_environment_id"],
+    topology_revision=config["topology_revision"],
+    slots=(
+        MaterializationSlot(
+            materialization_slot_id="SLOT-AUTOCAD-TASK155",
+            semantic_target_ref=config["semantic_target_id"],
+            required_host_type="autocad",
+            document_ref=config["autocad_document"],
+            requirement=MaterializationRequirement.REQUIRED,
+        ),
+        MaterializationSlot(
+            materialization_slot_id="SLOT-REVIT-TASK155",
+            semantic_target_ref=config["semantic_target_id"],
+            required_host_type="revit",
+            document_ref=config["revit_document"],
+            requirement=MaterializationRequirement.REQUIRED,
+        ),
+    ),
+    topology_snapshot_hash="0" * 64,
+)
+topology = MaterializationTopologySnapshot(
+    topology_environment_id=draft_topology.topology_environment_id,
+    topology_revision=draft_topology.topology_revision,
+    slots=draft_topology.slots,
+    topology_snapshot_hash=compute_topology_snapshot_hash(draft_topology),
+)
+assert topology.topology_snapshot_hash == config["topology_snapshot_hash"]
+
+apply_connection = connect_postgres(dsn)
+apply_execution_saga_migrations(apply_connection)
+apply_connection.close()
+
+autocad = _AutoCadDispatcher()
+revit = _RevitTransport()
+
+
+def autocad_factory(locator):
+    assert locator == config["autocad_locator"]
+    return autocad
+
+
+def revit_factory(locator):
+    assert locator == config["revit_locator"]
+    return revit
+
+
+admission_factory = _AdmissionFactory()
+runtime = build_cross_host_product_reference_runtime(
+    dsn=dsn,
+    topology_snapshot=topology,
+    autocad_dispatcher_factory=autocad_factory,
+    revit_transport_factory=revit_factory,
+    approval_admission_factory=admission_factory,
+)
+session_reader = SqliteSessionBindingReader(sqlite_path)
+forbidden = _Forbidden()
+service = ProductFrontDoorService(
+    session_binding_reader=session_reader,
+    candidate_source=forbidden,
+    context_probe=forbidden,
+    transport_factory=forbidden,
+    query_service=runtime.query_service,
+    composition_pool=forbidden,
+    reviewed_configuration_validator=_ReviewedValidator(),
+    accepted_input_store=runtime.request_store,
+    proposal_decision_store=runtime.proposal_decision_store,
+    decision_consume_gate=runtime.decision_consume_gate,
+    interaction_subject_reader=runtime.artifact_store,
+    cross_host_observation_reader=runtime.observation_reader,
+    v2_flow_resolver=runtime.flow_resolver,
+)
+run_streamable_http(
+    _RecordingService(service),
+    host="127.0.0.1",
+    port=port,
+)
+'''
+
+
+def _cross_host_mcp_fixture(tmp_path):
+    """用真实 client controller 冻结 V2 winner，并生成独立 server 的 reviewed config。"""
+
+    import design_product_runtime as product_runtime
+    from design_materialization_topology import (
+        MaterializationRequirement,
+        MaterializationSlot,
+        MaterializationTopologySnapshot,
+        compute_topology_snapshot_hash,
+    )
+
+    build_runtime = getattr(
+        product_runtime,
+        "build_cross_host_product_reference_runtime",
+        None,
+    )
+    assert build_runtime is not None, (
+        "build_cross_host_product_reference_runtime 尚未实现"
+    )
+
+    dsn = _postgres_dsn()
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        for schema in (
+            "product_task",
+            "orchestrator_checkpoint",
+            "orchestrator_artifact",
+            "orchestrator_proposal",
+            "execution_saga",
+            "product_policy",
+        ):
+            connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+    semantic_service, semantic_environment = (
+        product_runtime.revit_reference_composition._semantic_environment()
+    )
+    del semantic_service
+    project_id = "project-task155-real-mcp"
+    semantic_target_id = "WALL-TASK155"
+    topology_environment_id = "TOPOLOGY-TASK155"
+    topology_revision = 1
+    autocad_document = "/DSP/fixtures/CrossHostTask155.dwg"
+    revit_document = "/DSP/fixtures/CrossHostTask155.rvt"
+    draft = MaterializationTopologySnapshot(
+        topology_environment_id=topology_environment_id,
+        topology_revision=topology_revision,
+        slots=(
+            MaterializationSlot(
+                materialization_slot_id="SLOT-AUTOCAD-TASK155",
+                semantic_target_ref=semantic_target_id,
+                required_host_type="autocad",
+                document_ref=autocad_document,
+                requirement=MaterializationRequirement.REQUIRED,
+            ),
+            MaterializationSlot(
+                materialization_slot_id="SLOT-REVIT-TASK155",
+                semantic_target_ref=semantic_target_id,
+                required_host_type="revit",
+                document_ref=revit_document,
+                requirement=MaterializationRequirement.REQUIRED,
+            ),
+        ),
+        topology_snapshot_hash="0" * 64,
+    )
+    topology = MaterializationTopologySnapshot(
+        topology_environment_id=draft.topology_environment_id,
+        topology_revision=draft.topology_revision,
+        slots=draft.slots,
+        topology_snapshot_hash=compute_topology_snapshot_hash(draft),
+    )
+    member_type = front_door.ConfiguredCrossHostMemberTarget
+    target = front_door.ConfiguredCrossHostWallThicknessTarget.create(
+        candidate_key="cross-host-task155",
+        project_id=project_id,
+        semantic_target_id=semantic_target_id,
+        semantic_environment_id=semantic_environment.environment_id,
+        semantic_environment_hash=semantic_environment.content_hash,
+        topology_environment_id=topology_environment_id,
+        topology_revision=topology_revision,
+        topology_snapshot_hash=topology.topology_snapshot_hash,
+        members=(
+            member_type(
+                host_kind="AUTOCAD",
+                role="BOUND_REQUIRED",
+                configured_reference_id="SLOT-AUTOCAD-TASK155",
+                configured_reference_hash="a" * 64,
+                transport_locator="autocad-task155",
+                document_id=autocad_document,
+                native_target_id="ACAD-WALL-TASK155",
+            ),
+            member_type(
+                host_kind="REVIT",
+                role="INITIATOR",
+                configured_reference_id="SLOT-REVIT-TASK155",
+                configured_reference_hash="b" * 64,
+                transport_locator="revit-task155",
+                document_id=revit_document,
+                native_target_id="REVIT-WALL-TASK155",
+            ),
+        ),
+    )
+
+    class _Interpreter:
+        def interpret(self, *, client_submission_ref, utterance):
+            assert client_submission_ref
+            assert utterance
+            return front_door.AgentProposal(
+                candidate_key=target.candidate_key,
+                thickness_value=300.0,
+                thickness_unit="mm",
+            )
+
+    class _TargetSource:
+        def get(self, key):
+            return target if key == target.candidate_key else None
+
+    class _Probe:
+        def __init__(self, host_kind):
+            self.host_kind = host_kind
+
+        def discover(self, *, command_id, document_id):
+            assert command_id
+            member = target.member(self.host_kind)
+            assert document_id == member.document_id
+            return type(
+                "Observation",
+                (),
+                {
+                    "document_id": member.document_id,
+                    "host_instance_id": (
+                        "AUTOCAD-TASK155"
+                        if self.host_kind == "AUTOCAD"
+                        else "REVIT-TASK155"
+                    ),
+                    "native_target_id": member.native_target_id,
+                    "host_binding_fingerprint": (
+                        "c" * 64 if self.host_kind == "AUTOCAD" else "d" * 64
+                    ),
+                },
+            )()
+
+    class _ProbeFactory:
+        def __call__(self, host_kind, locator):
+            assert locator == target.member(host_kind).transport_locator
+            return _Probe(host_kind)
+
+    class _Forbidden:
+        def __getattr__(self, name):
+            raise AssertionError(f"V2 client path touched V1 seam: {name}")
+
+        def __call__(self, *args, **kwargs):
+            raise AssertionError(f"V2 client path touched V1 callable: {args=} {kwargs=}")
+
+    sqlite_path = tmp_path / "cross-host-front-door.sqlite3"
+    state = front_door.SqliteFrontDoorStateStore(str(sqlite_path))
+    try:
+        controller = front_door.SubmissionController(
+            state_store=state,
+            agent_interpreter=_Interpreter(),
+            candidate_source=_Forbidden(),
+            context_probe_factory=_Forbidden(),
+            session_ref_factory=lambda: "session-task155-real-mcp",
+            task_id_factory=lambda: "task-task155-real-mcp",
+            cross_host_target_source=_TargetSource(),
+            cross_host_probe_factory=_ProbeFactory(),
+        )
+        frozen = controller.prepare_cross_host_submission(
+            client_submission_ref="submission-task155-real-mcp",
+            utterance="把两端墙厚同步改成 300mm",
+        )
+    finally:
+        state.close()
+
+    config = {
+        "project_id": project_id,
+        "semantic_target_id": semantic_target_id,
+        "semantic_environment_id": semantic_environment.environment_id,
+        "semantic_environment_hash": semantic_environment.content_hash,
+        "topology_environment_id": topology_environment_id,
+        "topology_revision": topology_revision,
+        "topology_snapshot_hash": topology.topology_snapshot_hash,
+        "reviewed_configuration_hash": target.reviewed_configuration_hash,
+        "autocad_locator": target.member("AUTOCAD").transport_locator,
+        "autocad_document": autocad_document,
+        "autocad_native_id": target.member("AUTOCAD").native_target_id,
+        "autocad_host_instance_id": "AUTOCAD-TASK155",
+        "autocad_revision": 11,
+        "revit_locator": target.member("REVIT").transport_locator,
+        "revit_document": revit_document,
+        "revit_native_id": target.member("REVIT").native_target_id,
+        "revit_host_instance_id": "REVIT-TASK155",
+        "revit_revision": 12,
+    }
+    config_path = tmp_path / "cross-host-config.json"
+    config_path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
+    telemetry = tmp_path / "cross-host-telemetry.jsonl"
+    error_path = tmp_path / "cross-host-server-error.txt"
+    return (
+        dsn,
+        sqlite_path,
+        config_path,
+        telemetry,
+        error_path,
+        frozen,
+    )
+
+
+@pytest.mark.asyncio
+async def test_real_mcp_v2_submit_reaches_durable_cross_host_proposal_pause(
+    tmp_path,
+) -> None:
+    """真实 MCP submit 必须从 accepted input 启动 LangGraph，并停在双 Host proposal pause。"""
+
+    dsn, sqlite_path, config_path, telemetry, error_path, frozen = (
+        _cross_host_mcp_fixture(tmp_path)
+    )
+    with _real_mcp_server(
+        _CROSS_HOST_PRODUCT_SERVER,
+        dsn,
+        str(sqlite_path),
+        str(config_path),
+        str(telemetry),
+        str(error_path),
+    ) as endpoint_url:
+        client = front_door.ProductFrontDoorMcpClient(endpoint_url)
+        view = await client.submit(frozen.request)
+
+        assert view.version == "V2"
+        assert view.task_id == frozen.request.task_id
+        assert view.state is ProductTaskQueryState.WORKFLOW
+        assert view.status.value == "WAITING"
+        durable = await client.get(frozen.request.task_id)
+        assert durable == view
+        checkpoint_reader = create_postgres_checkpointer(dsn)
+        try:
+            checkpoint = LangGraphWorkflowCheckpointReader(
+                checkpointer=checkpoint_reader
+            ).get_checkpoint(frozen.request.task_id)
+        finally:
+            checkpoint_reader.close()
+        assert checkpoint is not None
+        assert checkpoint.phase is WorkflowPhase.AWAIT_OPERATION_PROPOSAL
+        pending = checkpoint.pending_interaction
+        assert pending is not None
+        assert pending.kind is PendingInteractionKind.OPERATION_PROPOSAL
+        assert pending.subject_ref != checkpoint.operation_ref
+
+    operations = _telemetry_operations(telemetry)
+    assert "autocad.execute" not in operations
+    assert "revit.execute" not in operations
+    assert not error_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_real_mcp_v2_accept_consumes_same_pause_and_runs_existing_workflow(
+    tmp_path,
+) -> None:
+    """ACCEPT 必须消费 submit 产生的 exact pause，并沿既有双 Slice workflow 收口成功。"""
+
+    dsn, sqlite_path, config_path, telemetry, error_path, frozen = (
+        _cross_host_mcp_fixture(tmp_path)
+    )
+    with _real_mcp_server(
+        _CROSS_HOST_PRODUCT_SERVER,
+        dsn,
+        str(sqlite_path),
+        str(config_path),
+        str(telemetry),
+        str(error_path),
+    ) as endpoint_url:
+        client = front_door.ProductFrontDoorMcpClient(endpoint_url)
+        proposal = await client.submit(frozen.request)
+        checkpointer = create_postgres_checkpointer(dsn)
+        try:
+            checkpoint = LangGraphWorkflowCheckpointReader(
+                checkpointer=checkpointer
+            ).get_checkpoint(frozen.request.task_id)
+        finally:
+            checkpointer.close()
+        assert checkpoint is not None
+        pending = checkpoint.pending_interaction
+        assert pending is not None
+
+        completed = await client.resume_operation_proposal(
+            task_id=frozen.request.task_id,
+            pause_id=pending.pause_id,
+            resume_kind="OPERATION_PROPOSAL_ACCEPTED",
+        )
+        reread = await client.get(frozen.request.task_id)
+
+        assert completed == reread
+        assert completed.version == "V2"
+        assert completed.status.value == "SUCCEEDED"
+        assert completed.proposal_state.value == "ACCEPTED"
+        assert completed.saga_id is not None
+        assert len(completed.materializations) == 2
+        assert {
+            (item.host_kind, item.verified_thickness_mm)
+            for item in completed.materializations
+        } == {("AUTOCAD", 300.0), ("REVIT", 300.0)}
+
+    operations = _telemetry_operations(telemetry)
+    assert operations.count("autocad.execute") == 1
+    assert operations.count("revit.execute") == 1
+    assert not error_path.exists()
