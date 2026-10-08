@@ -339,6 +339,7 @@ async def test_v2_manual_resume_requires_exact_explicit_review_and_rechecks_owne
         frozen=frozen,
         view=view,
         pause_id=checkpoint.pending_interaction.pause_id,
+        subject_ref=checkpoint.pending_interaction.subject_ref,
         subject=subject,
     )
     directive = ExplicitHumanDecisionV2(
@@ -458,6 +459,7 @@ async def test_v2_manual_resume_fails_closed_without_any_mutation_on_stale_revie
         frozen=frozen,
         view=view,
         pause_id=pending.pause_id,
+        subject_ref=pending.subject_ref,
         subject=subject,
     )
     with pytest.raises(ValueError, match=code):
@@ -488,6 +490,7 @@ async def test_v2_manual_resume_missing_human_decision_fails_before_mcp_get():
         frozen=frozen,
         view=view,
         pause_id=checkpoint.pending_interaction.pause_id,
+        subject_ref=checkpoint.pending_interaction.subject_ref,
         subject=subject,
     )
     with pytest.raises(ValueError, match="LIVE_HUMAN_DECISION_REQUIRED"):
