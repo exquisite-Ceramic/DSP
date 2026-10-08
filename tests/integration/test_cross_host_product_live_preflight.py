@@ -135,3 +135,23 @@ def test_real_mcp_catalog_must_be_exact_three_product_tools() -> None:
         _validate_mcp_tool_catalog(expected[:-1])
     with pytest.raises(ValueError, match="LIVE_MCP_CATALOG_INVALID"):
         _validate_mcp_tool_catalog((*expected, "synthetic.success"))
+
+
+def test_live_config_repr_does_not_leak_dsn_or_model_argv(
+    monkeypatch, tmp_path
+) -> None:
+    """即使测试失败打印配置，也不能把数据库凭据或模型命令参数泄漏到日志。"""
+
+    _configured(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "DSP_TEST_POSTGRES_DSN",
+        "postgresql://user:live-secret@localhost/dsp_test",
+    )
+    monkeypatch.setenv(
+        "DSP_AGENT_INTERPRETER_COMMAND_JSON",
+        json.dumps(["C:/reviewed/model.exe", "--secret", "model-secret"]),
+    )
+    rendered = repr(CrossHostProductLiveConfig.from_environment())
+    assert "live-secret" not in rendered
+    assert "model-secret" not in rendered
+    assert "model_command" not in rendered
