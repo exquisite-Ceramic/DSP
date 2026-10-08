@@ -30,7 +30,6 @@ from semantic_runtime import (
     SnapshotKind,
 )
 
-from .contracts import ProductTaskRequest
 from .revit_semantics import (
     DesignFactNormalizationPort,
     ProductTaskRequestReadPort,
