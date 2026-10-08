@@ -393,6 +393,6 @@ class CrossHostProductFlowResolver:
 
 __all__ = [
     "CrossHostCanonicalWorkflowOwnerPorts",
-    "CrossHostProductFlowResolver",
     "CrossHostOperationProposalBuilder",
+    "CrossHostProductFlowResolver",
 ]
