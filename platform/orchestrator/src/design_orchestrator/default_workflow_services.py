@@ -244,6 +244,8 @@ class DefaultWorkflowServices:
             return operation_ref
 
         subject = builder(task_id.strip(), operation_ref, context_snapshot_ref)
+        if subject is None:
+            return operation_ref
         if not isinstance(subject, CrossHostOperationProposalSubjectV2):
             raise TypeError(
                 "build_operation_proposal_subject must return "

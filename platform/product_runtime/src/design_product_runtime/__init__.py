@@ -21,6 +21,7 @@ from .contracts import (
     product_task_request_v2_payload,
 )
 from .cross_host_flow import CrossHostProductFlow
+from .cross_host_product_reference_composition import CrossHostOperationProposalBuilder
 from .cross_host_observation import (
     CrossHostPlanningRuntimePort,
     CrossHostWallThicknessObservationReader,
@@ -65,6 +66,7 @@ __all__ = [
     "CrossHostPlanningComposition",
     "CrossHostPlanningRuntimePort",
     "CrossHostProductFlow",
+    "CrossHostOperationProposalBuilder",
     "CrossHostRuntimePortBinding",
     "CrossHostRuntimeRegistries",
     "CrossHostVerificationEvidenceRouter",
