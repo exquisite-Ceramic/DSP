@@ -117,15 +117,26 @@ def _host_results(result: Mapping[str, object]) -> Mapping[str, object]:
     return hosts
 
 
-def _assert_zero_product_mutation(result: Mapping[str, object]) -> None:
-    """在 policy deny / all-required unavailable 时两端 mutation 必须均为零。"""
+def _assert_zero_product_mutation(
+    result: Mapping[str, object],
+    *,
+    require_both_reads: bool = True,
+) -> None:
+    """双端 mutation 必须为零；离线 Host 允许只有显式缺失原因而无 final READ。"""
 
     hosts = _host_results(result)
     for host_kind in ("AUTOCAD", "REVIT"):
         host = hosts[host_kind]
         assert isinstance(host, Mapping)
         assert host["product_mutation_count"] == 0
-        assert host["independent_baseline_read"] == host["independent_final_read"]
+        baseline = host.get("independent_baseline_read")
+        observed = host.get("independent_final_read")
+        if observed is None and not require_both_reads:
+            reason = host.get("evidence_absent_reason")
+            assert isinstance(reason, str) and reason.strip(), host_kind
+        else:
+            assert baseline is not None, host_kind
+            assert observed == baseline, host_kind
 
 
 def test_controlled_live_collection_workflow_has_strict_host_gate() -> None:
@@ -212,7 +223,7 @@ def test_cross_host_live_case_required_host_unavailable_is_atomic_pre_execution(
     assert result["required_host_set"] == ["AUTOCAD", "REVIT"]
     assert result["readiness_status"] == "NOT_READY"
     assert result["required_host_downgraded"] is False
-    _assert_zero_product_mutation(result)
+    _assert_zero_product_mutation(result, require_both_reads=False)
 
 
 def test_cross_host_live_case_positive_two_independent_300mm_reads() -> None:
