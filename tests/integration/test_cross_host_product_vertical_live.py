@@ -277,3 +277,75 @@ def test_cross_host_live_case_partial_commit_preserves_unknown_and_before_commit
     assert hosts["AUTOCAD"]["product_mutation_count"] == 1
     assert hosts["AUTOCAD"]["independent_final_read"]["value"] == pytest.approx(300.0)
     assert hosts["REVIT"]["product_mutation_count"] == 0
+
+
+def test_controlled_live_workflow_archives_scenario_evidence() -> None:
+    """Task 16 RED：live runner 应持久归档场景证据，不仅打印 manifest path。"""
+
+    yaml = pytest.importorskip("yaml")
+    workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    live = workflow["jobs"]["cross-host-product-real"]
+    evidence_dir = live["env"]["DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR"]
+    assert evidence_dir == "artifacts/cross-host-product-live"
+    uploads = [
+        step
+        for step in live["steps"]
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert "always()" in upload["if"]
+    assert upload["with"]["path"] == evidence_dir
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert "scenario" in upload["with"]["name"]
+    assert "github.sha" in upload["with"]["name"]
+
+
+def test_controlled_live_manifest_requires_file_under_evidence_dir(tmp_path) -> None:
+    """Task 16 RED：拒绝未落盘、目录外、identity 不匹配的 evidence manifest。"""
+
+    import json
+
+    from tests.integration.test_cross_host_product_vertical_live import (
+        _validate_evidence_manifest,
+    )
+
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    elsewhere = tmp_path / "elsewhere.json"
+    expected = {
+        "implementation_head": "a" * 40,
+        "scenario": "positive",
+        "request_hash": "b" * 64,
+    }
+    elsewhere.write_text(json.dumps(expected), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="LIVE_EVIDENCE_MANIFEST_PATH_INVALID"):
+        _validate_evidence_manifest(
+            {**expected, "evidence_manifest_path": str(elsewhere)},
+            evidence_root=evidence_dir,
+        )
+
+    missing = evidence_dir / "missing.json"
+    with pytest.raises(ValueError, match="LIVE_EVIDENCE_MANIFEST_MISSING"):
+        _validate_evidence_manifest(
+            {**expected, "evidence_manifest_path": str(missing)},
+            evidence_root=evidence_dir,
+        )
+
+    inside = evidence_dir / "evidence.json"
+    inside.write_text(
+        json.dumps({**expected, "request_hash": "c" * 64}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="LIVE_EVIDENCE_MANIFEST_LINEAGE_INVALID"):
+        _validate_evidence_manifest(
+            {**expected, "evidence_manifest_path": str(inside)},
+            evidence_root=evidence_dir,
+        )
+
+    inside.write_text(json.dumps(expected), encoding="utf-8")
+    _validate_evidence_manifest(
+        {**expected, "evidence_manifest_path": str(inside)},
+        evidence_root=evidence_dir,
+    )
