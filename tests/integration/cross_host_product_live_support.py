@@ -11,7 +11,7 @@ import hashlib
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +84,7 @@ def _command_argv(value: str) -> tuple[str, ...]:
 class CrossHostProductLiveConfig:
     """受控 Windows runner 的不可变 preflight 配置；不持久化凭据与 token。"""
 
-    dsn: str
+    dsn: str = field(repr=False)
     autocad_endpoint: str
     autocad_document_ref: str
     autocad_fixture_path: Path
@@ -97,7 +97,7 @@ class CrossHostProductLiveConfig:
     revit_fixture_sha256: str
     revit_wall_unique_id: str
     revit_host_instance_id: str
-    model_command: tuple[str, ...]
+    model_command: tuple[str, ...] = field(repr=False)
     model_name: str
     mcp_url: str
     autocad_build_identity: str
