@@ -322,12 +322,12 @@ async def test_v2_manual_resume_requires_exact_explicit_review_and_rechecks_owne
 ):
     """仅显式决定且二次 authoritative READ 全一致才可调用一次 MCP resume。"""
 
-    from tests.integration.cross_host_product_v2_proposal_authority import (
-        ReviewedV2Proposal,
-    )
     from tests.integration.cross_host_product_v2_manual_resume import (
         ExplicitHumanDecisionV2,
         resume_reviewed_v2_proposal,
+    )
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
     )
 
     frozen, view, checkpoint, subject = _case()
@@ -397,12 +397,12 @@ async def test_v2_manual_resume_fails_closed_without_any_mutation_on_stale_revie
 ):
     """明确人工决定仍不足以越过 stale authority，失败不得调用 resume。"""
 
-    from tests.integration.cross_host_product_v2_proposal_authority import (
-        ReviewedV2Proposal,
-    )
     from tests.integration.cross_host_product_v2_manual_resume import (
         ExplicitHumanDecisionV2,
         resume_reviewed_v2_proposal,
+    )
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
     )
 
     frozen, view, checkpoint, subject = _case()
@@ -423,7 +423,9 @@ async def test_v2_manual_resume_fails_closed_without_any_mutation_on_stale_revie
             "decision_wrong_pause": "pause_id",
             "decision_wrong_subject": "subject_content_hash",
         }[damage]
-        directive_fields[field_name] = "f" * 64 if "hash" in field_name or field_name == "subject_content_hash" else "other-id"
+        directive_fields[field_name] = (
+            "f" * 64 if field_name.endswith("_hash") else "other-id"
+        )
     if damage == "unexpected_decision_kind":
         directive_fields["resume_kind"] = "AUTO_APPROVE"
     if damage == "changed_pause":
@@ -477,11 +479,11 @@ async def test_v2_manual_resume_fails_closed_without_any_mutation_on_stale_revie
 async def test_v2_manual_resume_missing_human_decision_fails_before_mcp_get():
     """人工决定缺失时即使已审核 proposal 也绝不能自动推进。"""
 
-    from tests.integration.cross_host_product_v2_proposal_authority import (
-        ReviewedV2Proposal,
-    )
     from tests.integration.cross_host_product_v2_manual_resume import (
         resume_reviewed_v2_proposal,
+    )
+    from tests.integration.cross_host_product_v2_proposal_authority import (
+        ReviewedV2Proposal,
     )
 
     frozen, view, checkpoint, subject = _case()
