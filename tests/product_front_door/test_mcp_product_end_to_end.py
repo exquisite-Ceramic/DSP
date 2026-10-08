@@ -1726,6 +1726,13 @@ def _cross_host_mcp_fixture(tmp_path):
             return _Probe(host_kind)
 
     class _Forbidden:
+        def get(self, *args, **kwargs):
+            """满足 V1 candidate-source 构造 shape；若 V2 真调用则立即失败。"""
+
+            raise AssertionError(
+                f"V2 client path touched V1 get seam: {args=} {kwargs=}"
+            )
+
         def __getattr__(self, name):
             raise AssertionError(f"V2 client path touched V1 seam: {name}")
 

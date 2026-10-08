@@ -63,17 +63,16 @@ from design_orchestrator.canonical_operations import (
 from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
 from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
 from design_orchestrator.default_workflow_services import DefaultWorkflowServices
+from design_orchestrator.interaction_artifacts import CrossHostOperationProposalSubjectV2
 from design_orchestrator.langgraph_checkpoint_reader import (
     LangGraphWorkflowCheckpointReader,
 )
 from design_orchestrator.langgraph_runtime import LangGraphWorkflowRuntime
-from design_orchestrator.operation_resolver import OperationResolver
+from design_orchestrator.operation_resolver import OperationResolver, ResolutionResult
 from design_orchestrator.parameter_binder import MVP_BINDING_RECIPES, ParameterBinder
 from design_orchestrator.proposal_decision_postgres import (
     PostgresProposalDecisionStore,
 )
-from design_orchestrator.interaction_artifacts import CrossHostOperationProposalSubjectV2
-from design_orchestrator.operation_resolver import ResolutionResult
 from design_orchestrator.workflow_contracts import StableRef
 from design_provider_binding import (
     EligibilityState,
@@ -719,7 +718,10 @@ class _CrossHostMaterializationRouting:
             )
         values = tuple(routes)
         return MaterializationRoutingEvidence(
-            routing_snapshot_id=f"MRS-CROSS-HOST-{_canonical_digest([x.materialization_id for x in values])[:24]}",
+            routing_snapshot_id=(
+                "MRS-CROSS-HOST-"
+                f"{_canonical_digest([x.materialization_id for x in values])[:24]}"
+            ),
             routes=values,
             routing_snapshot_hash=compute_materialization_routing_hash(values),
         )
