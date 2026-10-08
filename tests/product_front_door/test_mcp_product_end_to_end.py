@@ -1862,6 +1862,9 @@ async def test_real_mcp_v2_accept_consumes_same_pause_and_runs_existing_workflow
     ) as endpoint_url:
         client = front_door.ProductFrontDoorMcpClient(endpoint_url)
         proposal = await client.submit(frozen.request)
+        assert proposal.version == "V2"
+        assert proposal.state is ProductTaskQueryState.WORKFLOW
+        assert proposal.status.value == "WAITING"
         checkpointer = create_postgres_checkpointer(dsn)
         try:
             checkpoint = LangGraphWorkflowCheckpointReader(
