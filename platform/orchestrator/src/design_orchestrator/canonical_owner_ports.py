@@ -139,7 +139,6 @@ class CanonicalWorkflowOwnerPorts:
         "_convergence_verifier",
         "_coordination_clock",
         "_cross_host_operation_freshness",
-        "_cross_host_proposal_builder",
         "_dispatch_intent_store",
         "_execution_coordinator",
         "_execution_plan_store",
@@ -204,7 +203,6 @@ class CanonicalWorkflowOwnerPorts:
         materialization_routing: object,
         provider_execution_snapshot: object,
         cross_host_operation_freshness: object | None = None,
-        cross_host_proposal_builder: object | None = None,
     ) -> None:
         # 兼容 Task 4 shape tests：constructor 不执行 service discovery 或 eagerly validate fakes。
         self._snapshot_registry = snapshot_registry
@@ -236,7 +234,6 @@ class CanonicalWorkflowOwnerPorts:
         self._reconciliation_service = reconciliation_service
         self._convergence_verifier = convergence_verifier
         self._cross_host_operation_freshness = cross_host_operation_freshness
-        self._cross_host_proposal_builder = cross_host_proposal_builder
         self._semantic_reconstruction = semantic_reconstruction
         self._preview_port = preview_port
         self._approval_admission = approval_admission
@@ -444,24 +441,6 @@ class CanonicalWorkflowOwnerPorts:
 
         self._snapshot_registry.put_snapshot(resolved)
         return StableRef(resolved.snapshot_id, resolved.hash)
-
-    def build_operation_proposal_subject(
-        self,
-        task_id: str,
-        operation_ref: StableRef,
-        context_snapshot_ref: StableRef,
-    ):
-        """仅在显式注入 V2 builder 时构造 cross-Host human subject。
-
-        未注入时返回 None，由 DefaultWorkflowServices 保持 V1 operation-ref subject。
-        """
-
-        if self._cross_host_proposal_builder is None:
-            return None
-        build = getattr(self._cross_host_proposal_builder, "build", None)
-        if not callable(build):
-            raise self._not_wired("build_operation_proposal_subject")
-        return build(task_id, operation_ref, context_snapshot_ref)
 
     def ensure_operation_freshness(
         self,

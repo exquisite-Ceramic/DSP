@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
 from design_orchestrator.interaction_artifacts import CrossHostOperationProposalSubjectV2
 from design_orchestrator.operation_resolver import ResolutionResult
 from design_orchestrator.workflow_contracts import StableRef
@@ -60,9 +61,13 @@ class _AcceptedBinding:
 
 
 def _required_text(value: object, field_name: str) -> str:
-    """规范化 accepted-input locator，拒绝空白 authority。"""
+    """规范化 accepted-input locator，并区分类型错误与空值错误。"""
 
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
+        raise TypeError(
+            f"CROSS_HOST_PROPOSAL_LINEAGE_INVALID: {field_name} must be a string"
+        )
+    if not value.strip():
         raise ValueError(
             f"CROSS_HOST_PROPOSAL_LINEAGE_INVALID: {field_name} must be non-blank"
         )
@@ -74,15 +79,19 @@ def _binding_from_accepted(accepted: AcceptedProductTaskInputV2) -> _AcceptedBin
 
     payload = accepted.session_binding_payload
     raw_members = payload.get("members")
-    if not isinstance(raw_members, list) or len(raw_members) != 2:
+    if not isinstance(raw_members, list):
+        raise TypeError(
+            "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: accepted binding members must be a list"
+        )
+    if len(raw_members) != 2:
         raise ValueError(
             "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: accepted binding requires two members"
         )
     members = []
     for raw in raw_members:
         if not isinstance(raw, Mapping):
-            raise ValueError(
-                "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: accepted member body is invalid"
+            raise TypeError(
+                "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: accepted member body must be a mapping"
             )
         members.append(
             _AcceptedBindingMember(
@@ -200,9 +209,13 @@ class CrossHostOperationProposalBuilder:
             raise TypeError("context_snapshot_ref must be StableRef")
 
         accepted = self._accepted_input_reader.get_v2(normalized_task_id)
-        if not isinstance(accepted, AcceptedProductTaskInputV2):
+        if accepted is None:
             raise ValueError(
                 "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: V2 accepted input is unavailable"
+            )
+        if not isinstance(accepted, AcceptedProductTaskInputV2):
+            raise TypeError(
+                "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: V2 accepted input has invalid type"
             )
         request = accepted.request
         if request.task_id != normalized_task_id:
@@ -222,7 +235,7 @@ class CrossHostOperationProposalBuilder:
 
         resolution = self._workflow_artifact_store.get(operation_ref)
         if not isinstance(resolution, ResolutionResult):
-            raise ValueError(
+            raise TypeError(
                 "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: operation ref is not ResolutionResult"
             )
         supported = tuple(
@@ -237,8 +250,8 @@ class CrossHostOperationProposalBuilder:
 
         thickness = request.intent_arguments.get("thickness")
         if not isinstance(thickness, Mapping):
-            raise ValueError(
-                "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: V2 thickness intent is unavailable"
+            raise TypeError(
+                "CROSS_HOST_PROPOSAL_LINEAGE_INVALID: V2 thickness intent must be a mapping"
             )
         arguments = MappingProxyType(
             {
@@ -275,4 +288,40 @@ class CrossHostOperationProposalBuilder:
         )
 
 
-__all__ = ["CrossHostOperationProposalBuilder"]
+class CrossHostCanonicalWorkflowOwnerPorts(CanonicalWorkflowOwnerPorts):
+    """只为 Cross-Host composition 增加 proposal builder，不扩张核心 owner contract。"""
+
+    __slots__ = ("_cross_host_proposal_builder",)
+
+    def __init__(
+        self,
+        *,
+        cross_host_proposal_builder: object,
+        **owner_dependencies: object,
+    ) -> None:
+        """先构造冻结的 canonical owner，再保存 composition-only proposal extension。"""
+
+        if not callable(getattr(cross_host_proposal_builder, "build", None)):
+            raise TypeError("cross_host_proposal_builder must provide build")
+        super().__init__(**owner_dependencies)
+        self._cross_host_proposal_builder = cross_host_proposal_builder
+
+    def build_operation_proposal_subject(
+        self,
+        task_id: str,
+        operation_ref: StableRef,
+        context_snapshot_ref: StableRef,
+    ) -> CrossHostOperationProposalSubjectV2:
+        """把 V2 human subject 构造委托给显式 builder；不保存第二份 owner truth。"""
+
+        return self._cross_host_proposal_builder.build(
+            task_id,
+            operation_ref,
+            context_snapshot_ref,
+        )
+
+
+__all__ = [
+    "CrossHostCanonicalWorkflowOwnerPorts",
+    "CrossHostOperationProposalBuilder",
+]
