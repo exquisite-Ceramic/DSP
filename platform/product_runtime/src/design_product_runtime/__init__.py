@@ -28,6 +28,7 @@ from .cross_host_observation import (
 from .cross_host_product_reference_composition import (
     CrossHostCanonicalWorkflowOwnerPorts,
     CrossHostOperationProposalBuilder,
+    CrossHostProductFlowResolver,
 )
 from .cross_host_reference_composition import (
     CrossHostPlanningComposition,
@@ -68,6 +69,7 @@ __all__ = [
     "AutoCadWallThicknessVerificationEvidencePort",
     "CrossHostCanonicalWorkflowOwnerPorts",
     "CrossHostOperationProposalBuilder",
+    "CrossHostProductFlowResolver",
     "CrossHostPlanningComposition",
     "CrossHostPlanningRuntimePort",
     "CrossHostProductFlow",

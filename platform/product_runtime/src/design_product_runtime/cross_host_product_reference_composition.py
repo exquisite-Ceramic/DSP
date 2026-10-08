@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from hashlib import sha256
+from threading import RLock
 from types import MappingProxyType
 
 from design_orchestrator.canonical_owner_ports import CanonicalWorkflowOwnerPorts
@@ -321,7 +324,75 @@ class CrossHostCanonicalWorkflowOwnerPorts(CanonicalWorkflowOwnerPorts):
         )
 
 
+class CrossHostProductFlowResolver:
+    """从 server accepted V2 input 解析 exact task 的可重建 workflow facade。
+
+    缓存只持有进程内 composition handles 和输入指纹，不保存任何可修改的
+    ProductTask request、binding、decision 或 checkpoint truth。进程重启后
+    factory 必须再次从 authoritative accepted input 安全重建。
+    """
+
+    def __init__(
+        self,
+        flow_factory: Callable[[AcceptedProductTaskInputV2], object],
+    ) -> None:
+        """保存 lazy factory；构造时不触发 Host I/O 或读取客户端 SQLite。"""
+
+        if not callable(flow_factory):
+            raise TypeError("flow_factory must be callable")
+        self._flow_factory = flow_factory
+        self._lock = RLock()
+        self._flows: dict[str, tuple[tuple[str, str, str], object]] = {}
+
+    @staticmethod
+    def _fingerprint(
+        accepted: AcceptedProductTaskInputV2,
+    ) -> tuple[str, str, str]:
+        """把 accepted owner body 压缩成缓存校验标识，不创建新 authority。"""
+
+        body = json.dumps(
+            dict(accepted.session_binding_payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return (
+            accepted.request.request_hash,
+            accepted.session_binding_hash,
+            sha256(body).hexdigest(),
+        )
+
+    def get_flow(self, accepted: AcceptedProductTaskInputV2):
+        """same task/body 只构造一次；same task/body drift 必须 fail closed。"""
+
+        if not isinstance(accepted, AcceptedProductTaskInputV2):
+            raise TypeError("accepted must be AcceptedProductTaskInputV2")
+        task_id = accepted.request.task_id
+        fingerprint = self._fingerprint(accepted)
+
+        with self._lock:
+            cached = self._flows.get(task_id)
+            if cached is not None:
+                cached_fingerprint, cached_flow = cached
+                if cached_fingerprint != fingerprint:
+                    raise ValueError(
+                        "CROSS_HOST_PRODUCT_FLOW_INPUT_CONFLICT: "
+                        "task already owns a different immutable accepted input"
+                    )
+                return cached_flow
+
+            flow = self._flow_factory(accepted)
+            if not callable(getattr(flow, "start_accepted", None)):
+                raise TypeError("flow_factory must return a V2 start_accepted facade")
+            if not callable(getattr(flow, "resume", None)):
+                raise TypeError("flow_factory must return a V2 resume facade")
+            self._flows[task_id] = (fingerprint, flow)
+            return flow
+
+
 __all__ = [
     "CrossHostCanonicalWorkflowOwnerPorts",
+    "CrossHostProductFlowResolver",
     "CrossHostOperationProposalBuilder",
 ]
