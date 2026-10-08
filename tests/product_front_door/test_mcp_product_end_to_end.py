@@ -17,7 +17,11 @@ import design_product_front_door as front_door
 import psycopg
 import pytest
 from design_changeset import canonical_hash
-from design_orchestrator import WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator import PendingInteractionKind, WorkflowPhase, WorkflowResumeCommand
+from design_orchestrator.checkpoint_postgres import create_postgres_checkpointer
+from design_orchestrator.langgraph_checkpoint_reader import (
+    LangGraphWorkflowCheckpointReader,
+)
 from design_orchestrator.workflow_services import WorkflowStateError
 from design_product_runtime import (
     ProductFlowStatus,
