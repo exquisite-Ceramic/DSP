@@ -106,6 +106,12 @@ jobs:
             platform/execution_coordination \
             tests/execution_coordination \
             tests/integration/test_step37_architecture.py
+      - name: Diagnose three inherited import-order problems
+        run: |
+          ruff check --select I --diff \
+            platform/orchestrator/src/design_orchestrator/canonical_owner_ports.py \
+            platform/product_front_door/src/design_product_front_door/__init__.py \
+            tests/orchestrator/test_artifact_postgres.py || true
       - name: Enforce no new repository Ruff diagnostics
         run: |
           git worktree add /tmp/dsp-main origin/main
