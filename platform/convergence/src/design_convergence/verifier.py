@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
+from fractions import Fraction
 from typing import Any
 
 from .contracts import (
@@ -40,8 +42,24 @@ def _plain(value: Any) -> Any:
 
 
 def _value_token(value: object) -> str:
-    """把 canonical 值编码为 exact equality token。"""
-    return json.dumps(
+    """生成只用于比较的 exact token；保留原始证据与哈希字节不变。
+
+    整数和有限浮点数用精确有理数编码：300 与 300.0 的实际数值相等，
+    但不同的小数值不会被舍入或按容差合并。布尔值不能当作整数，
+    其他 JSON 类型继续沿用原有结构严格相等逻辑。
+    """
+    if type(value) in (int, float):
+        if isinstance(value, float) and not math.isfinite(value):
+            _error(
+                "CONVERGENCE_NONFINITE_NUMBER",
+                "numeric convergence requires a finite canonical value",
+            )
+        # Fraction 将有限 IEEE-754 浮点值精确投影为有理数；
+        # 不依赖 float 强制转换、四舍五入、精度阈值或 Decimal 上下文。
+        number = Fraction(value)
+        return f"number:{number.numerator}/{number.denominator}"
+    # 显式标注 JSON 类型空间，确保字符串 "300" 不会与数字 300 混淆。
+    return "json:" + json.dumps(
         _plain(value),
         sort_keys=True,
         separators=(",", ":"),
