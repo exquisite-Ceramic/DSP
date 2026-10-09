@@ -359,6 +359,7 @@ def test_provider_binding_manifest_corrupt_payload_fails_closed() -> None:
     """Task 8 manifest 的 durable payload 被篡改后必须在 codec/hash 边界拒绝。"""
 
     from design_execution_planning import plan_materialized_execution
+
     from tests.execution_planning._support import build_phase_i_execution_inputs
 
     module = import_module("design_orchestrator.execution_collection_artifacts")
