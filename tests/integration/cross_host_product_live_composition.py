@@ -19,6 +19,7 @@ from uuid import uuid4
 from .cross_host_product_live_driver import (
     audit_imported_product_sources,
     check_frozen_head,
+    pipe_pid,
     plain,
     read_json,
     write_once,
@@ -47,6 +48,7 @@ def audit_runtime_owners(directory, *, check_head):
 
     from design_approval_scope import InMemoryApprovalScopeStore
     from design_changeset import InMemoryChangeSetStore
+    from design_convergence import CrossHostConvergenceVerifier
     from design_execution_coordination import CrossHostReadinessBarrier
     from design_execution_planning import InMemoryExecutionPlanV2Store
     from design_gateway_authorization import (
@@ -77,7 +79,25 @@ def audit_runtime_owners(directory, *, check_head):
         (GatewayAuthorizationServiceV2, "consume_or_get_approval", "approval", True),
         (CrossHostReadinessBarrier, "check_all", "readiness", True),
     )
+    original_verify = CrossHostConvergenceVerifier.verify
+
+    @wraps(original_verify)
+    def audited_verify(owner, plan, profile, evidence_set):
+        result = original_verify(owner, plan, profile, evidence_set)
+        check_head()
+        append_audit(
+            directory / "convergence-captures.jsonl",
+            {
+                "plan": plain(plan),
+                "profile": plain(profile),
+                "evidence_set": plain(evidence_set),
+                "result": plain(result),
+            },
+        )
+        return result
+
     with ExitStack() as stack:
+        stack.enter_context(patch.object(CrossHostConvergenceVerifier, "verify", audited_verify))
         for owner, method, kind, from_result in methods:
             stack.enter_context(
                 audit_public_method(
@@ -187,6 +207,57 @@ def append_audit(path, body):
         stream.write(json.dumps(plain(body), ensure_ascii=False, allow_nan=False) + "\n")
         stream.flush()
         os.fsync(stream.fileno())
+
+
+@contextmanager
+def audited_pipe_ownership(config, directory, *, stage, check_head):
+    """在生产 CreateFile 返回的同一 handle 上证明真实 server PID，再允许任何 WriteFile。"""
+
+    import win32file
+    import win32pipe
+
+    reviewed = {
+        rf"\\.\pipe\{locator}".casefold(): (kind, locator, host_id)
+        for kind, locator, host_id in (
+            ("AUTOCAD", config.autocad_endpoint, config.autocad_host_instance_id),
+            ("REVIT", config.revit_pipe, config.revit_host_instance_id),
+        )
+    }
+    original = win32file.CreateFile
+
+    @wraps(original)
+    def checked_create_file(path, *args, **kwargs):
+        member = reviewed.get(str(path).casefold())
+        if member is None:
+            return original(path, *args, **kwargs)
+        kind, locator, host_id = member
+        check_head()
+        handle = original(path, *args, **kwargs)
+        try:
+            server_pid = win32pipe.GetNamedPipeServerProcessId(handle)
+            expected_pid = pipe_pid(locator, kind)
+            append_audit(
+                directory / "pipe-server-ownership.jsonl",
+                {
+                    "host_kind": kind,
+                    "host_instance_id": host_id,
+                    "locator": locator,
+                    "server_pid": server_pid,
+                    "expected_pid": expected_pid,
+                    "stage": stage,
+                    "observed_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            if server_pid != expected_pid:
+                raise ValueError("LIVE_PLUGIN_PIPE_OWNER_MISMATCH: actual pipe server differs")
+            check_head()
+            return handle
+        except BaseException:
+            win32file.CloseHandle(handle)
+            raise
+
+    with patch.object(win32file, "CreateFile", checked_create_file):
+        yield
 
 
 def audited_host_factories(config, directory, *, check_head, stage="MCP"):
@@ -444,6 +515,9 @@ def run_managed_mcp(directory):
             return datetime.now(UTC)
 
     with ExitStack() as resources:
+        resources.enter_context(
+            audited_pipe_ownership(config, directory, stage="MCP", check_head=check_head)
+        )
         resources.enter_context(audit_runtime_owners(directory, check_head=check_head))
 
         class AdmissionFactory:

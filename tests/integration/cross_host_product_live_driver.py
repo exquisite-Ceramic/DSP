@@ -292,6 +292,19 @@ def load_driver_settings(head):
             raise ValueError("LIVE_DRIVER_CONFIG_INVALID: exact required Host set missing")
     if not isinstance(body["policies"], dict) or set(body["policies"]) != {"positive", "deny"}:
         raise ValueError("LIVE_DRIVER_CONFIG_INVALID: reviewed phase-one policies missing")
+    operation = "set_wall_thickness.v1"
+    for scenario in ("positive", "deny"):
+        policy = body["policies"][scenario]
+        operations = (
+            policy.get("allowed_canonical_operations") if isinstance(policy, dict) else None
+        )
+        if (
+            not isinstance(operations, list)
+            or not operations
+            or any(not isinstance(item, str) or not item.strip() for item in operations)
+            or (operation in operations) != (scenario == "positive")
+        ):
+            raise ValueError("LIVE_POLICY_SCENARIO_INVALID: reviewed operation policy differs")
     return body
 
 
@@ -568,6 +581,41 @@ def validate_loaded_module(raw, *, host_kind, locator, host_instance_id, expecte
         "sha256": actual,
         "inspection": raw,
     }
+
+
+def validate_pipe_ownership_records(rows, members, plugins):
+    """Join every actual client connection to frozen Host identity and loaded DLL process."""
+
+    expected = {(stage, member.host_kind): member for stage in ("CONTROLLER", "MCP")
+                for member in members}
+    if set(plugins) != {"AUTOCAD", "REVIT"} or set(expected) != {
+        (stage, kind) for stage in ("CONTROLLER", "MCP") for kind in ("AUTOCAD", "REVIT")
+    }:
+        raise ValueError("LIVE_PLUGIN_PIPE_OWNER_INVALID: reviewed Host set differs")
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise TypeError("LIVE_PLUGIN_PIPE_OWNER_INVALID: observation body absent")
+        key = (row.get("stage"), row.get("host_kind"))
+        member = expected.get(key)
+        plugin = plugins.get(row.get("host_kind"))
+        pid = plugin.get("inspection", {}).get("pid") if isinstance(plugin, dict) else None
+        if (
+            member is None
+            or not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or row.get("host_instance_id") != member.host_instance_id
+            or row.get("locator") != member.transport_locator
+            or row.get("expected_pid") != pid
+            or row.get("server_pid") != pid
+        ):
+            raise ValueError("LIVE_PLUGIN_PIPE_OWNER_INVALID: actual server/READ/DLL differs")
+        seen.add(key)
+    if seen != set(expected):
+        raise ValueError(
+            "LIVE_PLUGIN_PIPE_OWNER_MISSING: each process/Host needs actual connection"
+        )
+    return rows
 
 
 def validate_reconciliation_rows(rows):
@@ -1123,6 +1171,7 @@ def run_phase_one(config, scenario):
     from .cross_host_product_live_composition import (
         append_audit,
         audited_host_factories,
+        audited_pipe_ownership,
         production_probe_factory,
         read_host_observation,
         reviewed_runtime_inputs,
@@ -1221,6 +1270,11 @@ def run_phase_one(config, scenario):
             return result
 
     with ExitStack() as resources:
+        resources.enter_context(
+            audited_pipe_ownership(
+                config, directory, stage="CONTROLLER", check_head=check_head
+            )
+        )
         state = SqliteFrontDoorStateStore(str(directory / "front-door.sqlite3"))
         resources.callback(state.close)
         controller = SubmissionController(
@@ -1387,12 +1441,15 @@ def _read_durable_owners(config, task_id):
             }
     with ExitStack() as resources:
         requests = create_postgres_product_task_request_store(config.dsn)
+        resources.callback(requests.close)
         decisions = PostgresProposalDecisionStore(config.dsn)
+        resources.callback(decisions.close)
         sagas = PostgresExecutionSagaStoreV2(config.dsn)
+        resources.callback(sagas.close)
         dispatches = PostgresHostDispatchIntentStore(config.dsn)
+        resources.callback(dispatches.close)
         admissions = PostgresConfiguredPolicyAdmissionStore(config.dsn)
-        for store in (requests, decisions, sagas, dispatches, admissions):
-            resources.callback(store.close)
+        resources.callback(admissions.close)
         accepted = requests.get_v2(task_id)
         decision = decisions.get_for_task(task_id)
         decoded_sagas = [sagas.get_saga(row["saga_id"]) for row in raw["sagas"]]
@@ -1458,6 +1515,108 @@ def validate_positive_owner_lineage(
             or state.verification_hash != query.verification_hash
         ):
             raise ValueError("LIVE_OWNER_AUTHORITY_INVALID: exact Slice grant/Saga/query differs")
+
+
+def validate_positive_convergence_capture(
+    rows, materialization, execution_plan, profile, evidence, saga, final
+):
+    """Rebuild the captured full set from exact local Step33 bodies; never rerun verify."""
+
+    from design_convergence import (
+        ConvergenceResult,
+        build_convergence_evidence_set,
+        build_materialization_canonical_evidence,
+        compute_convergence_profile_hash,
+        compute_convergence_result_hash,
+    )
+    from pydantic import TypeAdapter
+
+    def same_body(left, right):
+        options = {"sort_keys": True, "separators": (",", ":"), "allow_nan": False}
+        return json.dumps(left, **options) == json.dumps(right, **options)
+
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError("LIVE_CONVERGENCE_CAPTURE_MISSING: one public verifier call required")
+    row = rows[0]
+    try:
+        if not same_body(row["plan"], plain(materialization)) or not same_body(
+            row["profile"], plain(profile)
+        ):
+            raise ValueError("captured plan/profile differs")
+        if (
+            compute_convergence_profile_hash(profile.profile_version, profile.field_rules)
+            != profile.profile_hash
+            or profile.profile_hash != materialization.convergence_profile_hash
+        ):
+            raise ValueError("captured profile hash differs")
+        queries = {item.materialization_id: item for item in final.materializations}
+        slices = {item.materialization_id: item for item in execution_plan.execution_slices}
+        if len(queries) != 2 or set(queries) != set(slices):
+            raise ValueError("captured required set differs")
+        items = []
+        for materialization_id, execution_slice in slices.items():
+            query = queries[materialization_id]
+            if query.execution_slice_hash != execution_slice.execution_slice_hash:
+                raise ValueError("captured execution slice differs")
+            items.append(
+                build_materialization_canonical_evidence(
+                    materialization_id=materialization_id,
+                    execution_slice=execution_slice,
+                    actual_delta=require_evidence_body(
+                        evidence, query.actual_delta_hash, "actual_delta"
+                    ),
+                    verification_result=require_evidence_body(
+                        evidence, query.verification_hash, "verification_result"
+                    ),
+                    verification_evidence_bundle=require_evidence_body(
+                        evidence, query.evidence_bundle_hash, "verification_bundle"
+                    ),
+                    convergence_profile=profile,
+                )
+            )
+        rebuilt = build_convergence_evidence_set(
+            plan=materialization, profile=profile, evidence_items=items
+        )
+        if not same_body(row["evidence_set"], plain(rebuilt)):
+            raise ValueError("captured full evidence set differs from local Step33 bodies")
+        result = TypeAdapter(ConvergenceResult).validate_python(row["result"])
+        if (
+            not same_body(row["result"], plain(result))
+            or result.status.value != "CONVERGED"
+            or result.materialization_plan_hash != materialization.materialization_plan_hash
+            or result.required_set_hash != materialization.required_set_hash
+            or result.convergence_profile_hash != profile.profile_hash
+            or result.evidence_set_hash != rebuilt.evidence_set_hash
+            or compute_convergence_result_hash(result) != result.convergence_result_hash
+            or result.convergence_result_hash != saga.convergence_result_hash
+            or result.convergence_result_hash != final.convergence_result_hash
+        ):
+            raise ValueError("captured verifier result/Saga/query differs")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("LIVE_CONVERGENCE_INVALID: public verifier inputs/result differ") from exc
+    return row
+
+
+def _capture_profile(directory, materialization):
+    """Decode the public verifier's exact profile; plan hash is checked before use."""
+
+    from design_convergence import ConvergenceComparisonProfile, compute_convergence_profile_hash
+    from pydantic import TypeAdapter
+
+    rows = _jsonl(directory / "convergence-captures.jsonl")
+    if len(rows) != 1:
+        raise ValueError("LIVE_CONVERGENCE_CAPTURE_MISSING: one public verifier call required")
+    try:
+        profile = TypeAdapter(ConvergenceComparisonProfile).validate_python(rows[0]["profile"])
+        if (
+            profile.profile_hash != materialization.convergence_profile_hash
+            or compute_convergence_profile_hash(profile.profile_version, profile.field_rules)
+            != profile.profile_hash
+        ):
+            raise ValueError("profile hash differs")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("LIVE_CONVERGENCE_PROFILE_INVALID: captured profile differs") from exc
+    return profile
 
 
 def collect_formal_evidence(
@@ -1604,6 +1763,9 @@ def collect_formal_evidence(
             head=head,
         )
         write_once(directory / ("final-plugin-" + member.host_kind.lower() + ".json"), refreshed)
+    pipe_owners = validate_pipe_ownership_records(
+        _jsonl(directory / "pipe-server-ownership.jsonl"), binding.members, plugins
+    )
     evidence = validate_reconciliation_rows(raw["evidence"])
     result = {
         **case,
@@ -1662,8 +1824,12 @@ def collect_formal_evidence(
         "loaded_plugin_provenance_path": str(
             (directory / "loaded-plugin-provenance.json").resolve()
         ),
+        "pipe_server_ownership_path": str((directory / "pipe-server-ownership.jsonl").resolve()),
     }
+    convergence = None
     if scenario == "deny":
+        if _jsonl(directory / "convergence-captures.jsonl"):
+            raise ValueError("LIVE_CONVERGENCE_UNEXPECTED: denied task reached verifier")
         result["policy_status"] = policy_denied_outcome(
             final_status=final.status.value,
             workflow_phase=checkpoint.phase.value,
@@ -1783,6 +1949,17 @@ def collect_formal_evidence(
             final,
             checkpoint,
         )
+        convergence = validate_positive_convergence_capture(
+            _jsonl(directory / "convergence-captures.jsonl"),
+            materialization,
+            plan,
+            # The verified public profile is reconstructed from the exact capture only
+            # after checking its hash against the materialization plan.
+            _capture_profile(directory, materialization),
+            evidence,
+            saga,
+            final,
+        )
         readiness = captures["readiness"][0]
         if (
             readiness.status.value != "READY"
@@ -1819,6 +1996,8 @@ def collect_formal_evidence(
             execution_plan_hash=plan.execution_plan_hash,
             materialization_plan_hash=materialization.materialization_plan_hash,
             convergence_result_hash=saga.convergence_result_hash,
+            convergence_evidence_set_hash=convergence["evidence_set"]["evidence_set_hash"],
+            convergence_capture_path=str((directory / "convergence-captures.jsonl").resolve()),
             policy_status="ADMITTED",
         )
         required = (
@@ -1845,6 +2024,8 @@ def collect_formal_evidence(
             },
             "final_mcp_get": plain(final),
             "audited_owner_snapshots": snapshots,
+            "actual_pipe_server_ownership": pipe_owners,
+            "actual_convergence_capture": convergence,
         },
     )
     check_head()

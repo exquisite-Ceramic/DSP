@@ -537,6 +537,37 @@ def test_driver_config_freezes_settings_and_head_in_current_case(monkeypatch, tm
         driver.load_driver_settings("b" * 40)
 
 
+@pytest.mark.parametrize("damage", ["copied_positive", "mixed", "swapped"])
+def test_deny_policy_cannot_admit_canonical_operation_before_any_case_io(
+    monkeypatch, tmp_path, damage
+):
+    driver = _driver()
+    body = {**_settings(), "implementation_head": "a" * 40, "database_name": "fresh_case_db"}
+    if damage == "copied_positive":
+        body["policies"]["deny"] = dict(body["policies"]["positive"])
+    elif damage == "mixed":
+        body["policies"]["deny"]["allowed_canonical_operations"] = [
+            "unapproved.operation.v1", "set_wall_thickness.v1"
+        ]
+    else:
+        body["policies"]["positive"], body["policies"]["deny"] = (
+            body["policies"]["deny"], body["policies"]["positive"]
+        )
+    path = tmp_path / "reviewed-config.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    monkeypatch.setenv("DSP_CROSS_HOST_PRODUCT_DRIVER_CONFIG", str(path))
+    with pytest.raises(ValueError, match="LIVE_POLICY_SCENARIO_INVALID"):
+        driver.load_driver_settings("a" * 40)
+    monkeypatch.setattr(driver, "current_head", lambda: "a" * 40)
+    monkeypatch.setattr(driver, "audit_imported_product_sources", lambda: {})
+    class NoCaseIO:
+        def verify_fixtures(self):
+            raise AssertionError("fixture/Host/model preparation must not begin")
+
+    with pytest.raises(ValueError, match="LIVE_POLICY_SCENARIO_INVALID"):
+        driver.run_phase_one(NoCaseIO(), "deny")
+
+
 def test_controller_probe_uses_real_read_normalizer_and_baseline_identity(monkeypatch, tmp_path):
     from tests.integration.cross_host_product_live_support import CrossHostProductLiveConfig
     from tests.integration.test_cross_host_product_live_preflight import (
@@ -1121,7 +1152,20 @@ def test_formal_deny_collect_preserves_actual_waiting_policy_owner_outcome(tmp_p
             "host_instance_id": member.host_instance_id,
             "locator": member.transport_locator,
             "sha256": hashlib.sha256(dll.read_bytes()).hexdigest(),
+            "inspection": {"pid": 41 + index},
         }
+        for stage in ("CONTROLLER", "MCP"):
+            append_audit(
+                tmp_path / "pipe-server-ownership.jsonl",
+                {
+                    "host_kind": member.host_kind,
+                    "host_instance_id": member.host_instance_id,
+                    "locator": member.transport_locator,
+                    "server_pid": plugins[member.host_kind]["inspection"]["pid"],
+                    "expected_pid": plugins[member.host_kind]["inspection"]["pid"],
+                    "stage": stage,
+                },
+            )
     # 本合同替换 native inspector；PID locator 与真实 bytes validator 有独立合同验证。
     monkeypatch.setattr(driver, "inspect_loaded_module", lambda *args: {})
     monkeypatch.setattr(
@@ -1409,3 +1453,336 @@ def test_positive_authority_joins_reject_hash_valid_cross_owner_substitution(dam
             final,
             checkpoint,
         )
+
+
+def test_durable_owner_reader_closes_first_store_when_second_constructor_fails(monkeypatch):
+    """后续 owner 构造失败时，已打开的 PostgreSQL store 必须立即关闭。"""
+
+    from types import SimpleNamespace
+
+    import design_orchestrator.proposal_decision_postgres as decisions_module
+    import design_product_runtime
+    import psycopg
+
+    class Database:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def transaction(self):
+            return self
+
+        def execute(self, *_args):
+            return SimpleNamespace(fetchall=list)
+
+    closed = []
+    monkeypatch.setattr(psycopg, "connect", lambda *args, **kwargs: Database())
+    monkeypatch.setattr(
+        design_product_runtime,
+        "create_postgres_product_task_request_store",
+        lambda _dsn: SimpleNamespace(close=lambda: closed.append("requests")),
+    )
+    monkeypatch.setattr(
+        decisions_module,
+        "PostgresProposalDecisionStore",
+        lambda _dsn: (_ for _ in ()).throw(RuntimeError("second store failed")),
+    )
+    with pytest.raises(RuntimeError, match="second store failed"):
+        _driver()._read_durable_owners(SimpleNamespace(dsn="offline-only"), "task-1")
+    assert closed == ["requests"]
+
+
+def test_actual_revit_pipe_server_pid_mismatch_closes_handle_before_write(
+    monkeypatch, tmp_path
+):
+    """生产 transport 的实际 CreateFile handle 必须证明 OS server PID 后才能写命令。"""
+
+    from types import SimpleNamespace
+
+    import win32file
+    import win32pipe
+    from revit_sidecar.named_pipe import WindowsNamedPipeEndpoint
+
+    composition = _composition()
+    handle = object()
+    created, closed, writes = [], [], []
+    def original(*args):
+        created.append(args)
+        return handle
+    monkeypatch.setattr(win32file, "CreateFile", original)
+    monkeypatch.setattr(win32file, "CloseHandle", lambda value: closed.append(value))
+    monkeypatch.setattr(win32file, "WriteFile", lambda *args: writes.append(args))
+    monkeypatch.setattr(win32pipe, "GetNamedPipeServerProcessId", lambda value: 99)
+    config = SimpleNamespace(
+        autocad_endpoint="EnterpriseDesignAgent.wall-41",
+        revit_pipe="EnterpriseDesignAgent.Revit.wall-42",
+        autocad_host_instance_id="auto-host",
+        revit_host_instance_id="revit-host",
+    )
+    with composition.audited_pipe_ownership(
+        config, tmp_path, stage="MCP", check_head=lambda: None
+    ), pytest.raises(ValueError, match="LIVE_PLUGIN_PIPE_OWNER_MISMATCH"):
+        WindowsNamedPipeEndpoint(config.revit_pipe).exchange(b"never-send")
+    assert len(created) == 1
+    assert closed == [handle]
+    assert writes == []
+    assert win32file.CreateFile is original
+    audit = _driver()._jsonl(tmp_path / "pipe-server-ownership.jsonl")
+    assert audit[0]["server_pid"] == 99
+    assert audit[0]["expected_pid"] == 42
+
+
+def test_actual_autocad_open_audits_same_handle_before_exchange(monkeypatch, tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    import win32file
+    import win32pipe
+    from autocad_sidecar.ipc.transport import PipeTransport
+
+    composition = _composition()
+    handle = object()
+    def original(*_args):
+        return handle
+    observed, writes, closed = [], [], []
+    monkeypatch.setattr(win32file, "CreateFile", original)
+    monkeypatch.setattr(win32file, "CloseHandle", lambda value: closed.append(value))
+    monkeypatch.setattr(win32file, "WriteFile", lambda *args: writes.append(args))
+    monkeypatch.setattr(
+        win32pipe, "GetNamedPipeServerProcessId",
+        lambda value: (observed.append(value), 41)[1],
+    )
+    config = SimpleNamespace(
+        autocad_endpoint="EnterpriseDesignAgent.wall-41",
+        revit_pipe="EnterpriseDesignAgent.Revit.wall-42",
+        autocad_host_instance_id="auto-host",
+        revit_host_instance_id="revit-host",
+    )
+    transport = PipeTransport(config.autocad_endpoint)
+    with composition.audited_pipe_ownership(
+        config, tmp_path, stage="CONTROLLER", check_head=lambda: None
+    ):
+        asyncio.run(transport.open())
+        assert transport._handle is handle
+        assert observed == [handle]
+        assert writes == []
+        asyncio.run(transport.close())
+    assert closed == [handle]
+    assert win32file.CreateFile is original
+    rows = _driver()._jsonl(tmp_path / "pipe-server-ownership.jsonl")
+    assert rows[0]["host_kind"] == "AUTOCAD"
+    assert rows[0]["server_pid"] == 41
+
+
+@pytest.mark.parametrize("damage", [None, "missing_mcp", "wrong_pid", "wrong_host"])
+def test_pipe_ownership_archive_joins_actual_server_to_loaded_module_and_host(damage):
+    """正式证据必须含两进程双 Host 的实际连接 PID 与已加载 DLL 身份。"""
+
+    from types import SimpleNamespace
+
+    driver = _driver()
+    members = (
+        SimpleNamespace(
+            host_kind="AUTOCAD", host_instance_id="auto-host",
+            transport_locator="EnterpriseDesignAgent.wall-41",
+        ),
+        SimpleNamespace(
+            host_kind="REVIT", host_instance_id="revit-host",
+            transport_locator="EnterpriseDesignAgent.Revit.wall-42",
+        ),
+    )
+    plugins = {
+        member.host_kind: {"inspection": {"pid": 41 if member.host_kind == "AUTOCAD" else 42}}
+        for member in members
+    }
+    rows = [
+        {
+            "host_kind": member.host_kind,
+            "host_instance_id": member.host_instance_id,
+            "locator": member.transport_locator,
+            "server_pid": plugins[member.host_kind]["inspection"]["pid"],
+            "expected_pid": plugins[member.host_kind]["inspection"]["pid"],
+            "stage": stage,
+        }
+        for stage in ("CONTROLLER", "MCP") for member in members
+    ]
+    if damage == "missing_mcp":
+        rows = rows[:2]
+    elif damage == "wrong_pid":
+        rows[2]["server_pid"] = 99
+    elif damage == "wrong_host":
+        rows[3]["host_instance_id"] = "another-host"
+    if damage:
+        with pytest.raises(ValueError, match="LIVE_PLUGIN_PIPE_OWNER"):
+            driver.validate_pipe_ownership_records(rows, members, plugins)
+    else:
+        assert driver.validate_pipe_ownership_records(rows, members, plugins) == rows
+
+
+def _convergence_projection_inputs():
+    from design_convergence import (
+        CrossHostConvergenceVerifier,
+        build_convergence_evidence_set,
+        build_materialization_canonical_evidence,
+    )
+
+    from tests.product_runtime.conftest import build_cross_host_task15_lineage
+
+    driver = _driver()
+    ctx = build_cross_host_task15_lineage()
+    _, final, _, evidence, _ = _positive_projection_inputs()
+    items = []
+    for query, execution_slice in zip(
+        final.materializations, ctx.execution_plan.execution_slices, strict=True
+    ):
+        items.append(
+            build_materialization_canonical_evidence(
+                materialization_id=query.materialization_id,
+                execution_slice=execution_slice,
+                actual_delta=evidence[query.actual_delta_hash],
+                verification_result=evidence[query.verification_hash],
+                verification_evidence_bundle=evidence[query.evidence_bundle_hash],
+                convergence_profile=ctx.case.profile,
+            )
+        )
+    evidence_set = build_convergence_evidence_set(
+        plan=ctx.materialization_plan, profile=ctx.case.profile, evidence_items=items
+    )
+    result = CrossHostConvergenceVerifier().verify(
+        ctx.materialization_plan, ctx.case.profile, evidence_set
+    )
+    capture = {
+        "plan": driver.plain(ctx.materialization_plan),
+        "profile": driver.plain(ctx.case.profile),
+        "evidence_set": driver.plain(evidence_set),
+        "result": driver.plain(result),
+    }
+    return ctx, evidence, capture, result
+
+
+@pytest.mark.parametrize("damage", [None, "missing", "wrong_set", "wrong_numeric"])
+def test_convergence_capture_requires_exact_local_evidence_set_and_saga(damage, tmp_path):
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from design_convergence import (
+        CrossHostConvergenceVerifier,
+        MaterializationCanonicalEvidence,
+        build_convergence_evidence_set,
+        compute_materialization_canonical_evidence_hash,
+    )
+    from pydantic import TypeAdapter
+
+    driver = _driver()
+    ctx, evidence, capture, result = _convergence_projection_inputs()
+    rows = [deepcopy(capture)]
+    if damage == "missing":
+        rows = []
+    elif damage in {"wrong_set", "wrong_numeric"}:
+        # Self-consistent, hash-valid competing set/result. The Saga/query can also be forged to
+        # match this result; the local Step33 body join must still reject it.
+        item = TypeAdapter(MaterializationCanonicalEvidence).validate_python(
+            capture["evidence_set"]["evidence_items"][0]
+        )
+        original_field = item.verified_fields[0]
+        altered = replace(
+            item,
+            verified_fields=(
+                replace(
+                    original_field,
+                    value=(
+                        float(original_field.value)
+                        if type(original_field.value) is int
+                        else int(original_field.value)
+                    ) if damage == "wrong_numeric" else 301,
+                ),
+                *item.verified_fields[1:],
+            ),
+            evidence_hash="0" * 64,
+        )
+        # Rebind Any references with the authentic public Step33 bundle types.
+        bundle = next(
+            value for value in evidence.values() if hasattr(value, "evidence_bundle_hash")
+        )
+        altered = replace(
+            altered,
+            semantic_environment_ref=bundle.semantic_environment_ref,
+            post_execution_projection_ref=bundle.post_execution_projection_ref,
+        )
+        altered = replace(
+            altered, evidence_hash=compute_materialization_canonical_evidence_hash(altered)
+        )
+        # The other item is already available in the original object graph via public constructors.
+        valid_items = []
+        for query, execution_slice in zip(
+            _positive_projection_inputs()[1].materializations,
+            ctx.execution_plan.execution_slices,
+            strict=True,
+        ):
+            from design_convergence import build_materialization_canonical_evidence
+            valid_items.append(build_materialization_canonical_evidence(
+                materialization_id=query.materialization_id,
+                execution_slice=execution_slice,
+                actual_delta=evidence[query.actual_delta_hash],
+                verification_result=evidence[query.verification_hash],
+                verification_evidence_bundle=evidence[query.evidence_bundle_hash],
+                convergence_profile=ctx.case.profile,
+            ))
+        competing = build_convergence_evidence_set(
+            plan=ctx.materialization_plan, profile=ctx.case.profile,
+            evidence_items=(altered, valid_items[1]),
+        )
+        competing_result = CrossHostConvergenceVerifier().verify(
+            ctx.materialization_plan, ctx.case.profile, competing
+        )
+        rows[0]["evidence_set"] = driver.plain(competing)
+        rows[0]["result"] = driver.plain(competing_result)
+        result = competing_result
+    saga = SimpleNamespace(convergence_result_hash=result.convergence_result_hash)
+    final = SimpleNamespace(
+        convergence_result_hash=result.convergence_result_hash,
+        materializations=_positive_projection_inputs()[1].materializations,
+    )
+    if damage:
+        with pytest.raises(ValueError, match="LIVE_CONVERGENCE"):
+            driver.validate_positive_convergence_capture(
+                rows, ctx.materialization_plan, ctx.execution_plan,
+                ctx.case.profile, evidence, saga, final,
+            )
+    else:
+        from tests.integration.cross_host_product_live_composition import append_audit
+
+        append_audit(tmp_path / "convergence-captures.jsonl", capture)
+        assert driver._capture_profile(tmp_path, ctx.materialization_plan) == ctx.case.profile
+        assert driver.validate_positive_convergence_capture(
+            rows, ctx.materialization_plan, ctx.execution_plan,
+            ctx.case.profile, evidence, saga, final,
+        ) == capture
+
+
+def test_public_convergence_verifier_decoration_calls_original_once_and_restores(
+    monkeypatch, tmp_path
+):
+    from design_convergence import CrossHostConvergenceVerifier
+
+    composition = _composition()
+    calls = []
+    result = {"convergence_result_hash": "a" * 64}
+
+    def original(owner, plan, profile, evidence_set):
+        calls.append((plan, profile, evidence_set))
+        return result
+
+    monkeypatch.setattr(CrossHostConvergenceVerifier, "verify", original)
+    plan = {"materialization_plan_hash": "b" * 64}
+    profile = {"profile_hash": "c" * 64}
+    evidence_set = {"evidence_set_hash": "d" * 64}
+    with composition.audit_runtime_owners(tmp_path, check_head=lambda: None):
+        assert CrossHostConvergenceVerifier().verify(plan, profile, evidence_set) is result
+    assert calls == [(plan, profile, evidence_set)]
+    assert CrossHostConvergenceVerifier.verify is original
+    rows = _driver()._jsonl(tmp_path / "convergence-captures.jsonl")
+    assert len(rows) == 1
+    assert rows[0]["result"]["convergence_result_hash"] == "a" * 64
