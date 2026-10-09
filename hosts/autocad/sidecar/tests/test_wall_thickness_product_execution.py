@@ -5,9 +5,9 @@ from __future__ import annotations
 from importlib import import_module
 
 import pytest
+from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 from design_fact_contracts import FactKind
 from host_contracts import HostCommandResult
-from autocad_sidecar.adapter.design_fact_adapter import DesignFactAdapter
 
 
 def _api():
