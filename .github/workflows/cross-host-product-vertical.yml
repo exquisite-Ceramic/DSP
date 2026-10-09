@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/cross-host-product-vertical.yml"
       - "tests/integration/test_cross_host_product_vertical_live.py"
+      - "tests/convergence/test_verifier.py"
+      - "platform/convergence/**"
       - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/test_cross_host_product_v2_proposal_authority.py"
       - "tests/integration/cross_host_product_v2_proposal_authority.py"
@@ -19,6 +21,8 @@ on:
     paths:
       - ".github/workflows/cross-host-product-vertical.yml"
       - "tests/integration/test_cross_host_product_vertical_live.py"
+      - "tests/convergence/test_verifier.py"
+      - "platform/convergence/**"
       - "tests/integration/test_cross_host_product_live_preflight.py"
       - "tests/integration/test_cross_host_product_v2_proposal_authority.py"
       - "tests/integration/cross_host_product_v2_proposal_authority.py"
@@ -78,6 +82,10 @@ jobs:
         run: |
           python -m pip install uv
           uv sync --locked --all-packages
+      - name: Task 16 exact numeric convergence regressions
+        run: |
+          uv run python -m pytest tests/convergence/test_verifier.py -q -vv
+          uv run ruff check --select E,F,I tests/convergence/test_verifier.py platform/convergence/src/design_convergence/verifier.py
       - name: Collect and offline-verify live contract
         run: |
           uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py --collect-only -q
