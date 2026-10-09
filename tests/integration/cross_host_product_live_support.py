@@ -1,7 +1,7 @@
 """Task 16A：双 Host ProductTask 受控现场的生产适配器与只读预检。
 
 本模块只装配已有 production Host/MCP 边界，不复用 Phase I 执行 helper。
-在尚未完成真实 human-resume 与受控 revision-race 接线前，绝不返回四场景 PASS。
+阶段一接通 positive/deny；unavailable/partial_commit 必须等待受审查的时序阶段。
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import subprocess
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -304,16 +305,24 @@ def run_controlled_case(
     config: CrossHostProductLiveConfig,
     scenario: str,
 ) -> dict[str, object]:
-    """四场景 driver 尚未接通 human-resume/partial-race，不允许合成 PASS。"""
+    """第一阶段只开放 positive/deny；后续时序机制必须另行审查。"""
 
     _require_windows_live()
     if scenario not in {"deny", "unavailable", "positive", "partial_commit"}:
         raise ValueError("LIVE_SCENARIO_INVALID: unsupported scenario")
+    if scenario in {"unavailable", "partial_commit"}:
+        raise RuntimeError("LIVE_CASE_STAGE_NOT_REVIEWED: controlled timing phase is pending")
     config.verify_fixtures()
-    raise RuntimeError(
-        "LIVE_CASE_DRIVER_NOT_CONNECTED: pending audited model, MCP V2 "
-        "human-resume and deterministic post-readiness revision-race wiring"
-    )
+    from .cross_host_product_live_driver import run_phase_one
+
+    try:
+        return run_phase_one(config, scenario)
+    except Exception as exc:
+        code = str(exc).split(":", 1)[0]
+        if re.fullmatch(r"LIVE_[A-Z0-9_]+", code):
+            error_type = ValueError if isinstance(exc, ValueError) else RuntimeError
+            raise error_type(code + ": controlled case stopped; inspect case artifacts") from None
+        raise RuntimeError("LIVE_CASE_FAILED: adapter failure; no credentials logged") from None
 
 
 def main() -> None:

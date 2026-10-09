@@ -55,14 +55,14 @@ DSP_REVIT_LIVE_HOST_INSTANCE_ID
 受控 Windows runner 必须额外配置（均为现场显式值，不得使用示例/测试代用品）：
 
 ~~~text
-DSP_AGENT_INTERPRETER_COMMAND_JSON   # JSON argv 列表，非 shell 命令
+DSP_AGENT_INTERPRETER_COMMAND_JSON   # 恰为当前 Python、-m、tests.integration.cross_host_product_model_interpreter 的 JSON argv
 DSP_AGENT_MODEL_NAME                # 真实模型的经审查标识
-DSP_CROSS_HOST_PRODUCT_MCP_URL     # 已启动的生产 ProductTask V2 loopback MCP
-DSP_AUTOCAD_BUILD_IDENTITY         # 实际加载的 AutoCAD 插件/Host build
-DSP_REVIT_BUILD_IDENTITY           # 实际加载的 Revit DLL/Host build
+DSP_CROSS_HOST_PRODUCT_MCP_URL     # 当前 dedicated case 管理的 loopback MCP；端口必须空闲
+DSP_AUTOCAD_BUILD_IDENTITY         # 已审核 AutoCAD.AgentHost.dll 文件 SHA-256
+DSP_REVIT_BUILD_IDENTITY           # 已审核 Revit.AgentHost.dll 文件 SHA-256
 ~~~
 
-在开始任何业务 submit / human resume / mutation 前，先执行：
+如需单独诊断，先为 read-only preflight 启动 production MCP，执行下列命令后停止该诊断 server；正式 driver 自行管理 dedicated MCP，拒绝占用端口：
 
 ~~~powershell
 $env:DSP_CROSS_HOST_PRODUCT_LIVE="1"
@@ -71,11 +71,12 @@ uv run python -m tests.integration.cross_host_product_live_support --preflight
 
 此 preflight 仅执行：两个 fixture 的 SHA-256 再检查、PostgreSQL `SELECT 1`、真实 MCP 三个固定工具的 negotiation/list_tools、AutoCAD exact LWPOLYLINE 200 mm normalized-fact READ、Revit exact selected Wall 200 mm snapshot READ。它不会执行模型解释、ProductTask submit、human ACCEPT、Gateway grant、EXECUTE、外部 201 mm 编辑或任何伪造的 scenario evidence。
 
-preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。当前 Task 16A 的 `run_controlled_case` 仍显式以 `LIVE_CASE_DRIVER_NOT_CONNECTED` 拒绝业务执行；在 model invocation、真实 MCP V2 freeze/submit、exact-pause human ACCEPT 和 post-readiness partial-commit injection 完成并审查前，不得放宽此停止门槛。
+preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。阶段一的 `run_controlled_case` 已接通 positive/deny。unavailable 与 partial_commit 保持 `LIVE_CASE_STAGE_NOT_REVIEWED`；它们的实际 readiness/竞争编辑时序需下一阶段审查。
 
-## 3B. Task 16A V2 durable proposal 与显式人工 resume（当前仅完成离线验证）
+## 3B. 阶段一 driver：真实 proposal、显式人工 resume 和 owner 证据
 
-新增的 `tests/integration/cross_host_product_v2_proposal_authority.py` 仅把 production
+`tests/integration/cross_host_product_live_driver.py` 在 dedicated case 内组合已有 helper。
+`tests/integration/cross_host_product_v2_proposal_authority.py` 把 production
 `SubmissionController.prepare_cross_host_submission()`、真实 `ProductFrontDoorMcpClient.submit/get`
 与原有 PostgreSQL checkpoint / workflow artifact owner 组合起来，读取并核对 exact pause。
 它不从 V2 MCP GET 推断不存在于公开 QueryViewV2 的 pause，也不会调用 resume。
@@ -89,8 +90,7 @@ subject artifact，重验两端 observation 的当前已审查身份和 200 mm �
 任何 stale、身份漂移或 subject/hash mismatch 都必须停止，不得查询 latest task、替换 pause、
 隐式改成 ACCEPT 或做普通 EXECUTE 重送。
 
-该模块只是一个 **被动的人工决定执行适配接口**：不会提供用户确认 UI，
-不会自动生成批准证据，也没有接入 `run_controlled_case`。
+该人工 helper 是被动执行接口；driver 发布完整 `pending-proposal.json` 后等待 pytest 外部 controller 取得用户决定并提供 `human-decision.json`。没有 UI、预选项或环境 flag 会自动产生 ACCEPT。
 **只有用户正式审核两份 fixture、现场完成全部 preflight、真实人工逐项确认 proposal
 且记录批准操作者/时刻/决定引用后，才能让现场 driver 调用此接口。**
 `ACCEPTED` 的调用可能导致生产 Host mutation，绝不能用此模块测试当前未批准的图纸。
@@ -98,6 +98,32 @@ resume 之后只能使用同一 task 的 durable GET 识别 owner outcome；
 transport 异常或 post-resume mismatch 不得盲目再次执行。
 
 本阶段 offline contract/CI GREEN 不构成真实模型 invocation、Host 调用、人工签署或四场景 PASS 证据。
+
+正式执行前必须是 clean committed HEAD；driver 冻结 HEAD 并在模型、Host、owner、resume 和归档边界检查漂移。子进程 PYTHONPATH 从 committed pyproject 清单构建，实际生产模块的 __file__ 必须位于当前 worktree，文件 SHA 逐项归档，防止共享虚拟环境的旧 editable 源码混入。
+
+每个场景使用新建、无 user table 的 dedicated PostgreSQL 数据库；`database_name` 必须与实际 current_database() 一致。driver 不 truncate/drop 任何 owner。随机 case 目录使用新的 SQLite、task、binding、Saga；历史 manifest 不能作为输入。
+
+另外配置：
+
+~~~text
+DSP_CROSS_HOST_PRODUCT_DRIVER_CONFIG  # 无凭据、经审核 JSON 的绝对路径
+DSP_AGENT_MODEL_ENVIRONMENT_JSON      # 仅 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL 等显式模型环境；按 secret 保存
+DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR   # 本次新 case 的公共 evidence 根目录
+~~~
+
+driver config 必须恰有这些字段：`implementation_head`（当前完整 SHA）、`database_name`、`project_id`、`candidate_key`、`semantic_target_id`、`topology_environment_id`、`topology_revision`、`slot_ids`、`configured_reference_ids`、`policies`、`utterance`、`human_timeout_seconds`（大于 0，最多 3600）。`slot_ids` 与 `configured_reference_ids` 均为恰含 AUTOCAD/REVIT 的身份映射。`policies` 恰含 positive/deny，各自提供 production V2 policy 的 `policy_id`、`principal`、`allowed_canonical_operations`、`admission_ttl_seconds`；positive 允许 `set_wall_thickness.v1`，deny 使用经审核的不同 operation。project/target/topology/hash/roles 从同一实际配置生成，禁止复制历史 hash。模型环境禁止 controller 的 DSP authority 配置；driver 只补当前 worktree PYTHONPATH、审核过的模型名/候选键和本次证据文件路径。模型命令必须恰为当前 Python 执行 `tests.integration.cross_host_product_model_interpreter`，且该源码属于 clean committed HEAD。现场 runner 通过 `uv sync --locked --all-packages` 安装 dev group 中锁定的 Anthropic SDK 1.11.0；CLI 使用真实 SDK 调用，只把窄 proposal 写到 stdout，并将 provider invocation ID、可能缺失而保持 null 的 request ID、完整解码响应与 usage 独占写入 `model-provider-invocation.json`。driver 再将原始文本、proposal、冻结请求、模型名、候选键与源码 SHA 逐项关联。DSN、模型凭据不序列化到公共 evidence，private bootstrap 配置须放在归档目录外。
+
+人工交接按以下顺序执行：
+
+1. controller 从 pytest 打印的本次 pending 文件读取实际 proposal 全体、冻结请求、两端 observations，以及 case/head/task/request/binding/pause/subject 精确 lineage。
+2. controller 在 pytest 外取得真实用户 ACCEPT；记录 `operator`、`decision_ref` 和带时区 `recorded_at`，且时间不得早于 pending 发布。
+3. controller 用标准原子文件发布 `human-decision.json` 到该 case 目录。它必须恰好绑定 pending 的 `case_id`、`implementation_head`、`task_id`、`request_hash`、`session_binding_hash`、`pause_id`、`subject_ref`、`subject_content_hash`，以及 `decision=ACCEPT`、`resume_kind=OPERATION_PROPOSAL_ACCEPTED`。不得在测试中生成这个决定。
+
+超时、预置决定、旧 lineage 或签署前漂移均停止。driver 在发送 resume 前独占 fsync `resume-attempt.json`。传输结果不明确时只 GET 同一 task 并保存 `ambiguous-exact-task-get.json`（查询失败时保存 `ambiguous-exact-task-get-failed.json`），不重发、不补偿、不执行 recovery/undo。deny 的真实 owner 可能保持 WAITING/POLICY_APPROVAL；正式证据要求实际 policy DENIED code、零 grant/dispatch/mutation、两端独立 200 mm READ。
+
+loaded provenance 由只读 Windows Process.Modules 直接检查，使用 named pipe 的验证整数 PID，链接 production READ 的真实 HostInstanceId，要求准确 DLL 名称、ProductVersion `1.0.0+<完整HEAD>` 和文件 SHA 等于审核 build identity，保存原始 JSON。缺失或不一致立即失败，外部 caller flag 不能代替 loaded truth。
+
+owner 审计仅在该单 case MCP 子进程内包装 production 公开 put/issue 方法，调用原方法一次并保留返回/异常，finally 恢复。ChangeSet/ApprovalScope/MaterializationPlan/ExecutionPlan/BindingSets/Grants/Approval/readiness 的实际不可变内存快照标记 `AUDITED_IN_MEMORY_OWNER`；PostgreSQL durable Workflow collection manifest、request/decision/Saga/dispatch/reconciliation/policy owner 另行保存，不能称内存快照为 PostgreSQL persistence。现有 owner integrity/hash validator 与 reconciliation/workflow codec 校验 body、full hash、refs、cardinality；缺失 capture 不发布正式 manifest。先持久化完整 evidence body，再原子发布引用它的 manifest。
 
 ## 4. Case 1：真实 policy deny
 
@@ -160,7 +186,7 @@ $env:DSP_CROSS_HOST_PRODUCT_SCENARIO="positive"
 uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py -k "live_case_positive" -q -vv -s
 ~~~
 
-deny、unavailable、partial_commit 也必须分别执行并保留独立 fresh 输出。未配置真实 model/MCP/Human 适配层时禁止声称 live accepted。
+deny 单独执行并保留 fresh 输出；unavailable/partial_commit 在阶段二完成审查前明确 FAIL。当前没有运行任何真实现场验收，四场景均保持 LIVE-PENDING。
 
 ## 9. evidence manifest 与最终验收归档
 
