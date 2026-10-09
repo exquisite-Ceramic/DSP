@@ -252,7 +252,10 @@ class SubmissionController:
 
     @staticmethod
     def _validate_cross_host_observation(*, configured_member, observation) -> None:
-        """Task 2 只验证 runtime/document/native binding evidence；语义 freshness 留给后续 owner。"""
+        """Task 2 只验证 runtime/document/native binding evidence。
+
+        语义 freshness 留给后续 owner。
+        """
 
         if observation is None:
             raise ValueError(f"{_CONTEXT_INVALID}: cross-host probe returned no observation")

@@ -8,6 +8,7 @@ from importlib import import_module
 from typing import Any
 from uuid import UUID
 
+import pytest
 from design_orchestrator.canonical_operations import MOVE_V1
 from design_orchestrator.operation_resolver import (
     OperationResolver,
@@ -21,7 +22,6 @@ from design_orchestrator.workflow_artifacts import (
     workflow_artifact_content_hash,
 )
 from design_orchestrator.workflow_contracts import StableRef
-import pytest
 
 # 该文件只属于真实 PostgreSQL 验证 lane。旧的非 PostgreSQL workflow 不安装 psycopg，
 # 因此必须在加载 PostgreSQL adapter 前做模块级 skip，避免可选依赖污染无关测试收集。
@@ -358,9 +358,11 @@ def test_cross_host_proposal_subject_reopens_after_process_restart() -> None:
 def test_provider_binding_manifest_corrupt_payload_fails_closed() -> None:
     """Task 8 manifest 的 durable payload 被篡改后必须在 codec/hash 边界拒绝。"""
 
-    module = import_module("design_orchestrator.execution_collection_artifacts")
     from design_execution_planning import plan_materialized_execution
+
     from tests.execution_planning._support import build_phase_i_execution_inputs
+
+    module = import_module("design_orchestrator.execution_collection_artifacts")
 
     _reset_owner_schema()
     _, _, _, request = build_phase_i_execution_inputs()

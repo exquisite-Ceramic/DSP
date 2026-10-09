@@ -258,7 +258,11 @@ def test_mcp_server_resume_delegates_only_exact_frozen_human_decision() -> None:
 def test_mcp_server_v2_submit_delegates_versioned_request_without_binding_body() -> None:
     """server adapter 必须按 version 解码 V2 request，transport/session 不补写 binding。"""
 
-    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    # 在测试中显式加载 V2 DTO，保持原有动态导入行为。
+    request_type = getattr(
+        __import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]),
+        "ProductTaskRequestV2",
+    )
     request = request_type.create(
         task_id="task-mcp-server-v2",
         project_id="project-mcp-server",
