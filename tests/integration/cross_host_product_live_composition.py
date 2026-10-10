@@ -65,6 +65,7 @@ def audit_runtime_owners(directory, *, check_head):
             {
                 "kind": kind,
                 "storage_provenance": "AUDITED_IN_MEMORY_OWNER",
+                "timestamp": datetime.now(UTC).isoformat(),
                 "body": plain(value),
             },
         )
@@ -186,9 +187,10 @@ def reviewed_runtime_inputs(config, settings, scenario):
             ),
         ),
     )
+    policy_name = "deny" if scenario == "deny" else "positive"
     policy = ConfiguredProductApprovalPolicyV2.from_mapping(
         {
-            **settings["policies"][scenario],
+            **settings["policies"][policy_name],
             "version": "DSP_PRODUCT_APPROVAL_POLICY_V2",
             "project_ids": [target.project_id],
             "semantic_target_ids": [target.semantic_target_id],
@@ -292,6 +294,61 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
 
     class AuditedRevitTransport(NamedPipeTransport):
         def request(self, command):
+            case = read_json(directory / "case.json")
+            if stage == "MCP" and case["scenario"] in {"unavailable", "partial_commit"}:
+                from .cross_host_product_live_driver import stage_prerequisites
+                from .cross_host_product_live_stages import (
+                    stage_hash,
+                    stage_identity,
+                    wait_for_stage_release,
+                )
+
+                if case["scenario"] == "unavailable" and command.mode == "EXECUTE":
+                    raise ValueError("LIVE_STAGE_COMMAND_INVALID: execution before readiness")
+                staged_operation = (
+                    command.operation == "check_wall_thickness_readiness"
+                    if case["scenario"] == "unavailable"
+                    else command.mode == "EXECUTE"
+                )
+                if staged_operation:
+                    frozen = read_json(directory / "frozen-submission.json")
+                    binding = frozen["session_binding"]
+                    member = next(
+                        item for item in binding["members"] if item["host_kind"] == "REVIT"
+                    )
+                    prerequisites = stage_prerequisites(
+                        config, directory, case, command, check_head=check_head
+                    )
+                    pending = stage_identity(
+                        case,
+                        {"task_id": frozen["request"]["task_id"],
+                         "request_hash": frozen["request"]["request_hash"],
+                         "session_binding_hash": binding["binding_hash"]},
+                        member,
+                        command,
+                        prerequisite_hashes=prerequisites,
+                        caller_started_at=read_json(
+                            directory / "resume-attempt.json"
+                        )["timestamp"],
+                    )
+                    if (directory / "stage-controller-completion.json").exists():
+                        raise ValueError("LIVE_STAGE_PRESELECTED: early operator action")
+                    write_once(directory / "pending-stage.json", pending)
+                    print(
+                        "LIVE_AWAITING_STAGE: " + str(directory / "pending-stage.json"),
+                        flush=True,
+                    )
+                    wait_for_stage_release(
+                        directory, pending, proof_hash=stage_hash(prerequisites),
+                        check_head=check_head,
+                    )
+                    write_once(
+                        directory / "stage-send-attempt.json",
+                        {"stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
+                         "command_id": command.command_id,
+                         "command_hash": stage_hash(command.to_dict()),
+                         "timestamp": datetime.now(UTC).isoformat()},
+                    )
             record("REVIT", "SEND", command)
             result = super().request(command)
             record("REVIT", "RECEIVE", command, result)

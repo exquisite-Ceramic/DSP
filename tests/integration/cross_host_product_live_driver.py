@@ -17,11 +17,14 @@ import sys
 import time
 import tomllib
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import fields, is_dataclass
 from datetime import UTC, date, datetime
 from enum import Enum
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -267,6 +270,7 @@ def load_driver_settings(head):
         "policies",
         "utterance",
         "human_timeout_seconds",
+        "stage_timeout_seconds",
     }
     if set(body) != keys:
         raise ValueError("LIVE_DRIVER_CONFIG_INVALID: unknown/missing fields")
@@ -287,6 +291,10 @@ def load_driver_settings(head):
         or not 0 < timeout <= 3600
     ):
         raise ValueError("LIVE_DRIVER_CONFIG_INVALID: finite human timeout required")
+    from .cross_host_product_live_stages import STAGE_DEADLINE_SECONDS
+
+    if body["stage_timeout_seconds"] != STAGE_DEADLINE_SECONDS:
+        raise ValueError("LIVE_DRIVER_CONFIG_INVALID: reviewed stage deadline required")
     for key in ("slot_ids", "configured_reference_ids"):
         if not isinstance(body[key], dict) or set(body[key]) != {"AUTOCAD", "REVIT"}:
             raise ValueError("LIVE_DRIVER_CONFIG_INVALID: exact required Host set missing")
@@ -1079,6 +1087,267 @@ def project_positive_hosts(reviewed, final, dispatches, evidence, commands):
     return hosts
 
 
+def project_staged_outcome(directory, reviewed, final, checkpoint, sagas, raw, evidence,
+                           captures, commands):
+    """Project failure truth from original commands, owner bodies and exact stage records."""
+
+    from .cross_host_product_live_stages import (
+        stage_hash,
+        validate_native_stage_failure,
+        validate_partial_event_order,
+        validate_stage_completion,
+        validate_stage_release,
+    )
+
+    case = read_json(directory / "case.json")
+    pending = read_json(directory / "pending-stage.json")
+    completion = validate_stage_completion(
+        pending, read_json(directory / "stage-controller-completion.json")
+    )
+    release = read_json(directory / "stage-release.json")
+    validate_stage_release(
+        pending, release, completion_hash=stage_hash(completion),
+        proof_hash=stage_hash(pending["prerequisite_hashes"]),
+    )
+    if read_json(directory / "stage-release-consumed.json") != release:
+        _host_failure("stage release was not consumed once")
+    attempt = read_json(directory / "stage-send-attempt.json")
+    if (
+        attempt.get("stage_id") != pending["stage_id"]
+        or attempt.get("pending_hash") != pending["pending_hash"]
+        or attempt.get("command_id") != pending["original_command_id"]
+    ):
+        _host_failure("original stage send attempt missing")
+    member = next(item for item in reviewed.frozen.session_binding.members
+                  if item.host_kind == "REVIT")
+    if any(pending.get(key) != value for key, value in {
+        "case_id": case["case_id"],
+        "scenario": case["scenario"],
+        "implementation_head": case["implementation_head"],
+        "task_id": reviewed.frozen.request.task_id,
+        "request_hash": reviewed.frozen.request.request_hash,
+        "session_binding_hash": reviewed.frozen.session_binding.binding_hash,
+        "host_instance_id": member.host_instance_id,
+        "document_id": member.document_id,
+        "native_target_id": member.native_target_id,
+    }.items()):
+        _host_failure("stage lineage differs from frozen request/member")
+    stage_sends = [row for row in commands if row["host_kind"] == "REVIT"
+                   and row["phase"] == "SEND"
+                   and row["command"].get("command_id") == pending["original_command_id"]]
+    stage_receives = [row for row in commands if row["host_kind"] == "REVIT"
+                      and row["phase"] == "RECEIVE"
+                      and row["command"].get("command_id") == pending["original_command_id"]]
+    if (
+        len(stage_sends) != 1 or len(stage_receives) != 1
+        or stage_sends[0]["command"] != stage_receives[0]["command"]
+        or stage_hash(stage_sends[0]["command"]) != pending["original_command_hash"]
+        or stage_hash(stage_sends[0]["command"]) != attempt.get("command_hash")
+    ):
+        _host_failure("original command was not sent and received exactly once")
+    if case["scenario"] == "unavailable":
+        response = stage_receives[0]["response"]
+        validate_native_stage_failure("unavailable", response)
+        if (
+            pending["operation"] != "check_wall_thickness_readiness"
+            or len(sagas) != 0 or raw["dispatches"] or evidence
+            or final.saga_id is not None or final.materializations
+            or final.convergence_result_hash is not None
+            or final.status.value != (
+                "FAILED" if checkpoint.phase.value == "FAILED" else "WAITING"
+            )
+            or checkpoint.phase.value == "COMPLETED"
+            or len(captures["readiness"]) != 1
+            or captures["readiness"][0].status.value != "NOT_READY"
+            or len(captures["readiness"][0].receipts) != 2
+            or captures["readiness"][0].failure_ref
+            != "REVIT_ACTIVE_DOCUMENT_UNAVAILABLE"
+            or any(row["phase"] == "SEND" and row["command"].get("mode") == "EXECUTE"
+                   for row in commands)
+        ):
+            _host_failure("native unavailable/readiness/no-commit facts differ")
+        auto = next(item for item in reviewed.frozen.session_binding.members
+                    if item.host_kind == "AUTOCAD")
+        auto_reads = [row for row in commands if row["host_kind"] == "AUTOCAD"
+                      and row["phase"] == "RECEIVE" and row.get("stage") == "INDEPENDENT_FINAL"]
+        if len(auto_reads) != 1:
+            _host_failure("available Host final READ absent")
+        width, revision = width_from_read(auto_reads[0], auto)
+        baseline = next(item for item in reviewed.subject.observations
+                        if item.host_kind == "AUTOCAD")
+        get = read_json(directory / "host-independent-get.json")
+        if (
+            width != {"value": 200, "unit": "mm"}
+            or revision != baseline.host_revision
+            or get.get("task_id") != final.task_id
+            or get.get("before") != get.get("after")
+            or get.get("result") != plain(final)
+        ):
+            _host_failure("available baseline or Host-independent exact GET differs")
+        hosts = {
+            "AUTOCAD": {
+                "baseline_revision": baseline.host_revision,
+                "independent_baseline_read": {"value": 200, "unit": "mm"},
+                "independent_final_read": width,
+                "verification_revision": revision,
+                "verification_source": "INDEPENDENT_HOST_READ",
+                "product_mutation_count": 0,
+            },
+            "REVIT": {
+                "baseline_revision": next(item.host_revision for item in
+                    reviewed.subject.observations if item.host_kind == "REVIT"),
+                "independent_baseline_read": {"value": 200, "unit": "mm"},
+                "independent_final_read": None,
+                "evidence_absent_reason": (
+                    "REVIT_ACTIVE_DOCUMENT_UNAVAILABLE: reviewed document closed unsaved"
+                ),
+                "product_mutation_count": 0,
+            },
+        }
+        return {
+            "hosts": hosts,
+            "readiness_status": "NOT_READY",
+            "saga_status": None,
+            "convergence_status": None,
+            "stage_pending_path": str((directory / "pending-stage.json").resolve()),
+            "stage_completion_path": str(
+                (directory / "stage-controller-completion.json").resolve()
+            ),
+            "host_independent_get_path": str((directory / "host-independent-get.json").resolve()),
+        }
+    validate_native_stage_failure("partial_commit", stage_receives[0]["response"])
+    if (
+        pending["operation"] != "set_wall_thickness"
+        or len(sagas) != 1 or sagas[0].status.value != "PARTIALLY_COMMITTED"
+        or final.status.value != "PARTIALLY_COMMITTED"
+        or final.saga_id != sagas[0].definition.saga_id
+        or final.convergence_result_hash is not None
+        or _jsonl(directory / "convergence-captures.jsonl")
+        or len(captures["readiness"]) != 1
+        or captures["readiness"][0].status.value != "READY"
+        or len(captures["readiness"][0].receipts) != 2
+        or len(final.materializations) != 2
+        or len(raw["dispatches"]) != 2
+    ):
+        _host_failure("partial Saga/READY/native BEFORE_COMMIT lineage differs")
+    states = sagas[0].slice_states
+    if (
+        [item.status.value for item in states] != ["SUCCEEDED", "FAILED_BEFORE_COMMIT"]
+        or states[1].actual_delta_hash is not None
+        or states[1].verification_hash is not None
+        or states[0].actual_delta_hash is None
+        or len([row for row in commands if row["phase"] == "SEND"
+                and row["command"].get("mode") == "EXECUTE"]) != 2
+        or len([row for row in commands if row["host_kind"] == "AUTOCAD"
+                and row["phase"] == "SEND"
+                and row["command"].get("mode") == "EXECUTE"]) != 1
+    ):
+        _host_failure("partial Saga Slice states or exact mutation attempts differ")
+    by_host = {item.host_kind: item for item in final.materializations}
+    auto, revit = by_host["AUTOCAD"], by_host["REVIT"]
+    delta = require_evidence_body(evidence, auto.actual_delta_hash, "actual_delta")
+    bundle = require_evidence_body(evidence, auto.evidence_bundle_hash, "verification_bundle")
+    verified = require_evidence_body(evidence, auto.verification_hash, "verification_result")
+    if (
+        len(evidence) != 3 or auto.status != "SUCCEEDED"
+        or delta.revision_after != auto.committed_revision
+        or verified.status.value != "PASSED"
+        or verified.evidence_bundle_hash != bundle.evidence_bundle_hash
+        or bundle.actual_delta_hash != delta.actual_delta_hash
+        or revit.actual_delta_hash is not None
+        or revit.verification_hash is not None
+        or revit.evidence_bundle_hash is not None
+        or revit.committed_revision is not None
+        or revit.expected_revision != pending["expected_revision"]
+    ):
+        _host_failure("partial durable body/query revisions differ")
+    observation = read_json(directory / "independent-edit-observation.json")
+    if (
+        observation.get("command_id") != pending["stage_id"] + ":independent-edit-read"
+        or observation.get("normalized_thickness_mm") != 201
+        or observation.get("host_revision", -1) <= pending["expected_revision"]
+        or observation.get("host_instance_id") != member.host_instance_id
+        or observation.get("document_id") != member.document_id
+        or observation.get("native_target_id") != member.native_target_id
+    ):
+        _host_failure("separate advanced-revision native edit READ differs")
+    final_reads = [row for row in commands if row["phase"] == "RECEIVE"
+                   and row.get("stage") == "INDEPENDENT_FINAL"
+                   and row["command"].get("operation") in {
+                       "design.extract_native_snapshot", "read_wall_thickness_snapshot"
+                   }]
+    if len(final_reads) != 2:
+        _host_failure("two independent final READs absent")
+    final_by_host = {row["host_kind"]: row for row in final_reads}
+    auto_member = next(item for item in reviewed.frozen.session_binding.members
+                       if item.host_kind == "AUTOCAD")
+    auto_width, auto_revision = width_from_read(final_by_host["AUTOCAD"], auto_member)
+    revit_width, revit_revision = width_from_read(final_by_host["REVIT"], member)
+    if (
+        auto_width != {"value": 300, "unit": "mm"}
+        or auto_revision != delta.revision_after
+        or revit_width != {"value": 201, "unit": "mm"}
+        or revit_revision != observation["host_revision"]
+    ):
+        _host_failure("partial independent final READs differ")
+    ready_rows = [row for row in _jsonl(directory / "owner-captures.jsonl")
+                  if row["kind"] == "readiness"]
+    auto_receives = [row for row in commands if row["host_kind"] == "AUTOCAD"
+                     and row["phase"] == "RECEIVE"
+                     and row["command"].get("mode") == "EXECUTE"]
+    edit_reads = [row for row in commands if row["host_kind"] == "REVIT"
+                  and row["phase"] == "RECEIVE"
+                  and row.get("stage") == "INDEPENDENT_EDIT_READ"
+                  and row["command"].get("operation") == "read_wall_thickness_snapshot"]
+    if len(ready_rows) != 1 or len(auto_receives) != 1 or len(edit_reads) != 1:
+        _host_failure("four real ordered event sources absent")
+    timestamps = [ready_rows[0]["timestamp"], auto_receives[0]["timestamp"],
+                  edit_reads[0]["timestamp"], stage_receives[0]["timestamp"]]
+    event_order, event_timestamps = validate_partial_event_order(timestamps)
+    return {
+        "hosts": {
+            "AUTOCAD": {
+                "baseline_revision": delta.revision_before,
+                "independent_baseline_read": {"value": 200, "unit": "mm"},
+                "independent_final_read": auto_width,
+                "committed_revision": delta.revision_after,
+                "verification_revision": auto_revision,
+                "verification_source": "INDEPENDENT_HOST_READ",
+                "product_mutation_count": 1,
+                "actual_delta_hash": delta.actual_delta_hash,
+                "verification_hash": verified.verification_hash,
+            },
+            "REVIT": {
+                "baseline_revision": pending["expected_revision"],
+                "independent_baseline_read": {"value": 200, "unit": "mm"},
+                "independent_final_read": revit_width,
+                "verification_revision": revit_revision,
+                "verification_source": "INDEPENDENT_HOST_READ",
+                "product_mutation_count": 0,
+            },
+        },
+        "required_slice_count": 2,
+        "readiness_status": "READY",
+        "all_required_readiness_passed": True,
+        "event_order": event_order,
+        "event_timestamps": event_timestamps,
+        "independent_edit": {
+            "host_kind": "REVIT", "before_mm": 200, "after_mm": 201,
+            "command_id": completion["native_edit_command_id"],
+            "authorization_ref": completion["authorization_ref"],
+            "read_evidence": observation,
+        },
+        "revit_failure_ref": "REVISION_CONFLICT",
+        "revit_failure_phase": "BEFORE_COMMIT",
+        "revit_product_actual_delta_hash": None,
+        "convergence_status": None,
+        "saga_status": sagas[0].status.value,
+        "automatic_compensation_count": 0,
+        "stage_pending_path": str((directory / "pending-stage.json").resolve()),
+        "stage_completion_path": str((directory / "stage-controller-completion.json").resolve()),
+    }
+
+
 def _jsonl(path):
     """读取专用场景目录中自己的公开命令/owner审计文件。"""
 
@@ -1148,6 +1417,257 @@ def _wait_managed_catalog(config, managed, check_head):
             return
         time.sleep(0.1)
     raise ValueError("LIVE_MCP_PROVENANCE_INVALID: listener is not the managed process")
+
+
+def stage_prerequisites(config, directory, case, command, *, check_head):
+    """Validate real owner/Host evidence before allowing the exact Revit stage pause."""
+
+    from design_execution_reconciliation.contracts import (
+        SemanticVerificationResult,
+        VerificationEvidenceBundle,
+    )
+    from design_orchestrator.execution_collection_artifacts import (
+        ExecutionGrantCollectionManifest,
+        ProviderBindingCollectionManifest,
+    )
+
+    from .cross_host_product_live_composition import reviewed_runtime_inputs
+    from .cross_host_product_live_stages import (
+        require_all_ready,
+        require_autocad_committed_delta,
+        stage_hash,
+    )
+
+    check_head()
+    if any((directory / name).exists() for name in (
+        "pending-stage.json", "stage-controller-completion.json", "stage-release.json",
+        "stage-send-attempt.json",
+    )):
+        raise ValueError("LIVE_STAGE_PRESELECTED: stage/action already exists")
+    frozen = read_json(directory / "frozen-submission.json")
+    binding = frozen["session_binding"]
+    request = frozen["request"]
+    member = next(item for item in binding["members"] if item["host_kind"] == "REVIT")
+    _, topology, _ = reviewed_runtime_inputs(
+        config, read_json(directory / "driver-settings.json"), case["scenario"]
+    )
+    captures = validate_owner_snapshots(_jsonl(directory / "owner-captures.jsonl"), topology)
+    if (
+        len(captures["execution_plan"]) != 1
+        or len(captures["materialization_plan"]) != 1
+        or len(captures["binding_set"]) != 2
+        or len(captures["grant"]) != 2
+        or len(captures["approval"]) != 1
+    ):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: two admitted required members absent")
+    plan = captures["execution_plan"][0]
+    materialization = captures["materialization_plan"][0]
+    if [item.host_runtime_ref.host_type for item in plan.execution_slices] != [
+        "autocad", "revit"
+    ] or materialization.topology_snapshot_hash != binding["topology_snapshot_hash"]:
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: frozen required order differs")
+    raw, accepted, _, sagas, _ = _read_durable_owners(config, request["task_id"])
+    expected_sagas = 0 if case["scenario"] == "unavailable" else 1
+    if (accepted is None or plain(accepted.request) != request
+        or dict(accepted.session_binding_payload) != binding
+        or len(sagas) != expected_sagas):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: durable task/Saga lineage absent")
+    artifacts = validate_workflow_rows(raw["artifacts"])
+    bindings = [value for value in artifacts.values()
+                if isinstance(value, ProviderBindingCollectionManifest)]
+    grants = [value for value in artifacts.values()
+              if isinstance(value, ExecutionGrantCollectionManifest)]
+    if len(bindings) != 1 or len(grants) != 1:
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: durable collection manifests absent")
+    validate_collection_capture(
+        plan, bindings[0], grants[0], captures["binding_set"], captures["grant"]
+    )
+    proposal = read_json(directory / "pending-proposal.json")["proposal"]
+    if (
+        proposal["frozen"]["request"] != request
+        or proposal["frozen"]["session_binding"] != binding
+    ):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: reviewed freeze differs")
+    subject = proposal["subject"]
+    baseline = next(
+        item for item in subject["observations"] if item["host_kind"] == "REVIT"
+    )
+    if (
+        baseline["host_instance_id"] != member["host_instance_id"]
+        or baseline["document_id"] != member["document_id"]
+        or baseline["native_target_id"] != member["native_target_id"]
+        or baseline["normalized_thickness_mm"] != 200
+    ):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: exact 200 mm Revit baseline absent")
+    commands = _jsonl(directory / "host-commands.jsonl")
+    if any(row["host_kind"] == "REVIT" and row["phase"] == "SEND"
+           and row["command"].get("mode") == "EXECUTE" for row in commands):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: Revit Product command sent early")
+    proof = {
+        "expected_revision": baseline["host_revision"],
+        "execution_plan_hash": plan.execution_plan_hash,
+        "required_set_hash": materialization.required_set_hash,
+        "binding_manifest_hash": stage_hash(plain(bindings[0])),
+        "grant_manifest_hash": stage_hash(plain(grants[0])),
+        "approval_hash": captures["approval"][0].approval_hash,
+    }
+    if case["scenario"] == "unavailable":
+        if any(row["phase"] == "SEND" and row["command"].get("mode") == "EXECUTE"
+               for row in commands):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: mutation before unavailable stage")
+        if command.operation != "check_wall_thickness_readiness":
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: first readiness not intercepted")
+        auto_member = SimpleNamespace(**next(item for item in binding["members"]
+                                             if item["host_kind"] == "AUTOCAD"))
+        auto_baseline = next(
+            item for item in subject["observations"] if item["host_kind"] == "AUTOCAD"
+        )
+        auto_reads = [row for row in commands if row["host_kind"] == "AUTOCAD"
+                      and row["phase"] == "RECEIVE" and row.get("stage") == "MCP"
+                      and row["command"].get("operation")
+                      == "design.extract_native_snapshot"]
+        if not auto_reads or width_from_read(auto_reads[-1], auto_member) != (
+            {"value": 200, "unit": "mm"}, auto_baseline["host_revision"]
+        ):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: available readiness READ absent")
+        proof["autocad_readiness_read_hash"] = stage_hash(auto_reads[-1])
+    else:
+        readiness = captures["readiness"]
+        ready_hashes = require_all_ready(
+            readiness, materialization, captures["grant"], subject["observations"]
+        )
+        if command.preconditions != [{"revision": baseline["host_revision"]}]:
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: original revision drift")
+        evidence = validate_reconciliation_rows(raw["evidence"])
+        auto_slice = plan.execution_slices[0]
+        delta = require_autocad_committed_delta(
+            evidence, config.autocad_host_instance_id, auto_slice.execution_slice_hash
+        )
+        bundles = [body for body in evidence.values()
+                   if isinstance(body, VerificationEvidenceBundle)
+                   and body.actual_delta_hash == delta.actual_delta_hash]
+        if len(bundles) != 1:
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: AutoCAD bundle absent")
+        bundle = bundles[0]
+        verifications = [body for body in evidence.values()
+                         if isinstance(body, SemanticVerificationResult)
+                         and body.evidence_bundle_hash == bundle.evidence_bundle_hash]
+        if len(verifications) != 1 or verifications[0].status.value != "PASSED":
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: AutoCAD verification absent")
+        width = [item.properties.get("dsp:WallThickness", {}).get("value")
+                 for item in bundle.subject_evidence]
+        auto_baseline = next(
+            item for item in subject["observations"] if item["host_kind"] == "AUTOCAD"
+        )
+        if (
+            width != [300]
+            or delta.revision_before != auto_baseline["host_revision"]
+            or delta.revision_after != delta.revision_before + 1
+            or bundle.base_host_revision != str(delta.revision_after)
+            or verifications[0].execution_slice_hash != auto_slice.execution_slice_hash
+            or verifications[0].actual_delta_hash != delta.actual_delta_hash
+        ):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: committed 300 mm absent")
+        dispatch = [row for row in raw["dispatches"]
+                    if row["execution_slice_hash"] == auto_slice.execution_slice_hash]
+        if (len(dispatch) != 1 or dispatch[0]["status"] not in {
+            "HOST_COMMITTED", "RECONCILED"
+        } or str(dispatch[0]["expected_host_revision"]) != str(delta.revision_before)):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: AutoCAD durable dispatch differs")
+        auto_commands = [row for row in commands if row["host_kind"] == "AUTOCAD"]
+        sends = [row for row in auto_commands if row["phase"] == "SEND"
+                 and row["command"].get("mode") == "EXECUTE"]
+        receives = [row for row in auto_commands if row["phase"] == "RECEIVE"
+                    and row["command"].get("mode") == "EXECUTE"]
+        if (len(sends) != 1 or len(receives) != 1
+            or sends[0]["command"] != receives[0]["command"]
+            or receives[0]["response"].get("status") != "OK"
+            or receives[0]["response"].get("revision_after") != delta.revision_after):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: AutoCAD actual commit absent")
+        auto_member = SimpleNamespace(**next(item for item in binding["members"]
+                                             if item["host_kind"] == "AUTOCAD"))
+        reads = [row for row in auto_commands if row["phase"] == "RECEIVE"
+                 and row["command"].get("operation") == "design.extract_native_snapshot"
+                 and commands.index(row) > commands.index(receives[0])]
+        if not reads or any(width_from_read(row, auto_member) != (
+            {"value": 300, "unit": "mm"}, delta.revision_after
+        ) for row in reads):
+            raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: verified committed READ absent")
+        proof.update({
+            "all_ready_hashes": ready_hashes,
+            "autocad_actual_delta_hash": delta.actual_delta_hash,
+            "autocad_verification_hash": verifications[0].verification_hash,
+            "autocad_commit_command_hash": stage_hash(receives[0]),
+        })
+    check_head()
+    return proof
+
+
+def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=None):
+    """Wait for external operator action, then publish one exact evidence-backed release."""
+
+    from .cross_host_product_live_composition import audited_host_factories, read_host_observation
+    from .cross_host_product_live_stages import stage_hash, validate_stage_completion
+
+    stop_event = stop_event or Event()
+    pending_path = directory / "pending-stage.json"
+    deadline = time.monotonic() + 240
+    while not pending_path.is_file():
+        if stop_event.is_set():
+            raise ValueError("LIVE_STAGE_NOT_REACHED: original command was never presented")
+        check_head()
+        if time.monotonic() >= deadline:
+            raise ValueError("LIVE_STAGE_NOT_REACHED: original command was never presented")
+        time.sleep(0.1)
+    pending = read_json(pending_path)
+    print("LIVE_AWAITING_STAGE: " + str(pending_path.resolve()), flush=True)
+    completion_path = directory / "stage-controller-completion.json"
+    deadline = time.monotonic() + pending["deadline_seconds"] - 5
+    while not completion_path.is_file():
+        if stop_event.is_set():
+            raise ValueError("LIVE_STAGE_ABORTED: resume ended before operator completion")
+        check_head()
+        if time.monotonic() >= deadline:
+            raise ValueError("LIVE_STAGE_TIMEOUT: operator completion absent")
+        time.sleep(0.1)
+    completion = validate_stage_completion(pending, read_json(completion_path))
+    action = (
+        "REVIT_DOCUMENT_CLOSED_UNSAVED" if pending["scenario"] == "unavailable"
+        else "REVIT_NATIVE_UI_EDIT_201MM"
+    )
+    if completion.get("action") != action or not completion.get("authorization_ref"):
+        raise ValueError("LIVE_STAGE_RELEASE_INVALID: separate operator action/authority absent")
+    if pending["scenario"] == "partial_commit":
+        if (not completion.get("native_edit_command_id")
+            or completion["native_edit_command_id"] == pending["original_command_id"]):
+            raise ValueError("LIVE_STAGE_RELEASE_INVALID: distinct native edit identity absent")
+        binding = reviewed.frozen.session_binding
+        member = next(item for item in binding.members if item.host_kind == "REVIT")
+        factories = audited_host_factories(
+            config, directory, check_head=check_head, stage="INDEPENDENT_EDIT_READ"
+        )
+        observed = read_host_observation(
+            config, member, target=binding, factories=factories,
+            command_id=pending["stage_id"] + ":independent-edit-read",
+        )
+        if (
+            observed.normalized_thickness_mm != 201
+            or observed.host_revision <= pending["expected_revision"]
+            or observed.host_instance_id != pending["host_instance_id"]
+            or observed.document_id != pending["document_id"]
+            or observed.native_target_id != pending["native_target_id"]
+        ):
+            raise ValueError("LIVE_STAGE_EDIT_INVALID: real 201 mm advanced-revision READ absent")
+        write_once(directory / "independent-edit-observation.json", plain(observed))
+    check_head()
+    write_once(directory / "stage-release.json", {
+        "stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
+        "case_id": pending["case_id"], "task_id": pending["task_id"],
+        "original_command_id": pending["original_command_id"],
+        "completion_hash": stage_hash(completion),
+        "proof_hash": stage_hash(pending["prerequisite_hashes"]),
+    })
+    return pending
 
 
 def run_phase_one(config, scenario):
@@ -1349,28 +1869,57 @@ def run_phase_one(config, scenario):
             check_head=check_head,
         )
         human_body = read_json(directory / "human-decision.json")
-        try:
-            final = asyncio.run(
-                resume_once(
-                    directory,
-                    reviewed,
-                    decision,
-                    human_body=human_body,
-                    check_head=check_head,
-                    mcp_client=client,
-                    checkpoint_reader=checkpoints,
-                    artifact_reader=artifacts,
+        with ThreadPoolExecutor(max_workers=1) as stage_pool:
+            stage_stop = Event()
+            stage_future = (
+                stage_pool.submit(
+                    run_stage_controller, config, directory, reviewed,
+                    check_head=check_head, stop_event=stage_stop,
                 )
+                if scenario in {"unavailable", "partial_commit"}
+                else None
             )
-        except RuntimeError:
-            # deny 可能由真实 policy 异常保留 WAITING；只收集 owner truth，不重发。
-            if scenario != "deny":
-                raise
+            try:
+                try:
+                    final = asyncio.run(
+                        resume_once(
+                            directory,
+                            reviewed,
+                            decision,
+                            human_body=human_body,
+                            check_head=check_head,
+                            mcp_client=client,
+                            checkpoint_reader=checkpoints,
+                            artifact_reader=artifacts,
+                        )
+                    )
+                except RuntimeError:
+                    # deny/unavailable retain owner truth after actual fail-closed response.
+                    if scenario not in {"deny", "unavailable"}:
+                        raise
+                    final = asyncio.run(client.get(frozen.request.task_id))
+                if stage_future is not None:
+                    stage_future.result()
+            finally:
+                stage_stop.set()
+        if scenario == "unavailable":
+            # The reviewed Revit document is still closed. Prove exact GET is Host-free.
+            before = len(_jsonl(directory / "host-commands.jsonl"))
             final = asyncio.run(client.get(frozen.request.task_id))
+            after = len(_jsonl(directory / "host-commands.jsonl"))
+            write_once(
+                directory / "host-independent-get.json",
+                {"task_id": frozen.request.task_id, "before": before, "after": after,
+                 "result": plain(final)},
+            )
+            if after != before:
+                raise ValueError("LIVE_GET_HOST_IO_INVALID: exact GET touched a Host")
         final_factories = audited_host_factories(
             config, directory, check_head=check_head, stage="INDEPENDENT_FINAL"
         )
         for member in frozen.session_binding.members:
+            if scenario == "unavailable" and member.host_kind == "REVIT":
+                continue
             read_host_observation(
                 config,
                 member,
@@ -2010,8 +2559,46 @@ def collect_formal_evidence(
             "approval",
             "readiness",
         )
+    elif scenario in {"unavailable", "partial_commit"}:
+        if (
+            len(admissions) != 1
+            or len(captures["approval"]) != 1
+            or attempt.get("status") != "ADMITTED"
+            or _jsonl(directory / "convergence-captures.jsonl")
+        ):
+            raise ValueError("LIVE_STAGE_OWNER_INVALID: admission/convergence differs")
+        bindings = [item for item in artifacts.values()
+                    if isinstance(item, ProviderBindingCollectionManifest)]
+        grants = [item for item in artifacts.values()
+                  if isinstance(item, ExecutionGrantCollectionManifest)]
+        if (
+            len(captures["execution_plan"]) != 1
+            or len(captures["materialization_plan"]) != 1
+            or len(bindings) != 1 or len(grants) != 1
+        ):
+            raise ValueError("LIVE_STAGE_OWNER_INVALID: exact collection manifests absent")
+        validate_collection_capture(
+            captures["execution_plan"][0], bindings[0], grants[0],
+            captures["binding_set"], captures["grant"],
+        )
+        staged = project_staged_outcome(
+            directory, reviewed, final, checkpoint, sagas, raw, evidence, captures, commands
+        )
+        result.update(staged)
+        result.update(
+            policy_status="ADMITTED",
+            required_set_hash=captures["materialization_plan"][0].required_set_hash,
+            execution_plan_hash=captures["execution_plan"][0].execution_plan_hash,
+            materialization_plan_hash=(
+                captures["materialization_plan"][0].materialization_plan_hash
+            ),
+        )
+        required = (
+            "changeset", "scope", "execution_plan", "materialization_plan",
+            "binding_set", "grant", "approval", "readiness",
+        )
     else:
-        raise RuntimeError("LIVE_CASE_STAGE_NOT_REVIEWED: controlled timing phase is pending")
+        raise ValueError("LIVE_SCENARIO_INVALID: unsupported formal projection")
     write_once(
         directory / "durable-owner-records.json",
         {

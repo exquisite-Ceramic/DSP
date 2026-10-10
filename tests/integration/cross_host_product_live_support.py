@@ -1,7 +1,7 @@
 """Task 16A：双 Host ProductTask 受控现场的生产适配器与只读预检。
 
 本模块只装配已有 production Host/MCP 边界，不复用 Phase I 执行 helper。
-阶段一接通 positive/deny；unavailable/partial_commit 必须等待受审查的时序阶段。
+四个场景共用一个真实模型/MCP/Host 入口，受控阶段在原始 Host send 边界暂停。
 """
 
 from __future__ import annotations
@@ -305,13 +305,11 @@ def run_controlled_case(
     config: CrossHostProductLiveConfig,
     scenario: str,
 ) -> dict[str, object]:
-    """第一阶段只开放 positive/deny；后续时序机制必须另行审查。"""
+    """四场景共用生产端口；所有阶段动作由独立 controller 显式完成。"""
 
     _require_windows_live()
     if scenario not in {"deny", "unavailable", "positive", "partial_commit"}:
         raise ValueError("LIVE_SCENARIO_INVALID: unsupported scenario")
-    if scenario in {"unavailable", "partial_commit"}:
-        raise RuntimeError("LIVE_CASE_STAGE_NOT_REVIEWED: controlled timing phase is pending")
     config.verify_fixtures()
     from .cross_host_product_live_driver import run_phase_one
 

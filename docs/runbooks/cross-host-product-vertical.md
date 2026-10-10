@@ -71,7 +71,7 @@ uv run python -m tests.integration.cross_host_product_live_support --preflight
 
 此 preflight 仅执行：两个 fixture 的 SHA-256 再检查、PostgreSQL `SELECT 1`、真实 MCP 三个固定工具的 negotiation/list_tools、AutoCAD exact LWPOLYLINE 200 mm normalized-fact READ、Revit exact selected Wall 200 mm snapshot READ。它不会执行模型解释、ProductTask submit、human ACCEPT、Gateway grant、EXECUTE、外部 201 mm 编辑或任何伪造的 scenario evidence。
 
-preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。阶段一的 `run_controlled_case` 已接通 positive/deny。unavailable 与 partial_commit 保持 `LIVE_CASE_STAGE_NOT_REVIEWED`；它们的实际 readiness/竞争编辑时序需下一阶段审查。
+preflight 若缺任何配置、读取不一致或 Host 不可达，必须失败。它只产生 `READ_ONLY_READY` 的诊断结果，不生成四场景 PASS manifest，不能当作 Controlled Live Acceptance。`run_controlled_case` 已为四场景接通生产端口；unavailable 与 partial_commit 的受控时序由下文 §3C 的真实 Host send 暂停和外部 controller 完成。仓库侧离线 GREEN 不能当作真实现场 PASS。
 
 ## 3B. 阶段一 driver：真实 proposal、显式人工 resume 和 owner 证据
 
@@ -111,7 +111,7 @@ DSP_AGENT_MODEL_ENVIRONMENT_JSON      # 仅 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BAS
 DSP_CROSS_HOST_PRODUCT_EVIDENCE_DIR   # 本次新 case 的公共 evidence 根目录
 ~~~
 
-driver config 必须恰有这些字段：`implementation_head`（当前完整 SHA）、`database_name`、`project_id`、`candidate_key`、`semantic_target_id`、`topology_environment_id`、`topology_revision`、`slot_ids`、`configured_reference_ids`、`policies`、`utterance`、`human_timeout_seconds`（大于 0，最多 3600）。`slot_ids` 与 `configured_reference_ids` 均为恰含 AUTOCAD/REVIT 的身份映射。`policies` 恰含 positive/deny，各自提供 production V2 policy 的 `policy_id`、`principal`、`allowed_canonical_operations`、`admission_ttl_seconds`；positive 允许 `set_wall_thickness.v1`，deny 使用经审核的不同 operation。project/target/topology/hash/roles 从同一实际配置生成，禁止复制历史 hash。模型环境禁止 controller 的 DSP authority 配置；driver 只补当前 worktree PYTHONPATH、审核过的模型名/候选键和本次证据文件路径。模型命令必须恰为当前 Python 执行 `tests.integration.cross_host_product_model_interpreter`，且该源码属于 clean committed HEAD。现场 runner 通过 `uv sync --locked --all-packages` 安装 dev group 中锁定的 Anthropic SDK 1.11.0；CLI 使用真实 SDK 调用，只把窄 proposal 写到 stdout，并将 provider invocation ID、可能缺失而保持 null 的 request ID、完整解码响应与 usage 独占写入 `model-provider-invocation.json`。driver 再将原始文本、proposal、冻结请求、模型名、候选键与源码 SHA 逐项关联。DSN、模型凭据不序列化到公共 evidence，private bootstrap 配置须放在归档目录外。
+driver config 必须恰有这些字段：`implementation_head`（当前完整 SHA）、`database_name`、`project_id`、`candidate_key`、`semantic_target_id`、`topology_environment_id`、`topology_revision`、`slot_ids`、`configured_reference_ids`、`policies`、`utterance`、`human_timeout_seconds`（大于 0，最多 3600）、`stage_timeout_seconds`（必须为 180）。`slot_ids` 与 `configured_reference_ids` 均为恰含 AUTOCAD/REVIT 的身份映射。`policies` 恰含 positive/deny，各自提供 production V2 policy 的 `policy_id`、`principal`、`allowed_canonical_operations`、`admission_ttl_seconds`；positive 允许 `set_wall_thickness.v1`，deny 使用经审核的不同 operation。project/target/topology/hash/roles 从同一实际配置生成，禁止复制历史 hash。模型环境禁止 controller 的 DSP authority 配置；driver 只补当前 worktree PYTHONPATH、审核过的模型名/候选键和本次证据文件路径。模型命令必须恰为当前 Python 执行 `tests.integration.cross_host_product_model_interpreter`，且该源码属于 clean committed HEAD。现场 runner 通过 `uv sync --locked --all-packages` 安装 dev group 中锁定的 Anthropic SDK 1.11.0；CLI 使用真实 SDK 调用，只把窄 proposal 写到 stdout，并将 provider invocation ID、可能缺失而保持 null 的 request ID、完整解码响应与 usage 独占写入 `model-provider-invocation.json`。driver 再将原始文本、proposal、冻结请求、模型名、候选键与源码 SHA 逐项关联。DSN、模型凭据不序列化到公共 evidence，private bootstrap 配置须放在归档目录外。
 
 人工交接按以下顺序执行：
 
@@ -124,6 +124,17 @@ driver config 必须恰有这些字段：`implementation_head`（当前完整 SH
 loaded provenance 由只读 Windows Process.Modules 直接检查，要求准确 DLL 名称、ProductVersion `1.0.0+<完整HEAD>` 和文件 SHA 等于审核 build identity。controller 和专用 MCP 子进程均在生产 AutoCAD/Revit transport 的每次真实 `CreateFile` 返回后、任何 `WriteFile` 之前，对同一 handle 调用 pywin32 `GetNamedPipeServerProcessId`。实际 server PID 必须与审核 pipe PID 一致；不一致即关闭新 handle 并失败。`pipe-server-ownership.jsonl` 保存每次连接的 OS PID、场景阶段、locator 与冻结 HostInstanceId；正式 collector 要求两进程双 Host 的实际观察与加载 DLL 的进程清单及 production READ 身份一致。缺失或不一致不发布 manifest。
 
 owner 审计仅在该单 case MCP 子进程内包装 production 公开 put/issue 与 convergence verifier 方法，调用原方法一次并保留返回/异常，finally 恢复。ChangeSet/ApprovalScope/MaterializationPlan/ExecutionPlan/BindingSets/Grants/Approval/readiness 的实际不可变内存快照标记 `AUDITED_IN_MEMORY_OWNER`；PostgreSQL durable Workflow collection manifest、request/decision/Saga/dispatch/reconciliation/policy owner 另行保存，不能称内存快照为 PostgreSQL persistence。`convergence-captures.jsonl` 保存 verifier 实际 plan/profile/evidence set/result 全体，collector 从六项原始 Step33 local evidence body 调用现有公开 build/hash API 重建完整 evidence set，再与 Saga、MCP GET 的 result hash 精确关联；不会重跑 verifier 判定。现有 owner integrity/hash validator 与 reconciliation/workflow codec 校验 body、full hash、refs、cardinality；缺失 capture 不发布正式 manifest。先持久化完整 evidence body，再原子发布引用它的 manifest。
+
+## 3C. 阶段二 controller 与原始 Revit 命令交接
+
+`unavailable` 和 `partial_commit` 各自使用全新 dedicated DB、SQLite、task、binding、Saga lineage（unavailable 的 readiness 失败发生在 Saga 创建前）及证据目录。两者在 MCP 子进程的真实 Revit transport send 前暂停；原命令 ID、operation、expected revision、Host/document/native ID 与 case/request/binding 和前置 owner hash 逐项写入 `pending-stage.json`。controller 只对本次 pending 执行相应动作，不修改 ProductTask 命令或生成 Host 回执。
+
+controller 看到 pytest 输出的 `LIVE_AWAITING_STAGE` 后，在本次目录中读取完整 `pending-stage.json`。由另一独立人员完成下述操作并以原子文件方式提供 `stage-controller-completion.json`：`stage_id`、`pending_hash`、`case_id`、`task_id`、`original_command_id` 必须逐字等于 pending，另含 `operator`、不早于 `published_at` 的时区时间 `completed_at`、独立 `authorization_ref`，以及指定 `action`。预置、重复、旧 case、错误 command/task 或缺少前置证据均关闭阶段门。
+
+- `unavailable`：在 Revit 中关闭审核过的当前文档，明确 **DO NOT SAVE**，保留 AgentHost 与 pipe；填写 `action=REVIT_DOCUMENT_CLOSED_UNSAVED`。runner 随后才转发原始 `check_wall_thickness_readiness` READ，要求 native `REVIT_ACTIVE_DOCUMENT_UNAVAILABLE`、`revision_after=0`，无任何 Product EXECUTE。保持文档关闭直至本次 exact-task GET、AutoCAD 独立 200 mm READ 和正式证据采集完成；再重新打开原 fixture。不可把 0 grant 当成要求：collection/grant 已在 readiness 前进行，正式归档记录实际数量。
+- `partial_commit`：只有 `pending-stage.json` 已证明双端 READY、AutoCAD Product 提交及在其 committed revision 上独立验证 300 mm 后，controller 才凭**另行授权**的 native Revit UI 把同一墙 200→201 mm；填写 `action=REVIT_NATIVE_UI_EDIT_201MM` 和独立 `native_edit_command_id`。这不是 ProductTask ACCEPT 或模拟 Host response。runner 经生产 READ 再证明 201 mm 及高于原 Product 命令 expected revision 的新 revision，之后释放原 Product EXECUTE。原命令须返回 native `REVISION_CONFLICT / BEFORE_COMMIT`，保留 AutoCAD commit，不重试、不补偿。
+
+MCP SDK Streamable HTTP 默认 read timeout 为 300 秒。阶段门最长 180 秒，并按本次 `resume-attempt.json` 开始时间进一步缩短，使暂停始终至少早于 MCP 读取超时 30 秒；实际预算写在 `pending-stage.json` 的 `deadline_seconds`。controller 应在该预算结束前至少 5 秒完成，以便独立 READ 和释放。超时或释放不明时，被阻挡的原命令不发送；保留 `pending-stage.json`、`resume-attempt.json` 与已写 owner 事实，只允许同一 task 的 GET 来判断状态。不得自动再次 resume、Product EXECUTE、recovery 或 UI undo。`stage-send-attempt.json` 在真实 dispatch 前 fsync；`stage-release-consumed.json` 阻止第二次释放。
 
 ## 4. Case 1：真实 policy deny
 
@@ -186,7 +197,7 @@ $env:DSP_CROSS_HOST_PRODUCT_SCENARIO="positive"
 uv run python -m pytest tests/integration/test_cross_host_product_vertical_live.py -k "live_case_positive" -q -vv -s
 ~~~
 
-deny 单独执行并保留 fresh 输出；unavailable/partial_commit 在阶段二完成审查前明确 FAIL。当前没有运行任何真实现场验收，四场景均保持 LIVE-PENDING。
+deny、unavailable、positive、partial_commit 均需各自新建 dedicated case 并在同一 clean implementation HEAD 上分别通过真实验收。当前没有运行任何真实现场验收，四场景均保持 LIVE-PENDING。
 
 ## 9. evidence manifest 与最终验收归档
 

@@ -167,14 +167,16 @@ def test_exact_head_guard_rejects_drift_and_old_case_replay(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("scenario", ["unavailable", "partial_commit"])
-def test_phase_two_cases_fail_before_any_driver_io(monkeypatch, tmp_path, scenario):
+def test_phase_two_cases_require_reviewed_stage_config_before_any_driver_io(
+    monkeypatch, tmp_path, scenario
+):
     from tests.integration import cross_host_product_live_support as support
     from tests.integration.test_cross_host_product_live_preflight import _configured
 
     _configured(monkeypatch, tmp_path)
     monkeypatch.setattr(support, "_require_windows_live", lambda: None)
     config = support.CrossHostProductLiveConfig.from_environment()
-    with pytest.raises(RuntimeError, match="LIVE_CASE_STAGE_NOT_REVIEWED"):
+    with pytest.raises(ValueError, match="LIVE_DRIVER_CONFIG_REQUIRED"):
         support.run_controlled_case(config=config, scenario=scenario)
 
 
@@ -283,6 +285,7 @@ def _settings():
         },
         "utterance": "将当前墙和审核绑定墙改为300 mm",
         "human_timeout_seconds": 600,
+        "stage_timeout_seconds": 180,
     }
 
 
@@ -620,6 +623,8 @@ def test_public_production_owner_scope_records_exact_winners_and_restores(tmp_pa
     captured = [
         json.loads(line) for line in (tmp_path / "owner-captures.jsonl").read_text().splitlines()
     ]
+    assert len(captured) == 1
+    assert isinstance(captured[0].pop("timestamp"), str)
     assert captured == [
         {
             "kind": "execution_plan",
