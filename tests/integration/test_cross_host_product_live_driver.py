@@ -1499,8 +1499,42 @@ def test_durable_owner_reader_closes_first_store_when_second_constructor_fails(m
     assert closed == ["requests"]
 
 
+
+@pytest.fixture
+def _windows_pipe_contract_modules(monkeypatch):
+    """Linux 离线 runner 使用窄 Win32 API 模块替身，实际 handle 路径照常受测。
+
+    真正的 Windows runner 不替换系统模块；这只解决非 Windows 收集缺模块问题，
+    绝不模拟成功的生产 Host 状态或绕过 CreateFile/WriteFile 断言。
+    """
+
+    import sys
+    from types import ModuleType
+
+    if sys.platform == "win32":
+        return
+    definitions = {
+        "win32file": ("CreateFile", "CloseHandle", "WriteFile", "ReadFile"),
+        "win32pipe": ("GetNamedPipeServerProcessId",),
+        "win32con": (
+            "GENERIC_READ", "GENERIC_WRITE", "OPEN_EXISTING", "FILE_ATTRIBUTE_NORMAL"
+        ),
+        "pywintypes": ("error",),
+    }
+    for name, attributes in definitions.items():
+        module = ModuleType(name)
+        for attr in attributes:
+            if name == "pywintypes":
+                setattr(module, attr, OSError)
+            elif name == "win32con":
+                setattr(module, attr, 1)
+            else:
+                setattr(module, attr, lambda *_args, **_kwargs: None)
+        monkeypatch.setitem(sys.modules, name, module)
+
+
 def test_actual_revit_pipe_server_pid_mismatch_closes_handle_before_write(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, _windows_pipe_contract_modules
 ):
     """生产 transport 的实际 CreateFile handle 必须证明 OS server PID 后才能写命令。"""
 
@@ -1539,7 +1573,9 @@ def test_actual_revit_pipe_server_pid_mismatch_closes_handle_before_write(
     assert audit[0]["expected_pid"] == 42
 
 
-def test_actual_autocad_open_audits_same_handle_before_exchange(monkeypatch, tmp_path):
+def test_actual_autocad_open_audits_same_handle_before_exchange(
+    monkeypatch, tmp_path, _windows_pipe_contract_modules
+):
     import asyncio
     from types import SimpleNamespace
 
