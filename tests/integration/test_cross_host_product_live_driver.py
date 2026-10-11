@@ -1832,11 +1832,17 @@ def test_public_convergence_verifier_decoration_calls_original_once_and_restores
 def test_unavailable_exact_task_get_never_queries_or_dispatches_host(tmp_path):
     """真实编排 GET 路径只读取同一 task owner 状态，不允许增加 Host 审计记录。"""
 
-    from types import SimpleNamespace
+    from dataclasses import dataclass
 
     from tests.integration.cross_host_product_live_composition import append_audit
 
     driver = _driver()
+
+    @dataclass(frozen=True)
+    class Query:
+        """模拟 owner 返回的只读且可序列化 exact Task View。"""
+
+        task_id: str
 
     class ExactMcp:
         def __init__(self, *, write_host=False, wrong_task=False):
@@ -1852,7 +1858,7 @@ def test_unavailable_exact_task_get_never_queries_or_dispatches_host(tmp_path):
             self.calls.append(task_id)
             if self.write_host:
                 append_audit(tmp_path / "host-commands.jsonl", {"phase": "SEND"})
-            return SimpleNamespace(
+            return Query(
                 task_id="another-task" if self.wrong_task else task_id
             )
 
@@ -1904,7 +1910,6 @@ def test_collector_rejects_wrong_native_failure_before_projection(
     """进入真实 collector 的原始错误校验，不允许把伪失败投影成 PASS。"""
 
     from datetime import UTC, datetime
-    from types import SimpleNamespace
 
     driver = _driver()
     from tests.integration.cross_host_product_live_stages import stage_hash
