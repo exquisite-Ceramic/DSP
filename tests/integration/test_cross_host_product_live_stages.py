@@ -119,7 +119,7 @@ def test_original_native_error_is_required_for_both_stages():
 
 def test_partial_stage_rejects_missing_all_ready_and_durable_auto_delta():
     with pytest.raises(ValueError, match="all-required READY absent"):
-        require_all_ready([], object(), [], [])
+        require_all_ready([], object(), [], [], execution_plan=object())
     with pytest.raises(ValueError, match="AutoCAD durable delta absent"):
         require_autocad_committed_delta({}, "auto-host", "slice-hash")
 
@@ -207,7 +207,7 @@ def _stage_release_fixture(directory, *, scenario="unavailable", completion_dama
         "native_target_id": "wall-original",
         "expected_revision": 7,
         "scenario": scenario,
-        "published_at": (datetime.now(UTC) - timedelta(seconds=2)).isoformat(),
+        "published_at": datetime.now(UTC).isoformat(),
         "deadline_seconds": 1,
     }
     completion = {
@@ -697,7 +697,8 @@ def test_required_ready_receipts_are_exact_unique_required_slices(damage):
     ]
     with pytest.raises(ValueError, match="LIVE_STAGE_PREREQUISITE_INVALID"):
         require_all_ready(
-            [result], ctx.materialization_plan, ctx.authorities, observations
+            [result], ctx.materialization_plan, ctx.authorities, observations,
+            execution_plan=ctx.execution_plan,
         )
 
 
@@ -720,5 +721,6 @@ def test_required_ready_valid_real_dual_host_receipts_remain_accepted():
         for receipt in result.receipts
     ]
     assert require_all_ready(
-        [result], ctx.materialization_plan, ctx.authorities, observations
+        [result], ctx.materialization_plan, ctx.authorities, observations,
+        execution_plan=ctx.execution_plan,
     ) == tuple(receipt.receipt_hash for receipt in result.receipts)
