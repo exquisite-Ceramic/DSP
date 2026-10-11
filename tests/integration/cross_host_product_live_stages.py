@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -39,6 +39,43 @@ def stage_budget_seconds(caller_started_at):
     if remaining <= 0:
         raise ValueError("LIVE_STAGE_TIMEOUT: caller transport budget exhausted")
     return remaining
+
+
+
+def stage_deadline_monotonic(pending):
+    """以不可变 published_at 和预算生成本进程的同一绝对单调截止点。
+
+    controller 与发送进程分别从同一 Stage 身份计算剩余预算，
+    每个进程内部只传递这个 deadline，禁止按每次函数调用重新计时。
+    """
+
+    budget = pending.get("deadline_seconds")
+    if (
+        isinstance(budget, bool)
+        or not isinstance(budget, (int, float))
+        or not 0 < budget <= STAGE_DEADLINE_SECONDS
+    ):
+        raise ValueError("LIVE_STAGE_TIMEOUT: stage budget invalid")
+    try:
+        published = datetime.fromisoformat(pending["published_at"].replace("Z", "+00:00"))
+        if published.tzinfo is None:
+            raise ValueError("missing timezone")
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("LIVE_STAGE_TIMEOUT: stage publication time invalid") from exc
+    remaining = (
+        published + timedelta(seconds=budget) - datetime.now(UTC)
+    ).total_seconds()
+    if remaining <= 0:
+        raise ValueError("LIVE_STAGE_TIMEOUT: stage publication deadline exhausted")
+    return time.monotonic() + min(budget, remaining)
+
+
+def require_stage_deadline(deadline):
+    """每个最终 I/O 之前重复检查同一个截止点，绝不续租。"""
+
+    if time.monotonic() >= deadline:
+        raise ValueError("LIVE_STAGE_TIMEOUT: blocked command was not sent; retain exact GET")
+
 
 
 def stage_identity(case, request, member, command, *, prerequisite_hashes,
@@ -286,31 +323,82 @@ def validate_native_stage_failure(scenario, response):
     return response
 
 
-def require_all_ready(readiness, materialization, grants, observations):
-    """Require both actual READY receipts at their frozen Host/grant revisions."""
+def require_all_ready(
+    readiness, materialization, grants, observations, *, execution_plan
+):
+    """以冻结 required slices 为全集校验唯一的两端实际 READY，不只数回执。
+
+    同时校验签名回执自身 hash、Materialization/Plan/Slice、Host/document、
+    Grant 与冻结 baseline 的逐项对应；任何重复/缺失/外来 slice 均拒绝。
+    """
+
+    from design_execution_coordination import (
+        HostReadinessReceipt,
+        compute_readiness_receipt_hash,
+    )
 
     if (
-        len(readiness) != 1 or readiness[0].status.value != "READY"
+        len(readiness) != 1
+        or readiness[0].status.value != "READY"
         or len(readiness[0].receipts) != 2
         or any(item.status.value != "READY" for item in readiness[0].receipts)
     ):
         raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: all-required READY absent")
-    observed_by_host = {item["host_kind"].lower(): item for item in observations}
+
+    slices = tuple(execution_plan.execution_slices)
+    intents = tuple(materialization.intents)
+    receipts = tuple(readiness[0].receipts)
+    expected_ids = tuple(item.materialization_id for item in slices)
+    expected_hosts = ("autocad", "revit")
+    if (
+        len(slices) != 2
+        or len(intents) != 2
+        or len(set(expected_ids)) != 2
+        or {item.materialization_id for item in intents} != set(expected_ids)
+        or tuple(item.host_runtime_ref.host_type for item in slices) != expected_hosts
+        or execution_plan.materialization_plan_hash != materialization.materialization_plan_hash
+        or execution_plan.required_set_hash != materialization.required_set_hash
+        or len({item.materialization_id for item in receipts}) != 2
+        or tuple(item.materialization_id for item in receipts) != expected_ids
+        or len(grants) != 2
+        or len({item.grant_hash for item in grants}) != 2
+        or len(observations) != 2
+    ):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: required Slice set differs")
+
+    intents_by_id = {item.materialization_id: item for item in intents}
     grants_by_hash = {item.grant_hash: item for item in grants}
-    for receipt in readiness[0].receipts:
+    observed_by_host = {item["host_kind"].lower(): item for item in observations}
+    if set(observed_by_host) != set(expected_hosts):
+        raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: required Host observations differ")
+
+    for receipt, execution_slice in zip(receipts, slices, strict=True):
+        materialization_id = execution_slice.materialization_id
         grant = grants_by_hash.get(receipt.grant_hash)
-        observed = observed_by_host.get(receipt.host_runtime_ref.host_type)
+        intent = intents_by_id[materialization_id]
+        runtime = execution_slice.host_runtime_ref
+        observed = observed_by_host[runtime.host_type]
         if (
-            grant is None or observed is None
-            or receipt.execution_slice_hash != grant.execution_slice_hash
+            not isinstance(receipt, HostReadinessReceipt)
+            or compute_readiness_receipt_hash(receipt) != receipt.receipt_hash
+            or receipt.status.value != "READY"
+            or receipt.failure_code is not None
+            or receipt.materialization_id != materialization_id
+            or intent.required_host_type != runtime.host_type
+            or receipt.execution_slice_hash != execution_slice.execution_slice_hash
+            or receipt.host_runtime_ref != runtime
+            or grant is None
+            or grant.materialization_id != materialization_id
+            or grant.execution_slice_hash != execution_slice.execution_slice_hash
+            or grant.host_instance_id != runtime.host_instance_id
             or receipt.binding_set_hash != grant.binding_set_hash
-            or receipt.materialization_plan_hash
-            != materialization.materialization_plan_hash
+            or receipt.materialization_plan_hash != materialization.materialization_plan_hash
             or receipt.observed_revision != observed["host_revision"]
-            or receipt.host_runtime_ref.host_instance_id != observed["host_instance_id"]
+            or runtime.host_instance_id != observed["host_instance_id"]
+            or runtime.document_ref != observed["document_id"]
         ):
             raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: READY lineage differs")
-    return tuple(item.receipt_hash for item in readiness[0].receipts)
+    return tuple(item.receipt_hash for item in receipts)
 
 
 def require_autocad_committed_delta(evidence, host_instance_id, execution_slice_hash):
@@ -348,29 +436,37 @@ def validate_partial_event_order(timestamps):
     return list(names), dict(zip(names, timestamps, strict=True))
 
 
-def wait_for_stage_release(directory: Path, pending, *, proof_hash, check_head):
-    """Fail before the SDK's 300s read timeout; never forward on ambiguous I/O."""
+def wait_for_stage_release(
+    directory: Path, pending, *, proof_hash, check_head, deadline=None
+):
+    """整个校验/消费过程使用同一截止点；超时绝不放行 Host send。"""
 
     from .cross_host_product_live_driver import read_json, write_once
 
-    deadline = time.monotonic() + pending["deadline_seconds"]
+    if deadline is None:
+        deadline = stage_deadline_monotonic(pending)
     path = directory / "stage-release.json"
-    while time.monotonic() < deadline:
+    while True:
+        require_stage_deadline(deadline)
         check_head()
+        require_stage_deadline(deadline)
         if path.exists():
             release = read_json(path)
             completion = read_json(directory / "stage-controller-completion.json")
-            # 必须重建动作及独立 READ 证据，才能创建 consumed marker 和发送记录。
+            # 必须重建动作及独立 READ 证据，才能创建 consumed marker。
             validate_stage_action_evidence(directory, pending, completion)
             validate_stage_release(
                 pending, release,
                 completion_hash=stage_hash(completion),
                 proof_hash=proof_hash,
             )
+            require_stage_deadline(deadline)
+            check_head()
+            require_stage_deadline(deadline)
             try:
                 write_once(directory / "stage-release-consumed.json", release)
             except FileExistsError as exc:
                 raise ValueError("LIVE_STAGE_RELEASE_DUPLICATE: command remains blocked") from exc
+            require_stage_deadline(deadline)
             return
-        time.sleep(0.1)
-    raise ValueError("LIVE_STAGE_TIMEOUT: blocked command was not sent; retain exact GET")
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
