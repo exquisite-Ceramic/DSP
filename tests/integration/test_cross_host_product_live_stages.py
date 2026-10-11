@@ -79,12 +79,15 @@ def test_stage_identity_requires_exact_command_and_frozen_lineage():
 
 def test_stage_completion_and_release_reject_other_stage_or_duplicate():
     pending = {"stage_id": "stage-1", "case_id": "case-1", "task_id": "task-1",
+               "scenario": "unavailable",
                "original_command_id": "cmd-1", "pending_hash": "hash-1",
                "published_at": datetime.now(UTC).isoformat()}
     completion = {"stage_id": "stage-1", "pending_hash": "hash-1",
                   "case_id": "case-1", "task_id": "task-1",
                   "original_command_id": "cmd-1",
-                  "operator": "human", "completed_at": datetime.now(UTC).isoformat()}
+                  "operator": "human", "completed_at": datetime.now(UTC).isoformat(),
+                  "action": "REVIT_DOCUMENT_CLOSED_UNSAVED",
+                  "authorization_ref": "separate-operator-action-1"}
     validate_stage_completion(pending, completion)
     with pytest.raises(ValueError, match="STAGE_RELEASE"):
         validate_stage_completion(pending, {**completion, "pending_hash": "wrong"})
