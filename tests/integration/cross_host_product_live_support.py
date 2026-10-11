@@ -1,7 +1,7 @@
 """Task 16A：双 Host ProductTask 受控现场的生产适配器与只读预检。
 
 本模块只装配已有 production Host/MCP 边界，不复用 Phase I 执行 helper。
-在尚未完成真实 human-resume 与受控 revision-race 接线前，绝不返回四场景 PASS。
+四个场景共用一个真实模型/MCP/Host 入口，受控阶段在原始 Host send 边界暂停。
 """
 
 from __future__ import annotations
@@ -10,7 +10,9 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import subprocess
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -157,7 +159,11 @@ class CrossHostProductLiveConfig:
         verify_fixture_sha256(self.revit_fixture_path, self.revit_fixture_sha256)
 
 
-def build_production_host_factories(config: CrossHostProductLiveConfig):
+def build_production_host_factories(
+    config: CrossHostProductLiveConfig,
+    *,
+    resources: AsyncExitStack | None = None,
+):
     """只为已审查 locator 装配真实 sidecar；构造不连接 Host 且绝无 fake fallback。"""
 
     from autocad_sidecar.adapter.host_adapter import HostAdapter
@@ -170,9 +176,12 @@ def build_production_host_factories(config: CrossHostProductLiveConfig):
 
         if locator != config.autocad_endpoint:
             raise ValueError("LIVE_HOST_LOCATOR_MISMATCH: AUTOCAD")
-        return CommandDispatcher(
-            HostAdapter(transport=PipeTransport(config.autocad_endpoint))
-        )
+        host = HostAdapter(transport=PipeTransport(config.autocad_endpoint))
+        # 预检持有短生命周期连接；在首次 open 前登记清理，覆盖连接/读取失败。
+        # 未传 resources 的既有长生命周期 factory 继续由其调用方管理资源。
+        if resources is not None:
+            resources.push_async_callback(host.close)
+        return CommandDispatcher(host)
 
     def revit_factory(locator: str):
         """Revit 只用 production NamedPipeTransport，不创建模拟 response。"""
@@ -226,9 +235,13 @@ async def run_read_only_preflight(
         catalog = await client.list_tools()
     _validate_mcp_tool_catalog(tuple(tool.name for tool in catalog.tools))
 
-    auto_factory, revit_factory = build_production_host_factories(config)
-    dispatcher = auto_factory(config.autocad_endpoint)
-    batch = await dispatcher.extract_design_facts([config.autocad_native_id])
+    async with AsyncExitStack() as resources:
+        auto_factory, revit_factory = build_production_host_factories(
+            config, resources=resources
+        )
+        dispatcher = auto_factory(config.autocad_endpoint)
+        batch = await dispatcher.extract_design_facts([config.autocad_native_id])
+    # AutoCAD pipe 只允许一个客户端；进入 Revit 检查前已显式释放其连接。
     if not isinstance(batch, NormalizedDesignFactBatch):
         raise ValueError("LIVE_AUTOCAD_READ_INVALID: normalized facts unavailable")
     auto_facts = tuple(
@@ -292,16 +305,22 @@ def run_controlled_case(
     config: CrossHostProductLiveConfig,
     scenario: str,
 ) -> dict[str, object]:
-    """四场景 driver 尚未接通 human-resume/partial-race，不允许合成 PASS。"""
+    """四场景共用生产端口；所有阶段动作由独立 controller 显式完成。"""
 
     _require_windows_live()
     if scenario not in {"deny", "unavailable", "positive", "partial_commit"}:
         raise ValueError("LIVE_SCENARIO_INVALID: unsupported scenario")
     config.verify_fixtures()
-    raise RuntimeError(
-        "LIVE_CASE_DRIVER_NOT_CONNECTED: pending audited model, MCP V2 "
-        "human-resume and deterministic post-readiness revision-race wiring"
-    )
+    from .cross_host_product_live_driver import run_phase_one
+
+    try:
+        return run_phase_one(config, scenario)
+    except Exception as exc:
+        code = str(exc).split(":", 1)[0]
+        if re.fullmatch(r"LIVE_[A-Z0-9_]+", code):
+            error_type = ValueError if isinstance(exc, ValueError) else RuntimeError
+            raise error_type(code + ": controlled case stopped; inspect case artifacts") from None
+        raise RuntimeError("LIVE_CASE_FAILED: adapter failure; no credentials logged") from None
 
 
 def main() -> None:

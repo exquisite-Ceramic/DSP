@@ -450,10 +450,11 @@ class CanonicalWorkflowOwnerPorts:
     ) -> OperationFreshnessResult | AsyncOperationRef:
         """V2 cross-Host subject 委托双 Host boundary；V1 保持既有单文档 freshness。"""
 
+        from semantic_runtime import SnapshotSet
+
         from design_orchestrator.interaction_artifacts import (
             CrossHostOperationProposalSubjectV2,
         )
-        from semantic_runtime import SnapshotSet
 
         if proposal_subject_ref is not None:
             proposal_subject = self._workflow_artifact_store.get(

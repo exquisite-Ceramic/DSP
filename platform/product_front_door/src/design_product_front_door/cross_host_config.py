@@ -1,4 +1,7 @@
-"""Cross-Host Product Vertical 的受审稳定配置；瞬态 runtime/transport 不属于长期 policy identity。"""
+"""Cross-Host Product Vertical 的受审稳定配置。
+
+瞬态 runtime/transport 不属于长期 policy identity。
+"""
 
 from __future__ import annotations
 

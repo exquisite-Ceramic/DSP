@@ -170,7 +170,11 @@ def _v2_binding_and_request():
         initiating_host_kind="REVIT",
         members=(revit, autocad),
     )
-    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    # 在测试中显式加载 V2 DTO，保持原有动态导入行为。
+    request_type = getattr(
+        __import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]),
+        "ProductTaskRequestV2",
+    )
     request = request_type.create(
         task_id="task-cross-host-sqlite",
         project_id="project-001",

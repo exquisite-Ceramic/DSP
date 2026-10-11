@@ -236,7 +236,11 @@ def test_mcp_client_rejects_non_loopback_endpoint(endpoint_url: str) -> None:
 async def test_client_v2_submit_sends_only_versioned_request_not_binding_body(monkeypatch) -> None:
     """V2 client wire 只携带 request/session_binding_hash，完整 binding 留在本机 durable reader。"""
 
-    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    # 在测试中显式加载 V2 DTO，保持原有动态导入行为。
+    request_type = getattr(
+        __import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]),
+        "ProductTaskRequestV2",
+    )
     request = request_type.create(
         task_id="task-mcp-client-v2",
         project_id="project-001",

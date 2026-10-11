@@ -152,7 +152,11 @@ def test_resume_rejects_non_operation_proposal_kind() -> None:
 def _v2_request():
     """构造 explicit V2 submit request。"""
 
-    request_type = getattr(__import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]), "ProductTaskRequestV2")
+    # 在测试中显式加载 V2 DTO，保持原有动态导入行为。
+    request_type = getattr(
+        __import__("design_product_runtime", fromlist=["ProductTaskRequestV2"]),
+        "ProductTaskRequestV2",
+    )
     return request_type.create(
         task_id="task-wire-v2",
         project_id="project-wire",

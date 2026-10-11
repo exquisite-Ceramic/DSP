@@ -16,12 +16,6 @@ from .approval_policy_v2 import (
     ConfiguredProductApprovalPolicyV2,
 )
 from .candidate_config import ConfiguredRevitCandidateCatalog
-from .cross_host_config import (
-    ConfiguredCrossHostMemberTarget,
-    ConfiguredCrossHostWallThicknessTarget,
-    ConfiguredCrossHostWallThicknessTargetSource,
-    reviewed_cross_host_configuration_hash_body,
-)
 from .contracts import (
     ConfiguredRevitCandidate,
     ConfiguredRevitCandidateSource,
@@ -32,6 +26,12 @@ from .contracts import (
     session_binding_hash_body,
     session_binding_member_v2_hash_body,
     session_binding_v2_hash_body,
+)
+from .cross_host_config import (
+    ConfiguredCrossHostMemberTarget,
+    ConfiguredCrossHostWallThicknessTarget,
+    ConfiguredCrossHostWallThicknessTargetSource,
+    reviewed_cross_host_configuration_hash_body,
 )
 from .mcp_client import ProductFrontDoorMcpClient
 from .mcp_server import build_mcp_server

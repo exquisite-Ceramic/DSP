@@ -530,7 +530,6 @@ class _V2FlowResolver:
 def test_v2_submit_takes_over_binding_before_start_and_never_touches_host() -> None:
     """V2 submit 必须先 server takeover，再启动 workflow；全程不得触碰 Host/V1 seams。"""
 
-    import design_product_front_door as front_door
     from design_product_runtime import ProductTaskRequestV2
 
     binding = _v2_binding()

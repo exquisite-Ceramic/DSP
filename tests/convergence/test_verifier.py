@@ -139,3 +139,94 @@ def test_verifier_rejects_tampered_evidence_set_hash() -> None:
             tampered,
         )
     assert exc.value.code == "CONVERGENCE_EVIDENCE_INTEGRITY_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("autocad_value", "revit_value", "expected_status"),
+    [
+        (300, 300.0, ConvergenceStatus.CONVERGED),
+        (0, -0.0, ConvergenceStatus.CONVERGED),
+        (300, 300.00000000000006, ConvergenceStatus.DIVERGED),
+        (300, 301.0, ConvergenceStatus.DIVERGED),
+        (300, "300", ConvergenceStatus.DIVERGED),
+        (1, True, ConvergenceStatus.DIVERGED),
+        (9007199254740993, 9007199254740992.0, ConvergenceStatus.DIVERGED),
+    ],
+)
+def test_exact_numeric_representation_preserves_value_without_tolerance(
+    autocad_value, revit_value, expected_status
+) -> None:
+    """真实双 Host 数值表示不改变语义；不同数值与不同类型仍必须精确区分。"""
+
+    ctx, first, second, _ = _inputs()
+    autocad = _changed_field(first, value=autocad_value)
+    revit = _changed_field(second, value=revit_value)
+    evidence_set = build_convergence_evidence_set(
+        plan=ctx.materialization_plan,
+        profile=ctx.case.profile,
+        evidence_items=(autocad, revit),
+    )
+
+    result = CrossHostConvergenceVerifier().verify(
+        ctx.materialization_plan,
+        ctx.case.profile,
+        evidence_set,
+    )
+
+    assert result.status is expected_status
+    assert result.evidence_set_hash == evidence_set.evidence_set_hash
+
+
+def test_exact_numeric_comparison_does_not_rewrite_existing_evidence_hashes() -> None:
+    """比较阶段可识别 300 与 300.0，但两份原始签名证据的 body/hash 不能被改写。"""
+
+    ctx, first, second, _ = _inputs()
+    integer_evidence = _changed_field(first, value=300)
+    float_evidence = _changed_field(first, value=300.0)
+    assert integer_evidence.evidence_hash != float_evidence.evidence_hash
+    evidence_set = build_convergence_evidence_set(
+        plan=ctx.materialization_plan,
+        profile=ctx.case.profile,
+        evidence_items=(integer_evidence, second),
+    )
+    before = tuple(
+        (item.verified_fields[0].value, item.evidence_hash)
+        for item in evidence_set.evidence_items
+    )
+
+    result = CrossHostConvergenceVerifier().verify(
+        ctx.materialization_plan,
+        ctx.case.profile,
+        evidence_set,
+    )
+
+    assert result.status is ConvergenceStatus.CONVERGED
+    assert result.evidence_set_hash == evidence_set.evidence_set_hash
+    assert before == tuple(
+        (item.verified_fields[0].value, item.evidence_hash)
+        for item in evidence_set.evidence_items
+    )
+
+
+@pytest.mark.parametrize("invalid_value", [float("nan"), float("inf"), float("-inf")])
+def test_exact_numeric_comparison_fails_closed_on_nonfinite_evidence(
+    invalid_value,
+) -> None:
+    """NaN 和无穷大不属于可比较的真实厚度，禁止产生 CONVERGED 结果。"""
+
+    ctx, first, second, _ = _inputs()
+    bad = _changed_field(first, value=invalid_value)
+    evidence_set = build_convergence_evidence_set(
+        plan=ctx.materialization_plan,
+        profile=ctx.case.profile,
+        evidence_items=(bad, second),
+    )
+
+    with pytest.raises(ConvergenceVerificationError) as exc:
+        CrossHostConvergenceVerifier().verify(
+            ctx.materialization_plan,
+            ctx.case.profile,
+            evidence_set,
+        )
+
+    assert exc.value.code == "CONVERGENCE_NONFINITE_NUMBER"
