@@ -28,18 +28,11 @@ jobs:
           python-version: "3.11"
       - name: Install Step23 verification stack
         run: |
-          python -m pip install pytest pytest-asyncio jsonschema PyYAML==6.0.3
-          python -m pip install \
-            -e contracts/python \
-            -e hosts/autocad/sidecar \
-            -e "platform/orchestrator[dev]" \
-            -e platform/semantic_runtime \
-            -e platform/semantic_service \
-            -e platform/semantic_mcp \
-            -e providers/semantics/dsp_core \
-            -e providers/semantics/ifc43 \
-            -e providers/semantics/metro_v32 \
-            -e providers/semantics/enterprise_mapping
+          # Step23 广义回归会收集跨专业模型和 MCP 测试。
+          # 采用仓库已提交的完整锁定依赖，避免缺少 anthropic 等测试依赖。
+          # 不跳过测试，也不改变 Step23 的验证范围和架构门槛。
+          python -m pip install uv
+          uv sync --locked --all-packages
       - name: Verify Step23 PR diff boundary
         if: github.event_name == 'pull_request' && github.head_ref == 'feat/step23-canonical-action-contract'
         env:
@@ -60,25 +53,25 @@ jobs:
             exit 1
           fi
       - name: Run Step23 canonical action tests
-        run: pytest -q tests/orchestrator/test_canonical_operations.py
+        run: uv run python -m pytest -q tests/orchestrator/test_canonical_operations.py
       - name: Run Step23 architecture guards
-        run: pytest -q tests/orchestrator/test_step23_architecture.py
+        run: uv run python -m pytest -q tests/orchestrator/test_step23_architecture.py
       - name: Run existing D4 operation resolver regression
-        run: pytest -q tests/orchestrator/test_operation_resolver.py
+        run: uv run python -m pytest -q tests/orchestrator/test_operation_resolver.py
       - name: Run Step22 progressive regression
-        run: pytest -q tests/integration/test_step22_task_scoped_progressive.py
+        run: uv run python -m pytest -q tests/integration/test_step22_task_scoped_progressive.py
       - name: Run existing D4 to D5 freshness bridge
-        run: pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
+        run: uv run python -m pytest -q tests/semantic_runtime/test_d4_freshness_integration.py
       - name: Run progressive semantic runtime regression
-        run: pytest -q tests/semantic_runtime/test_progressive_requirements.py
+        run: uv run python -m pytest -q tests/semantic_runtime/test_progressive_requirements.py
       - name: Run Step21 canonical projection regression
         run: |
-          pytest -q \
+          uv run python -m pytest -q \
             tests/integration/test_step21_d5_canonical_projection.py \
             tests/semantic_runtime/test_step21_architecture.py
       - name: Run relevant full Python regression
         run: |
-          pytest -q --import-mode=importlib \
+          uv run python -m pytest -q --import-mode=importlib \
             contracts/python/tests \
             tests/contracts \
             tests/integration \
