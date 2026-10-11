@@ -464,3 +464,141 @@ def test_real_stage_controller_does_not_publish_invalid_operator_action(
     assert json.loads((tmp_path / "stage-release.json").read_text())["proof_hash"] == (
         "prerequisites-1"
     )
+
+
+@pytest.mark.parametrize("damage", ["missing_action", "missing_authorization", "good"])
+def test_real_audited_revit_send_seam_never_delegates_invalid_stage(
+    monkeypatch, tmp_path, damage
+):
+    """穿过实际受审 Revit transport wrapper，而非只测试校验 helper。
+
+    completion 在 pending 公开之后才出现；合法发送仅一次，缺授权时
+    超出发送门槛绝不调用原始 transport，也不记录任何 SEND/attempt。
+    """
+
+    from types import SimpleNamespace
+
+    from revit_sidecar.named_pipe import NamedPipeTransport
+
+    from tests.integration import cross_host_product_live_composition as composition
+    from tests.integration import cross_host_product_live_driver as driver
+
+    case = {
+        "case_id": "audited-case-1",
+        "scenario": "unavailable",
+        "implementation_head": "a" * 40,
+    }
+    frozen = {
+        "session_binding": {
+            "binding_hash": "b" * 64,
+            "members": [
+                {
+                    "host_kind": "REVIT",
+                    "host_instance_id": "revit-1",
+                    "document_id": "original.rvt",
+                    "native_target_id": "wall-1",
+                }
+            ],
+        },
+        "request": {
+            "task_id": "task-1",
+            "request_hash": "r" * 64,
+        },
+    }
+    driver.write_once(tmp_path / "case.json", case)
+    driver.write_once(tmp_path / "frozen-submission.json", frozen)
+    driver.write_once(tmp_path / "resume-attempt.json", {
+        "timestamp": datetime.now(UTC).isoformat()
+    })
+    monkeypatch.setattr(
+        driver,
+        "stage_prerequisites",
+        lambda *_args, **_kwargs: {"expected_revision": 0, "readiness": "valid"},
+    )
+    sends = []
+
+    def native_request(_self, _command):
+        """只要经过真正 delegate，严格记录唯一发送。"""
+
+        sends.append("native_transport_called")
+        return {"status": "ERROR", "revision_after": 0, "error": {
+            "code": "REVIT_ACTIVE_DOCUMENT_UNAVAILABLE"
+        }}
+
+    monkeypatch.setattr(NamedPipeTransport, "request", native_request)
+
+    original_write_once = composition.write_once
+
+    def publish_and_complete(path, body):
+        """pending 正式落盘之后才模拟外部人员发布 completion。"""
+
+        original_write_once(path, body)
+        if path.name != "pending-stage.json":
+            return
+        completion = {
+            "stage_id": body["stage_id"],
+            "pending_hash": body["pending_hash"],
+            "case_id": body["case_id"],
+            "task_id": body["task_id"],
+            "original_command_id": body["original_command_id"],
+            "operator": "reviewer",
+            "completed_at": datetime.now(UTC).isoformat(),
+            "action": "REVIT_DOCUMENT_CLOSED_UNSAVED",
+            "authorization_ref": "case-specific-operator-ref",
+        }
+        if damage == "missing_action":
+            completion.pop("action")
+        elif damage == "missing_authorization":
+            completion.pop("authorization_ref")
+        original_write_once(tmp_path / "stage-controller-completion.json", completion)
+        release = {
+            "stage_id": body["stage_id"],
+            "pending_hash": body["pending_hash"],
+            "case_id": body["case_id"],
+            "task_id": body["task_id"],
+            "original_command_id": body["original_command_id"],
+            "completion_hash": stage_hash(completion),
+            "proof_hash": stage_hash(body["prerequisite_hashes"]),
+        }
+        original_write_once(tmp_path / "stage-release.json", release)
+
+    monkeypatch.setattr(composition, "write_once", publish_and_complete)
+    config = SimpleNamespace(
+        autocad_endpoint="unused-autocad-pipe",
+        revit_pipe="reviewed-revit-pipe",
+        autocad_host_instance_id="auto-1",
+        revit_host_instance_id="revit-1",
+    )
+    command = SimpleNamespace(
+        mode="READ",
+        operation="check_wall_thickness_readiness",
+        command_id="product-revit-read-1",
+        to_dict=lambda: {
+            "mode": "READ",
+            "operation": "check_wall_thickness_readiness",
+            "command_id": "product-revit-read-1",
+            "document_id": "original.rvt",
+            "target_native_refs": [{
+                "document_id": "original.rvt",
+                "native_id": "wall-1",
+                "native_type": "Wall",
+            }],
+            "preconditions": [],
+        },
+    )
+    factory = composition.audited_host_factories(
+        config, tmp_path, check_head=lambda: None, stage="MCP"
+    )[1]
+    if damage == "good":
+        assert factory(config.revit_pipe).request(command)["status"] == "ERROR"
+        assert sends == ["native_transport_called"]
+        assert (tmp_path / "stage-send-attempt.json").is_file()
+        with pytest.raises((ValueError, FileExistsError)):
+            factory(config.revit_pipe).request(command)
+        assert sends == ["native_transport_called"]
+    else:
+        with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_INVALID"):
+            factory(config.revit_pipe).request(command)
+        assert sends == []
+        assert not (tmp_path / "stage-send-attempt.json").exists()
+        assert not (tmp_path / "stage-release-consumed.json").exists()
