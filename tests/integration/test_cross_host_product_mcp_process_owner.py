@@ -91,7 +91,10 @@ def test_unrelated_or_forged_ready_pid_is_rejected(monkeypatch, tmp_path, case):
         elif case == "wrong_case":
             rows[claimed] = dict(
                 rows[claimed],
-                command_line="python.exe -m tests.integration.cross_host_product_live_composition OTHER-CASE",
+                command_line=(
+                    "python.exe -m "
+                    "tests.integration.cross_host_product_live_composition OTHER-CASE"
+                ),
             )
         elif case == "older":
             rows[claimed] = dict(
