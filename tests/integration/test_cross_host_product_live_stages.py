@@ -647,7 +647,13 @@ def test_real_audited_revit_send_seam_never_delegates_invalid_stage(
 
 @pytest.mark.parametrize(
     "damage",
-    ["duplicate_autocad", "missing_revit", "extra_slice", "wrong_document", "wrong_materialization"],
+    [
+        "duplicate_autocad",
+        "missing_revit",
+        "extra_slice",
+        "wrong_document",
+        "wrong_materialization",
+    ],
 )
 def test_required_ready_receipts_are_exact_unique_required_slices(damage):
     """真实 readiness DTO/hash 可以有效但不覆盖 REQUIRED 双端：验收 gate 必须拒绝。
@@ -724,3 +730,55 @@ def test_required_ready_valid_real_dual_host_receipts_remain_accepted():
         [result], ctx.materialization_plan, ctx.authorities, observations,
         execution_plan=ctx.execution_plan,
     ) == tuple(receipt.receipt_hash for receipt in result.receipts)
+
+
+def test_stage_controller_never_releases_after_independent_read_exhausts_budget(
+    tmp_path, monkeypatch
+):
+    """实际 controller 通过生产 READ 端口返回后若超时，不得发布 release。"""
+
+    from tests.integration import cross_host_product_live_composition as composition
+    from tests.integration import cross_host_product_live_stages as stages
+    from tests.integration.cross_host_product_live_driver import (
+        run_stage_controller,
+        write_once,
+    )
+
+    pending = _stage_release_fixture(tmp_path, scenario="partial_commit")
+    # fixture 的 release 是为了发送侧测试伪造的；这里严格模拟尚未发布 release。
+    (tmp_path / "stage-release.json").unlink()
+    write_once(tmp_path / "pending-stage.json", pending)
+    clock = {"seconds": 0.0}
+    monkeypatch.setattr(stages.time, "monotonic", lambda: clock["seconds"])
+    monkeypatch.setattr(
+        composition, "audited_host_factories",
+        lambda *_args, **_kwargs: (object(), object()),
+    )
+
+    def slow_native_read(*_args, **_kwargs):
+        """实际 READ 结束时超过本 Stage 同一个一秒截止点。"""
+
+        clock["seconds"] = 2.0
+        return SimpleNamespace(
+            host_kind="REVIT",
+            host_instance_id=pending["host_instance_id"],
+            document_id=pending["document_id"],
+            native_target_id=pending["native_target_id"],
+            host_revision=8,
+            normalized_thickness_mm=201,
+        )
+
+    monkeypatch.setattr(composition, "read_host_observation", slow_native_read)
+    reviewed = SimpleNamespace(
+        frozen=SimpleNamespace(
+            session_binding=SimpleNamespace(
+                members=[SimpleNamespace(host_kind="REVIT")]
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="LIVE_STAGE_TIMEOUT"):
+        run_stage_controller(
+            None, tmp_path, reviewed, check_head=lambda: None
+        )
+    assert not (tmp_path / "stage-release.json").exists()
+    assert not (tmp_path / "independent-edit-observation.json").exists()
