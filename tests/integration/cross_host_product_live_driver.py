@@ -1539,7 +1539,8 @@ def stage_prerequisites(config, directory, case, command, *, check_head):
     else:
         readiness = captures["readiness"]
         ready_hashes = require_all_ready(
-            readiness, materialization, captures["grant"], subject["observations"]
+            readiness, materialization, captures["grant"], subject["observations"],
+            execution_plan=plan,
         )
         if command.preconditions != [{"revision": baseline["host_revision"]}]:
             raise ValueError("LIVE_STAGE_PREREQUISITE_INVALID: original revision drift")
@@ -1613,6 +1614,8 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
 
     from .cross_host_product_live_composition import audited_host_factories, read_host_observation
     from .cross_host_product_live_stages import (
+        require_stage_deadline,
+        stage_deadline_monotonic,
         stage_hash,
         validate_stage_action_evidence,
     )
@@ -1630,29 +1633,34 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
     pending = read_json(pending_path)
     print("LIVE_AWAITING_STAGE: " + str(pending_path.resolve()), flush=True)
     completion_path = directory / "stage-controller-completion.json"
-    deadline = time.monotonic() + pending["deadline_seconds"] - 5
+    deadline = stage_deadline_monotonic(pending)
     while not completion_path.is_file():
+        require_stage_deadline(deadline)
         if stop_event.is_set():
             raise ValueError("LIVE_STAGE_ABORTED: resume ended before operator completion")
         check_head()
-        if time.monotonic() >= deadline:
-            raise ValueError("LIVE_STAGE_TIMEOUT: operator completion absent")
-        time.sleep(0.1)
+        require_stage_deadline(deadline)
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    require_stage_deadline(deadline)
     completion = read_json(completion_path)
     # 使用同一份场景动作/授权/编辑身份规则；不能先 READ 再发现无权操作。
     validate_stage_action_evidence(
         directory, pending, completion, require_read=False
     )
+    require_stage_deadline(deadline)
     if pending["scenario"] == "partial_commit":
         binding = reviewed.frozen.session_binding
         member = next(item for item in binding.members if item.host_kind == "REVIT")
         factories = audited_host_factories(
             config, directory, check_head=check_head, stage="INDEPENDENT_EDIT_READ"
         )
+        require_stage_deadline(deadline)
         observed = read_host_observation(
             config, member, target=binding, factories=factories,
             command_id=pending["stage_id"] + ":independent-edit-read",
         )
+        # 真实 READ 可能阻塞超过预算；不能再发布允许原始 EXECUTE 的 release。
+        require_stage_deadline(deadline)
         if (
             observed.normalized_thickness_mm != 201
             or observed.host_revision <= pending["expected_revision"]
@@ -1664,7 +1672,9 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
         write_once(directory / "independent-edit-observation.json", plain(observed))
     # 在发布 release 前，仍应复核原始 audit SEND/RECEIVE 与持久化 observation。
     validate_stage_action_evidence(directory, pending, completion)
+    require_stage_deadline(deadline)
     check_head()
+    require_stage_deadline(deadline)
     write_once(directory / "stage-release.json", {
         "stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
         "case_id": pending["case_id"], "task_id": pending["task_id"],
