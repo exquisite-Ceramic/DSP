@@ -205,12 +205,20 @@ def test_managed_mcp_terminates_on_startup_failure_without_pipe_deadlock(monkeyp
         return Child()
 
     monkeypatch.setattr(driver.subprocess, "Popen", spawn)
+    # 此测试只验证 MCP 启动超时及 launcher 的关闭顺序。
+    # Windows taskkill 进程树清理由独立的 OS 身份回归覆盖，避免全局 Popen mock
+    # 截获 subprocess.run 内部的 Popen，并掩盖原本预期的 LIVE_MCP_START_TIMEOUT。
+    monkeypatch.setattr(
+        driver,
+        "terminate_managed_mcp_tree",
+        lambda process, identity: events.append(("cleanup_tree", process.pid, identity)),
+    )
     with pytest.raises(ValueError, match="LIVE_MCP_START_TIMEOUT"):
         with driver.ManagedMcpProcess(
             tmp_path, case_id="case-1", head="a" * 40, timeout_seconds=0.01, check_head=lambda: None
         ):
             raise AssertionError("startup must fail")
-    assert events == ["spawn", "terminate", "wait"]
+    assert events == ["spawn", ("cleanup_tree", 1234, None), "terminate", "wait"]
 
 
 def test_loaded_module_provenance_rejects_wrong_pid_head_or_bytes(tmp_path):
