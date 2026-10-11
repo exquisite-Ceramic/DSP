@@ -1607,7 +1607,11 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
     """Wait for external operator action, then publish one exact evidence-backed release."""
 
     from .cross_host_product_live_composition import audited_host_factories, read_host_observation
-    from .cross_host_product_live_stages import stage_hash, validate_stage_completion
+    from .cross_host_product_live_stages import (
+        stage_hash,
+        validate_stage_action_evidence,
+        validate_stage_completion,
+    )
 
     stop_event = stop_event or Event()
     pending_path = directory / "pending-stage.json"
@@ -1635,12 +1639,10 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
         "REVIT_DOCUMENT_CLOSED_UNSAVED" if pending["scenario"] == "unavailable"
         else "REVIT_NATIVE_UI_EDIT_201MM"
     )
-    if completion.get("action") != action or not completion.get("authorization_ref"):
-        raise ValueError("LIVE_STAGE_RELEASE_INVALID: separate operator action/authority absent")
+    # 与实际发送侧使用同一门槛；partial 的独立 READ 在本流程执行后再统一校验。
+    if completion.get("action") != action:
+        raise ValueError("LIVE_STAGE_RELEASE_INVALID: scenario operator action differs")
     if pending["scenario"] == "partial_commit":
-        if (not completion.get("native_edit_command_id")
-            or completion["native_edit_command_id"] == pending["original_command_id"]):
-            raise ValueError("LIVE_STAGE_RELEASE_INVALID: distinct native edit identity absent")
         binding = reviewed.frozen.session_binding
         member = next(item for item in binding.members if item.host_kind == "REVIT")
         factories = audited_host_factories(
@@ -1659,6 +1661,8 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
         ):
             raise ValueError("LIVE_STAGE_EDIT_INVALID: real 201 mm advanced-revision READ absent")
         write_once(directory / "independent-edit-observation.json", plain(observed))
+    # 在发布 release 前，仍应复核原始 audit SEND/RECEIVE 与持久化 observation。
+    validate_stage_action_evidence(directory, pending, completion)
     check_head()
     write_once(directory / "stage-release.json", {
         "stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
