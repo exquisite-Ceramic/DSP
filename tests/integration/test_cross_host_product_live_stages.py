@@ -469,7 +469,12 @@ def test_real_stage_controller_does_not_publish_invalid_operator_action(
     )
 
 
-@pytest.mark.parametrize("damage", ["missing_action", "missing_authorization", "good"])
+@pytest.mark.parametrize(
+    "damage", [
+        "missing_action", "missing_authorization", "good",
+        "timeout_during_validation", "timeout_before_transport",
+    ],
+)
 def test_real_audited_revit_send_seam_never_delegates_invalid_stage(
     monkeypatch, tmp_path, damage
 ):
@@ -530,12 +535,40 @@ def test_real_audited_revit_send_seam_never_delegates_invalid_stage(
 
     monkeypatch.setattr(NamedPipeTransport, "request", native_request)
 
+    if damage.startswith("timeout_"):
+        from tests.integration import cross_host_product_live_stages as stages
+
+        # 受控替身把 stage 预算固定在 1 秒，避免真实 sleep；时钟只在
+        # 原始发送入口调用期间向前跳跃，复现校验耗时和发送前耗时两种窗口。
+        original_stage_identity = stages.stage_identity
+        def one_second_stage(*args, **kwargs):
+            pending = original_stage_identity(*args, **kwargs)
+            pending["deadline_seconds"] = 1
+            pending["pending_hash"] = stage_hash({
+                key: value for key, value in pending.items() if key != "pending_hash"
+            })
+            return pending
+
+        clock = {"seconds": 0.0}
+        monkeypatch.setattr(stages, "stage_identity", one_second_stage)
+        monkeypatch.setattr(stages.time, "monotonic", lambda: clock["seconds"])
+        if damage == "timeout_during_validation":
+            original_action = stages.validate_stage_action_evidence
+            def delayed_action(*args, **kwargs):
+                result = original_action(*args, **kwargs)
+                clock["seconds"] = 2.0
+                return result
+            monkeypatch.setattr(stages, "validate_stage_action_evidence", delayed_action)
+
     original_write_once = composition.write_once
 
     def publish_and_complete(path, body):
         """pending 正式落盘之后才模拟外部人员发布 completion。"""
 
         original_write_once(path, body)
+        if damage == "timeout_before_transport" and path.name == "stage-send-attempt.json":
+            # send-attempt 已占位，但 deadline 耗尽不得调用原 transport。
+            clock["seconds"] = 2.0
         if path.name != "pending-stage.json":
             return
         completion = {
@@ -599,9 +632,93 @@ def test_real_audited_revit_send_seam_never_delegates_invalid_stage(
         with pytest.raises((ValueError, FileExistsError)):
             factory(config.revit_pipe).request(command)
         assert sends == ["native_transport_called"]
+    elif damage.startswith("timeout_"):
+        with pytest.raises(ValueError, match="LIVE_STAGE_TIMEOUT"):
+            factory(config.revit_pipe).request(command)
+        assert sends == []
+        assert not (tmp_path / "host-commands.jsonl").exists()
     else:
         with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_INVALID"):
             factory(config.revit_pipe).request(command)
         assert sends == []
         assert not (tmp_path / "stage-send-attempt.json").exists()
         assert not (tmp_path / "stage-release-consumed.json").exists()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["duplicate_autocad", "missing_revit", "extra_slice", "wrong_document", "wrong_materialization"],
+)
+def test_required_ready_receipts_are_exact_unique_required_slices(damage):
+    """真实 readiness DTO/hash 可以有效但不覆盖 REQUIRED 双端：验收 gate 必须拒绝。
+
+    复用生产 CrossHostReadinessBarrier 与签名回执，不靠虚构的 SimpleNamespace/hash。
+    """
+
+    from dataclasses import replace
+
+    from design_execution_coordination import compute_readiness_receipt_hash
+
+    from tests.execution_coordination._support import barrier, phase_i_readiness_inputs
+
+    ctx = phase_i_readiness_inputs()
+    original = barrier()[0].check_all(
+        ctx.materialization_plan, ctx.execution_plan, ctx.binding_sets, ctx.authorities
+    )
+    auto, revit = original.receipts
+    if damage == "duplicate_autocad":
+        receipts = (auto, auto)
+    elif damage == "missing_revit":
+        receipts = (auto,)
+    elif damage == "extra_slice":
+        receipts = (auto, revit, revit)
+    else:
+        mismatched = (
+            replace(
+                revit,
+                host_runtime_ref=replace(revit.host_runtime_ref, document_ref="wrong.rvt"),
+            )
+            if damage == "wrong_document"
+            else replace(revit, materialization_id="foreign-materialization")
+        )
+        mismatched = replace(
+            mismatched, receipt_hash=compute_readiness_receipt_hash(mismatched)
+        )
+        receipts = (auto, mismatched)
+    result = replace(original, receipts=receipts)
+    observations = [
+        {
+            "host_kind": receipt.host_runtime_ref.host_type.upper(),
+            "host_instance_id": receipt.host_runtime_ref.host_instance_id,
+            "host_revision": receipt.observed_revision,
+            "document_id": receipt.host_runtime_ref.document_ref,
+        }
+        for receipt in original.receipts
+    ]
+    with pytest.raises(ValueError, match="LIVE_STAGE_PREREQUISITE_INVALID"):
+        require_all_ready(
+            [result], ctx.materialization_plan, ctx.authorities, observations
+        )
+
+
+def test_required_ready_valid_real_dual_host_receipts_remain_accepted():
+    """合法生产 AutoCAD/Revit READY 回执必须仍可通过，顺序不被重排。"""
+
+    from tests.execution_coordination._support import barrier, phase_i_readiness_inputs
+
+    ctx = phase_i_readiness_inputs()
+    result = barrier()[0].check_all(
+        ctx.materialization_plan, ctx.execution_plan, ctx.binding_sets, ctx.authorities
+    )
+    observations = [
+        {
+            "host_kind": receipt.host_runtime_ref.host_type.upper(),
+            "host_instance_id": receipt.host_runtime_ref.host_instance_id,
+            "host_revision": receipt.observed_revision,
+            "document_id": receipt.host_runtime_ref.document_ref,
+        }
+        for receipt in result.receipts
+    ]
+    assert require_all_ready(
+        [result], ctx.materialization_plan, ctx.authorities, observations
+    ) == tuple(receipt.receipt_hash for receipt in result.receipts)
