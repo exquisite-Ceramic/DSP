@@ -2140,6 +2140,16 @@ def test_actual_stage_prerequisites_never_allow_pending_without_ready_and_commit
         },
     )
     monkeypatch.setattr(driver, "validate_collection_capture", lambda *_args: None)
+    # 本例只测试 stage_prerequisites 对缺 READY 与缺 committed delta 的拒绝路径。
+    # 缺 READY 路径使用真实 require_all_ready 的早期门槛；缺 delta 路径的
+    # 其余 fake DTO 不是签名 READY 回执，另由独立生产 DTO 真实门槛测试覆盖。
+    if damage == "missing_autocad_delta":
+        from tests.integration import cross_host_product_live_stages as stage_checks
+
+        monkeypatch.setattr(
+            stage_checks, "require_all_ready",
+            lambda *_args, **_kwargs: ("receipt-auto", "receipt-revit"),
+        )
     # 仅把本测试未构造的 manifest body 转为占位 JSON；READY 和 delta
     # 仍由真实校验函数判定，避免 uninitialized dataclass 干扰目标断言。
     owner_plain = driver.plain
