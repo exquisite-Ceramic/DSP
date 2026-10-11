@@ -308,3 +308,158 @@ def test_partial_sender_needs_actual_independent_201mm_read_before_consuming(
         )
     assert not (tmp_path / "stage-release-consumed.json").exists()
     assert not (tmp_path / "stage-send-attempt.json").exists()
+
+
+def _audited_partial_read(directory, pending, *, width=201, revision=8):
+    """用两条 Host 边界审计记录构造可验证的独立 READ，并返回记录。"""
+
+    from tests.integration.cross_host_product_live_composition import append_audit
+    from tests.integration.cross_host_product_live_driver import write_once
+
+    command_id = pending["stage_id"] + ":independent-edit-read"
+    command = {
+        "command_id": command_id,
+        "mode": "READ",
+        "operation": "read_wall_thickness_snapshot",
+        "document_id": pending["document_id"],
+    }
+    response = {
+        "status": "OK",
+        "payload": {
+            "host_instance_id": pending["host_instance_id"],
+            "document_id": pending["document_id"],
+            "wall_unique_id": pending["native_target_id"],
+            "revision_before": revision,
+            "revision_after": revision,
+            "wall_thickness_mm": width,
+        },
+    }
+    for phase in ("SEND", "RECEIVE"):
+        row = {
+            "host_kind": "REVIT",
+            "stage": "INDEPENDENT_EDIT_READ",
+            "phase": phase,
+            "command": command,
+        }
+        if phase == "RECEIVE":
+            row["response"] = response
+        append_audit(directory / "host-commands.jsonl", row)
+    observation = {
+        "host_kind": "REVIT",
+        "host_instance_id": pending["host_instance_id"],
+        "document_id": pending["document_id"],
+        "native_target_id": pending["native_target_id"],
+        "command_id": command_id,
+        "normalized_thickness_mm": width,
+        "host_revision": revision,
+    }
+    write_once(directory / "independent-edit-observation.json", observation)
+    return response
+
+
+def test_partial_sender_allows_unique_authentic_audited_read_only_once(tmp_path):
+    """有效 completion、审计 READ 和 release 只允许消费一次。"""
+
+    pending = _stage_release_fixture(tmp_path, scenario="partial_commit")
+    _audited_partial_read(tmp_path, pending)
+    wait_for_stage_release(
+        tmp_path, pending, proof_hash="prerequisites-1", check_head=lambda: None
+    )
+    assert (tmp_path / "stage-release-consumed.json").is_file()
+    with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_DUPLICATE"):
+        wait_for_stage_release(
+            tmp_path, pending, proof_hash="prerequisites-1", check_head=lambda: None
+        )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "wrong_width",
+        "stale_revision",
+        "wrong_observation_host",
+        "wrong_observation_document",
+        "wrong_observation_target",
+        "wrong_observation_command",
+        "wrong_raw_width",
+        "wrong_raw_revision",
+        "wrong_raw_host",
+        "wrong_raw_document",
+        "wrong_raw_target",
+    ],
+)
+def test_partial_sender_rejects_independent_read_identity_or_value_drift(
+    tmp_path, damage
+):
+    """不允许只凭 observation 摘要、假 command 或旧 revision 释放 Revit EXECUTE。"""
+
+    from tests.integration.cross_host_product_live_driver import read_json, write_once
+
+    pending = _stage_release_fixture(tmp_path, scenario="partial_commit")
+    _audited_partial_read(tmp_path, pending)
+    if damage.startswith("wrong_observation") or damage in {
+        "wrong_width", "stale_revision"
+    }:
+        path = tmp_path / "independent-edit-observation.json"
+        body = read_json(path)
+        changes = {
+            "wrong_width": ("normalized_thickness_mm", 200),
+            "stale_revision": ("host_revision", 7),
+            "wrong_observation_host": ("host_instance_id", "another-host"),
+            "wrong_observation_document": ("document_id", "other.rvt"),
+            "wrong_observation_target": ("native_target_id", "other-wall"),
+            "wrong_observation_command": ("command_id", "other-command"),
+        }
+        field, value = changes[damage]
+        body[field] = value
+        path.unlink()
+        write_once(path, body)
+    else:
+        path = tmp_path / "host-commands.jsonl"
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        response = rows[1]["response"]["payload"]
+        changes = {
+            "wrong_raw_width": ("wall_thickness_mm", 200),
+            "wrong_raw_revision": ("revision_after", 9),
+            "wrong_raw_host": ("host_instance_id", "another-host"),
+            "wrong_raw_document": ("document_id", "other.rvt"),
+            "wrong_raw_target": ("wall_unique_id", "other-wall"),
+        }
+        field, value = changes[damage]
+        response[field] = value
+        path.write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+        )
+    with pytest.raises(ValueError, match="LIVE_STAGE_EDIT_INVALID|LIVE_HOST_EVIDENCE_INVALID"):
+        wait_for_stage_release(
+            tmp_path, pending, proof_hash="prerequisites-1", check_head=lambda: None
+        )
+    assert not (tmp_path / "stage-release-consumed.json").exists()
+    assert not (tmp_path / "stage-send-attempt.json").exists()
+
+
+def test_real_stage_controller_does_not_publish_invalid_operator_action(
+    tmp_path,
+):
+    """调用实际 controller，不允许缺少授权的 completion 发布 release。"""
+
+    from tests.integration.cross_host_product_live_driver import (
+        run_stage_controller,
+        write_once,
+    )
+
+    pending = _stage_release_fixture(
+        tmp_path,
+        scenario="unavailable",
+        completion_damage=lambda completion: completion.pop("authorization_ref"),
+    )
+    write_once(tmp_path / "pending-stage.json", pending)
+    with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_INVALID"):
+        run_stage_controller(
+            None, tmp_path, None, check_head=lambda: None
+        )
+    assert not (tmp_path / "stage-release-consumed.json").exists()
+    # 上面 fixture 预先放置的 release 来自故意伪造的输入；controller 绝不能覆写它。
+    assert json.loads((tmp_path / "stage-release.json").read_text())["proof_hash"] == (
+        "prerequisites-1"
+    )
