@@ -299,10 +299,10 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
             if stage == "MCP" and case["scenario"] in {"unavailable", "partial_commit"}:
                 from .cross_host_product_live_driver import stage_prerequisites
                 from .cross_host_product_live_stages import (
+                    require_stage_deadline,
+                    stage_deadline_monotonic,
                     stage_hash,
                     stage_identity,
-                    stage_deadline_monotonic,
-                    require_stage_deadline,
                     wait_for_stage_release,
                 )
 
