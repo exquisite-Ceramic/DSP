@@ -295,11 +295,14 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
     class AuditedRevitTransport(NamedPipeTransport):
         def request(self, command):
             case = read_json(directory / "case.json")
+            send_deadline = None
             if stage == "MCP" and case["scenario"] in {"unavailable", "partial_commit"}:
                 from .cross_host_product_live_driver import stage_prerequisites
                 from .cross_host_product_live_stages import (
                     stage_hash,
                     stage_identity,
+                    stage_deadline_monotonic,
+                    require_stage_deadline,
                     wait_for_stage_release,
                 )
 
@@ -331,8 +334,11 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
                             directory / "resume-attempt.json"
                         )["timestamp"],
                     )
+                    # 发送侧只计算一次绝对 deadline；后续函数不得续租。
+                    send_deadline = stage_deadline_monotonic(pending)
                     if (directory / "stage-controller-completion.json").exists():
                         raise ValueError("LIVE_STAGE_PRESELECTED: early operator action")
+                    require_stage_deadline(send_deadline)
                     write_once(directory / "pending-stage.json", pending)
                     print(
                         "LIVE_AWAITING_STAGE: " + str(directory / "pending-stage.json"),
@@ -340,8 +346,9 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
                     )
                     wait_for_stage_release(
                         directory, pending, proof_hash=stage_hash(prerequisites),
-                        check_head=check_head,
+                        check_head=check_head, deadline=send_deadline,
                     )
+                    require_stage_deadline(send_deadline)
                     write_once(
                         directory / "stage-send-attempt.json",
                         {"stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
@@ -349,7 +356,15 @@ def audited_host_factories(config, directory, *, check_head, stage="MCP"):
                          "command_hash": stage_hash(command.to_dict()),
                          "timestamp": datetime.now(UTC).isoformat()},
                     )
+                    require_stage_deadline(send_deadline)
+            if send_deadline is not None:
+                from .cross_host_product_live_stages import require_stage_deadline
+
+                require_stage_deadline(send_deadline)
             record("REVIT", "SEND", command)
+            # AUDIT 写入也可能阻塞；最后一次检查必须紧邻原始 transport delegate。
+            if send_deadline is not None:
+                require_stage_deadline(send_deadline)
             result = super().request(command)
             record("REVIT", "RECEIVE", command, result)
             return result
