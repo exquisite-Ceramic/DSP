@@ -2000,3 +2000,153 @@ def test_collector_rejects_wrong_native_failure_before_projection(
             tmp_path, reviewed, None, None, [], {}, {},
             {}, commands
         )
+
+
+@pytest.mark.parametrize(
+    ("damage", "expected"),
+    [
+        ("not_all_ready", "all-required READY absent"),
+        ("missing_autocad_delta", "AutoCAD durable delta absent"),
+    ],
+)
+def test_actual_stage_prerequisites_never_allow_pending_without_ready_and_commit(
+    tmp_path, monkeypatch, damage, expected
+):
+    """执行真实 stage_prerequisites：缺少 READY 或 AutoCAD committed 事实不发布 pending。
+
+    只替身 durable 存储的读取结果，保留真正的校验函数和阶段前置条件。
+    """
+
+    from types import SimpleNamespace as NS
+
+    from design_orchestrator.execution_collection_artifacts import (
+        ExecutionGrantCollectionManifest,
+        ProviderBindingCollectionManifest,
+    )
+
+    from tests.integration import cross_host_product_live_composition as composition
+
+    driver = _driver()
+    binding = {
+        "topology_snapshot_hash": "t" * 64,
+        "members": [
+            {
+                "host_kind": host,
+                "host_instance_id": host.lower() + "-host",
+                "document_id": host.lower() + ".fixture",
+                "native_target_id": host.lower() + "-wall",
+            }
+            for host in ("AUTOCAD", "REVIT")
+        ],
+    }
+    request = {"task_id": "task-stage-prereq"}
+    driver.write_once(
+        tmp_path / "frozen-submission.json",
+        {"request": request, "session_binding": binding},
+    )
+    subject = {"observations": [
+        {
+            "host_kind": member["host_kind"],
+            "host_instance_id": member["host_instance_id"],
+            "document_id": member["document_id"],
+            "native_target_id": member["native_target_id"],
+            "host_revision": 0,
+            "normalized_thickness_mm": 200,
+        }
+        for member in binding["members"]
+    ]}
+    driver.write_once(
+        tmp_path / "pending-proposal.json",
+        {"proposal": {"frozen": {
+            "request": request, "session_binding": binding
+        }, "subject": subject}},
+    )
+    ready_status = NS(value="READY")
+    slices = [
+        NS(
+            host_runtime_ref=NS(host_type=member["host_kind"].lower()),
+            execution_slice_hash="slice-" + member["host_kind"],
+        )
+        for member in binding["members"]
+    ]
+    plan = NS(
+        execution_slices=slices,
+        execution_plan_hash="plan-1",
+    )
+    materialization = NS(
+        topology_snapshot_hash=binding["topology_snapshot_hash"],
+        materialization_plan_hash="mat-plan-1",
+        required_set_hash="required-1",
+    )
+    grants = [
+        NS(
+            grant_hash="grant-" + member["host_kind"],
+            execution_slice_hash="slice-" + member["host_kind"],
+            binding_set_hash="binding-" + member["host_kind"],
+        )
+        for member in binding["members"]
+    ]
+    receipts = [
+        NS(
+            status=ready_status,
+            grant_hash=grant.grant_hash,
+            execution_slice_hash=grant.execution_slice_hash,
+            binding_set_hash=grant.binding_set_hash,
+            materialization_plan_hash=materialization.materialization_plan_hash,
+            observed_revision=0,
+            host_runtime_ref=NS(
+                host_type=member["host_kind"].lower(),
+                host_instance_id=member["host_instance_id"],
+            ),
+            receipt_hash="receipt-" + member["host_kind"],
+        )
+        for grant, member in zip(grants, binding["members"], strict=True)
+    ]
+    readiness = (
+        [] if damage == "not_all_ready"
+        else [NS(status=ready_status, receipts=receipts)]
+    )
+    captures = {
+        "execution_plan": [plan],
+        "materialization_plan": [materialization],
+        "binding_set": [object(), object()],
+        "grant": grants,
+        "approval": [NS(approval_hash="approval-1")],
+        "readiness": readiness,
+    }
+    monkeypatch.setattr(
+        composition,
+        "reviewed_runtime_inputs",
+        lambda *_args: (None, NS(), None),
+    )
+    monkeypatch.setattr(driver, "validate_owner_snapshots", lambda *_args: captures)
+    monkeypatch.setattr(
+        driver,
+        "_read_durable_owners",
+        lambda *_args: (
+            {"artifacts": [], "evidence": [], "dispatches": []},
+            NS(request=request, session_binding_payload=binding),
+            None, [object()], None,
+        ),
+    )
+    monkeypatch.setattr(
+        driver,
+        "validate_workflow_rows",
+        lambda *_args: {
+            "binding": object.__new__(ProviderBindingCollectionManifest),
+            "grant": object.__new__(ExecutionGrantCollectionManifest),
+        },
+    )
+    monkeypatch.setattr(driver, "validate_collection_capture", lambda *_args: None)
+    command = NS(
+        operation="set_wall_thickness",
+        preconditions=[{"revision": 0}],
+    )
+    config = NS(autocad_host_instance_id="autocad-host")
+    with pytest.raises(ValueError, match=expected):
+        driver.stage_prerequisites(
+            config, tmp_path, {"scenario": "partial_commit"},
+            command, check_head=lambda: None,
+        )
+    assert not (tmp_path / "pending-stage.json").exists()
+    assert not (tmp_path / "stage-send-attempt.json").exists()
