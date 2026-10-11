@@ -1827,3 +1827,171 @@ def test_public_convergence_verifier_decoration_calls_original_once_and_restores
     rows = _driver()._jsonl(tmp_path / "convergence-captures.jsonl")
     assert len(rows) == 1
     assert rows[0]["result"]["convergence_result_hash"] == "a" * 64
+
+
+def test_unavailable_exact_task_get_never_queries_or_dispatches_host(tmp_path):
+    """真实编排 GET 路径只读取同一 task owner 状态，不允许增加 Host 审计记录。"""
+
+    from types import SimpleNamespace
+
+    from tests.integration.cross_host_product_live_composition import append_audit
+
+    driver = _driver()
+
+    class ExactMcp:
+        def __init__(self, *, write_host=False, wrong_task=False):
+            """仅记录查询身份；模拟异常 Host I/O 来证明 fail-closed。"""
+
+            self.calls = []
+            self.write_host = write_host
+            self.wrong_task = wrong_task
+
+        async def get(self, task_id):
+            """只允许 exact task GET；如被故意注入 Host 请求必须拒绝。"""
+
+            self.calls.append(task_id)
+            if self.write_host:
+                append_audit(tmp_path / "host-commands.jsonl", {"phase": "SEND"})
+            return SimpleNamespace(
+                task_id="another-task" if self.wrong_task else task_id
+            )
+
+    mcp = ExactMcp()
+    result = driver.read_unavailable_exact_task_without_host_io(
+        mcp, "task-canonical-1", tmp_path
+    )
+    assert result.task_id == "task-canonical-1"
+    assert mcp.calls == ["task-canonical-1"]
+    assert driver.read_json(tmp_path / "host-independent-get.json")["before"] == 0
+    assert driver.read_json(tmp_path / "host-independent-get.json")["after"] == 0
+
+    for damage in ("host_io", "wrong_task"):
+        location = tmp_path / damage
+        location.mkdir()
+        client = ExactMcp(
+            write_host=damage == "host_io", wrong_task=damage == "wrong_task"
+        )
+        # 测试替身写入自己隔离 case 的审计路径，避免与前一轮竞争。
+        if damage == "host_io":
+            original = client.get
+
+            async def recorded(task_id):
+                """将本轮额外 Host SEND 写入独立 case 的审计目录。"""
+
+                append_audit(location / "host-commands.jsonl", {"phase": "SEND"})
+                return await original(task_id)
+
+            client.write_host = False
+            client.get = recorded
+        with pytest.raises(ValueError, match="LIVE_GET_HOST_IO_INVALID"):
+            driver.read_unavailable_exact_task_without_host_io(
+                client, "task-canonical-1", location
+            )
+        assert client.calls == ["task-canonical-1"]
+        assert not (location / "host-independent-get.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("scenario", "native_code", "native_commit_state"),
+    [
+        ("unavailable", "UNRELATED_ERROR", None),
+        ("partial_commit", "REVISION_CONFLICT", "COMMIT_STATE_UNKNOWN"),
+    ],
+)
+def test_collector_rejects_wrong_native_failure_before_projection(
+    tmp_path, scenario, native_code, native_commit_state
+):
+    """进入真实 collector 的原始错误校验，不允许把伪失败投影成 PASS。"""
+
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    driver = _driver()
+    from tests.integration.cross_host_product_live_stages import stage_hash
+
+    reviewed = _reviewed()
+    member = next(
+        item for item in reviewed.frozen.session_binding.members
+        if item.host_kind == "REVIT"
+    )
+    case = {
+        "case_id": "stage-collector-review",
+        "scenario": scenario,
+        "implementation_head": "a" * 40,
+    }
+    driver.write_once(tmp_path / "case.json", case)
+    pending = {
+        "stage_id": "stage-collector-1",
+        "pending_hash": "a" * 64,
+        "case_id": case["case_id"],
+        "scenario": scenario,
+        "implementation_head": case["implementation_head"],
+        "task_id": reviewed.frozen.request.task_id,
+        "request_hash": reviewed.frozen.request.request_hash,
+        "session_binding_hash": reviewed.frozen.session_binding.binding_hash,
+        "original_command_id": "revit-product-1",
+        "host_instance_id": member.host_instance_id,
+        "document_id": member.document_id,
+        "native_target_id": member.native_target_id,
+        "published_at": datetime.now(UTC).isoformat(),
+        "prerequisite_hashes": {"gate": "a" * 64},
+        "expected_revision": 0,
+    }
+    driver.write_once(tmp_path / "pending-stage.json", pending)
+    completion = {
+        "stage_id": pending["stage_id"],
+        "pending_hash": pending["pending_hash"],
+        "case_id": pending["case_id"],
+        "task_id": pending["task_id"],
+        "original_command_id": pending["original_command_id"],
+        "operator": "external-human",
+        "completed_at": datetime.now(UTC).isoformat(),
+    }
+    driver.write_once(tmp_path / "stage-controller-completion.json", completion)
+    release = {
+        "stage_id": pending["stage_id"],
+        "pending_hash": pending["pending_hash"],
+        "case_id": pending["case_id"],
+        "task_id": pending["task_id"],
+        "original_command_id": pending["original_command_id"],
+        "completion_hash": stage_hash(completion),
+        "proof_hash": stage_hash(pending["prerequisite_hashes"]),
+    }
+    driver.write_once(tmp_path / "stage-release.json", release)
+    driver.write_once(tmp_path / "stage-release-consumed.json", release)
+    command = {
+        "mode": "EXECUTE" if scenario == "partial_commit" else "READ",
+        "operation": (
+            "set_wall_thickness" if scenario == "partial_commit"
+            else "check_wall_thickness_readiness"
+        ),
+        "command_id": pending["original_command_id"],
+    }
+    pending["original_command_hash"] = stage_hash(command)
+    # 本测试聚焦 native error gate；collector 必须先验原始 RECEIVE，才能解析 Saga。
+    driver.write_once(tmp_path / "stage-send-attempt.json", {
+        "stage_id": pending["stage_id"],
+        "pending_hash": pending["pending_hash"],
+        "command_id": pending["original_command_id"],
+        "command_hash": stage_hash(command),
+    })
+    driver.write_once(tmp_path / "pending-stage.json.extra-not-used", {})
+    # pending 已作为 immutable 文件存在：必须使用最初实际带有的哈希。
+    # 本测试的 negative path 在 native response 之前仍需保留 stage command hash。
+    stored_pending = driver.read_json(tmp_path / "pending-stage.json")
+    stored_pending["original_command_hash"] = stage_hash(command)
+    (tmp_path / "pending-stage.json").write_text(json.dumps(stored_pending))
+    response = {"status": "ERROR", "error": {"code": native_code}}
+    if native_commit_state is not None:
+        response["error"]["commit_state"] = native_commit_state
+    if scenario == "unavailable":
+        response["revision_after"] = 0
+    commands = [
+        {"host_kind": "REVIT", "phase": "SEND", "command": command},
+        {"host_kind": "REVIT", "phase": "RECEIVE", "command": command, "response": response},
+    ]
+    with pytest.raises(ValueError, match="LIVE_STAGE_NATIVE_ERROR_INVALID"):
+        driver.project_staged_outcome(
+            tmp_path, reviewed, None, None, [], {}, {},
+            {}, commands
+        )
