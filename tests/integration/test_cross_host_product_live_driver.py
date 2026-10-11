@@ -2040,6 +2040,8 @@ def test_actual_stage_prerequisites_never_allow_pending_without_ready_and_commit
         ],
     }
     request = {"task_id": "task-stage-prereq"}
+    # 前置过程会读取已审核配置；具体 Host/owner 输出由本测试替身注入。
+    driver.write_once(tmp_path / "driver-settings.json", {})
     driver.write_once(
         tmp_path / "frozen-submission.json",
         {"request": request, "session_binding": binding},
