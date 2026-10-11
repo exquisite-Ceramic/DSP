@@ -1674,6 +1674,33 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
     return pending
 
 
+
+def read_unavailable_exact_task_without_host_io(client, task_id, directory):
+    """真实 MCP 同一 task GET 必须保持 Host 调用数量为零。
+
+    GET 是 owner 状态查询；不得因为 REQUIRED Revit 已不可达而重查 Host，
+    也不得切换到 latest-task fallback 或创建业务命令。
+    """
+
+    before = len(_jsonl(directory / "host-commands.jsonl"))
+    final = asyncio.run(client.get(task_id))
+    after = len(_jsonl(directory / "host-commands.jsonl"))
+    if after != before or getattr(final, "task_id", None) != task_id:
+        raise ValueError(
+            "LIVE_GET_HOST_IO_INVALID: exact GET changed Host audit or task identity"
+        )
+    write_once(
+        directory / "host-independent-get.json",
+        {
+            "task_id": task_id,
+            "before": before,
+            "after": after,
+            "result": plain(final),
+        },
+    )
+    return final
+
+
 def run_phase_one(config, scenario):
     """真实 model→freeze→managed MCP→显式人工→resume→owner collect 的唯一 live 路径。"""
 
@@ -1908,16 +1935,9 @@ def run_phase_one(config, scenario):
                 stage_stop.set()
         if scenario == "unavailable":
             # The reviewed Revit document is still closed. Prove exact GET is Host-free.
-            before = len(_jsonl(directory / "host-commands.jsonl"))
-            final = asyncio.run(client.get(frozen.request.task_id))
-            after = len(_jsonl(directory / "host-commands.jsonl"))
-            write_once(
-                directory / "host-independent-get.json",
-                {"task_id": frozen.request.task_id, "before": before, "after": after,
-                 "result": plain(final)},
+            final = read_unavailable_exact_task_without_host_io(
+                client, frozen.request.task_id, directory
             )
-            if after != before:
-                raise ValueError("LIVE_GET_HOST_IO_INVALID: exact GET touched a Host")
         final_factories = audited_host_factories(
             config, directory, check_head=check_head, stage="INDEPENDENT_FINAL"
         )
