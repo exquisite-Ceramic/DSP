@@ -1615,7 +1615,6 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
     from .cross_host_product_live_stages import (
         stage_hash,
         validate_stage_action_evidence,
-        validate_stage_completion,
     )
 
     stop_event = stop_event or Event()
@@ -1639,14 +1638,11 @@ def run_stage_controller(config, directory, reviewed, *, check_head, stop_event=
         if time.monotonic() >= deadline:
             raise ValueError("LIVE_STAGE_TIMEOUT: operator completion absent")
         time.sleep(0.1)
-    completion = validate_stage_completion(pending, read_json(completion_path))
-    action = (
-        "REVIT_DOCUMENT_CLOSED_UNSAVED" if pending["scenario"] == "unavailable"
-        else "REVIT_NATIVE_UI_EDIT_201MM"
+    completion = read_json(completion_path)
+    # 使用同一份场景动作/授权/编辑身份规则；不能先 READ 再发现无权操作。
+    validate_stage_action_evidence(
+        directory, pending, completion, require_read=False
     )
-    # 与实际发送侧使用同一门槛；partial 的独立 READ 在本流程执行后再统一校验。
-    if completion.get("action") != action:
-        raise ValueError("LIVE_STAGE_RELEASE_INVALID: scenario operator action differs")
     if pending["scenario"] == "partial_commit":
         binding = reviewed.frozen.session_binding
         member = next(item for item in binding.members if item.host_kind == "REVIT")
