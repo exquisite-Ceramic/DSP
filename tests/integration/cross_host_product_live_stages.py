@@ -132,7 +132,9 @@ def validate_stage_completion(pending, completion):
 
 
 
-def validate_stage_action_evidence(directory: Path, pending, completion):
+def validate_stage_action_evidence(
+    directory: Path, pending, completion, *, require_read: bool = True
+):
     """发送侧与 controller 共用同一动作证明，在任何发送标记前验证。
 
     partial 不信任人工提供的观察哈希：从同一场景写入的原始 Host SEND/RECEIVE
@@ -176,6 +178,10 @@ def validate_stage_action_evidence(directory: Path, pending, completion):
         raise ValueError(
             "LIVE_STAGE_RELEASE_INVALID: distinct Revit native edit absent"
         )
+    # controller 在发起额外 READ 前只验证操作授权；发出 release 与消费 release
+    # 必须使用完整校验（包含生产 Host 原始 SEND/RECEIVE）。
+    if not require_read:
+        return completion
 
     try:
         observation = read_json(directory / "independent-edit-observation.json")
