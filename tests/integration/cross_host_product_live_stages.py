@@ -177,7 +177,13 @@ def validate_stage_action_evidence(directory: Path, pending, completion):
             "LIVE_STAGE_RELEASE_INVALID: distinct Revit native edit absent"
         )
 
-    observation = read_json(directory / "independent-edit-observation.json")
+    try:
+        observation = read_json(directory / "independent-edit-observation.json")
+    except ValueError as exc:
+        # 缺失、损坏或无法读取的独立观察，必须作为未验证的 Host READ 拒绝。
+        raise ValueError(
+            "LIVE_STAGE_EDIT_INVALID: independent READ observation unavailable"
+        ) from exc
     expected_command_id = pending["stage_id"] + ":independent-edit-read"
     expected = {
         "host_kind": "REVIT",
