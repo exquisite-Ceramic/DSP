@@ -28,6 +28,11 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from .cross_host_product_mcp_process_owner import (
+    assert_managed_mcp_alive,
+    resolve_managed_mcp_identity,
+    terminate_managed_mcp_tree,
+)
 from .cross_host_product_v2_manual_resume import (
     ExplicitHumanDecisionV2,
     resume_reviewed_v2_proposal,
@@ -471,6 +476,7 @@ class ManagedMcpProcess:
         self.timeout_seconds = timeout_seconds
         self.check_head = check_head or (lambda: check_frozen_head(head))
         self.process = None
+        self.server_identity = None
 
     def __enter__(self):
         self.check_head()
@@ -503,13 +509,17 @@ class ManagedMcpProcess:
                         for key, value in {
                             "case_id": self.case_id,
                             "implementation_head": self.head,
-                            "pid": self.process.pid,
                         }.items()
                     ):
                         raise ValueError(
                             "LIVE_MCP_PROVENANCE_INVALID: current case process mismatch"
                         )
+                    # readiness PID 只是待验证声明；必须用 Windows OS 证实直接父子归属。
+                    self.server_identity = resolve_managed_mcp_identity(
+                        self.process.pid, body.get("pid"), self.directory
+                    )
                     validate_python_source_manifest(body.get("python_sources"))
+                    self.assert_server_alive()
                     return self
                 if time.monotonic() >= deadline:
                     raise ValueError("LIVE_MCP_START_TIMEOUT: no managed composition readiness")
@@ -518,14 +528,31 @@ class ManagedMcpProcess:
             self.__exit__(None, None, None)
             raise
 
+    def assert_server_alive(self):
+        """重新证实真实 MCP 解释器仍是本次 launcher 启动的原始 OS 进程。"""
+
+        if (
+            self.process is None
+            or self.process.poll() is not None
+            or self.server_identity is None
+        ):
+            raise ValueError("LIVE_MCP_PROCESS_FAILED: managed server exited")
+        assert_managed_mcp_alive(self.server_identity, self.directory)
+
     def __exit__(self, *args):
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=10)
+        if self.process is None:
+            return
+        try:
+            # 仅杀 launcher 可能遗留实际 MCP 解释器；Windows 必须清理进程树。
+            terminate_managed_mcp_tree(self.process, self.server_identity)
+        finally:
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=10)
 
 
 def pipe_pid(locator: str, host_kind: str) -> int:
@@ -1415,10 +1442,15 @@ def _wait_managed_catalog(config, managed, check_head):
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         check_head()
-        if managed.process.poll() is not None:
-            raise ValueError("LIVE_MCP_PROCESS_FAILED: managed server exited")
-        if _verify_listener_pid(config.mcp_url, managed.process.pid):
+        managed.assert_server_alive()
+        # 实际 socket owner 必须是已由 OS 验证的解释器，而非 venv 启动器。
+        verified_pid = managed.server_identity.server_pid
+        if _verify_listener_pid(config.mcp_url, verified_pid):
             asyncio.run(catalog())
+            # negotiation 前后分别重查存活和监听 PID，拒绝端口替换。
+            managed.assert_server_alive()
+            if not _verify_listener_pid(config.mcp_url, verified_pid):
+                raise ValueError("LIVE_MCP_PROVENANCE_INVALID: listener ownership changed")
             return
         time.sleep(0.1)
     raise ValueError("LIVE_MCP_PROVENANCE_INVALID: listener is not the managed process")
