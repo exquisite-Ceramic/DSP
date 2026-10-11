@@ -1095,6 +1095,7 @@ def project_staged_outcome(directory, reviewed, final, checkpoint, sagas, raw, e
         stage_hash,
         validate_native_stage_failure,
         validate_partial_event_order,
+        validate_stage_action_evidence,
         validate_stage_completion,
         validate_stage_release,
     )
@@ -1148,6 +1149,8 @@ def project_staged_outcome(directory, reviewed, final, checkpoint, sagas, raw, e
     if case["scenario"] == "unavailable":
         response = stage_receives[0]["response"]
         validate_native_stage_failure("unavailable", response)
+        # 结果投影仍须重新证明人工动作，而非仅信 consumed marker。
+        validate_stage_action_evidence(directory, pending, completion)
         if (
             pending["operation"] != "check_wall_thickness_readiness"
             or len(sagas) != 0 or raw["dispatches"] or evidence
@@ -1216,6 +1219,8 @@ def project_staged_outcome(directory, reviewed, final, checkpoint, sagas, raw, e
             "host_independent_get_path": str((directory / "host-independent-get.json").resolve()),
         }
     validate_native_stage_failure("partial_commit", stage_receives[0]["response"])
+    # partial 的 READ/command lineage 必须再次连接原始审计记录。
+    validate_stage_action_evidence(directory, pending, completion)
     if (
         pending["operation"] != "set_wall_thickness"
         or len(sagas) != 1 or sagas[0].status.value != "PARTIALLY_COMMITTED"
