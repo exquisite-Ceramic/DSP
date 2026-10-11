@@ -141,12 +141,15 @@ def test_stage_release_is_single_use_and_requires_exact_pending(tmp_path):
         "case_id": "case-1", "task_id": "task-1", "original_command_id": "cmd-1",
         "published_at": datetime.now(UTC).isoformat(),
         "deadline_seconds": 180,
+        "scenario": "unavailable",
     }
     completion = {
         "stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
         "case_id": pending["case_id"], "task_id": pending["task_id"],
         "original_command_id": pending["original_command_id"],
         "operator": "operator-1", "completed_at": datetime.now(UTC).isoformat(),
+        "action": "REVIT_DOCUMENT_CLOSED_UNSAVED",
+        "authorization_ref": "operator-authorization-unavailable-1",
     }
     release = {
         "stage_id": pending["stage_id"], "pending_hash": pending["pending_hash"],
@@ -181,3 +184,127 @@ def test_early_or_mismatched_release_never_consumed(tmp_path):
     with pytest.raises(ValueError, match="STAGE_RELEASE"):
         wait_for_stage_release(tmp_path, pending, proof_hash="proof", check_head=lambda: None)
     assert not (tmp_path / "stage-release-consumed.json").exists()
+
+
+def _stage_release_fixture(directory, *, scenario="unavailable", completion_damage=None):
+    """离线构造尚未 consumed 的 stage；真实发送端必须自行复核业务动作。"""
+
+    from tests.integration.cross_host_product_live_driver import write_once
+
+    pending = {
+        "stage_id": "stg-review-1",
+        "pending_hash": "p" * 64,
+        "case_id": "case-review-1",
+        "task_id": "task-review-1",
+        "original_command_id": "product-revit-1",
+        "host_kind": "REVIT",
+        "host_instance_id": "revit-host-1",
+        "document_id": "original.rvt",
+        "native_target_id": "wall-original",
+        "expected_revision": 7,
+        "scenario": scenario,
+        "published_at": (datetime.now(UTC) - timedelta(seconds=2)).isoformat(),
+        "deadline_seconds": 1,
+    }
+    completion = {
+        "stage_id": pending["stage_id"],
+        "pending_hash": pending["pending_hash"],
+        "case_id": pending["case_id"],
+        "task_id": pending["task_id"],
+        "original_command_id": pending["original_command_id"],
+        "operator": "authorized-person",
+        "completed_at": datetime.now(UTC).isoformat(),
+        "action": (
+            "REVIT_DOCUMENT_CLOSED_UNSAVED" if scenario == "unavailable"
+            else "REVIT_NATIVE_UI_EDIT_201MM"
+        ),
+        "authorization_ref": "independent-approval-1",
+    }
+    if scenario == "partial_commit":
+        completion["native_edit_command_id"] = "external-edit-1"
+    if completion_damage:
+        completion_damage(completion)
+    release = {
+        "stage_id": pending["stage_id"],
+        "pending_hash": pending["pending_hash"],
+        "case_id": pending["case_id"],
+        "task_id": pending["task_id"],
+        "original_command_id": pending["original_command_id"],
+        "completion_hash": stage_hash(completion),
+        "proof_hash": "prerequisites-1",
+    }
+    write_once(directory / "stage-controller-completion.json", completion)
+    write_once(directory / "stage-release.json", release)
+    return pending
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda body: body.pop("action"),
+        lambda body: body.update(action="REVIT_NATIVE_UI_EDIT_201MM"),
+        lambda body: body.pop("authorization_ref"),
+        lambda body: body.update(authorization_ref=""),
+    ],
+)
+def test_send_side_rejects_matching_release_without_authorized_action(
+    tmp_path, damage
+):
+    """release hash 正确也不得替缺失动作背书，必须在 consumed/attempt 前失败。"""
+
+    pending = _stage_release_fixture(
+        tmp_path, scenario="unavailable", completion_damage=damage
+    )
+    delegate_calls = []
+    with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_INVALID"):
+        wait_for_stage_release(
+            tmp_path,
+            pending,
+            proof_hash="prerequisites-1",
+            check_head=lambda: None,
+        )
+        delegate_calls.append("actual_transport_called")
+    assert delegate_calls == []
+    assert not (tmp_path / "stage-release-consumed.json").exists()
+    assert not (tmp_path / "stage-send-attempt.json").exists()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda body: body.pop("native_edit_command_id"),
+        lambda body: body.update(native_edit_command_id="product-revit-1"),
+        lambda body: body.update(action="REVIT_DOCUMENT_CLOSED_UNSAVED"),
+    ],
+)
+def test_partial_sender_never_accepts_incomplete_independent_edit(tmp_path, damage):
+    """外部编辑身份必须独立于 Product EXECUTE 且 scenario action 精确匹配。"""
+
+    pending = _stage_release_fixture(
+        tmp_path, scenario="partial_commit", completion_damage=damage
+    )
+    with pytest.raises(ValueError, match="LIVE_STAGE_RELEASE_INVALID"):
+        wait_for_stage_release(
+            tmp_path,
+            pending,
+            proof_hash="prerequisites-1",
+            check_head=lambda: None,
+        )
+    assert not (tmp_path / "stage-release-consumed.json").exists()
+
+
+def test_partial_sender_needs_actual_independent_201mm_read_before_consuming(
+    tmp_path,
+):
+    """只有人工 completion 和匹配 release 但没有真实 READ，不允许 Revit 执行。"""
+
+    pending = _stage_release_fixture(tmp_path, scenario="partial_commit")
+    with pytest.raises(ValueError, match="LIVE_STAGE_EDIT_INVALID"):
+        wait_for_stage_release(
+            tmp_path,
+            pending,
+            proof_hash="prerequisites-1",
+            check_head=lambda: None,
+        )
+    assert not (tmp_path / "stage-release-consumed.json").exists()
+    assert not (tmp_path / "stage-send-attempt.json").exists()
