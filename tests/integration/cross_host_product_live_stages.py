@@ -131,6 +131,112 @@ def validate_stage_completion(pending, completion):
     return completion
 
 
+
+def validate_stage_action_evidence(directory: Path, pending, completion):
+    """发送侧与 controller 共用同一动作证明，在任何发送标记前验证。
+
+    partial 不信任人工提供的观察哈希：从同一场景写入的原始 Host SEND/RECEIVE
+    审计记录重建实际 READ，并与独立观察 DTO 精确关联。
+    """
+
+    from types import SimpleNamespace
+
+    from .cross_host_product_live_driver import _jsonl, read_json, width_from_read
+
+    validate_stage_completion(pending, completion)
+    scenario = pending.get("scenario")
+    expected_action = {
+        "unavailable": "REVIT_DOCUMENT_CLOSED_UNSAVED",
+        "partial_commit": "REVIT_NATIVE_UI_EDIT_201MM",
+    }.get(scenario)
+    authorization = completion.get("authorization_ref")
+    if (
+        expected_action is None
+        or completion.get("action") != expected_action
+        or not isinstance(authorization, str)
+        or not authorization.strip()
+    ):
+        raise ValueError(
+            "LIVE_STAGE_RELEASE_INVALID: scenario action or authorization absent"
+        )
+    if scenario == "unavailable":
+        if completion.get("native_edit_command_id") is not None:
+            raise ValueError(
+                "LIVE_STAGE_RELEASE_INVALID: unrelated native edit identity"
+            )
+        return completion
+
+    edit_id = completion.get("native_edit_command_id")
+    if (
+        not isinstance(edit_id, str)
+        or not edit_id.strip()
+        or edit_id == pending["original_command_id"]
+        or pending.get("host_kind") != "REVIT"
+    ):
+        raise ValueError(
+            "LIVE_STAGE_RELEASE_INVALID: distinct Revit native edit absent"
+        )
+
+    observation = read_json(directory / "independent-edit-observation.json")
+    expected_command_id = pending["stage_id"] + ":independent-edit-read"
+    expected = {
+        "host_kind": "REVIT",
+        "host_instance_id": pending["host_instance_id"],
+        "document_id": pending["document_id"],
+        "native_target_id": pending["native_target_id"],
+        "command_id": expected_command_id,
+    }
+    if (
+        any(observation.get(key) != value for key, value in expected.items())
+        or type(observation.get("normalized_thickness_mm")) not in (int, float)
+        or observation["normalized_thickness_mm"] != 201
+        or type(observation.get("host_revision")) is not int
+        or observation["host_revision"] <= pending["expected_revision"]
+    ):
+        raise ValueError(
+            "LIVE_STAGE_EDIT_INVALID: exact advanced-revision observation absent"
+        )
+
+    # READ 本身必须存在唯一的一发一收，不允许其它 stage 或文档的记录借用哈希。
+    rows = _jsonl(directory / "host-commands.jsonl")
+    matches = [
+        row for row in rows
+        if row.get("host_kind") == "REVIT"
+        and row.get("stage") == "INDEPENDENT_EDIT_READ"
+        and isinstance(row.get("command"), dict)
+        and row["command"].get("command_id") == expected_command_id
+    ]
+    sends = [row for row in matches if row.get("phase") == "SEND"]
+    receives = [row for row in matches if row.get("phase") == "RECEIVE"]
+    if (
+        len(matches) != 2
+        or len(sends) != 1
+        or len(receives) != 1
+        or sends[0]["command"] != receives[0]["command"]
+        or receives[0]["command"].get("document_id") != pending["document_id"]
+        or receives[0]["command"].get("mode") != "READ"
+        or receives[0]["command"].get("operation") != "read_wall_thickness_snapshot"
+    ):
+        raise ValueError(
+            "LIVE_STAGE_EDIT_INVALID: unique actual independent READ absent"
+        )
+    member = SimpleNamespace(
+        host_kind="REVIT",
+        host_instance_id=pending["host_instance_id"],
+        document_id=pending["document_id"],
+        native_target_id=pending["native_target_id"],
+    )
+    value, revision = width_from_read(receives[0], member)
+    if (
+        value != {"value": 201, "unit": "mm"}
+        or revision != observation["host_revision"]
+    ):
+        raise ValueError(
+            "LIVE_STAGE_EDIT_INVALID: observed body differs from audited Host READ"
+        )
+    return completion
+
+
 def validate_stage_release(pending, release, *, completion_hash, proof_hash):
     if release != {
         "stage_id": pending["stage_id"],
@@ -242,7 +348,8 @@ def wait_for_stage_release(directory: Path, pending, *, proof_hash, check_head):
         if path.exists():
             release = read_json(path)
             completion = read_json(directory / "stage-controller-completion.json")
-            validate_stage_completion(pending, completion)
+            # 必须重建动作及独立 READ 证据，才能创建 consumed marker 和发送记录。
+            validate_stage_action_evidence(directory, pending, completion)
             validate_stage_release(
                 pending, release,
                 completion_hash=stage_hash(completion),
