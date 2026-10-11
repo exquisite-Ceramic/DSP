@@ -2140,6 +2140,20 @@ def test_actual_stage_prerequisites_never_allow_pending_without_ready_and_commit
         },
     )
     monkeypatch.setattr(driver, "validate_collection_capture", lambda *_args: None)
+    # 仅把本测试未构造的 manifest body 转为占位 JSON；READY 和 delta
+    # 仍由真实校验函数判定，避免 uninitialized dataclass 干扰目标断言。
+    owner_plain = driver.plain
+    monkeypatch.setattr(
+        driver,
+        "plain",
+        lambda value: (
+            {"manifest": "captured"}
+            if isinstance(
+                value, (ProviderBindingCollectionManifest, ExecutionGrantCollectionManifest)
+            )
+            else owner_plain(value)
+        ),
+    )
     command = NS(
         operation="set_wall_thickness",
         preconditions=[{"revision": 0}],
