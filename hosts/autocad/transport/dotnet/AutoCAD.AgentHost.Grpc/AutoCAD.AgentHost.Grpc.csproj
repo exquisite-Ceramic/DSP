@@ -13,8 +13,8 @@
       gRPC transport modernization 仍由这些项目级属性持有明确版本事实，避免 package family 被分散升级。
     -->
     <DspGoogleProtobufVersion>3.36.2</DspGoogleProtobufVersion>
-    <DspGrpcAspNetCoreVersion>2.84.0</DspGrpcAspNetCoreVersion>
-    <DspGrpcToolsVersion>2.84.0</DspGrpcToolsVersion>
+    <DspGrpcAspNetCoreVersion>2.85.0</DspGrpcAspNetCoreVersion>
+    <DspGrpcToolsVersion>2.85.0</DspGrpcToolsVersion>
     <DspSystemIOFileSystemAccessControlVersion>5.0.0</DspSystemIOFileSystemAccessControlVersion>
 
     <!-- canonical proto 仍是唯一 transport source-of-truth；这里只显式化代码生成输入的 owner。 -->
